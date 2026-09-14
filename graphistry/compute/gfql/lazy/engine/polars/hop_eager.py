@@ -13,6 +13,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, Optional, Tuple
 
 from graphistry.Plottable import Plottable
+from graphistry.compute.endpoint_utils import drop_null_endpoint_edges
 from graphistry.compute.util import generate_safe_column_name
 from .dtypes import endpoint_ids
 from .predicates import filter_by_dict_polars
@@ -111,20 +112,13 @@ def _keep_edges_with_both_endpoints_resolvable(
     edges_idx: "PolarsT", src: str, dst: str, node_dtype: "pl.DataType",
     resolvable_ids: "pl.Series",
 ) -> "PolarsT":
-    """`.implode()` makes the id series ONE membership collection; bare `is_in` is deprecated.
-
-    A NULL endpoint resolves iff the id universe holds a NULL id: `is_in` answers NULL for a
-    NULL input (dropped by `filter`), where the pandas/cuDF `isin` this mirrors answers True.
-    """
+    """Filter both endpoints against the non-null identity universe."""
     import polars as pl
 
     universe = resolvable_ids.implode()
-    a_null_id_is_resolvable = resolvable_ids.null_count() > 0
 
     def _resolvable(endpoint_col: str) -> "pl.Expr":
-        endpoint = pl.col(endpoint_col).cast(node_dtype)
-        member = endpoint.is_in(universe)
-        return (member | endpoint.is_null()) if a_null_id_is_resolvable else member
+        return pl.col(endpoint_col).cast(node_dtype).is_in(universe)
 
     return edges_idx.filter(_resolvable(src) & _resolvable(dst))
 
@@ -252,6 +246,7 @@ def hop_polars(
     # resolved_max_hops comes from the shared resolver above (None == run-to-closure).
     FROM, TO, NID, EID, edges_idx, synth_eid, node_dtype = _hop_setup_columns(
         edges, all_nodes, node_col, g._edge)
+    edges_idx = drop_null_endpoint_edges(edges_idx, src, dst)
 
     serves_single_bounded_hop = (
         not to_fixed_point and resolved_max_hops == 1
@@ -283,8 +278,7 @@ def hop_polars(
         allowed_source_lf = None
         if source_node_match is not None:
             source_filter_domain = all_nodes
-            only_seeds_can_be_sources = nodes is not None
-            if only_seeds_can_be_sources:
+            if nodes is not None:
                 source_filter_domain = all_nodes.join(
                     _idframe(nodes, node_col).rename({NID: node_col}), on=node_col, how="semi")
             allowed_source_lf = _idframe_lf(
@@ -335,9 +329,7 @@ def hop_polars(
     allowed_source = None
     if source_node_match is not None:
         source_filter_domain = all_nodes
-        only_seeds_can_be_sources = (
-            nodes is not None and not to_fixed_point and resolved_max_hops == 1)
-        if only_seeds_can_be_sources:
+        if nodes is not None and not to_fixed_point and resolved_max_hops == 1:
             source_filter_domain = all_nodes.join(
                 _idframe(nodes, node_col).rename({NID: node_col}), on=node_col, how="semi")
         allowed_source = _idframe(
@@ -545,21 +537,15 @@ def hop_polars(
     if synth_eid:
         out_edges = out_edges.drop(EID)
 
-    # Same rule as pandas' undirected_rediscovered_seed_ids: keep a seed only on edge-disjoint reach.
+    # Same rule as the pandas/cuDF hop (seed_rediscovery): keep a seed only on edge-disjoint reach.
     if (direction == "undirected" and return_as_wave_front and nodes is not None
             and not (not to_fixed_point and resolved_max_hops is not None
                      and resolved_max_hops <= 1)):
-        from graphistry.compute.hop import undirected_rediscovered_seed_ids
-        seed_id_list = seed.get_column(NID).to_list()
-        keep_seed_ids = undirected_rediscovered_seed_ids(
-            out_edges.get_column(src).to_list(), out_edges.get_column(dst).to_list(),
-            seed_id_list,
-        )
-        drop_seed_ids = [s for s in set(seed_id_list) if s not in keep_seed_ids]
-        if drop_seed_ids:
-            # dtype pinned: polars will not coerce is_in operands, so inference matches nothing.
-            visited_nodes = visited_nodes.filter(
-                ~pl.col(NID).is_in(pl.Series(drop_seed_ids, dtype=node_dtype)))
+        from .seed_rediscovery import rediscovered_seed_ids
+        kept_seeds = rediscovered_seed_ids(out_edges, src, dst, seed.select(NID), NID)
+        dropped_seeds = seed.select(NID).join(kept_seeds, on=NID, how="anti")
+        if dropped_seeds.height > 0:
+            visited_nodes = visited_nodes.join(dropped_seeds, on=NID, how="anti")
 
     # Final node set: reached ∪ (edge endpoints, unless wavefront-with-seeds).
     needed = visited_nodes

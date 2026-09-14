@@ -708,7 +708,14 @@ class FrontendBinder:
         scoped_columns = _catalog_edge_columns_for_types(state.catalog, relationship_pattern.types)
         columns = scoped_columns if scoped_columns is not None else edge_columns
         available_types = _catalog_edge_types(state.catalog)
-        if available_types:
+        declared_types = state.catalog.metadata.get("edge_types")
+        has_declared_type_catalog = isinstance(
+            declared_types, (list, tuple, set, frozenset)
+        )
+        can_judge_types = (
+            bool(available_types) or has_declared_type_catalog or "type" not in edge_columns
+        )
+        if can_judge_types:
             for rel_type in relationship_pattern.types:
                 if rel_type not in available_types:
                     raise _missing_relationship_type_in_schema_error(

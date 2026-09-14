@@ -53,6 +53,9 @@ POLARS_TEST_FILES=(
     graphistry/tests/compute/gfql/test_optional_match_semantics.py
     graphistry/tests/compute/gfql/test_optional_match_with_pipeline_boundaries.py
     graphistry/tests/compute/gfql/test_row_multiplicity_semantics.py
+    # whole-entity RETURN bag multiplicity: engine-parametrized pandas/polars/cudf, and the
+    # polars params (multi-entity binding-row rendering) only ever run here
+    graphistry/tests/compute/gfql/test_whole_entity_projection_bag_1994.py
     graphistry/tests/compute/gfql/test_aggregate_identity_row_semantics.py
     graphistry/tests/compute/gfql/test_numeric_conformance_semantics.py
     # engine-parametrized absent-name strictness: the polars params of the level matrix
@@ -62,6 +65,7 @@ POLARS_TEST_FILES=(
     # #1911 alias-scoping pins: every case is parametrized pandas AND polars, and the
     # polars params (WITH-rebind decline parity, edge-identity collision crash) only run here
     graphistry/tests/compute/gfql/test_alias_scoping_semantics.py
+    graphistry/tests/compute/gfql/cypher/test_binding_seed_identity.py
     # #1712 reentry-carry seed pins: no module-level importorskip (pandas params run in
     # test-gfql-core), but the polars params — native carry restriction + the typed
     # scalar-carry declines — only ever run here
@@ -75,6 +79,24 @@ POLARS_TEST_FILES=(
     # polars params (bound validation, hops=None run-to-closure, edges-only node output)
     # only ever run in this lane
     graphistry/tests/compute/gfql/test_hop_semantics_1918.py
+    graphistry/tests/compute/gfql/test_node_dtypes_memo_2029.py
+    # latency contract: the polars params (fast-path served pins + ratio pins) only run here
+    graphistry/tests/compute/gfql/test_gfql_latency_contract.py
+    graphistry/tests/compute/gfql/test_seed_rediscovery_2023.py
+    graphistry/tests/compute/gfql/test_hop_scaling_pin.py
+    graphistry/tests/compute/gfql/test_seeded_node_lookup_fastpath.py
+    graphistry/tests/compute/gfql/test_native_seed_resolution_2027.py
+    graphistry/tests/compute/gfql/test_native_seed_skip_refilter.py
+    graphistry/tests/compute/gfql/test_polars_native_seed_resolution.py
+    graphistry/tests/compute/gfql/lazy/engine/polars/chain_specializations/test_polars_admission.py
+    graphistry/tests/compute/gfql/lazy/engine/polars/test_predicates.py
+    graphistry/tests/compute/gfql/lazy/engine/polars/chain_specializations/test_point_rows.py
+    graphistry/tests/compute/gfql/lazy/engine/polars/chain_specializations/test_hotpaths.py
+    graphistry/tests/compute/gfql/test_polars_indexed_join_helpers.py
+    graphistry/tests/compute/chain_specializations/test_native_admission.py
+    graphistry/tests/compute/chain_specializations/test_point_rows.py
+    graphistry/tests/compute/gfql/test_undirected_pairs_2026.py
+    graphistry/tests/compute/gfql/test_native_seed_lane_explain.py
     # #1882/#1913-f4/#1879 crash-family pins: the polars params (filter helpers on polars
     # frames, polars prune_self_edges, nodes-only typed-decline advice) only run here
     graphistry/tests/compute/gfql/test_crash_family_1882_1879.py
@@ -83,9 +105,14 @@ POLARS_TEST_FILES=(
     # #1889 validate-vs-execute agreement: the polars params (both-frames-None used to raise
     # an empty-message AssertionError in ensure_nodes_polars) only ever run in this lane
     graphistry/tests/compute/gfql/test_validate_execute_agreement_1889.py
+    # dotted/hyphenated column names as group_by aggregation sources: the polars params
+    # (polars aggregates existing columns only) only run in this lane
+    graphistry/tests/compute/gfql/test_group_by_agg_source_columns.py
+    graphistry/tests/compute/gfql/test_aggregate_expression_shapes.py
     graphistry/tests/compute/gfql/test_polars_rows_entity_groupby.py
     graphistry/tests/compute/gfql/test_seeded_typed_hop_fastpath.py
     graphistry/tests/compute/gfql/test_residual_polars_native.py
+    graphistry/tests/compute/gfql/index/test_engine_arrays.py
     graphistry/tests/compute/gfql/index/test_auto_engine_agreement.py
     graphistry/tests/compute/gfql/index/test_degree_consult.py
     graphistry/tests/compute/gfql/test_single_alias_cache_key.py
@@ -103,6 +130,18 @@ POLARS_TEST_FILES=(
     graphistry/tests/compute/gfql/cypher/test_grouped_aggregate_cross_alias.py
     # module-level `importorskip("polars")` files that previously ran in no lane at all
     graphistry/tests/compute/gfql/test_engine_polars_narrow_combine.py
+    graphistry/tests/compute/gfql/row/test_alias_prefilter_alignment_2020.py
+    graphistry/tests/compute/gfql/lazy/engine/polars/test_chain_alias_column_collision_2039.py
+    graphistry/tests/compute/gfql/lazy/engine/polars/test_chain_duplicate_node_rows_2051.py
+    graphistry/tests/compute/gfql/cypher/test_variable_column_collision.py
+    graphistry/tests/compute/test_chain_alias_column_collision.py
+    graphistry/tests/compute/test_gfql_op_list_hides_internal_columns.py
+    graphistry/tests/compute/gfql/routes/test_route_harness.py
+    graphistry/tests/compute/gfql/routes/test_point_boundaries.py
+    graphistry/tests/compute/gfql/routes/test_has_collision_contract.py
+    graphistry/tests/compute/gfql/routes/test_node_selection_rows.py
+    graphistry/tests/compute/gfql/test_join_backend_contracts.py
+    graphistry/tests/compute/test_chain_validation_execution.py
     graphistry/tests/compute/gfql/test_engine_polars_semi_key_dedup.py
     graphistry/tests/compute/gfql/test_engine_polars_call_modality.py
     graphistry/tests/compute/gfql/test_engine_polars_gpu.py
@@ -150,8 +189,9 @@ POLARS_TEST_FILES=(
 # of its CI budget; xdist is the lever that does not require a workflow edit (pytest-xdist is
 # already in the [test] extra, and test-gfql-core already runs `-n auto` under --cov, so
 # coverage+xdist is an established combination in this repo).
-#   * worker spec `auto` = os.cpu_count(): 4 on a GitHub-hosted ubuntu-latest runner, and it
-#     scales DOWN on a 2-vCPU runner where a fixed `-n 4` could be slower than serial.
+#   * worker spec `auto` = os.cpu_count(): currently 2 on a standard GitHub-hosted
+#     ubuntu-latest runner. It scales with the runner while avoiding a fixed worker count
+#     that could oversubscribe smaller runners.
 #   * --maxprocesses caps the count so a 24-core dev box does not fan out 24 polars processes
 #     that then oversubscribe polars' own thread pool.
 #   * --dist load (xdist's default) balances per test. `loadfile` was measured too: it is

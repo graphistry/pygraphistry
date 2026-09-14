@@ -33,6 +33,7 @@
     "graphistry/compute/gfql/cypher/procedures/__init__.py": 100.0,
     "graphistry/compute/gfql/cypher/procedures/common.py": 31.37,
     "graphistry/compute/gfql/cypher/procedures/networkx.py": 37.7,
+    "graphistry/compute/gfql/cypher/projection_columns.py": 92.31,
     "graphistry/compute/gfql/cypher/projection_planning.py": 80.78,
     "graphistry/compute/gfql/cypher/reentry/__init__.py": 100.0,
     "graphistry/compute/gfql/cypher/reentry/carried_outputs.py": 94.17,

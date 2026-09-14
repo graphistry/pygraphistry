@@ -226,6 +226,7 @@ def test_invalid_index_policy_raises(graph):
     graph.gfql_explain(chain, index_policy="use")
 
 
+@pytest.mark.route_engaged("index-hop")
 @pytest.mark.parametrize("engine", ENGINES)
 def test_index_policy_force_and_explain(graph, engine):
     chain = [n({"id": 0}), e_forward(hops=1)]
@@ -311,6 +312,7 @@ def test_maybe_index_hop_reports_auto_build_decline_with_scan_parity(graph):
     assert _sig(auto_result) == _sig(scan_result)
 
 
+@pytest.mark.route_engaged("index-hop")
 @pytest.mark.parametrize("engine", ENGINES)
 def test_explain_exposes_planner_diagnostics(graph, engine):
     """LP1: gfql_explain surfaces the planner's cost signal — seed cardinality, the
@@ -359,6 +361,7 @@ def test_seed_diagnostic_helpers_are_robust():
     assert _seed_deg_sum(_BadIdx(), np.array([0, 1])) is None
 
 
+@pytest.mark.route_engaged("index-hop")
 @pytest.mark.parametrize("engine", ENGINES)
 def test_explain_decision_reasons_for_scan_fallbacks(engine):
     """LP1: when the planner declines the index it records *why*, so a silent scan is
@@ -390,6 +393,7 @@ def test_explain_decision_reasons_for_scan_fallbacks(engine):
         assert any(s.get("decision_reason") == "query not index-coverable" for s in steps2), (engine, steps2)
 
 
+@pytest.mark.route_engaged("index-hop")
 @pytest.mark.parametrize("engine", ENGINES)
 def test_cost_gate_engine_aware_never_loses_to_scan(engine):
     """F1: the index-vs-scan crossover depends on scan speed, so the cost gate
@@ -518,6 +522,7 @@ def test_index_max_hops_honored(engine, hop_kw):
     assert _sig(base) == _sig(idx), f"max_hops divergence {hop_kw}"
 
 
+@pytest.mark.route_engaged("index-hop")
 @pytest.mark.parametrize("engine", ENGINES)
 @pytest.mark.parametrize("max_hops", [1, 2, 3])
 def test_index_bounded_range_min_one_hops_none(engine, max_hops):
@@ -569,6 +574,7 @@ def test_index_coverability_bounded_range_boundaries():
     assert not _hop_is_index_coverable(**dict(common, min_hops=3, max_hops=2))
     assert not _hop_is_index_coverable(**dict(common, nodes=None))
 
+@pytest.mark.route_engaged("index-hop")
 def test_index_min_two_bounded_range_scans_pandas(graph):
     """Unsupported [2,2] ranges scan without entering the indexed traversal."""
     from graphistry.compute.gfql.index import index_trace
@@ -881,6 +887,7 @@ def test_chain_index_parity_vs_scan(typed_graph, engine, chain):
     assert _sig_typed(base) == _sig_typed(idx)
 
 
+@pytest.mark.route_engaged("index-hop")
 @pytest.mark.parametrize("engine", ENGINES)
 def test_chain_typed_edge_engages_index(typed_graph, engine):
     """All four engines: a typed-edge (simple-equality edge_match) seeded chain hop
@@ -891,6 +898,7 @@ def test_chain_typed_edge_engages_index(typed_graph, engine):
     assert rep["used_index"] is True, (engine, rep)
 
 
+@pytest.mark.route_engaged("index-hop")
 @pytest.mark.parametrize("engine", ENGINES)
 def test_chain_untyped_engages_index(typed_graph, engine):
     """An untyped seeded chain hop engages the index on every engine (pandas/cuDF via
@@ -909,6 +917,7 @@ def test_chain_membership_edge_match_stays_on_scan(typed_graph, engine):
     assert rep["used_index"] is False, (engine, rep)
 
 
+@pytest.mark.route_engaged("index-hop")
 def test_chain_range_with_auto_labels_stays_on_scan(typed_graph):
     """A Cypher range needs per-depth records, so it must decline until indexed."""
     engine = "pandas"
@@ -1060,6 +1069,7 @@ def test_hop_dtype_mismatch_edge_match_matches_scan_error(typed_graph, engine):
 # These tests pin the SHAPE (predicate sees only candidate rows), not a wall-clock
 # number, so they can't go flaky on a loaded host.
 
+@pytest.mark.route_engaged("index-hop")
 @pytest.mark.parametrize("engine", _cpu_engines())
 def test_typed_edge_predicate_only_reads_candidate_rows(typed_graph, engine, monkeypatch):
     """The edge_match predicate must be evaluated on the CSR-matched rows only.
@@ -1098,6 +1108,7 @@ def test_typed_edge_predicate_only_reads_candidate_rows(typed_graph, engine, mon
         "not the traversal candidates")
 
 
+@pytest.mark.route_engaged("index-hop")
 @pytest.mark.parametrize("engine", _cpu_engines())
 def test_typed_edge_predicate_cost_flat_in_graph_size(engine):
     """Growing the graph 8x while holding degree fixed must NOT grow the number of
@@ -1146,6 +1157,7 @@ def test_typed_edge_predicate_cost_flat_in_graph_size(engine):
         "the edge_match filter is scaling with the graph")
 
 
+@pytest.mark.route_engaged("index-hop")
 @pytest.mark.parametrize("engine", _cpu_engines())
 def test_typed_edge_predicate_abandons_indexed_path_on_evaluation_failure(
     typed_graph, engine, monkeypatch
@@ -1307,6 +1319,7 @@ def test_both_sides_of_the_edge_mask_cost_boundary_agree(typed_graph, engine, sh
         "(edges are identical; 1957 indexed node rows vs 1956 scanned). Strict, so it flips "
         "the moment the wave-front seed handling is unified."))),
 ])
+@pytest.mark.route_engaged("index-hop")
 def test_indexed_wavefront_node_set_matches_the_scan(typed_graph, engine, shape):
     """The index must not change WHICH NODES a wave-front hop reports, only how fast it
     gets there — the scan is the oracle."""
@@ -1331,6 +1344,7 @@ def test_indexed_wavefront_node_set_matches_the_scan(typed_graph, engine, shape)
     assert node_ids(gi.hop(nodes=seeds, **kwargs)) == node_ids(g.hop(nodes=seeds, **kwargs))
 
 
+@pytest.mark.route_engaged("index-hop")
 @pytest.mark.parametrize("engine", _cpu_engines())
 def test_forcing_the_whole_column_mask_actually_changes_the_path(typed_graph, engine, monkeypatch):
     """The negative side of the boundary must be reachable — otherwise the test above is
@@ -1376,6 +1390,7 @@ def test_forcing_the_whole_column_mask_actually_changes_the_path(typed_graph, en
     "resident_engine, requested_engine",
     [("pandas", "polars"), ("polars", "pandas")],
 )
+@pytest.mark.route_engaged("index-hop", "polars-plain")
 def test_explain_reports_bidirectional_engine_mismatch(
     graph, index_kinds, edge, expected_kinds, resident_engine, requested_engine
 ):
@@ -1450,6 +1465,7 @@ def _polars_indexed_graph():
     return g.gfql_index_all(engine="polars")
 
 
+@pytest.mark.route_engaged("index-hop")
 def test_auto_engine_gfql_serves_polars_index_1767_cliff():
     """#1767 cliff pin: polars frames + explicit polars index + gfql with NO engine
     argument must serve path=index on engine=polars (AUTO routes native, so the
@@ -1470,6 +1486,7 @@ def test_auto_engine_gfql_serves_polars_index_1767_cliff():
     assert out._nodes["destination"].to_list() == [101, 102]
 
 
+@pytest.mark.route_engaged("index-hop")
 def test_auto_engine_hop_agreed_gates_never_mismatch_1767():
     """Direct g.hop() with no engine on a polars-frame indexed graph: modern AUTO
     serves natively in polars (bridge-to-pandas was the 1767-era accident), and
@@ -1685,6 +1702,7 @@ class TestIndexAutoPreservesPolarsFrames:
         gi = gl.gfql_index_col_stats()  # AUTO on lazy frames must not crash
         assert gi is not None
 
+    @pytest.mark.route_engaged("index-hop")
     def test_inversion_auto_index_auto_gfql_serves_polars_index(self):
         """THE INVERSION PIN. The exact scenario the retracted #1767 regressed
         to the scan floor: ``gfql_index_all()`` with NO engine + ``g.gfql(<index-
@@ -1744,6 +1762,7 @@ class TestIndexAutoPreservesPolarsFrames:
         assert si["usable"].all()
         assert si["reason"].isna().all()
 
+    @pytest.mark.route_engaged("index-hop")
     def test_auto_polars_hop_engages_index(self, monkeypatch):
         # big enough that one seed passes the frontier-fraction cost gate
         pl = pytest.importorskip("polars")
@@ -1994,6 +2013,7 @@ def test_shallow_augmentation_rebind_stays_correct(engine):
         assert _i1913_ids(gi.edges(aug_e, "s", "d"), _I1913_2HOP, engine) == oracle, label
 
 
+@pytest.mark.route_engaged("index-hop")
 @pytest.mark.parametrize("engine", _cpu_engines())
 def test_i1913_guard_keeps_the_executor_rebind_engaging(typed_graph, engine):
     """WHAT THE GUARD MUST NOT COST: the chain's own synthetic-edge-id augmentation is
@@ -2063,6 +2083,7 @@ def test_rebind_edges_leaves_index_resident_after_in_place_shape_mutation():
         assert reg2.get_valid(kind, aug, ("src", "dst"), _E.PANDAS) is None, kind
 
 
+@pytest.mark.route_engaged("index-hop")
 @pytest.mark.parametrize("engine", _cpu_engines())
 def test_documented_recovery_from_in_place_mutation(engine):
     """The recovery matrix named in ``ComputeMixin.gfql``'s docstring, after in-place edits
@@ -2108,3 +2129,93 @@ def test_documented_recovery_from_in_place_mutation(engine):
     assert _i1913_ids(dropped, _I1913_2HOP, engine) == oracle
     brand_new = graphistry.nodes(nf, "id").edges(ef, "s", "d")
     assert _i1913_ids(brand_new, _I1913_2HOP, engine) == oracle
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+@pytest.mark.parametrize("dtype,big", [("Int64", 2**53), ("UInt64", 2**63)])
+@pytest.mark.parametrize("shape", ["empty", "all-null", "mixed", "no-null"])
+def test_nullable_integer_index_positions_and_precision(engine, dtype, big, shape):
+    from graphistry.Engine import Engine
+    from graphistry.compute.gfql.index.engine_arrays import array_namespace
+    from graphistry.compute.gfql.index.lookup import lookup_edge_rows, lookup_node_rows
+    from graphistry.compute.gfql.index.registry import EDGE_OUT_ADJ, EDGE_IN_ADJ, NODE_ID
+
+    ids = [None, big + 1, big, 0]
+    src = [None, big + 1, big, None, big, 0]
+    dst = [big, big, big + 1, None, None, 0]
+    if shape == "empty":
+        ids, src, dst = [], [], []
+    elif shape == "all-null":
+        ids, src, dst = [None, None], [None, None], [None, None]
+    elif shape == "no-null":
+        ids, src, dst = [big + 1, big, 0], [big + 1, big, 0], [big, big + 1, 0]
+    nodes = pd.DataFrame({"id": pd.array(np.asarray(ids, dtype=object), dtype=dtype)})
+    edges = pd.DataFrame({"src": pd.array(np.asarray(src, dtype=object), dtype=dtype), "dst": pd.array(np.asarray(dst, dtype=object), dtype=dtype)})
+    g = graphistry.nodes(nodes, "id").edges(edges, "src", "dst").gfql_index_all(engine=engine)
+    registry = get_registry(g)
+    xp, _ = array_namespace(Engine(engine))
+    query_dtype = "uint64" if dtype == "UInt64" else "int64"
+    queries = [0, big, big + 1, big + 2]
+    node_index = registry.get_valid(NODE_ID, g._nodes, ("id",), Engine(engine))
+    assert node_index is not None
+    from graphistry.compute.gfql.index.bindings import _integer_index
+    assert _integer_index(node_index) == all(value is not None for value in ids)
+    for query in queries:
+        probe = xp.asarray([query], dtype=query_dtype)
+        assert lookup_node_rows(node_index, probe, xp).tolist() == [i for i, value in enumerate(ids) if value == query]
+        for kind, keys in [(EDGE_OUT_ADJ, src), (EDGE_IN_ADJ, dst)]:
+            index = registry.get_valid(kind, g._edges, ("src", "dst"), Engine(engine))
+            assert index is not None
+            assert index.n_edges == len(edges)
+            actual_rows, matched = lookup_edge_rows(index, probe, xp)
+            expected_rows = [i for i, key in enumerate(keys) if key == query and src[i] is not None and dst[i] is not None]
+            assert sorted(actual_rows.tolist()) == expected_rows
+            assert matched.tolist() == ([query] if expected_rows else [])
+            other = dst if kind == EDGE_OUT_ADJ else src
+            assert index.other_values[actual_rows].tolist() == [other[i] for i in actual_rows.tolist()]
+    pd.testing.assert_frame_equal(nodes, pd.DataFrame({"id": pd.array(np.asarray(ids, dtype=object), dtype=dtype)}))
+    pd.testing.assert_frame_equal(edges, pd.DataFrame({"src": pd.array(np.asarray(src, dtype=object), dtype=dtype), "dst": pd.array(np.asarray(dst, dtype=object), dtype=dtype)}))
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+@pytest.mark.parametrize("dtype,big", [("Int64", 2**53), ("UInt64", 2**63)])
+@pytest.mark.parametrize("seed_offset", [0, 1, 2])
+def test_nullable_integer_hop_exact_identity(engine, dtype, big, seed_offset):
+    nodes = pd.DataFrame({"id": pd.array(np.asarray([None, big + 1, big], dtype=object), dtype=dtype)})
+    edges = pd.DataFrame({
+        "src": pd.array(np.asarray([None, big, big + 1, big], dtype=object), dtype=dtype),
+        "dst": pd.array(np.asarray([big, big + 1, big, None], dtype=object), dtype=dtype),
+    })
+    g = graphistry.nodes(nodes, "id").edges(edges, "src", "dst").gfql_index_all(engine=engine)
+    seeds = pd.DataFrame({"id": pd.array(np.asarray([big + seed_offset, None], dtype=object), dtype=dtype)})
+    expected = ([big, big + 1], [(big, big + 1)]) if seed_offset == 0 else (
+        ([big, big + 1], [(big + 1, big)]) if seed_offset == 1 else ([], [])
+    )
+    for policy in ("off", "force"):
+        candidate = copy(g)
+        candidate._gfql_index_policy = policy
+        actual = candidate.hop(nodes=seeds, hops=1, direction="forward", engine=engine)
+        assert _sig(actual) == expected
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+@pytest.mark.parametrize("null_nodes", [False, True])
+@pytest.mark.parametrize("null_edges", [False, True])
+def test_nullable_index_degree_boundary(engine, null_nodes, null_edges):
+    from graphistry.Engine import Engine
+    from graphistry.compute.gfql.index.build import build_degree_fact
+    from graphistry.compute.gfql.index.degrees import degrees_from_index
+
+    nodes = pd.DataFrame({"id": pd.array([0, 1] + ([None] if null_nodes else []), dtype="Int64")})
+    edges = pd.DataFrame({
+        "src": pd.array([0, 1] + ([0, None] if null_edges else []), dtype="Int64"),
+        "dst": pd.array([1, 0] + ([None, 1] if null_edges else []), dtype="Int64"),
+    })
+    base = _to_engine_frames(graphistry.nodes(nodes, "id").edges(edges, "src", "dst"), engine)
+    indexed = base.gfql_index_all(engine=engine)
+    assert _degcols(_degrees(indexed, engine)) == _degcols(_degrees(base, engine))
+    native_engine = Engine(engine)
+    degree_arrays = degrees_from_index(get_registry(indexed), indexed._nodes, "id", indexed._edges, ("src", "dst"), native_engine)
+    assert (degree_arrays is None) == (null_nodes or null_edges)
+    fact = build_degree_fact(indexed._edges, "src", "dst", 0, 1, native_engine)
+    assert (fact is None) == null_edges

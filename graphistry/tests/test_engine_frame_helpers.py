@@ -216,9 +216,10 @@ class TestInputSurfacesAcceptPolarsUnderAuto:
     @polars_only
     @pytest.mark.parametrize("surface", ["circle", "fa2", "chain_remote", "python_remote", "cluster"])
     def test_pandas_computing_surfaces_use_input_resolver(self, surface):
-        """The convention itself, pinned per module: a pandas-computing surface
-        must not call resolve_engine (modern AUTO) -- migrating one to native
-        polars means deliberately flipping it back and deleting its row here."""
+        """Pin pandas-computing surfaces to the input resolver, directly or via
+        the remote-only wrapper. They must not call modern resolve_engine;
+        migrating one to native polars means deliberately flipping it back and
+        deleting its row here."""
         import importlib
         mod = importlib.import_module({
             "circle": "graphistry.layout.circle",
@@ -229,5 +230,11 @@ class TestInputSurfacesAcceptPolarsUnderAuto:
         }[surface])
         import inspect
         src = inspect.getsource(mod)
-        assert "resolve_input_engine" in src
+        if surface in ("chain_remote", "python_remote"):
+            from graphistry.compute.remote_df_io import resolve_remote_engine
+
+            assert "resolve_remote_engine" in src
+            assert "resolve_input_engine" in inspect.getsource(resolve_remote_engine)
+        else:
+            assert "resolve_input_engine" in src
         assert "resolve_engine(" not in src.replace("resolve_input_engine(", "")

@@ -57,8 +57,8 @@ class AdjacencyIndex:
     edge_id_col: Optional[str]  # edge-id binding if present (else row pos == id)
     keys_sorted: ArrayLike    # distinct key ids, ascending (len U)  [array]
     group_offsets: ArrayLike  # CSR offsets into row_positions (len U+1) [array]
-    row_positions: ArrayLike  # edge row indices grouped by key (len E) [array]
-    other_values: ArrayLike   # neighbor id per edge row, ORIGINAL order (len E) [array]
+    row_positions: ArrayLike  # non-null-link edge positions grouped by key (len <= E)
+    other_values: ArrayLike   # original-row neighbors (len E); only row_positions are valid
     backend: IndexBackend     # 'numpy' | 'cupy'
     engine: Engine
     fingerprint: FrameFingerprint = field(compare=False, default=(-1, (), ""))

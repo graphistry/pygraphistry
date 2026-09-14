@@ -2428,8 +2428,8 @@ def test_lower_match_query_executes_bracketless_relationship_and_label_where() -
     )
     result = _mk_graph(nodes, edges).gfql(chain)
 
-    assert result._nodes[["id", "type", "score"]].to_dict(orient="records") == [
-        {"id": "t1", "type": "TextNode", "score": 7}
+    assert result._nodes[["i.id", "i.type", "i.score"]].to_dict(orient="records") == [
+        {"i.id": "t1", "i.type": "TextNode", "i.score": 7}
     ]
 
 
@@ -2445,8 +2445,8 @@ def test_lower_match_query_executes_bracketless_relationship_with_labeled_alias_
     chain = cypher_to_gfql("MATCH (a)-->(b:Foo) RETURN b")
     result = _mk_graph(nodes, edges).gfql(chain)
 
-    assert result._nodes[["id", "type"]].to_dict(orient="records") == [
-        {"id": "b", "type": "Foo"}
+    assert result._nodes[["b.id", "b.type"]].to_dict(orient="records") == [
+        {"b.id": "b", "b.type": "Foo"}
     ]
 
 
@@ -6403,12 +6403,17 @@ def test_string_cypher_with_unwind_reentry_progresses_past_parser_to_row_scope_b
         "RETURN foaf"
     )
 
-    with pytest.raises(GFQLValidationError) as exc_info:
-        compile_cypher(query)
+    g = _mk_graph(
+        pd.DataFrame({"id": ["s1", "b1", "c1"], "label__S": [True, False, False],
+                      "label__B": [False, True, False], "label__C": [False, False, True]}),
+        pd.DataFrame({"s": ["s1", "b1"], "d": ["b1", "c1"], "type": ["X", "Y"]}),
+    )
+    with pytest.raises(GFQLSchemaError) as exc_info:
+        g.gfql(query)
 
-    assert exc_info.value.code == ErrorCode.E108
-    assert "one MATCH source alias at a time" in exc_info.value.message
-    assert "#1273" in exc_info.value.message
+    assert exc_info.value.code == ErrorCode.E301
+    assert exc_info.value.context.get("field") == "where_rows.root"
+    assert exc_info.value.context.get("value") == "root"
 
 
 def test_string_cypher_rejects_with_unwind_reentry_when_unwind_source_is_not_collected_alias() -> None:
@@ -15824,12 +15829,10 @@ def test_connected_join_empty_edge_aggregate_keeps_numeric_dtype(ret: str, dtype
 @pytest.mark.parametrize(
     "ret,dtype",
     [
-        # A downstream (non-anchor) node reaches the row via a hop whose NaN widens its
-        # integer columns to float in the non-empty run; the 0-row path must match, or an
-        # emptied sum(b.iv) returns int64 and escapes via UNION ALL (#31). The anchor never
-        # NaN-widens, so it stays int; float columns are unchanged.
-        ("sum(b.iv) AS c", "float64"),
-        ("max(b.iv) AS c", "float64"),
+        # the 0-row path must carry the non-empty run's dtypes (UNION ALL, #31): source
+        # dtypes on every alias since the traversal stubs stopped widening them (#2058)
+        ("sum(b.iv) AS c", "int64"),
+        ("max(b.iv) AS c", "int64"),
         ("sum(a.iv) AS c", "int64"),
         ("sum(b.fv) AS c", "float64"),
     ],
@@ -15885,7 +15888,7 @@ def test_connected_join_empty_node_aggregate_keeps_nullable_int(ret: str, dtype:
         # numpy bool cannot hold the hop's left-join NaN, so the non-empty path widens a
         # downstream node's bool column to object; the 0-row path must match, or an emptied
         # max(b.bv) returns raw bool where non-empty and master give object (Wave 37 Finding 2).
-        ("bool", "object"),
+        ("bool", "bool"),
         # Nullable `boolean` holds NA natively and stays `boolean` in the non-empty path, so it
         # must be left untouched -- widening it would be the Finding-1 over-reach in bool form.
         ("boolean", "boolean"),
@@ -18600,6 +18603,7 @@ def _col_stats_trace(g: Any, query: str) -> List[Tuple[str, str, str]]:
             for s in steps if s.get("op") == "col_stats"]
 
 
+@pytest.mark.route_engaged("cypher-fast")
 def test_t6_col_stats_decisions_are_visible_in_the_trace() -> None:
     """A dead fact is otherwise INVISIBLE: values stay correct, so no value test
     can fail. The trace distinguishes outcomes because their fixes differ."""
@@ -18620,6 +18624,7 @@ def test_t6_col_stats_decisions_are_visible_in_the_trace() -> None:
         outcomes={"nodes.id": "served", "edges.s": "served"})
 
 
+@pytest.mark.route_engaged("cypher-fast")
 def test_t6_assert_col_stats_helper_fails_loudly() -> None:
     """The helper must FAIL when the optimization did not fire -- an engagement
     pin that cannot fail is worse than none, which is the whole failure mode
@@ -19099,6 +19104,7 @@ def _h3_records(result: Plottable) -> List[Dict[str, Any]]:
     return cast(List[Dict[str, Any]], _to_pandas_df(result._nodes).to_dict(orient="records"))
 
 
+@pytest.mark.route_engaged("cypher-fast")
 @pytest.mark.parametrize("engine", ["polars", "polars-gpu"])
 def test_h3_fused_two_hop_count_serves_distinct_domain_shape(engine: str, monkeypatch: pytest.MonkeyPatch) -> None:
     nodes, edges = _mk_h3_base_data()
@@ -19112,6 +19118,7 @@ def test_h3_fused_two_hop_count_serves_distinct_domain_shape(engine: str, monkey
     assert _h3_records(result) == oracle == [{"numPaths": 5}]
 
 
+@pytest.mark.route_engaged("cypher-fast")
 @pytest.mark.parametrize("engine", ["polars", "polars-gpu"])
 def test_h3_fused_two_hop_count_serves_distinct_edge_domains(engine: str, monkeypatch: pytest.MonkeyPatch) -> None:
     """Distinct EDGE matches with identical node filters also leave the equal-domain branch."""
@@ -19217,6 +19224,7 @@ def _mk_h3_case_data(fixture: str) -> Tuple[pd.DataFrame, pd.DataFrame]:
     raise AssertionError(f"unknown fixture {fixture}")
 
 
+@pytest.mark.route_engaged("cypher-fast")
 @pytest.mark.parametrize("engine", ["polars", "polars-gpu"])
 @pytest.mark.parametrize("label,fixture,query", _H3_DIFFERENTIAL_CASES, ids=[c[0] for c in _H3_DIFFERENTIAL_CASES])
 def test_h3_fused_two_hop_count_matches_eager_twin_and_pandas(
@@ -19241,6 +19249,7 @@ def test_h3_fused_two_hop_count_matches_eager_twin_and_pandas(
     assert fused == oracle, f"{label}: fused lane diverged from the pandas oracle"
 
 
+@pytest.mark.route_engaged("cypher-fast")
 @pytest.mark.parametrize("engine", ["polars", "polars-gpu"])
 def test_h3_fused_two_hop_count_empty_match_counts_zero(engine: str, monkeypatch: pytest.MonkeyPatch) -> None:
     """openCypher counts over no rows as 0 -- not an empty frame."""
@@ -19254,6 +19263,7 @@ def test_h3_fused_two_hop_count_empty_match_counts_zero(engine: str, monkeypatch
     assert _h3_records(result) == [{"numPaths": 0}]
 
 
+@pytest.mark.route_engaged("cypher-fast")
 @pytest.mark.parametrize("engine", ["polars", "polars-gpu"])
 def test_h3_fused_two_hop_count_serves_projected_away_reserved_column(engine: str, monkeypatch: pytest.MonkeyPatch) -> None:
     """A PAYLOAD edge column named like a degree counter no longer forces a decline:
@@ -19272,6 +19282,7 @@ def test_h3_fused_two_hop_count_serves_projected_away_reserved_column(engine: st
     assert _h3_records(result) == [{"numPaths": 5}]
 
 
+@pytest.mark.route_engaged("cypher-fast")
 @pytest.mark.parametrize("engine", ["polars", "polars-gpu"])
 def test_h3_fused_two_hop_count_still_declines_reserved_endpoint_binding(engine: str, monkeypatch: pytest.MonkeyPatch) -> None:
     """NEGATIVE (the guard's remaining reachable side): when the SRC binding itself
@@ -19349,6 +19360,7 @@ def test_h3_two_hop_count_fast_path_has_no_order_by_or_limit_surface(suffix: str
     assert _two_hop_count_alias(compiled.chain) == expect_alias
 
 
+@pytest.mark.route_engaged("cypher-fast")
 @pytest.mark.parametrize("engine", ["polars", "polars-gpu"])
 def test_h3_fused_two_hop_count_handles_degenerate_bindings(engine: str, monkeypatch: pytest.MonkeyPatch) -> None:
     """The node key may share a name with an endpoint column, and source/destination may be bound
@@ -20811,8 +20823,8 @@ def _mk_issue_1395_reply_author_ic8_graph(*, cudf_mode: bool = False) -> _Cypher
     if cudf_mode:
         pytest.importorskip("cudf")
         import cudf  # type: ignore
-        nodes = cudf.DataFrame.from_pandas(nodes)
-        edges = cudf.DataFrame.from_pandas(edges)
+        nodes = cudf.from_pandas(nodes)
+        edges = cudf.from_pandas(edges)
     return _mk_graph(nodes, edges)
 
 

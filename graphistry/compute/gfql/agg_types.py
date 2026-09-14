@@ -71,7 +71,7 @@ if TYPE_CHECKING:
     import polars as pl
 
     from graphistry.compute.gfql.cypher.ast import CypherScalar
-    from graphistry.compute.typing import SeriesT
+    from graphistry.compute.typing import PolarsDType, SeriesT
 
 
 #: Aggregates Cypher restricts to ``INTEGER | FLOAT | DURATION`` (``mean`` spells ``avg``).
@@ -99,6 +99,16 @@ CYPHER_INTEGER_RESULT_AGGREGATIONS: Final[FrozenSet[str]] = frozenset(
 )
 
 
+def validate_aggregation_output(has_keys: bool, has_aggregations: bool) -> None:
+    """A global aggregation must request a result; key-only grouping remains valid."""
+    if not has_keys and not has_aggregations:
+        raise GFQLTypeError(
+            ErrorCode.E201, "group_by requires a grouping key or an aggregation",
+            field="group_by.aggregations", value=[],
+            suggestion="Request an aggregate or supply a grouping key",
+        )
+
+
 def agg_result_is_integer(func: str, input_is_boolean: bool) -> bool:
     """True when this aggregate's return type is INTEGER (int64) on this input.
 
@@ -111,7 +121,7 @@ def agg_result_is_integer(func: str, input_is_boolean: bool) -> bool:
     return func == "sum" and input_is_boolean
 
 
-def polars_agg_result_cast(func: str, input_dtype: "Optional[pl.DataType]") -> "Optional[pl.DataType]":
+def polars_agg_result_cast(func: str, input_dtype: "Optional[pl.DataType]") -> "Optional[PolarsDType]":
     """The dtype polars' own aggregate kernel does NOT produce, or ``None`` when it conforms.
 
     Polars answers EVERY ``count()`` with ``UInt32`` and ``sum()`` over ``Boolean`` with ``UInt32``,
@@ -129,9 +139,13 @@ def polars_agg_result_cast(func: str, input_dtype: "Optional[pl.DataType]") -> "
 def polars_conform_agg_dtype(expr: "pl.Expr", func: str, input_dtype: "Optional[pl.DataType]",
                              alias: str) -> "pl.Expr":
     """Land a polars aggregate on its CONTRACT dtype rather than on its kernel dtype."""
+    import polars as pl
+
     target = polars_agg_result_cast(func, input_dtype)
     if target is None:
         return expr.alias(alias)
+    if func == "sum" and input_dtype == pl.Boolean:
+        expr = expr.fill_null(0)
     return expr.cast(target).alias(alias)  # hygiene-ok: explicit-cast -- polars dtype conversion
 
 

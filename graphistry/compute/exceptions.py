@@ -23,6 +23,7 @@ class ErrorCode:
     E107 = "invalid-cypher-syntax"
     E108 = "unsupported-cypher-query"
     E109 = "output-requires-let-query"
+    E110 = "unsupported-operation"
 
     # Type errors (E2xx)
     E201 = "type-mismatch"
@@ -43,6 +44,7 @@ class ErrorCode:
     E402 = "remote-response-malformed"
     E403 = "remote-format-lossy"
     E404 = "remote-unsupported-frames"
+    E405 = "remote-unsupported-engine"
 
     # Graph constructor errors (E150-E159)
     E150 = "duplicate-graph-binding"
@@ -141,4 +143,9 @@ class GFQLRemoteError(GFQLValidationError, ValueError):
     Also a ``ValueError`` so callers written against the previous untyped
     remote errors keep working.
     """
+    pass
+
+
+class GFQLUnsupportedError(GFQLValidationError, NotImplementedError):
+    """Structured operation decline, compatible with existing engine fallback guards."""
     pass

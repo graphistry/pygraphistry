@@ -13,12 +13,13 @@ temporal arithmetic) → NIE.
 """
 from __future__ import annotations
 
+import inspect
 import operator
 import re
 from collections import OrderedDict
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Mapping, Optional, Sequence, Tuple, TypeVar, Union, cast
 
-from typing_extensions import assert_never
+from typing_extensions import Literal, Protocol, assert_never
 
 if TYPE_CHECKING:
     import polars as pl
@@ -70,6 +71,7 @@ from .lowering_context import (
 )
 from graphistry.compute.gfql.same_path_types import NODE_IDENTITY_COLUMN as _NODE_ID_TOKEN
 from graphistry.compute.gfql.identifiers import (
+    shadow_restore_column,
     WALK_CURRENT_COL,
     WALK_FROM_COL,
     WALK_TO_COL,
@@ -128,6 +130,8 @@ def _resolve_property(alias: str, prop: str, columns: Sequence[str]) -> Optional
     prefixed = f"{alias}.{prop}"
     if prefixed in columns:
         return prefixed
+    if prop == alias and shadow_restore_column(alias) in columns:
+        return shadow_restore_column(alias)  # the alias marker shadowed this column; rows() keeps its values here
     if prop == _NODE_ID_TOKEN and alias in columns:
         # Whole-entity identity key (#1650 lowering groups by `alias.__gfql_node_id__`).
         # pandas' bindings table carries it as a join-residue column; the polars table
@@ -656,6 +660,11 @@ def lower_expr(node: ExprNode, columns: Sequence[str]) -> Optional[pl.Expr]:
             src = _resolve_property(node.value.name, node.property, columns)
             if src is not None:
                 return pl.col(src)
+            if (_NODE_ID.get() in columns
+                    and _SCHEMA.get().get(node.value.name) == pl.Boolean):
+                from graphistry.compute.gfql.row.pipeline import RowPipelineMixin
+                RowPipelineMixin._gfql_report_absent_property(f"{node.value.name}.{node.property}")
+                return pl.lit(None)
         return None
     if isinstance(node, BinaryOp):
         if node.op == "in" and isinstance(node.right, ListLiteral):
@@ -1026,7 +1035,7 @@ def _finish_binding_rows_polars(
     from graphistry.compute.ast import ASTEdge, ASTNode
     from graphistry.compute.gfql.lazy import collect as _lazy_collect
 
-    def names(frame: "PolarsFrameT") -> List[str]:
+    def names(frame: "Union[pl.DataFrame, pl.LazyFrame]") -> List[str]:
         return (
             frame.collect_schema().names()
             if isinstance(frame, pl.LazyFrame)
@@ -1034,6 +1043,10 @@ def _finish_binding_rows_polars(
         )
 
     try:
+        alias_columns = {alias: names(frame) for alias, frame in alias_frames.items()}
+        property_names = [f"{alias}.{col}" for alias, columns in alias_columns.items() for col in columns]
+        binding_order = generate_safe_column_name_from("__gfql_binding_order__", names(state) + property_names)
+        joined_state = state.lazy().with_row_index(binding_order)
         attach_set = (
             None if attach_prop_aliases is None else set(attach_prop_aliases)
         )
@@ -1046,28 +1059,23 @@ def _finish_binding_rows_polars(
             if attach_set is not None and alias not in attach_set:
                 continue
             lookup_src = alias_frames[alias]
-            lookup = lookup_src.select(
+            lookup = lookup_src.lazy().select(
                 [
                     pl.col(node_id),
                     pl.col(node_id).alias(f"{alias}.{node_id}"),
                 ]
                 + [
                     pl.col(col).alias(f"{alias}.{col}")
-                    for col in names(lookup_src)
+                    for col in alias_columns[alias]
                     if col != node_id
                 ]
             )
-            if (set(names(lookup)) - {node_id}) & set(names(state)):
+            if (set(names(lookup)) - {node_id}) & set(names(joined_state)):
                 return None
-            state = state.join(
+            joined_state = joined_state.join(
                 lookup, left_on=alias, right_on=node_id, how="left",
             )
-        state = state.drop(WALK_CURRENT_COL)
-        out_df = (
-            _lazy_collect(state)
-            if isinstance(state, pl.LazyFrame)
-            else state
-        )
+        out_df = _lazy_collect(joined_state.sort(binding_order).drop([WALK_CURRENT_COL, binding_order]))
     except pl.exceptions.SchemaError:
         if not decline_on_schema_error:
             raise
@@ -1224,6 +1232,48 @@ def _project_preserving_height(table: Any, exprs: List[Any]) -> Any:
     return table.select(exprs)
 
 
+def _project_eager_columns(
+    table: "pl.DataFrame", items: Sequence[SelectItem], exprs: Sequence["pl.Expr"],
+) -> Optional["pl.DataFrame"]:
+    """Gather columns and uniform coalesce inputs without an expression execution plan."""
+    import polars as pl
+    from graphistry.compute.gfql.expr_parser import FunctionCall, parse_expr
+
+    if not isinstance(table, pl.DataFrame) or not exprs:
+        return None
+    projected: List[pl.Series] = []
+    for item, expression in zip(items, exprs):
+        bare = expression.meta.undo_aliases()
+        output = expression.meta.output_name()
+        if bare.meta.is_column():
+            projected.append(table.get_column(bare.meta.output_name()).alias(output))
+            continue
+        source = item if isinstance(item, str) else item[1]
+        if not isinstance(source, str) or not source.lstrip().lower().startswith("coalesce"):
+            return None
+        parsed = parse_expr(source)
+        if not isinstance(parsed, FunctionCall) or parsed.name.lower() != "coalesce" or parsed.distinct:
+            return None
+        operands: List[pl.Series] = []
+        for argument in parsed.args:
+            lowered = lower_expr(argument, table.columns)
+            if lowered is None or not lowered.meta.is_column():
+                return None
+            operands.append(table.get_column(lowered.meta.output_name()))
+        if not operands or any(series.dtype != operands[0].dtype for series in operands[1:]):
+            return None
+        chosen = operands[-1]
+        for series in operands:
+            if series.null_count() == table.height:
+                continue
+            if series.null_count() != 0:
+                return None
+            chosen = series
+            break
+        projected.append(chosen.alias(output))
+    return pl.DataFrame(projected)
+
+
 def _project_polars(g: Plottable, items: Sequence[SelectItem], extend: bool) -> Optional[Plottable]:
     """Shared body of ``select_polars`` / ``with_columns_polars``; None if any item isn't
     lowerable (honest NIE, no pandas bridge)."""
@@ -1231,7 +1281,11 @@ def _project_polars(g: Plottable, items: Sequence[SelectItem], extend: bool) -> 
     exprs = _lower_with_schema(table, lambda: lower_select_items(items, list(table.columns)), node_id=g._node)
     if exprs is None:
         return None
-    out = table.with_columns(exprs) if extend else _project_preserving_height(table, exprs)
+    out = None if extend else _lower_with_schema(
+        table, lambda: _project_eager_columns(table, items, exprs), node_id=g._node,
+    )
+    if out is None:
+        out = table.with_columns(exprs) if extend else _project_preserving_height(table, exprs)
     if _select_emits_temporal_constructor_text(out):
         # decline (NIE): projected String column holds temporal-constructor text (date({...})
         # etc.) that pandas normalizes to ISO, not yet native — don't leak the raw text.
@@ -1242,11 +1296,9 @@ def _project_polars(g: Plottable, items: Sequence[SelectItem], extend: bool) -> 
 
 def _select_emits_temporal_constructor_text(out: Any) -> bool:
     import polars as pl
-    from graphistry.compute.gfql.lazy.engine.polars.projection import _has_temporal_constructor_text
-    for name, dtype in out.schema.items():
-        if dtype == pl.String and _has_temporal_constructor_text(out, name):
-            return True
-    return False
+    from graphistry.compute.gfql.lazy.engine.polars.projection import _columns_have_temporal_constructor_text
+    columns = [name for name, dtype in out.schema.items() if dtype == pl.String]
+    return _columns_have_temporal_constructor_text(out, columns)
 
 
 def select_polars(g: Plottable, items: Sequence[SelectItem]) -> Optional[Plottable]:
@@ -1396,7 +1448,7 @@ def _agg_expr(func: str, expr: Optional[str], columns: Sequence[str], alias: str
     import polars as pl
     func = func.lower()
     if func == "count" and (expr is None or expr == "*"):
-        return polars_conform_agg_dtype(pl.len(), func, None, alias)
+        return polars_conform_agg_dtype(pl.len().fill_null(0), func, None, alias)
     if not isinstance(expr, str) or expr not in columns:
         return None
     col = pl.col(expr)
@@ -1437,7 +1489,7 @@ def _agg_expr(func: str, expr: Optional[str], columns: Sequence[str], alias: str
             # kernel, which would then ANSWER the same wrong-typed query.
             raise_non_numeric_aggregation(func, expr, dtype_label, alias)
     if func == "count":
-        return polars_conform_agg_dtype(col.count(), func, dtype, alias)
+        return polars_conform_agg_dtype(col.count().fill_null(0), func, dtype, alias)
     if func == "sum":
         return polars_conform_agg_dtype(col.sum(), func, dtype, alias)
     if func in ("avg", "mean"):
@@ -1449,7 +1501,11 @@ def _agg_expr(func: str, expr: Optional[str], columns: Sequence[str], alias: str
     if func == "count_distinct":
         # count(DISTINCT x) drops nulls (pandas nunique(dropna=True)); polars n_unique() counts
         # null, so drop_nulls first.
-        return polars_conform_agg_dtype(col.drop_nulls().n_unique(), func, dtype, alias)
+        from graphistry.compute.gfql.lazy import ExecutionTarget, active_target
+
+        distinct_count = (col.n_unique() - (col.null_count() > 0).cast(pl.UInt32)
+                          if active_target() == ExecutionTarget.GPU else col.drop_nulls().n_unique())
+        return polars_conform_agg_dtype(distinct_count.fill_null(0), func, dtype, alias)
     if func == "collect":
         # collect(x) drops nulls, keeps within-group row order (pandas row/pipeline.py:4552-4582:
         # ~isna() then agg(list)). Inside group_by(maintain_order=True).agg a multi-valued expr
@@ -1463,6 +1519,92 @@ def _agg_expr(func: str, expr: Optional[str], columns: Sequence[str], alias: str
         # empty/all-null group -> [].
         return col.drop_nulls().unique(maintain_order=True).alias(alias)
     return None
+
+
+def _group_by_decline(cause: Optional[NotImplementedError] = None) -> None:
+    from graphistry.compute.gfql.lazy import ExecutionTarget, active_target
+    from graphistry.compute.exceptions import ErrorCode, GFQLUnsupportedError
+
+    if active_target() == ExecutionTarget.GPU:
+        raise GFQLUnsupportedError(
+            ErrorCode.E110,
+            "The requested GPU backend cannot execute this aggregation",
+            field="function", value="group_by", engine="polars-gpu",
+            suggestion="Use engine='polars' for CPU execution",
+        ) from cause
+    return None
+
+
+class _LegacyPolarsNullJoin(Protocol):
+    def __call__(self, other: "pl.LazyFrame", *, on: Sequence[str],
+                 how: Literal["left", "anti"], join_nulls: bool,
+                 maintain_order: Literal["left"]) -> "pl.LazyFrame": ...
+
+
+def _polars_join_uses_nulls_equal() -> bool:
+    import polars as pl
+    return "nulls_equal" in inspect.signature(pl.LazyFrame.join).parameters
+
+
+def _collection_join(left: "pl.LazyFrame", right: "pl.LazyFrame", keys: List[str],
+                     how: Literal["left", "anti"]) -> "pl.LazyFrame":
+    if _polars_join_uses_nulls_equal():
+        return left.join(right, on=keys, how=how, nulls_equal=True, maintain_order="left")
+    legacy_join = cast(_LegacyPolarsNullJoin, left.join)  # hygiene-ok: explicit-cast -- Polars 1.21 uses the verified legacy join_nulls signature
+    return legacy_join(right, on=keys, how=how, join_nulls=True, maintain_order="left")
+
+
+def _gpu_collection_aggregates(
+    operands: "pl.LazyFrame", keys: List[str], scalars: List["pl.Expr"],
+    collections: List[Tuple[str, str, bool]], schema: Mapping[str, "pl.DataType"],
+    output_aliases: List[str],
+) -> "pl.DataFrame":
+    """GPU collection plans with null exclusion before grouping and explicit empty identities."""
+    import polars as pl
+    from graphistry.compute.gfql.lazy import collect
+
+    group_keys = list(keys)
+    if not group_keys:
+        global_key = "__gfql_collection_group__"
+        while global_key in schema or global_key in output_aliases:
+            global_key += "_"
+        group_keys = [global_key]
+        operands = operands.with_columns(pl.lit(0).alias(global_key))
+        base = (collect(operands.select(scalars).with_columns(pl.lit(0).alias(global_key)))
+                if scalars else collect(pl.DataFrame({global_key: [0]}, schema={global_key: pl.Int32}).lazy()))
+    else:
+        base = collect(operands.group_by(group_keys, maintain_order=True).agg(scalars)
+                       if scalars else operands.select(group_keys).unique(maintain_order=True))
+    for alias, source, distinct in collections:
+        value_name = "__gfql_collection_value__"
+        while value_name in schema or value_name in group_keys or value_name in output_aliases:
+            value_name += "_"
+        value = pl.col(source)
+        dtype = schema[source]
+        if _dtype_is_float(dtype):
+            value = value.fill_nan(None)
+        elif _dtype_is_stringlike(dtype) and dtype != pl.String:
+            value = value.cast(pl.String)
+        part = operands.with_columns(value.alias(value_name)).filter(pl.col(value_name).is_not_null())
+        if distinct:
+            part = part.unique(subset=[*group_keys, value_name], keep="first", maintain_order=True)
+        grouped = collect(part.group_by(group_keys, maintain_order=True).agg(pl.col(value_name).alias(alias)))
+        if base.height == 0:
+            # Both results are empty: adding the output dtype cannot move or compute row values.
+            base = pl.DataFrame(schema={**base.schema, alias: grouped.schema[alias]})
+            continue
+        if grouped.height < base.height:
+            identity = pl.DataFrame({alias: [[]]}, schema={alias: grouped.schema[alias]}).lazy()
+            if grouped.height == 0:
+                completed = base.lazy().select(group_keys).join(identity, how="cross")
+            else:
+                missing = _collection_join(base.lazy().select(group_keys),
+                                           grouped.lazy().select(group_keys), group_keys, "anti").join(identity, how="cross")
+                completed = pl.concat([grouped.lazy(), missing])
+        else:
+            completed = grouped.lazy()
+        base = collect(_collection_join(base.lazy(), completed, group_keys, "left"))
+    return base[[*keys, *output_aliases]]
 
 
 def group_by_polars(
@@ -1487,29 +1629,97 @@ def group_by_polars(
                 if isinstance(col, str) and col.startswith(prefix) and col not in seen:
                     key_cols.append(col)
                     seen.add(col)
-    if not key_cols or not all(isinstance(k, str) and k in cols for k in key_cols):
+    from graphistry.compute.gfql.agg_types import validate_aggregation_output
+
+    validate_aggregation_output(bool(key_cols), bool(aggregations))
+    if not all(isinstance(k, str) and k in cols for k in key_cols):
+        _group_by_decline()
         return None
+    import polars as pl
+    from graphistry.compute.gfql.lazy import ExecutionTarget, active_target, collect
+
+    if any(dtype == pl.Null for dtype in table.schema.values()):
+        # GPU scans cannot ingest Null storage. Its schema proves every value is null;
+        # allocate typed input buffers without evaluating an aggregate or mutating g.
+        table = pl.DataFrame([
+            pl.Series(name, [None] * table.height, dtype=pl.Int64)
+            if dtype == pl.Null else table.get_column(name)
+            for name, dtype in table.schema.items()
+        ])
+    operand_plan = table.lazy()
+    operand_schema = dict(table.schema)
+    has_projected_operands = False
     aggs: List["pl.Expr"] = []
+    collections: List[Tuple[str, str, bool]] = []
+    output_aliases: List[str] = []
     for agg in aggregations:
         if not isinstance(agg, (list, tuple)) or len(agg) not in (2, 3):
+            _group_by_decline()
             return None
         # cast: the AggSpec tuple variants make agg[2] an out-of-range index to mypy;
         # the len guard above already proved the shape.
         spec = cast("Sequence[Optional[str]]", agg)
         alias = str(spec[0])
+        output_aliases.append(alias)
         func = str(spec[1])
         expr = spec[2] if len(spec) == 3 else None
-        # Passed as a CALLABLE, not a precomputed flag: the null scan is O(n) and is only ever
-        # consulted for a column the dtype check has already rejected, so a normal numeric
-        # aggregate never runs it.
-        def _is_all_null(col_name: str) -> bool:
-            return table.height > 0 and table[col_name].null_count() == table.height
+        if isinstance(expr, str) and expr not in cols and not (func.lower() == "count" and expr == "*"):
+            source_expr = expr
+            operand = _lower_with_schema(table, lambda: lower_expr_str(source_expr, cols), node_id=g._node)
+            if operand is None:
+                _group_by_decline()
+                return None
+            temporary = "__gfql_aggregate_operand__"
+            while temporary in operand_schema:
+                temporary += "_"
+            # with_columns broadcasts constants to the input height, including zero rows.
+            if operand_plan.select(operand.alias(temporary)).collect_schema()[temporary] == pl.Null:
+                operand = pl.lit(None, dtype=pl.Int64)
+            operand_plan = operand_plan.with_columns(operand.alias(temporary))
+            operand_schema = dict(operand_plan.collect_schema())
+            expr = temporary
+            has_projected_operands = True
 
-        lowered = _agg_expr(func, expr, cols, alias, table.schema, _is_all_null)
-        if lowered is None:
+        def _is_all_null(col_name: str) -> bool:
+            if col_name in cols:
+                return table.height > 0 and table[col_name].null_count() == table.height
+            null_count = collect(operand_plan.select(pl.col(col_name).null_count())).item()
+            return table.height > 0 and null_count == table.height
+
+        try:
+            lowered = _agg_expr(func, expr, list(operand_schema), alias, operand_schema, _is_all_null)
+        except NotImplementedError as exc:
+            _group_by_decline(exc)
             return None
+        if lowered is None:
+            _group_by_decline()
+            return None
+        if active_target() == ExecutionTarget.GPU and func.lower() in ("collect", "collect_distinct"):
+            assert isinstance(expr, str)
+            collections.append((alias, expr, func.lower() == "collect_distinct"))
+            continue
+        if not key_cols and func.lower() in ("collect", "collect_distinct"):
+            lowered = lowered.implode().alias(alias)
         aggs.append(lowered)
-    out = table.group_by(key_cols, maintain_order=True).agg(aggs)
+
+    if collections:
+        try:
+            return _rewrap(g, _gpu_collection_aggregates(
+                operand_plan, key_cols, aggs, collections, operand_schema, output_aliases,
+            ))
+        except NotImplementedError as exc:
+            _group_by_decline(exc)
+            return None
+    if active_target() == ExecutionTarget.GPU or has_projected_operands or not key_cols:
+        plan = (operand_plan.group_by(key_cols, maintain_order=True).agg(aggs)
+                if key_cols else operand_plan.select(aggs))
+        try:
+            out = collect(plan)
+        except NotImplementedError as exc:
+            _group_by_decline(exc)
+            return None
+    else:
+        out = table.group_by(key_cols, maintain_order=True).agg(aggs)
     return _rewrap(g, out)
 
 
@@ -1954,11 +2164,9 @@ def binding_rows_polars(
             seed_nodes = seed_nodes.join(seed_ids_lf, on=node_id, how="semi")
         # L4 pushdown twin of pandas `_gfql_connected_bindings_state`'s seed prefilter
         seed_nodes = _apply_alias_prefilters_polars(seed_nodes, first_op._name, alias_prefilters)  # honoured, never dropped (#1804)
-        # The whole generic builder works in LazyFrames (`nodes_lf` / `edges_lf` above);
-        # `filter_by_dict_polars` is frame-polymorphic at runtime but declares the eager
-        # type, so pin the path bag lazy here instead of leaving every downstream lazy
-        # op to fight an eager inference.
-        state: pl.LazyFrame = seed_nodes.select(pl.col(node_id).alias(WALK_CURRENT_COL))  # type: ignore[assignment]
+        state = seed_nodes.select(
+            pl.col(node_id).alias(WALK_CURRENT_COL)
+        ).unique(subset=[WALK_CURRENT_COL], maintain_order=True)
         alias_frames: Dict[str, pl.LazyFrame] = {}
         node_aliases: List[str] = []
         first_alias = first_op._name
@@ -1980,10 +2188,12 @@ def binding_rows_polars(
                     edges_f, edge_alias, alias_prefilters, reserved=(src, dst),
                 )
             if isinstance(edge_alias, str):
+                restore = shadow_restore_column(edge_alias)
+                shadowed = restore in _names(edges_f)
                 payload_renames = {
-                    col: f"{edge_alias}.{col}"
+                    col: (f"{edge_alias}.{edge_alias}" if col == restore else f"{edge_alias}.{col}")
                     for col in _names(edges_f)
-                    if col not in (src, dst, _ident_col)
+                    if col not in (src, dst, _ident_col) and not (shadowed and col == edge_alias)
                 }
             else:
                 # Unaliased edge payload is unaddressable downstream; carrying it
@@ -2010,7 +2220,28 @@ def binding_rows_polars(
             next_op = ops[edge_idx + 1]
             if not isinstance(next_op, ASTNode):
                 return None
-            next_nodes = filter_by_dict_polars(nodes_lf, next_op.filter_dict)
+            candidate_nodes = nodes_lf
+            dis_label_col = RowPipelineMixin._gfql_has_edge_destination_label_col(edge_op, nodes.columns)
+            if (
+                dis_label_col is not None
+                and not sem.is_multihop
+                and edge_op.direction == "forward"
+                and not RowPipelineMixin._gfql_node_filter_has_label(next_op.filter_dict)
+            ):
+                # Only collisions among reached nodes trigger HAS_<Label> narrowing.
+                # Probe before destination predicates, matching the eager binding walk.
+                reached = state.select(WALK_CURRENT_COL).join(
+                    oriented.select([WALK_FROM_COL, WALK_TO_COL]),
+                    left_on=WALK_CURRENT_COL, right_on=WALK_FROM_COL, how="inner",
+                ).select(WALK_TO_COL)
+                candidate_nodes = nodes_lf.join(
+                    reached, left_on=node_id, right_on=WALK_TO_COL, how="semi",
+                )
+                candidate_nodes = candidate_nodes.filter(
+                    ~pl.col(node_id).is_duplicated().any()
+                    | pl.col(dis_label_col).fill_null(False).cast(pl.Boolean)
+                )
+            next_nodes = filter_by_dict_polars(candidate_nodes, next_op.filter_dict)
             # pandas' endpoint prefilter twin: before the id set, so membership + alias frame agree
             next_nodes = _apply_alias_prefilters_polars(next_nodes, next_op._name, alias_prefilters)
             next_node_ids = next_nodes.select(node_id).unique()
@@ -2093,10 +2324,12 @@ def binding_rows_polars(
                     )
                     trail_cols_pl = trail_cols_pl + _seg_trail_cols
             else:
+                path_order = generate_safe_column_name_from("__gfql_path_order__", _names(state) + _names(oriented))
                 state = (
-                    state.join(oriented, left_on=WALK_CURRENT_COL, right_on=WALK_FROM_COL, how="inner")
-.drop(WALK_CURRENT_COL)
-.rename({WALK_TO_COL: WALK_CURRENT_COL})
+                    state.with_row_index(path_order)
+                    .join(oriented, left_on=WALK_CURRENT_COL, right_on=WALK_FROM_COL, how="inner")
+                    .drop(WALK_CURRENT_COL)
+                    .rename({WALK_TO_COL: WALK_CURRENT_COL})
                 )
                 for _used in trail_cols_pl:
                     state = state.filter(
@@ -2112,33 +2345,8 @@ def binding_rows_polars(
                 right_on=node_id,
                 how="semi",
             )
-            # HAS_<Label> destination disambiguation (pandas'
-            # _gfql_disambiguate_has_edge_destination_nodes): on DUPLICATE-id graphs
-            # pandas narrows the unlabeled next op to the edge's HAS_<Label> rows
-            # taken from the ORIGINAL node table, which still carries the colliding
-            # label rows. Reproducing that narrowing natively would be silently
-            # row-order-dependent, so: unique-id graphs need no narrowing (pandas'
-            # duplicated() probe is False) → native is parity-exact; duplicate-id
-            # graphs DECLINE (honest NIE). ``nodes`` above IS the pre-chain node
-            # table; when there is no pre-chain graph to probe we cannot prove
-            # uniqueness of what pandas would have seen, so decline.
-            dis_label_col = RowPipelineMixin._gfql_has_edge_destination_label_col(edge_op, nodes.columns)
-            if (
-                dis_label_col is not None
-                and not sem.is_multihop
-                and edge_op.direction == "forward"
-                and not RowPipelineMixin._gfql_node_filter_has_label(next_op.filter_dict)
-            ):
-                if g._gfql_rows_base_graph is None:
-                    return None
-                _base_dup = bool(
-                    nodes.lazy()
-.select(pl.col(node_id).is_duplicated().any())
-.collect()
-.item()
-                )
-                if _base_dup:
-                    return None
+            if not sem.is_multihop:
+                state = state.sort([path_order, _new_trail]).drop(path_order)
             next_alias = next_op._name
             if isinstance(next_alias, str):
                 state = state.with_columns(pl.col(WALK_CURRENT_COL).alias(next_alias))

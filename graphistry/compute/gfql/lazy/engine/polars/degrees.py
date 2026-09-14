@@ -64,7 +64,11 @@ def get_degrees_polars(
         if not _reg.is_empty():
             _d = degrees_from_index(_reg, nodes, node_col, edges, (src, dst), _index_engine(engine))
             if _d is not None:
+                import numpy as np
+
                 _in, _out = _d
+                # Polars and Polars GPU resident indexes use host NumPy arrays.
+                assert isinstance(_in, np.ndarray) and isinstance(_out, np.ndarray)
                 drop0 = [c for c in colnames(nodes) if c in (degree_in, degree_out, col)]
                 base0 = nodes.drop(drop0) if drop0 else nodes
                 out0 = base0.with_columns(

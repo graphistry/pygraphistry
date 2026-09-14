@@ -25,7 +25,7 @@ FrameLike = DataFrameT
 #: must be added here, which is what stops a typo silently recording a decision
 #: nobody can assert on.
 FastPathName = Literal[
-    "single_hop_grouped_aggregate", "two_hop_count", "seeded_typed_hop",
+    "single_hop_grouped_aggregate", "two_hop_count", "seeded_typed_hop", "seeded_node_lookup",
 ]
 
 #: What the executor holds at the fast-path seam: post-parse but NOT yet narrowed

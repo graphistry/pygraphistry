@@ -7,16 +7,20 @@ parity vs the pandas chain gates correctness; unsupported shapes raise NotImplem
 (no silent pandas fallback). Deferred: variable-length/multi-hop edge sub-cases, some
 undirected multi-edge combos, node query=.
 """
-from typing import TYPE_CHECKING, Any, List, Optional, Tuple, Type, cast
+from typing import TYPE_CHECKING, Any, List, Literal, Optional, Sequence, Tuple, Type, cast
 
 from typing_extensions import TypedDict
 
 # Runtime import (not TYPE_CHECKING): AggSpec is a pure typing Union of builtins (engine-
 # neutral wire type), and it keeps _GroupByParams introspectable (get_type_hints) at runtime.
 from graphistry.compute.gfql.call.support import AggSpec
+from graphistry.compute.endpoint_utils import drop_null_endpoint_edges
 
 from graphistry.Plottable import Plottable
 from graphistry.compute.ast import ASTObject, ASTNode, ASTEdge
+from .chain_specializations.admission import polars_plain_single_hop_admits, polars_single_node_admits
+from .chain_specializations.point_rows import _try_point_rows_polars
+from .chain_specializations.hotpaths import _plain_seeded_index_hop_polars, _plain_single_hop_polars, _single_node_polars, _try_seeded_chain_polars
 
 if TYPE_CHECKING:
     import polars as pl
@@ -27,6 +31,7 @@ from .dtypes import is_lazy, colnames, endpoint_ids
 from .degrees import get_degrees_polars, get_indegrees_polars, get_outdegrees_polars
 from .predicates import filter_by_dict_polars
 from .reserved_columns import CHAIN_NODE_HOP
+from graphistry.compute.gfql.identifiers import shadow_restore_column, shadow_restore_wanted
 
 
 def _polars_error_types() -> Tuple[Type[BaseException], ...]:
@@ -141,6 +146,22 @@ def _alias_hop_bounds(op: ASTEdge) -> Tuple[int, Optional[int]]:
     return min_hop, max_hop
 
 
+def _step_edges_with_source_columns(g: Plottable, g_step: Plottable, edge_id: str) -> "pl.DataFrame":
+    """The step's edge rows with the graph's ORIGINAL columns: an alias marker that shares a
+    name with a column the step filters on must not be re-filtered as that column."""
+    import polars as pl
+    edges = g._edges
+    assert edges is not None and g_step._edges is not None
+    return edges.join(g_step._edges.select(pl.col(edge_id)), on=edge_id, how="semi")
+
+
+def _with_source_column_instead_of_marker(frame: "PolarsT", g: Plottable, node_col: str, column: str) -> "PolarsT":
+    """``frame`` with ``column`` re-read from the graph's node table: an alias marker stamped by
+    an earlier pass must not be what the step's own filter on that column sees."""
+    import polars as pl
+    return frame.drop(column).join(g._nodes.select(pl.col(node_col), pl.col(column)), on=node_col, how="left")
+
+
 def _exec(op: ASTObject, g: Plottable, prev_wf: Optional[Any], target_wf: Optional[Any],
           intermediate_universe: Optional[Any] = None,
           auto_hop_col: str = _AUTO_NODE_HOP) -> Plottable:
@@ -154,6 +175,8 @@ def _exec(op: ASTObject, g: Plottable, prev_wf: Optional[Any], target_wf: Option
         if op.query is not None:
             raise NotImplementedError("polars chain engine does not yet support node query=")
         base = prev_wf if prev_wf is not None else g._nodes
+        if op._name is not None and op.filter_dict and op._name in op.filter_dict and op._name in base.columns:
+            base = _with_source_column_instead_of_marker(base, g, node_col, op._name)
         nodes = filter_by_dict_polars(base, op.filter_dict)
         if target_wf is not None:
             nodes = _semi(nodes, target_wf, node_col, node_col)
@@ -349,6 +372,12 @@ def _combine_edges(g: "_LazyShim",
     for op, g_step in label_steps:
         if op._name is not None and isinstance(op, ASTEdge) and g_step._edges is not None and op._name in colnames(g_step._edges):
             named = g_step._edges.filter(pl.col(op._name)).select(pl.col(edge_id)).with_columns(pl.lit(True).alias(op._name))
+            if op._name in colnames(out):  # the alias marker shadows the user column; only a Cypher pipeline keeps its values, under the restore name
+                if shadow_restore_wanted():
+                    restore = shadow_restore_column(op._name)
+                    out = out.drop([c for c in (restore,) if c in colnames(out)]).rename({op._name: restore})
+                else:
+                    out = out.drop(op._name)
             out = out.join(named, on=edge_id, how="left").with_columns(pl.col(op._name).fill_null(False))
     return out
 
@@ -440,17 +469,7 @@ def _apply_node_names(out: "pl.LazyFrame", g: "_LazyShim",
                     on=node_col, how="semi")
         if idx + 1 < len(step_list):
             next_op, next_step = step_list[idx + 1]
-            # Cardinality guard, restated against a fact that SURVIVES lazification. The old
-            # spelling was `is_lazy(df) or df.height > 0`, and `_apply_node_names` is always
-            # called with lazified steps — so `is_lazy` short-circuited True and the height
-            # test was unreachable. That is the identical silent death this commit fixes one
-            # function above; leaving a second copy of it here is how the bug recurs.
-            # Unlike the edges combine this one is SEMANTIC, not a cost guard: an empty next
-            # edge step must not empty `named` via the gate below.
-            # Plain attribute read, not getattr: `next_step` is a `_LazyShim`, which declares
-            # `edges_empty` in __slots__ with a real `Optional[bool]` annotation, so the
-            # tri-state is part of the type and a typo here is a checker error rather than a
-            # silent None (which would have re-armed the very gate this guard disarms).
+            # Empty next-edge steps must not filter node aliases.
             next_edges_empty = next_step.edges_empty
             if (isinstance(next_op, ASTEdge) and next_step._edges is not None
                     and next_edges_empty is not True):
@@ -465,6 +484,8 @@ def _apply_node_names(out: "pl.LazyFrame", g: "_LazyShim",
                 # its .unique() because it feeds a how="left" join, where they WOULD multiply.
                 named = named.join(part, on=node_col, how="semi")
         flag = named.with_columns(pl.lit(True).alias(op._name))
+        if op._name in colnames(out):
+            out = out.drop(op._name)  # the marker replaces a colliding column, as pandas' combine does
         out = out.join(flag, on=node_col, how="left").with_columns(pl.col(op._name).fill_null(False))
     return out
 
@@ -543,7 +564,7 @@ def _run_calls_polars(g_cur, calls, start_nodes, base_graph, middle):
     #    the generic chain routes schema-changers straight to execute_call.)
     from graphistry.compute.ast import ASTCall
     from graphistry.compute.gfql.row.pipeline import is_row_pipeline_call
-    from graphistry.compute.exceptions import ErrorCode, GFQLTypeError, GFQLValidationError
+    from graphistry.compute.exceptions import ErrorCode, GFQLSchemaError, GFQLTypeError, GFQLUnsupportedError, GFQLValidationError
     for op in calls:
         if not isinstance(op, ASTCall):
             raise NotImplementedError(
@@ -553,9 +574,11 @@ def _run_calls_polars(g_cur, calls, start_nodes, base_graph, middle):
             )
         try:
             native = _try_native_row_op(g_cur, op)
-        except GFQLTypeError:
+        except (GFQLTypeError, GFQLUnsupportedError):
             raise
         except GFQLValidationError as validation_error:
+            if isinstance(validation_error, GFQLSchemaError) and validation_error.code == ErrorCode.E301:
+                raise
             # Same wrapping `execute_call` applies (gfql/call/executor.py): a kernel that
             # raises a validation error surfaces as GFQLTypeError(E303) with this message
             # shape. The native attempt runs BEFORE execute_call, so without this the SAME
@@ -736,7 +759,7 @@ def chain_polars(self: Plottable, ops, start_nodes: Optional[Any] = None) -> Plo
     for _alias_type in (ASTNode, ASTEdge):
         _seen: dict = {}
         for _idx, _op in enumerate(ops):
-            _name = getattr(_op, "_name", None)
+            _name = _op._name
             if _name is not None and isinstance(_op, _alias_type):
                 if _name in _seen:
                     from graphistry.compute.exceptions import GFQLValidationError, ErrorCode
@@ -746,6 +769,10 @@ def chain_polars(self: Plottable, ops, start_nodes: Optional[Any] = None) -> Plo
                         suggestion="Use distinct alias names for each step in the chain",
                     )
                 _seen[_name] = _idx
+
+    point_rows = _try_point_rows_polars(self, ops, start_nodes)
+    if point_rows is not None:
+        return point_rows
 
     has_call = any(isinstance(op, ASTCall) for op in ops)
     has_traversal = any(isinstance(op, (ASTNode, ASTEdge)) for op in ops)
@@ -888,28 +915,21 @@ def _chain_traversal_polars(self: Plottable, ops, start_nodes: Optional[Any] = N
 
     edge_src, edge_dst = _bound_edge_endpoints(self)
 
-    # Node-only shape: single MATCH (n). Result is just the filtered node table + empty edges,
-    # so skip forward/backward/combine. Byte-identical: the one-node-step combine yields filtered
-    # g._nodes in order + empty edges + the alias flag on every matched node.
-    if len(ops) == 1 and isinstance(ops[0], ASTNode) and ops[0].query is None:
-        op0 = ops[0]
-        g0 = ensure_nodes_polars(self)
-        nc = g0._node
-        assert nc is not None
-        nodes = filter_by_dict_polars(g0._nodes, op0.filter_dict)
-        if start_nodes is not None:
-            from graphistry.Engine import Engine as _E, df_to_engine as _d2e
-            seed = _align_seed_dtype(_d2e(start_nodes, _E.POLARS), nc, g0._nodes)
-            nodes = _semi(nodes, seed, nc, nc)
-        if op0._name is not None:
-            nodes = nodes.with_columns(pl.lit(True).alias(op0._name))
-        return g0.nodes(nodes, nc).edges(g0._edges.clear(), edge_src, edge_dst)
+    if polars_single_node_admits(ops, start_nodes):
+        single = _single_node_polars(self, ops, start_nodes)
+        if single is not None:
+            return single
 
     if isinstance(ops[0], ASTEdge):
         ops = [ASTNode()] + ops
     if isinstance(ops[-1], ASTEdge):
         ops = ops + [ASTNode()]
 
+    if any(isinstance(op, ASTEdge) and op.prune_to_endpoints and op.is_simple_single_hop() for op in ops):
+        raise NotImplementedError(
+            "polars chain engine: prune_to_endpoints on a single-hop edge (arrival-side pruning "
+            "by hop label) is not implemented; use engine='pandas' or engine='cudf'"
+        )
     if any(
         isinstance(op, ASTEdge) and not op.is_simple_single_hop() and not _is_native_multihop(op)
         for op in ops
@@ -961,86 +981,17 @@ def _chain_traversal_polars(self: Plottable, ops, start_nodes: Optional[Any] = N
                 "undirected edges in multi-edge chains; deferred undirected sub-cases — "
                 "include_zero_hop_seed or *_query — require engine='pandas'."
             )
-
-    # Single-hop shape: [n(), e, n()] with no names/queries/matches (`MATCH (a {f})-[e]->(b)`).
-    # Result = edges whose endpoints pass the node filters + those endpoint nodes
-    # (isolated/dead-ends excluded); one hop means the backward pass prunes nothing more, so skip
-    # forward/backward/combine. Byte-identical vs pandas (verified: src/dst/both filters, reverse,
-    # dup/self-loop/cycle/isolated). Undirected takes this branch only when UNCONSTRAINED;
-    # filtered-undirected (OR of both directions) falls through to the full path.
-    def _fp_node(op):
-        return isinstance(op, ASTNode) and op._name is None and op.query is None
-
-    def _plain_edge(op):
-        return (isinstance(op, ASTEdge) and op.is_simple_single_hop()
-                and op.edge_match is None and op.source_node_match is None
-                and op.destination_node_match is None and op._name is None
-                and op.source_node_query is None and op.destination_node_query is None
-                and op.edge_query is None and not op.include_zero_hop_seed)
-
-    # GFQL physical index path for the seeded single-hop shape
-    # `MATCH (a {id-filter})-[e]->(b)` (forward/reverse, no destination filter). This native
-    # chain branch never reaches compute/hop.py, so it must consult the index here too.
-    from graphistry.compute.gfql.index import get_index_policy
-    _idx_pol = get_index_policy(self)
-    if (start_nodes is None and len(ops) == 3 and _fp_node(ops[0]) and _plain_edge(ops[1])
-            and _fp_node(ops[2]) and ops[0].filter_dict and not ops[2].filter_dict
-            and ops[1].direction in ("forward", "reverse")):
-        from graphistry.compute.gfql.index import get_registry, maybe_index_hop
-        if (not get_registry(self).is_empty()) or _idx_pol in ("auto", "force"):
-            gf0 = ensure_nodes_polars(self)
-            seed0 = filter_by_dict_polars(gf0._nodes, ops[0].filter_dict)
-            from graphistry.Engine import Engine
-            from graphistry.compute.gfql.lazy import active_target, ExecutionTarget
-            _eng0 = Engine.POLARS_GPU if active_target() == ExecutionTarget.GPU else Engine.POLARS
-            _idxed0 = maybe_index_hop(
-                gf0, _eng0, nodes=seed0, hops=1, direction=ops[1].direction,
-                return_as_wave_front=False, to_fixed_point=False, policy=_idx_pol,
-            )
-            if _idxed0 is not None:
-                return _idxed0
-
-    if start_nodes is None and len(ops) == 3 and _fp_node(ops[0]) and _plain_edge(ops[1]) and _fp_node(ops[2]):
-        n0, e1, n2 = ops
-        unconstrained = not n0.filter_dict and not n2.filter_dict
-        if unconstrained or e1.direction in ("forward", "reverse"):
-            node_table_bound = self._nodes is not None
-            gf = ensure_nodes_polars(self)
-            ncol, scol, dcol = gf._node, gf._source, gf._destination
-            assert ncol is not None and scol is not None and dcol is not None
-            gf, restore = _align_edge_endpoints(gf, ncol, scol, dcol)
-            edges = gf._edges
-            n_from, n_to = (n0, n2) if e1.direction != "reverse" else (n2, n0)
-            all_ids = gf._nodes.select(pl.col(ncol))
-
-            def _filter_ids(node_op: ASTNode) -> "Optional[PolarsFrame]":
-                if not node_op.filter_dict:
-                    return None
-                return filter_by_dict_polars(gf._nodes, node_op.filter_dict).select(pl.col(ncol))
-
-            filter_sides = ((scol, _filter_ids(n_from)), (dcol, _filter_ids(n_to)))
-            for endpoint_col, filter_ids in filter_sides:
-                if filter_ids is not None:
-                    edges = edges.join(filter_ids, left_on=endpoint_col, right_on=ncol, how="semi")
-            # A filtered side drew its ids FROM the node table; a synthesized one is vacuously closed.
-            sides_not_closed_by_a_filter = (
-                [col for col, filter_ids in filter_sides if filter_ids is None]
-                if node_table_bound else [])
-            endpoints = endpoint_ids(edges, scol, dcol, ncol)
-            if sides_not_closed_by_a_filter:
-                from graphistry.compute.gfql.lazy import collect_all
-                unresolvable, nodes = collect_all([
-                    endpoints.lazy().join(all_ids.lazy(), on=ncol, how="anti").select(pl.len()),
-                    gf._nodes.lazy().join(endpoints.lazy(), on=ncol, how="semi"),
-                ])
-                if unresolvable.item() > 0:
-                    for endpoint_col in sides_not_closed_by_a_filter:
-                        edges = edges.join(all_ids, left_on=endpoint_col, right_on=ncol, how="semi")
-                    nodes = gf._nodes.join(
-                        endpoint_ids(edges, scol, dcol, ncol), on=ncol, how="semi")
-            else:
-                nodes = gf._nodes.join(endpoints, on=ncol, how="semi")
-            return gf.nodes(nodes, ncol).edges(_restore_edge_dtypes(edges, scol, dcol, restore), scol, dcol)
+    plain_shape = polars_plain_single_hop_admits(ops, start_nodes)
+    if plain_shape == "seeded-index":
+        indexed = _plain_seeded_index_hop_polars(self, ops)
+        if indexed is not None:
+            return indexed
+    if start_nodes is None:
+        seeded = _try_seeded_chain_polars(self, ops)
+        if seeded is not None:
+            return seeded
+    if plain_shape is not None:
+        return _plain_single_hop_polars(self, ops)
 
     if start_nodes is not None:
         from graphistry.Engine import Engine, df_to_engine
@@ -1049,6 +1000,10 @@ def _chain_traversal_polars(self: Plottable, ops, start_nodes: Optional[Any] = N
     g = ensure_nodes_polars(self)
     assert g._node is not None and g._source is not None and g._destination is not None
     start_nodes = _align_seed_dtype(start_nodes, g._node, g._nodes)
+    if len(ops) == 1 and isinstance(ops[0], ASTNode):
+        # A node selection retains source rows, including duplicate and null IDs.
+        # Traversal's endpoint combine applies set semantics only when edges exist.
+        return _exec(ops[0], g, start_nodes, None)
     g, _endpoint_restore = _align_edge_endpoints(g, g._node, g._source, g._destination)
     if g._edge is None:
         EID = "__gfql_edge_index__"
@@ -1095,7 +1050,8 @@ def _chain_traversal_polars(self: Plottable, ops, start_nodes: Optional[Any] = N
         # table). Single-hop reverse: None -> gate = all_nodes (vacuous), matching pandas
         # use_fast_backward (full g._nodes).
         _iu = g_step._nodes if (isinstance(op, ASTEdge) and not op.is_simple_single_hop()) else None
-        g_step_full = g_step.nodes(g._nodes, g._node)
+        g_step_full = g_step.nodes(g._nodes, g._node).edges(
+            _step_edges_with_source_columns(g, g_step, EID), src, dst, edge=EID)
         rev = _exec(op.reverse(), g_step_full, prev_wf, target_wf, intermediate_universe=_iu,
                     auto_hop_col=auto_hop_col)
         # Undirected single-hop backward threading: the generic hop returns a ONE-SIDED
@@ -1139,7 +1095,7 @@ def _chain_traversal_polars(self: Plottable, ops, start_nodes: Optional[Any] = N
                     _semi(g._nodes, prev_src, node_col, node_col)
                     if prev_src is not None else None
                 )
-                g_sub = g.edges(g_step._edges, src, dst, edge=g._edge)
+                g_sub = g.edges(_step_edges_with_source_columns(g, g_step, EID), src, dst, edge=g._edge)
                 edge_steps.append((op, _exec(op, g_sub, prev_wf, None, auto_hop_col=auto_hop_col)))
             else:
                 edge_steps.append((op, g_step))

@@ -46,7 +46,7 @@ def _empty_like(df: Any) -> Any:
     """Zero-row copy preserving schema, for pandas/cuDF and polars frames."""
     if _is_polars(df):
         return df.clear()
-    return df.iloc[0:0].copy()
+    return df.iloc[0:0]
 
 
 def _alias_true_mask(table_df: Any, source: str) -> Any:
@@ -54,6 +54,8 @@ def _alias_true_mask(table_df: Any, source: str) -> Any:
     polars equivalent expr is ``pl.col(source).fill_null(False).cast(pl.Boolean)``).
     Shared by ``rows``/``count_table`` so the null handling can't diverge."""
     mask = table_df[source]
+    if isinstance(mask, pd.Series) and mask.dtype == bool:
+        return mask
     if hasattr(mask, "isna") and hasattr(mask, "where"):
         mask = mask.where(~mask.isna(), False)
     elif hasattr(mask, "fillna"):
@@ -72,6 +74,8 @@ def _restore_alias_shadowed_user_column(
     marker (an intermediate dispatch graph), or rows cannot be re-keyed."""
     from graphistry.compute.gfql.identifiers import shadow_restore_column
 
+    if shadow_restore_column(source) in table_df.columns:
+        return table_df  # the chain already carried the shadowed values under the restore name
     base_graph = ctx._gfql_rows_base_graph if ctx._gfql_rows_base_graph is not None else ctx._g
     base_frame = None if base_graph is None else (
         base_graph._nodes if table == "nodes" else base_graph._edges
@@ -98,6 +102,17 @@ def _restore_alias_shadowed_user_column(
             ).select(orig_cols)
         return table_df
     restore_col = shadow_restore_column(source)
+    # Traversal merges may reset row indexes; unique binding keys retain entity identity.
+    if (
+        key is not None and key != source
+        and key in table_df.columns and key in base_frame.columns
+        and bool(base_frame[key].is_unique)
+    ):
+        restored = base_frame.set_index(key)[source].reindex(table_df[key])
+        restored.index = table_df.index
+        out = table_df.copy()
+        out[restore_col] = restored
+        return out
     base_index = getattr(base_frame, "index", None)
     if base_index is not None and bool(base_index.is_unique):
         # guarded .loc proves index-subset alignment (cuDF Index.isin disagrees with pandas)
@@ -109,13 +124,6 @@ def _restore_alias_shadowed_user_column(
             out = table_df.copy()
             out[restore_col] = restored
             return out
-    if (
-        key is not None and key != source
-        and key in table_df.columns and key in base_frame.columns
-        and bool(base_frame[key].is_unique)
-    ):
-        renamed = base_frame[[key, source]].rename(columns={source: restore_col})
-        return table_df.merge(renamed, on=key, how="left")
     return table_df
 
 
@@ -274,7 +282,7 @@ def rows(
             table_df = _empty_like(ctx._edges)
         else:
             table_df = empty_frame(ctx)
-    elif not _is_polars(table_df):
+    elif not _is_polars(table_df) and source is None:
         table_df = table_df.copy()
 
     if source is not None:

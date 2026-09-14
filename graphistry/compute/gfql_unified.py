@@ -14,6 +14,7 @@ from graphistry.util import setup_logger
 from .ast import ASTObject, ASTLet, ASTNode, ASTEdge, ASTCall
 from .chain import Chain, chain as chain_impl
 from .gfql.query_types import GFQLQuery
+from .chain import reject_alias_named_like_binding
 from .chain_let import chain_let as chain_let_impl
 from .execution_context import ExecutionContext
 from .gfql.policy import (
@@ -25,7 +26,7 @@ from .gfql.policy import (
     QueryType,
     expand_policy
 )
-from graphistry.compute.gfql.identifiers import TRAIL_ARM_EDGE_ALIAS_PREFIX
+from graphistry.compute.gfql.identifiers import cypher_pipeline, TRAIL_ARM_EDGE_ALIAS_PREFIX
 from graphistry.compute.gfql.same_path_types import (
     EDGE_IDENTITY_COLUMN,
     NODE_IDENTITY_COLUMN,
@@ -34,6 +35,7 @@ from graphistry.compute.gfql.same_path_types import (
     parse_where_json,
 )
 from graphistry.compute.exceptions import ErrorCode, GFQLValidationError
+from graphistry.compute.engine_coercion import ensure_engine_match
 from graphistry.compute.gfql.cypher.ast import CypherParams
 from graphistry.compute.gfql.cypher.parser import parse_cypher
 from graphistry.compute.gfql.exec_context import attach_row_exec_context, clear_row_exec_context
@@ -63,7 +65,7 @@ from graphistry.compute.gfql.cypher.reentry.execution import (
     restrict_connected_join_rows_to_reentry_seed as _restrict_connected_join_rows_to_reentry_seed,
     union_scalar_reentry_results as _union_scalar_reentry_results,
 )
-from graphistry.compute.gfql.cypher.call_procedures import execute_cypher_call
+from graphistry.compute.gfql.cypher.call_procedures import CompiledCypherProcedureCall, execute_cypher_call
 from graphistry.compute.gfql.cypher.result_postprocess import (
     apply_result_projection,
     entity_projection_meta_entry as _entity_projection_meta_entry,
@@ -614,6 +616,7 @@ def _apply_connected_optional_match(
 from .gfql_fast_paths import (
     _connected_join_two_star_fast_grouped_count,
     _connected_join_two_star_fast_rows,
+    _execute_seeded_node_lookup_fast_path,
     _execute_seeded_typed_hop_fast_path,
     _execute_single_hop_grouped_aggregate_fast_path,
     _execute_two_hop_count_fast_path,
@@ -761,7 +764,7 @@ def _apply_connected_match_join(
     cache_store: Dict[str, Any] = {}
 
     for pattern_chain in plan.pattern_chains:
-        _reject_node_alias_shadowing_id_binding(
+        reject_alias_named_like_binding(
             base_graph, pattern_chain, include_edge_endpoint_aliases=True
         )
 
@@ -1010,7 +1013,7 @@ def _execute_graph_constructor_compiled(
     base_graph: Plottable,
     chain: Chain,
     *,
-    procedure_call: Any = None,
+    procedure_call: Optional[CompiledCypherProcedureCall] = None,
     graph_residual_filters: Tuple[CompiledGraphResidualFilter, ...] = (),
     engine: Union[EngineAbstract, str],
     policy: Optional[PolicyDict],
@@ -1018,7 +1021,12 @@ def _execute_graph_constructor_compiled(
 ) -> Plottable:
     """Execute a compiled graph constructor (MATCH-based or CALL-based)."""
     if procedure_call is not None:
-        return execute_cypher_call(base_graph, procedure_call)
+        result = execute_cypher_call(base_graph, procedure_call)
+        requested_engine = resolve_engine(
+            engine if isinstance(engine, EngineAbstract) else EngineAbstract(engine),
+            base_graph,
+        )
+        return ensure_engine_match(result, requested_engine)
     filtered_graph = _apply_graph_residual_filters(
         base_graph, graph_residual_filters, engine=engine
     )
@@ -1466,7 +1474,8 @@ def _execute_compiled_query_via_physical_plan(
         # paths, and it cannot be bypassed the way patching a directly-imported name is.
         from graphistry.compute.gfql.index.api import record_fast_path_decision
 
-        _FastPathName = Literal["single_hop_grouped_aggregate", "two_hop_count", "seeded_typed_hop"]
+        _FastPathName = Literal[
+            "single_hop_grouped_aggregate", "two_hop_count", "seeded_typed_hop", "seeded_node_lookup"]
 
         def _try_fast(path_name: _FastPathName, run: Callable[[], Optional[Plottable]]) -> Optional[Plottable]:
             out, reason = _run_fast_path_on_requested_target(engine, run)
@@ -1493,6 +1502,13 @@ def _execute_compiled_query_via_physical_plan(
                 engine=engine, policy=policy, context=context, start_nodes=start_nodes))
         if fast_hop is not None:
             return fast_hop
+        fast_lookup = _try_fast(
+            "seeded_node_lookup",
+            lambda: _execute_seeded_node_lookup_fast_path(
+                base_graph, compiled_query, physical_plan,
+                engine=engine, policy=policy, context=context, start_nodes=start_nodes))
+        if fast_lookup is not None:
+            return fast_lookup
         return _execute_compiled_query_chain_non_union(
             base_graph,
             compiled_query=compiled_query,
@@ -1576,7 +1592,7 @@ def _execute_compiled_query_chain_non_union(
             compiled_query=compiled_query,
             engine=engine,
         )
-    _reject_node_alias_shadowing_id_binding(
+    reject_alias_named_like_binding(
         base_graph, compiled_query.chain, include_edge_endpoint_aliases=True
     )
 
@@ -1617,6 +1633,7 @@ def _execute_compiled_query_chain_non_union(
             result,
             compiled_query.result_projection,
             structured=not row_guard_needs_single_column_entity_text,
+            source_node_id=base_graph._node,
         )
     if compiled_query.optional_projection_row_guard is not None:
         expected_rows = 1
@@ -1667,6 +1684,19 @@ def _execute_compiled_query_chain_non_union(
 
 
 def _execute_compiled_query_with_reentry(
+    base_graph: Plottable,
+    *,
+    compiled_query: Union[CompiledCypherQuery, CompiledCypherUnionQuery],
+    engine: Union[EngineAbstract, str],
+    policy: Optional[PolicyDict],
+    context: ExecutionContext,
+) -> Plottable:
+    with cypher_pipeline():
+        return _execute_compiled_query_with_reentry_impl(
+            base_graph, compiled_query=compiled_query, engine=engine, policy=policy, context=context)
+
+
+def _execute_compiled_query_with_reentry_impl(
     base_graph: Plottable,
     *,
     compiled_query: Union[CompiledCypherQuery, CompiledCypherUnionQuery],
@@ -2736,6 +2766,7 @@ def _gfql_with_strictness(
                     engine,
                     expanded_policy,
                     context,
+                    _ast_validated=True,
                 )
             else:
                 raise TypeError(
@@ -2750,51 +2781,6 @@ def _gfql_with_strictness(
             context.policy_depth = policy_depth
 
 
-def _reject_node_alias_shadowing_id_binding(
-    g: Plottable, chain_obj: Chain, *, include_edge_endpoint_aliases: bool = False
-) -> None:
-    """Typed decline for a node alias named after the node-ID binding column.
-
-    The alias marker is stamped as ``<alias> = True``, so an alias equal to the node-id
-    column overwrites the ids themselves: pandas then died with a raw
-    ``ValueError: The column label 'id' is not unique`` from the chain's own merge while
-    polars answered ``True``. Neither is a usable result; decline the same way on both.
-    """
-    node_id = getattr(g, "_node", None)
-    endpoint_cols = {
-        col for col in (getattr(g, "_source", None), getattr(g, "_destination", None))
-        if isinstance(col, str)
-    }
-    for op in chain_obj.chain:
-        if isinstance(node_id, str) and isinstance(op, ASTNode) and getattr(op, "_name", None) == node_id:
-            raise GFQLValidationError(
-                ErrorCode.E108,
-                "A node alias cannot be named after the node-ID binding column",
-                field="chain.name",
-                value=node_id,
-                suggestion=(
-                    f"The alias flag is materialized as a column named '{node_id}', which would "
-                    f"overwrite the node-ID binding. Rename the alias."
-                ),
-            )
-        # Cypher-only decline; raw GFQL chains keep their documented overwrite parity.
-        if (
-            include_edge_endpoint_aliases
-            and isinstance(op, ASTEdge)
-            and getattr(op, "_name", None) in endpoint_cols
-        ):
-            raise GFQLValidationError(
-                ErrorCode.E108,
-                "An edge alias cannot be named after an edge endpoint binding column",
-                field="chain.name",
-                value=getattr(op, "_name", None),
-                suggestion=(
-                    "The alias flag is materialized as a column named like the edge "
-                    "source/destination binding, which would overwrite the endpoints. "
-                    "Rename the alias."
-                ),
-            )
-
 
 def _chain_dispatch(
     g: Plottable,
@@ -2803,8 +2789,9 @@ def _chain_dispatch(
     policy: Optional[PolicyDict],
     context: ExecutionContext,
     start_nodes: Optional[DataFrameT] = None,
+    _ast_validated: bool = False,
 ) -> Plottable:
-    _reject_node_alias_shadowing_id_binding(g, chain_obj)
+    reject_alias_named_like_binding(g, chain_obj, include_edge_endpoint_aliases=True)
     engine_name = engine.value if hasattr(engine, "value") else str(engine)
     if chain_obj.where and engine_name in (Engine.POLARS.value, Engine.POLARS_GPU.value):
         # Cross-entity / same-path WHERE routes through DFSamePathExecutor
@@ -2866,4 +2853,6 @@ def _chain_dispatch(
             inputs.engine,
             inputs.include_paths,
         )
-    return chain_impl(g, chain_obj.chain, engine, policy=policy, context=context, start_nodes=start_nodes)
+    # Validation state applies only to the fresh list-input Chain; execution revalidates mutable operations.
+    chain_input = chain_obj if _ast_validated else chain_obj.chain
+    return chain_impl(g, chain_input, engine, policy=policy, context=context, start_nodes=start_nodes)

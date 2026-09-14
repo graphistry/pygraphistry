@@ -86,7 +86,7 @@ from graphistry.compute.gfql.identifiers import (
     shadow_restore_column,
     trail_column_name,
 )
-from graphistry.compute.util import generate_safe_column_name
+from graphistry.compute.util import generate_safe_column_name, generate_safe_column_name_from
 from graphistry.compute.gfql.cache_registry import register_process_singleton
 from graphistry.compute.gfql.series_str_compat import is_non_textual_scalar_dtype, series_sequence_len, series_str_match
 from graphistry.compute.gfql.row.ordering import (
@@ -235,6 +235,13 @@ ROW_PIPELINE_CALLS = frozenset(
 def is_row_pipeline_call(function: str) -> bool:
     return function in ROW_PIPELINE_CALLS
 
+
+
+def _rows_where(frame: DataFrameT, mask: SeriesT) -> DataFrameT:
+    """Keep the rows where ``mask`` is True, by position: a mask evaluated on a renamed
+    view of ``frame`` may carry a fresh RangeIndex while ``frame`` keeps the labels of an
+    earlier filter, so label alignment (``.loc``) is not the contract here."""
+    return frame[mask.values]
 
 class RowPipelineMixin:
     # Mirrors the GFQL execution-context fields declared on Plottable: this mixin
@@ -3669,15 +3676,32 @@ class RowPipelineMixin:
         )
 
     @staticmethod
-    def _gfql_node_alias_lookup_frame(lookup_source: Any, node_id: str, alias: str) -> Any:
-        lookup = lookup_source[[node_id]].copy()
-        lookup[alias] = lookup_source[node_id]
-        lookup[f"{alias}.{node_id}"] = lookup_source[node_id]
-        for col in lookup_source.columns:
-            if col == node_id:
+    def _gfql_restore_alias_property_dtypes(bindings: "DataFrameT", base_nodes: Optional["DataFrameT"], alias: str) -> "DataFrameT":
+        """A traversal frame carries id-only stub rows, so its property columns arrive widened; once the bound rows hold no null, the node table's dtype is the answer's dtype."""
+        if base_nodes is None:
+            return bindings
+        for prop in base_nodes.columns:
+            col = f"{alias}.{prop}"
+            if col not in bindings.columns:
                 continue
-            lookup[f"{alias}.{col}"] = lookup_source[col]
-        return lookup
+            want, have = str(base_nodes[prop].dtype), str(bindings[col].dtype)
+            if want == have or have not in ("float64", "float32", "object"):
+                continue
+            if want not in ("int8", "int16", "int32", "int64", "uint8", "uint16", "uint32", "uint64", "bool"):
+                continue
+            if bool(bindings[col].isna().any()):
+                continue
+            bindings[col] = bindings[col].astype(want)
+        return bindings
+
+    @staticmethod
+    def _gfql_node_alias_lookup_frame(lookup_source: Any, node_id: str, alias: str) -> Any:
+        """Build node IDs and alias-qualified properties for a left merge."""
+        other = [col for col in lookup_source.columns if col != node_id]
+        renamed = lookup_source.rename(columns={col: f"{alias}.{col}" for col in other})
+        ids = lookup_source[node_id]
+        lookup = renamed.assign(**{alias: ids, f"{alias}.{node_id}": ids})
+        return lookup[[node_id, alias, f"{alias}.{node_id}", *[f"{alias}.{col}" for col in other]]]
 
     @staticmethod
     def _gfql_node_filter_has_label(filter_dict: Any) -> bool:
@@ -3929,7 +3953,7 @@ class RowPipelineMixin:
                 view = frame.rename(columns={c: f"{alias}.{c}" for c in frame.columns})
                 value = self._gfql_eval_string_expr(view, spec["text"])
                 mask = self._gfql_bool_mask(view, value)
-                frame = frame.loc[mask]
+                frame = _rows_where(frame, mask)
             elif kind == "search_any":
                 from graphistry.compute.gfql.search_any import search_any_mask
                 term = spec.get("term")
@@ -3974,7 +3998,7 @@ class RowPipelineMixin:
                         value=spec.get("columns"),
                         language="cypher",
                     )
-                frame = frame.loc[mask]
+                frame = _rows_where(frame, mask)
         return frame
 
     def _gfql_connected_bindings_state(
@@ -4057,7 +4081,12 @@ class RowPipelineMixin:
         first_nodes = self._gfql_apply_alias_prefilter(
             first_nodes, first_alias, alias_prefilters
         )
-        state_df = first_nodes[[node_id_col]].copy().rename(columns={node_id_col: WALK_CURRENT_COL})
+        state_df = (
+            first_nodes[[node_id_col]]
+            .drop_duplicates(subset=[node_id_col], keep="first")
+            .copy()
+            .rename(columns={node_id_col: WALK_CURRENT_COL})
+        )
         alias_frames: Dict[str, DataFrameT] = {}
         if isinstance(first_alias, str):
             state_df[first_alias] = state_df[WALK_CURRENT_COL]
@@ -4175,7 +4204,14 @@ class RowPipelineMixin:
                 )
                 trail_cols = trail_cols + segment_trail_cols
             else:
+                path_order = None
+                if engine == Engine.CUDF:
+                    path_order = generate_safe_column_name_from("__gfql_path_order__", list(state_df.columns) + list(oriented.columns))
+                    state_df = state_df.assign(**{path_order: range(len(state_df))})
                 state_df = state_df.merge(oriented, left_on=WALK_CURRENT_COL, right_on=WALK_FROM_COL, how="inner")
+                if path_order is not None:
+                    tie_cols = [ident_col] if ident_col in state_df.columns else []
+                    state_df = state_df.sort_values([path_order, *tie_cols]).drop(columns=[path_order])
                 state_df = state_df.drop(columns=[WALK_CURRENT_COL, WALK_FROM_COL]).rename(columns={WALK_TO_COL: WALK_CURRENT_COL})
                 if not shortest_path_mode and ident_col in state_df.columns:
                     state_df = RowPipelineMixin._gfql_drop_reused_relationship_rows(
@@ -4359,33 +4395,6 @@ class RowPipelineMixin:
                     bindings[col] = source.iloc[0:0].reindex(bindings.index)
                 else:
                     bindings[col] = self._gfql_broadcast_scalar(bindings, None)
-        # Downstream node aliases (every node op after the first) reach the row via a hop
-        # whose unmatched rows introduce NaN, so the non-empty path widens the columns that
-        # cannot hold NaN: numpy int -> float64, numpy bool -> object. The 0-row path sourced
-        # them from the base node frame (int/bool), so match that widening or an emptied
-        # `sum(b.i)`/`max(b.bv)` returns int64/bool where the non-empty run and master give
-        # float64/object -- observable through UNION ALL (#31, Wave 37 Finding 2). Extension
-        # dtypes (`Int64`, `boolean`) hold NA natively and stay put in the non-empty path, so
-        # they must NOT be touched here (widening them re-introduced the divergence -- Wave 37
-        # Finding 1).
-        import pandas as _pd
-
-        node_ops = [op for op in ops if isinstance(op, ASTNode)]
-        for op in node_ops[1:]:
-            alias = getattr(op, "_name", None)
-            if not isinstance(alias, str):
-                continue
-            for col in [c for c in bindings.columns if c == alias or str(c).startswith(f"{alias}.")]:
-                try:
-                    dtype = bindings[col].dtype
-                    if _pd.api.types.is_extension_array_dtype(dtype):
-                        continue
-                    if dtype.kind in ("i", "u"):
-                        bindings[col] = bindings[col].astype("float64")
-                    elif dtype.kind == "b":
-                        bindings[col] = bindings[col].astype("object")
-                except Exception:
-                    continue
         return bindings
 
     def _gfql_connected_bindings_row_frame_from_state(
@@ -4431,6 +4440,13 @@ class RowPipelineMixin:
                 lookup_source, alias, base_nodes, node_id
             )
             lookup = self._gfql_node_alias_lookup_frame(lookup_source, node_id, alias)
+            order_cols = []
+            if resolve_engine(EngineAbstract.AUTO, bindings) == Engine.CUDF:
+                order_col = generate_safe_column_name_from("__gfql_binding_order__", list(bindings.columns) + list(lookup.columns))
+                lookup_order = generate_safe_column_name_from("__gfql_lookup_order__", list(bindings.columns) + list(lookup.columns))
+                bindings = bindings.assign(**{order_col: range(len(bindings))})
+                lookup = lookup.assign(**{lookup_order: range(len(lookup))})
+                order_cols = [order_col, lookup_order]
             bindings = bindings.merge(
                 lookup,
                 left_on=alias,
@@ -4438,9 +4454,12 @@ class RowPipelineMixin:
                 how="left",
                 suffixes=("", f"__{alias}_join__"),
             )
+            if order_cols:
+                bindings = bindings.sort_values(order_cols).drop(columns=order_cols)
             dup_col = f"{node_id}__{alias}_join__"
             if dup_col in bindings.columns:
                 bindings = bindings.drop(columns=[dup_col])
+            bindings = self._gfql_restore_alias_property_dtypes(bindings, base_nodes, alias)
             for hop_col in [col for col in bindings.columns if is_shortest_path_hops_column(str(col))]:
                 alias_hop_col = f"{alias}.{hop_col}"
                 if alias_hop_col in bindings.columns:
@@ -4821,6 +4840,8 @@ class RowPipelineMixin:
 
         if cudf_row_table and any(isinstance(value, pd.Series) for value in projected.values()):
             out_df = _gfql_projected_values_to_pandas_frame(projected, len(table_df))
+        elif isinstance(table_df, pd.DataFrame) and all(isinstance(v, pd.Series) for v in projected.values()):
+            out_df = pd.DataFrame(projected, index=table_df.index)
         else:
             out_df = table_df.assign(**projected)[list(projected.keys())]
         return self._gfql_row_table(out_df)
@@ -5488,8 +5509,17 @@ class RowPipelineMixin:
                     if isinstance(col, str) and col.startswith(prefix) and col not in seen:
                         key_cols.append(col)
                         seen.add(col)
+        from graphistry.compute.gfql.agg_types import validate_aggregation_output
+
+        validate_aggregation_output(bool(key_cols), bool(aggregations))
+        global_key = None
         if not key_cols:
-            raise ValueError("group_by(keys=...) requires at least one key column")
+            global_key = RowPipelineMixin._gfql_fresh_col_name(
+                [*table_df.columns, *(str(agg[0]) for agg in aggregations if agg)],
+                "__gfql_global_group__",
+            )
+            table_df = table_df.assign(**{global_key: 0})
+            key_cols = [global_key]
         for key in key_cols:
             if key not in table_df.columns:
                 raise ValueError(f"group_by key column not found: {key!r}")
@@ -5553,7 +5583,11 @@ class RowPipelineMixin:
                 if expr_col not in table_df.columns:
                     expr_values = self._gfql_eval_string_expr(table_df, expr_col)
                     if not hasattr(expr_values, "astype"):
+                        null_scalar = expr_values is None
                         expr_values = self._gfql_broadcast_scalar(table_df, expr_values)
+                        if null_scalar and len(table_df) == 0:
+                            # Empty None broadcasts otherwise become object/string on cuDF.
+                            expr_values = expr_values.astype("float64")
                     tmp_col = "__gfql_group_expr__"
                     while tmp_col in table_df.columns:
                         tmp_col = f"{tmp_col}_x"
@@ -5675,6 +5709,15 @@ class RowPipelineMixin:
 
         out_df = out_df.sort_values(by=[group_order_col]).reset_index(drop=True)
         out_df = out_df.drop(columns=[group_order_col])
+        if global_key is not None:
+            out_df = out_df.drop(columns=[global_key])
+            if len(out_df) == 0:
+                from graphistry.compute.gfql.cypher.aggregate_identity import aggregate_identity_value
+
+                out_df = type(table_df)({
+                    str(agg[0]): [aggregate_identity_value(str(agg[1]).lower())]
+                    for agg in aggregations
+                })
         return self._gfql_row_table(out_df)
 
     def fill_empty_row(self, row: Dict[str, Any]) -> "Plottable":  # hygiene-ok: explicit-any -- heterogeneous Cypher identity values (0 / [] / None)

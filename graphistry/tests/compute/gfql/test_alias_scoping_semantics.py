@@ -21,11 +21,14 @@ Four defects, all pinned on BOTH engines with hand-computed openCypher oracles:
 Discriminating controls from the probe are pinned alongside each fix so a future
 regression cannot pass by repairing only one side.
 """
+from typing import Literal
+
 import pandas as pd
 import pytest
 
 import graphistry
-from graphistry.compute.exceptions import ErrorCode, GFQLValidationError
+from graphistry.compute.exceptions import ErrorCode, GFQLTypeError, GFQLValidationError
+from graphistry.compute.gfql.cypher.api import compile_cypher
 
 pl = pytest.importorskip("polars")
 
@@ -191,10 +194,15 @@ def test_with_non_rebind_shapes_are_unaffected(query: str, expected, engine: str
 @pytest.mark.parametrize("engine", ENGINES)
 def test_terminal_return_rename_onto_live_alias_still_works(engine: str) -> None:
     """CONTROL: a terminal `RETURN a AS b` only names an output column -- no later clause
-    resolves against it -- so it must keep working on both engines."""
+    resolves against it -- so it must keep working on both engines.
+
+    The KNOWS bag is a->b, b->c, a->c, c->d, so the a-side is [a, b, a, c] and Alice
+    appears twice. This used to expect the 3-name node set; the sibling property spelling
+    (`WITH a.name AS b RETURN b`, in test_with_non_rebind_shapes_are_unaffected) already
+    expected the 4-row bag, and whole-entity projection now agrees with it."""
     rows = _run(PEOPLE_NODES, PEOPLE_EDGES,
                 "MATCH (a:Person)-[r:KNOWS]->(b:Person) RETURN a AS b", engine)
-    assert sorted(r["b.name"] for r in rows) == ["Alice", "Bob", "Carol"]
+    assert sorted(r["b.name"] for r in rows) == ["Alice", "Alice", "Bob", "Carol"]
 
 
 @pytest.mark.parametrize("engine", ENGINES)
@@ -451,21 +459,36 @@ def test_with_rebind_edge_alias_onto_edge_alias_declines(engine: str) -> None:
     assert exc_info.value.context["value"] == "r AS q"
 
 
+def test_node_onto_edge_entity_rebind_declines_at_compile_time() -> None:
+    query = "MATCH (a:Person)-[r:KNOWS]->(b:Person) WITH a AS r RETURN r.type AS t"
+    with pytest.raises(GFQLValidationError) as exc_info:
+        compile_cypher(query)
+    assert exc_info.value.code == ErrorCode.E108
+    assert "rebind an entity alias" in str(exc_info.value)
+    assert exc_info.value.context["value"] == "a AS r"
+
+
+def test_edge_onto_node_entity_rebind_declines_at_compile_time() -> None:
+    query = "MATCH (a:Person)-[r:KNOWS]->(b:Person) WITH r AS b RETURN b.w AS t"
+    with pytest.raises(GFQLValidationError) as exc_info:
+        compile_cypher(query)
+    assert exc_info.value.code == ErrorCode.E108
+    assert "rebind an entity alias" in str(exc_info.value)
+    assert exc_info.value.context["value"] == "r AS b"
+
+
 @pytest.mark.parametrize("engine", ENGINES)
-@pytest.mark.parametrize("query", [
-    # node alias onto an edge-alias name and the reverse: outside the guard's
-    # same-kind scope, but they must stay ERRORS (never a silent split-read).
-    "MATCH (a:Person)-[r:KNOWS]->(b:Person) WITH a AS r RETURN r.type AS t",
-    "MATCH (a:Person)-[r:KNOWS]->(b:Person) WITH r AS b RETURN b.w AS t",
-    # a property read off a scalar rebind is a type error, not the shadowed entity
-    "MATCH (a:Person)-[r:KNOWS]->(b:Person) WITH a.name AS b RETURN b.name AS t",
-], ids=["node_onto_edge", "edge_onto_node", "scalar_then_property"])
-def test_cross_kind_and_scalar_rebinds_stay_errors(query: str, engine: str) -> None:
-    with pytest.raises(Exception) as exc_info:
-        _run(PEOPLE_NODES, PEOPLE_EDGES, query, engine)
-    assert type(exc_info.value).__name__ in (
-        "GFQLTypeError", "GFQLValidationError", "NotImplementedError"
-    )
+def test_scalar_rebind_stays_an_error(engine: Literal["pandas", "polars"]) -> None:
+    query = "MATCH (a:Person)-[r:KNOWS]->(b:Person) WITH a.name AS b RETURN b.name AS t"
+    if engine == "pandas":
+        with pytest.raises(GFQLTypeError) as exc_info:
+            _run(PEOPLE_NODES, PEOPLE_EDGES, query, engine)
+        assert exc_info.value.code == ErrorCode.E303
+        assert exc_info.value.context["field"] == "function"
+        assert exc_info.value.context["value"] == "select"
+    else:
+        with pytest.raises(NotImplementedError):
+            _run(PEOPLE_NODES, PEOPLE_EDGES, query, engine)
 
 
 @pytest.mark.parametrize("engine", ENGINES)
@@ -547,17 +570,13 @@ def test_rows_route_edge_alias_named_as_its_property_reads_user_values(engine: s
 
 def test_rows_route_edge_alias_colliding_with_its_own_type_filter() -> None:
     """``MATCH (a)-[type:K]->(b) RETURN type.type``: the alias shadows the very column
-    its ``:K`` filter reads. pandas/cuDF now answer the user values; polars' chain
-    machinery re-applies the type filter against the stamped marker and raises a typed
-    GFQLSchemaError -- an honest decline, pinned so it cannot rot into a silent wrong
-    answer (residual polish for #1911)."""
-    from graphistry.compute.exceptions import GFQLSchemaError
-
+    its ``:K`` filter reads. Both engines answer the user values: the chain's marker
+    shadows the column and keeps its values under the restore name the rows route
+    resolves (the polars residual for #1911 / #2039 is gone)."""
     query = "MATCH (a:P)-[type:K]->(b:P) RETURN type.type AS t"
-    assert _run(SELF_NAMED_NODES, SELF_NAMED_EDGES, query, "pandas") == [
-        {"t": "K"}, {"t": "K"}]
-    with pytest.raises(GFQLSchemaError):
-        _run(SELF_NAMED_NODES, SELF_NAMED_EDGES, query, "polars")
+    for engine in ("pandas", "polars"):
+        assert _run(SELF_NAMED_NODES, SELF_NAMED_EDGES, query, engine) == [
+            {"t": "K"}, {"t": "K"}]
 
 
 @pytest.mark.parametrize("engine", ENGINES)
@@ -596,7 +615,7 @@ def test_mixed_whole_entity_and_self_named_property_projection(engine: str) -> N
 def test_restore_alias_shadowed_user_column_branches() -> None:
     """Helper-level pins for the rows-route restore: no-op without a base, a shadowed
     column, or when the base column is itself a boolean marker (intermediate dispatch
-    graph); index-keyed restore; key-merge fallback when the index cannot re-key."""
+    graph); binding-key restore; index fallback when no unique binding key exists."""
     from types import SimpleNamespace
 
     from graphistry.compute.gfql.identifiers import shadow_restore_column
@@ -615,11 +634,11 @@ def test_restore_alias_shadowed_user_column_branches() -> None:
     # base column is itself a boolean marker (an intermediate dispatch graph): unchanged
     base_marker = SimpleNamespace(_nodes=pd.DataFrame({"id": ["a", "b"], "kind": [True, False]}), _edges=None, _node="id", _edge=None)
     assert _restore_alias_shadowed_user_column(ctx_for(base_marker), marked, "nodes", "kind") is marked
-    # index-keyed restore adds the internal restore column and keeps the marker boolean
+    # Keyed restore keeps the marker boolean.
     base = SimpleNamespace(_nodes=pd.DataFrame({"id": ["a", "b"], "kind": ["K1", "K2"]}), _edges=None, _node="id", _edge=None)
     out = _restore_alias_shadowed_user_column(ctx_for(base), marked, "nodes", "kind")
     assert list(out[restore_col]) == ["K1", "K2"] and list(out["kind"]) == [True, True]
-    # base index cannot re-key (duplicate labels): fall back to the id-key merge
+    # Duplicate dataframe indexes do not affect entity-key lookup.
     dup_index_nodes = pd.DataFrame({"id": ["a", "b"], "kind": ["K1", "K2"]}, index=[0, 0])
     base_dup = SimpleNamespace(_nodes=dup_index_nodes, _edges=None, _node="id", _edge=None)
     out = _restore_alias_shadowed_user_column(ctx_for(base_dup), marked, "nodes", "kind")
@@ -627,7 +646,7 @@ def test_restore_alias_shadowed_user_column_branches() -> None:
     # neither index nor key can re-key: unchanged (marker stays, as before)
     base_no_key = SimpleNamespace(_nodes=dup_index_nodes, _edges=None, _node=None, _edge=None)
     assert _restore_alias_shadowed_user_column(ctx_for(base_no_key), marked, "nodes", "kind") is marked
-    # row-table labels absent from a unique base index: guarded .loc declines to the key merge
+    # Reset dataframe indexes do not affect entity-key lookup.
     shifted = pd.DataFrame({"id": ["a", "b"], "kind": [True, True]}, index=[10, 11])
     out = _restore_alias_shadowed_user_column(ctx_for(base), shifted, "nodes", "kind")
     assert list(out[restore_col]) == ["K1", "K2"]
@@ -673,3 +692,35 @@ def test_cudf_unshadow_and_rebind_guard_parity() -> None:
     with pytest.raises(GFQLValidationError) as exc_info:
         g.gfql("MATCH (a:P)-[r:K]->(b:P) WITH a AS b RETURN b.name", engine="cudf")
     assert "rebind an entity alias" in str(exc_info.value)
+
+
+@pytest.mark.parametrize("backend", ["pandas", "cudf"])
+@pytest.mark.parametrize("keys", [[], [2, 1], [2, 1, 2], [2, 99, 1]])
+@pytest.mark.parametrize("duplicate_index", [False, True])
+@pytest.mark.parametrize("values", [[10, 20], ["first", "second"]])
+def test_alias_restore_uses_entity_keys_after_row_reordering(backend, keys, duplicate_index, values):
+    from types import SimpleNamespace
+    from graphistry.compute.gfql.identifiers import shadow_restore_column
+    from graphistry.compute.gfql.row.frame_ops import _restore_alias_shadowed_user_column
+
+    base = pd.DataFrame({"id": [1, 2], "value": values})
+    index = [0] * len(keys) if duplicate_index else list(range(len(keys)))
+    marked = pd.DataFrame({"id": pd.Series(keys, dtype="int64"),
+                           "value": pd.Series([True] * len(keys), dtype="bool")})
+    marked.index = index
+    if backend == "cudf":
+        cudf = pytest.importorskip("cudf")
+        base, marked = cudf.from_pandas(base), cudf.from_pandas(marked)
+    ctx = SimpleNamespace(_gfql_rows_base_graph=SimpleNamespace(
+        _nodes=base, _edges=None, _node="id", _edge=None), _g=None)
+    result = _restore_alias_shadowed_user_column(ctx, marked, "nodes", "value")
+    result_pd = result.to_pandas() if backend == "cudf" else result
+    marked_pd = marked.to_pandas() if backend == "cudf" else marked
+    assert result_pd["id"].tolist() == keys
+    assert result_pd.index.tolist() == index
+    assert result_pd["value"].tolist() == [True] * len(keys)
+    actual = [None if pd.isna(value) else value for value in result_pd[shadow_restore_column("value")]]
+    expected = [{1: values[0], 2: values[1]}.get(key) for key in keys]
+    assert actual == expected
+    assert list(marked_pd.columns) == ["id", "value"]
+    assert marked_pd["value"].tolist() == [True] * len(keys)

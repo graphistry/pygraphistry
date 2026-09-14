@@ -8,12 +8,19 @@ into ``NaN``, and ``keep_default_na=False`` still turns ``'007'`` into ``7``.
 ``parquet`` carries an Arrow schema and is the faithful default.
 """
 from inspect import getmodule
+import typing
 import warnings
-from typing import BinaryIO, Callable, List, Optional
+from typing import BinaryIO, Callable, Optional
+from typing_extensions import Literal
 
+from graphistry.Engine import Engine, EngineAbstract, EngineAbstractType, resolve_input_engine
+from graphistry.Plottable import Plottable
 from graphistry.compute.exceptions import ErrorCode, GFQLRemoteError
 from graphistry.compute.typing import DataFrameT
 from graphistry.models.compute.chain_remote import DFImportArgs
+
+RemoteAPIName = Literal["gfql_remote", "python_remote"]
+
 
 
 CSV_DTYPE_KWARGS = frozenset({'converters', 'dtype'})
@@ -46,8 +53,36 @@ def _is_pandas_like(df: Optional[DataFrameT]) -> bool:
     return df is None or isinstance(df, pd.DataFrame) or 'unittest.mock' in str(type(df))
 
 
+def resolve_remote_engine(
+    engine: EngineAbstractType,
+    graph: Plottable,
+    api_name: RemoteAPIName,
+) -> Engine:
+    """Resolve a supported remote engine before auth, upload, or transport.
+
+    :param engine: Requested engine or ``auto``.
+    :param graph: Graph used to resolve ``auto``.
+    :param api_name: Public entry point named in the error message.
+    :return: A pandas or cudf engine.
+    :raises GFQLRemoteError: When the resolved engine is not supported remotely.
+    """
+    resolved = resolve_input_engine(engine, graph)
+    if resolved in (Engine.PANDAS, Engine.CUDF):
+        return resolved
+
+    requested = engine.value if isinstance(engine, EngineAbstract) else engine
+    raise GFQLRemoteError(
+        ErrorCode.E405,
+        f"{api_name}: remote execution supports only 'pandas' and 'cudf' engines; "
+        f"requested {requested!r}, which resolved to {resolved.value!r}.",
+        field="engine",
+        value=requested,
+        suggestion="Use engine='pandas', engine='cudf', or engine='auto' with supported frames.",
+    )
+
+
 def require_supported_frame_library(
-    nodes: Optional[DataFrameT], edges: Optional[DataFrameT], api_name: str
+    nodes: Optional[DataFrameT], edges: Optional[DataFrameT], api_name: RemoteAPIName
 ) -> str:
     """Resolve which DataFrame library backs a remote call, before any request is sent.
 
@@ -71,7 +106,7 @@ def require_supported_frame_library(
 
 def validate_csv_import_args(
     df_import_args: Optional[DFImportArgs],
-    api_name: str,
+    api_name: RemoteAPIName,
 ) -> None:
     """Reject a malformed ``df_import_args`` before any request is sent.
 
@@ -89,14 +124,14 @@ def validate_csv_import_args(
         )
 
 
-def ungoverned_csv_axes(df_import_args: Optional[DFImportArgs]) -> List[str]:
+def ungoverned_csv_axes(df_import_args: Optional[DFImportArgs]) -> typing.List[str]:
     """Name the lossy csv axes the caller's reader kwargs do not govern.
 
     :param df_import_args: Caller-supplied reader kwargs, or ``None``.
     :return: Zero, one, or two axis descriptions; empty means the read is under caller control.
     """
     keys = set(df_import_args or {})
-    axes: List[str] = []
+    axes: typing.List[str] = []
     if not (keys & CSV_DTYPE_KWARGS):
         axes.append(CSV_DTYPE_AXIS_WARNING)
     if not (keys & CSV_NA_KWARGS):
@@ -106,7 +141,7 @@ def ungoverned_csv_axes(df_import_args: Optional[DFImportArgs]) -> List[str]:
 
 def resolve_csv_import_args(
     df_import_args: Optional[DFImportArgs],
-    api_name: str,
+    api_name: RemoteAPIName,
 ) -> DFImportArgs:
     """Resolve csv reader kwargs, warning per lossy axis the caller left to inference.
 
@@ -130,7 +165,7 @@ def resolve_csv_import_args(
 def resolve_csv_reader(
     read_csv: Callable[..., DataFrameT],
     df_import_args: Optional[DFImportArgs],
-    api_name: str,
+    api_name: RemoteAPIName,
 ) -> Callable[[BinaryIO], DataFrameT]:
     """Bind a csv reader that applies the caller's explicit reader kwargs.
 

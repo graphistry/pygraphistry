@@ -742,6 +742,7 @@ class TestVarlenAliasHopGate:
         actual = sorted(g_pl.gfql(q, engine="polars")._nodes["b.id"].to_list())
         assert actual == expected
 
+    @pytest.mark.route_engaged("cypher-fast")
     def test_fixed_length_hop_is_not_gated(self):
         """A plain single-hop edge sets no min_hops, so no labels are requested and no gate runs —
         the guard must not silently start filtering ordinary chains."""

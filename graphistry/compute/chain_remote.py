@@ -9,7 +9,7 @@ import uuid
 import warnings
 import zipfile
 
-from graphistry.Engine import Engine, EngineAbstractType, resolve_input_engine
+from graphistry.Engine import EngineAbstractType
 from graphistry.Plottable import Plottable
 from graphistry.client_session import DatasetInfo
 from graphistry.compute.ast import ASTLet, ASTObject
@@ -22,7 +22,10 @@ from graphistry.compute.gfql_validate import gfql_validate as gfql_preflight_val
 from graphistry.io.metadata import deserialize_plottable_metadata
 from graphistry.compute.exceptions import ErrorCode, GFQLSyntaxError, GFQLTypeError
 from graphistry.compute.remote_df_io import (
-    require_supported_frame_library, resolve_csv_reader, validate_csv_import_args)
+    require_supported_frame_library,
+    resolve_csv_reader,
+    resolve_remote_engine,
+    validate_csv_import_args)
 from graphistry.compute.remote_response import (
     check_subset_result_bindings,
     decode_json_result,
@@ -150,20 +153,10 @@ def chain_remote_generic(
 
     strict_level = resolve_strict_level(self, strict=strict)
 
-    if not api_token:
-        self._pygraphistry.refresh()
-        api_token = self.session.api_token
-
     if output_type not in output_types_graph:
         raise ValueError(f"Unknown output_type, expected one of {output_types_graph}, got: {output_type}")
 
-    # Resolve engine: auto -> pandas/cudf based on graph DataFrame type
-    engine_resolved = resolve_input_engine(engine, self)
-    if engine_resolved not in [Engine.PANDAS, Engine.CUDF]:
-        raise ValueError(f"Remote GFQL only supports 'pandas' or 'cudf' engines (or 'auto' which resolves to one of them). "
-                       f"Got engine='{engine}' which resolved to '{engine_resolved.value}'. "
-                       f"Dask engines are not supported for remote execution.")
-    engine_str = engine_resolved.value 
+    engine_str = resolve_remote_engine(engine, self, "gfql_remote").value
 
     if format is None:
         if output_type == "shape":
@@ -233,6 +226,10 @@ def chain_remote_generic(
                 collect_all=False,
                 schema=False,
             )
+
+    if not api_token:
+        self._pygraphistry.refresh()
+        api_token = self.session.api_token
 
     if not dataset_id:
         dataset_id = self._dataset_id

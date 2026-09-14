@@ -242,11 +242,19 @@ jobs:
           '^graphistry/compute/gfql/' \
           '^graphistry/compute/gfql_validate\.py$' \
           '^graphistry/compute/gfql_unified\.py$' \
+          '^graphistry/compute/gfql_fast_paths\.py$' \
+          '^graphistry/compute/chain.*\.py$' \
+          '^graphistry/compute/hop\.py$' \
+          '^graphistry/compute/filter_by_dict\.py$' \
+          '^graphistry/compute/ast\.py$' \
+          '^graphistry/compute/predicates/' \
           '^graphistry/models/gfql/' \
           '^graphistry/Plottable\.py$' \
           '^graphistry/tests/benchmarks/gfql/' \
           '^graphistry/tests/compute/gfql/' \
           '^graphistry/tests/compute/test_gfql.*\.py$' \
+          '^graphistry/tests/compute/test_chain.*\.py$' \
+          '^graphistry/tests/compute/test_hop.*\.py$' \
           '^graphistry/tests/test_gfql_.*\.py$' \
           '^tests/gfql/'
 
@@ -1589,11 +1597,69 @@ jobs:
         source pygraphistry/bin/activate
         ./bin/test-graphviz.sh
 
+  gfql-routes-off:
+    # Required replay: run the GFQL suites with one hot path declined per cell
+    # (GFQL_ROUTES_OFF); engagement pins are skipped via the route_engaged marker, so the
+    # uploaded lists hold route-vs-general result divergences only.
+    needs: [changes, test-gfql-core, generate-lockfiles]
+    if: ${{ needs.changes.outputs.gfql == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    strategy:
+      fail-fast: false
+      matrix:
+        mode: [polars-point-rows, point-rows, native-fast, polars-single-node, polars-seeded, polars-plain, index-hop, indexed-kernel, cypher-fast, all-off]
+
+    steps:
+
+    - name: Checkout repo
+      uses: actions/checkout@v4
+      with:
+        lfs: true
+        persist-credentials: false
+
+    - name: Set up Python 3.12
+      uses: actions/setup-python@v5
+      with:
+        python-version: 3.12
+
+    - name: Download lockfiles
+      uses: actions/download-artifact@v4
+      with:
+        name: lockfiles
+        path: requirements
+
+    - name: Install Python dependencies
+      run: |
+        python -m venv pygraphistry
+        source pygraphistry/bin/activate
+        python -m pip install --upgrade pip uv
+        uv pip install --require-hashes -r requirements/test-polars-py3.12.lock
+        uv pip install -e . --no-deps
+
+    - name: Routes-off replay (${{ matrix.mode }})
+      run: |
+        source pygraphistry/bin/activate
+        MODES=${{ matrix.mode }} ./bin/test-routes-off.sh
+        echo "## routes-off: ${{ matrix.mode }}" >> "$GITHUB_STEP_SUMMARY"
+        sed 's/^/- /' build/routes-off/${{ matrix.mode }}.divergences >> "$GITHUB_STEP_SUMMARY"
+
+    - name: Upload ledger
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: routes-off-${{ matrix.mode }}
+        path: build/routes-off/
+        if-no-files-found: ignore
+
   test-polars:
     needs: [changes, test-minimal-python, test-gfql-core, generate-lockfiles]
     if: ${{ ((needs.changes.outputs.python == 'true' && needs.changes.outputs.narrow_python_only != 'true') || needs.changes.outputs.gfql == 'true' || needs.changes.outputs.pandas_compat == 'true' || needs.changes.outputs.core == 'true' || needs.changes.outputs.infra == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule') && !(needs.changes.outputs.docs_only_latest == 'true' && (github.event_name == 'push' || github.event_name == 'pull_request')) }}
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    # The py3.12 coverage cell takes ~9m40s on a 2-vCPU hosted runner before
+    # setup, the coverage audit, and artifact upload; keep deterministic margin.
+    timeout-minutes: 15
 
     strategy:
       matrix:
@@ -2044,8 +2110,10 @@ jobs:
 
   test-docs:
     needs: [changes, python-lint-types, docs-latex-unicode-guard]
-    # Run if docs changed OR Python changed OR infrastructure changed OR manual/scheduled run
-    if: ${{ (needs.changes.outputs.docs == 'true' && needs.changes.outputs.narrow_python_only != 'true') || (needs.changes.outputs.python == 'true' && needs.changes.outputs.narrow_python_only != 'true') || needs.changes.outputs.docs_test == 'true' || needs.changes.outputs.infra == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' }}
+    # Run if docs changed OR Python changed OR infrastructure changed OR manual/scheduled run.
+    # A docs-only PR skips python-lint-types; that skip must not skip this job (#2018), so the
+    # gate accepts skipped prerequisites and refuses only failed or cancelled ones.
+    if: ${{ !cancelled() && needs.changes.result == 'success' && needs.python-lint-types.result != 'failure' && needs.docs-latex-unicode-guard.result != 'failure' && ((needs.changes.outputs.docs == 'true' && needs.changes.outputs.narrow_python_only != 'true') || (needs.changes.outputs.python == 'true' && needs.changes.outputs.narrow_python_only != 'true') || needs.changes.outputs.docs_test == 'true' || needs.changes.outputs.infra == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule') }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
 

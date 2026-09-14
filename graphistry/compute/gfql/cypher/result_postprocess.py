@@ -8,6 +8,7 @@ import pandas as pd
 from graphistry.Plottable import Plottable
 from graphistry.compute.typing import DataFrameT, SeriesT
 from graphistry.Engine import is_polars_df
+from graphistry.compute.gfql.cypher.projection_columns import alias_field_sources
 from graphistry.compute.gfql.identifiers import shadow_restore_column
 from graphistry.compute.gfql.series_str_compat import is_non_textual_scalar_dtype
 
@@ -264,24 +265,20 @@ def _projection_alias_rows(
     *,
     alias: str,
 ) -> Optional[DataFrameT]:
-    prefix = f"{alias}."
-    alias_columns = [column for column in rows_df.columns if str(column).startswith(prefix)]
-    if alias_columns:
-        alias_rows = cast(
-            DataFrameT,
-            rows_df[alias_columns].rename(columns={column: str(column)[len(prefix):] for column in alias_columns}),
-        )
-        if alias in rows_df.columns and alias not in alias_rows.columns:
-            alias_rows = cast(DataFrameT, alias_rows.assign(**{alias: rows_df[alias]}))
-        if alias in alias_rows.columns:
-            return alias_rows
-    if alias in rows_df.columns:
+    field_sources = alias_field_sources(rows_df.columns, alias)
+    if field_sources is None:
+        return None
+    if all(field == source for field, source in field_sources.items()):
         return rows_df
-    return None
+    source_fields = list(field_sources.values())
+    return rows_df[source_fields].rename(
+        columns={source: field for field, source in field_sources.items()}
+    )
 
 
 def apply_result_projection(
-    result: Plottable, projection: ResultProjectionPlan, *, structured: bool = True
+    result: Plottable, projection: ResultProjectionPlan, *, structured: bool = True,
+    source_node_id: Optional[str] = None,
 ) -> Plottable:
     """Project Cypher RETURN columns onto ``result._nodes``.
 
@@ -298,7 +295,9 @@ def apply_result_projection(
     rows_df = result._nodes
     if is_polars_df(rows_df):
         from graphistry.compute.gfql.lazy.engine.polars.projection import apply_result_projection_polars
-        return apply_result_projection_polars(result, projection, structured=structured)
+        return apply_result_projection_polars(
+            result, projection, structured=structured, source_node_id=source_node_id,
+        )
     return _apply_result_projection_pandas(result, projection, structured=structured)
 
 

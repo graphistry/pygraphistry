@@ -327,6 +327,7 @@ class CypherQuery:
     reentry_unwinds: Tuple[UnwindClause, ...] = ()
     graph_bindings: Tuple[GraphBinding, ...] = ()
     use: Optional[UseClause] = None
+    return_is_reentry_carry: bool = False
 
     @property
     def match(self) -> Optional[MatchClause]:

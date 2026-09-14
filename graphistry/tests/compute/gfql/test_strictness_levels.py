@@ -6,6 +6,7 @@ schema-declared typo-vs-narrow-instance disambiguation, and the remote wire fiel
 
 from typing import Any, Dict, List, Optional
 from unittest import mock
+import typing
 import warnings
 
 import pandas as pd
@@ -18,6 +19,7 @@ from graphistry.compute.exceptions import GFQLSchemaError, GFQLValidationError
 from graphistry.compute.gfql.strictness import (
     DEFAULT_STRICT_LEVEL,
     UNSCOPED_STRICT_LEVEL,
+    StrictLevel,
     absent_column_matches,
     normalize_strict_level,
     resolve_strict_level,
@@ -25,6 +27,7 @@ from graphistry.compute.gfql.strictness import (
     strict_level_to_bool,
 )
 from graphistry.compute.gfql_validate import gfql_validate
+from graphistry.tests.compute.gfql.polars_test_utils import engine_skip_reason
 from graphistry.schema import EdgeType, GraphSchema, NodeType
 
 
@@ -35,6 +38,8 @@ ABSENT_PROP_PATTERN = "MATCH (n {nope_col: 1}) RETURN n.id AS id"
 ABSENT_EDGE_LABEL = "MATCH (n)-[e:NOPE]->(m) RETURN n.id AS id"
 
 FOUR_SHAPES = [ABSENT_LABEL, ABSENT_PROP_RETURN, ABSENT_PROP_WHERE, ABSENT_PROP_PATTERN]
+
+_StrictTestLevel = typing.Union[StrictLevel, bool]
 
 
 ENGINES = ("pandas", "polars", "cudf")
@@ -50,6 +55,19 @@ def _graph(engine: str = "pandas") -> Plottable:
         cudf = pytest.importorskip("cudf")
         nodes, edges = cudf.from_pandas(nodes), cudf.from_pandas(edges)
     return graphistry.edges(edges, "s", "d").nodes(nodes, "id")
+
+
+def _polars_gpu_graph() -> Plottable:
+    graph = _graph("polars")
+    reason = engine_skip_reason(
+        "polars-gpu",
+        lambda: graph.gfql(
+            "MATCH (n) RETURN n.id AS id", engine="polars-gpu", strict="quiet"
+        ),
+    )
+    if reason is not None:
+        pytest.skip(reason)
+    return graph
 
 
 def _norm(value: Any) -> Any:  # hygiene-ok: explicit-any -- row cells are heterogeneous
@@ -153,6 +171,55 @@ def test_absent_property_in_pattern_is_zero_rows(engine: str, level: str) -> Non
 @pytest.mark.parametrize("level", ["warn", "quiet"])
 def test_absent_property_in_return_is_null_column(engine: str, level: str) -> None:
     assert _rows(_graph(engine).gfql(ABSENT_PROP_RETURN, strict=level)) == [{"c": None}] * 3
+
+
+@pytest.mark.parametrize("level", ["warn", "quiet"])
+def test_polars_gpu_absent_label_is_zero_rows(level: StrictLevel) -> None:
+    graph = _polars_gpu_graph()
+    assert _rows(
+        graph.gfql(ABSENT_LABEL, engine="polars-gpu", strict=level)
+    ) == []
+
+
+@pytest.mark.parametrize("level", ["warn", "quiet"])
+def test_polars_gpu_absent_return_property_is_null(level: StrictLevel) -> None:
+    graph = _polars_gpu_graph()
+    assert _rows(
+        graph.gfql(ABSENT_PROP_RETURN, engine="polars-gpu", strict=level)
+    ) == [{"c": None}] * 3
+
+
+@pytest.mark.parametrize("level", ["warn", "quiet"])
+@pytest.mark.parametrize("query", [ABSENT_PROP_WHERE, ABSENT_PROP_PATTERN])
+def test_polars_gpu_absent_property_predicates_are_zero_rows(
+    level: StrictLevel, query: str
+) -> None:
+    graph = _polars_gpu_graph()
+    assert _rows(graph.gfql(query, engine="polars-gpu", strict=level)) == []
+
+
+@pytest.mark.parametrize("query", FOUR_SHAPES)
+def test_polars_gpu_strict_absent_names_raise(query: str) -> None:
+    with pytest.raises(GFQLSchemaError):
+        _polars_gpu_graph().gfql(
+            query, engine="polars-gpu", strict="strict"
+        )
+
+
+@pytest.mark.parametrize("query", FOUR_SHAPES)
+def test_polars_gpu_warns_once_for_absent_names(query: str) -> None:
+    messages = _gfql_warnings(
+        _polars_gpu_graph(), query, engine="polars-gpu", strict="warn"
+    )
+    assert len(messages) == 1
+
+
+@pytest.mark.parametrize("query", FOUR_SHAPES)
+def test_polars_gpu_quiet_emits_no_warning(query: str) -> None:
+    messages = _gfql_warnings(
+        _polars_gpu_graph(), query, engine="polars-gpu", strict="quiet"
+    )
+    assert messages == []
 
 
 @pytest.mark.parametrize("engine", ENGINES)
@@ -310,12 +377,20 @@ def test_edge_label_agrees_wherever_the_validator_can_judge(level: Any) -> None:
 
 
 @pytest.mark.parametrize("level", ["strict", True])
-def test_absent_relationship_type_is_not_judgeable_without_a_declared_schema(level: Any) -> None:  # hygiene-ok: explicit-any -- level is bool | str by design
-    # residual, unchanged from master: the strict binder reads relationship types off the
-    # catalog, and a catalog inferred from frames declares none, so only execution rejects
+def test_absent_relationship_type_without_a_carrier_agrees_under_strict(level: _StrictTestLevel) -> None:
     g = _graph()
-    assert _validator_verdict(g, ABSENT_EDGE_LABEL, level) == "ok"
+    assert _validator_verdict(g, ABSENT_EDGE_LABEL, level) == "raise"
     assert _executor_verdict(g, ABSENT_EDGE_LABEL, level) == "raise"
+
+
+@pytest.mark.parametrize("level", ["strict", True])
+def test_generic_relationship_type_carrier_remains_unjudgeable_without_a_scan(level: _StrictTestLevel) -> None:
+    g = _graph()
+    assert isinstance(g._edges, pd.DataFrame)
+    g = g.edges(g._edges.assign(type=["KNOWS", "KNOWS"]), "s", "d")
+
+    assert _validator_verdict(g, ABSENT_EDGE_LABEL, level) == "ok"
+    assert _executor_verdict(g, ABSENT_EDGE_LABEL, level) == "ok"
 
 
 def test_a_declared_relationship_type_makes_the_validator_judge_it() -> None:
@@ -417,7 +492,7 @@ def test_lazy_cudf_import_leaves_the_global_warning_filters_intact() -> None:
 # ---------------------------------------------------------------------------
 
 def test_absent_column_matches_only_is_na() -> None:
-    from graphistry.compute.predicates.comparison import isna, notna, gt
+    from graphistry.compute.predicates.comparison import gt, isna, notna
 
     assert absent_column_matches(isna()) is True
     assert absent_column_matches(notna()) is False
@@ -533,3 +608,20 @@ def test_leniency_does_not_swallow_errors_unrelated_to_absence() -> None:
         assert absent_warnings == [], (
             f"level={level} reported an unrelated TypeError as an absent column"
         )
+
+
+@pytest.mark.parametrize("level", ["strict", "warn", "quiet"])
+def test_native_polars_row_projection_absent_property(level: StrictLevel) -> None:
+    from graphistry.compute.ast import n, rows, select
+    graph = _graph("polars")
+    ops = [n(name="n"), rows(source="n"), select([("c", "n.nope_col")])]
+    if level == "strict":
+        with pytest.raises(GFQLSchemaError):
+            graph.gfql(ops, engine="polars", strict=level)
+    else:
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            out = graph.gfql(ops, engine="polars", strict=level)
+        assert _rows(out) == [{"c": None}] * 3
+        messages = [item for item in caught if "GFQL:" in str(item.message)]
+        assert len(messages) == (1 if level == "warn" else 0)

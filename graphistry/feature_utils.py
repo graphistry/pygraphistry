@@ -985,7 +985,7 @@ def process_dirty_dataframes(
 
         if coercing_to_pandas:
             import cudf
-            X_enc = cudf.DataFrame.from_pandas(X_enc)
+            X_enc = cudf.from_pandas(X_enc)  # pragma: no cover - cudf-only, covered by the GPU run
 
     elif not all_numeric and (not has_skrub or feature_engine in ["pandas", "none"]):
         numeric_ndf = ndf.select_dtypes(include=[np.number])  # type: ignore
