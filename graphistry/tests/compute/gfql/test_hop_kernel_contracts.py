@@ -89,7 +89,8 @@ def test_keep_edges_drops_everything_when_no_id_resolves():
 def test_implode_membership_is_value_identical_to_the_deprecated_bare_form(
     label, ids_vals, edge_s, edge_d
 ):
-    """The ``.implode()`` spelling (polars >= 1.28) was a deprecation fix, NOT a semantics change. Nulls are
+    """The ``.implode()`` spelling (polars >= 1.28; below it the routed form IS the bare form and
+    this pin is an identity) was a deprecation fix, NOT a semantics change. Nulls are
     where a membership test is most likely to differ, so they are pinned explicitly."""
     import warnings
 

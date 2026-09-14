@@ -13,6 +13,10 @@ polars changed the ``is_in`` right-hand-side contract in 1.28.0:
 ONE helper so the spelling cannot drift per call site. Boundary pinned by the
 plans/gfql-2082-polars121 sweep over polars 1.21.0..1.35.2: the imploded RHS fails through
 1.27.1 and passes from 1.28.0; the bare RHS passes on every version and warns from 1.28.0.
+
+The ``< 1.28`` branch is NOT dead code even though the ``polars`` extra declares
+``polars>=1.29`` (setup.py): the supported RAPIDS 25.02 environment pins polars 1.21 through
+cudf-polars, and the polars CPU engine must run there too.
 """
 from __future__ import annotations
 
@@ -38,12 +42,19 @@ def _installed_polars_implodes() -> bool:
     return imploded_rhs_supported(pl.__version__)
 
 
+def id_set(ids: "pl.Series") -> "pl.Series":
+    """``ids`` as the ``is_in`` right-hand side for the installed polars: one List row
+    (``implode()``) on >= 1.28, the flat Series below. Hoist it when the same set is tested
+    against several columns."""
+    if _installed_polars_implodes():
+        return ids.implode()
+    return ids
+
+
 def is_in_ids(expr: "pl.Expr", ids: "pl.Series") -> "pl.Expr":
     """``expr`` is a member of the id set ``ids`` — spelled for the installed polars.
 
     Set semantics on every supported version: nulls in ``expr`` are null (callers keep their
     own ``fill_null(False)``), a null in ``ids`` matches nothing, an empty ``ids`` matches nothing.
     """
-    if _installed_polars_implodes():
-        return expr.is_in(ids.implode())
-    return expr.is_in(ids)
+    return expr.is_in(id_set(ids))

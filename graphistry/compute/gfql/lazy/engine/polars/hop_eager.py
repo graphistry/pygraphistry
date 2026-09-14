@@ -16,7 +16,7 @@ from graphistry.Plottable import Plottable
 from graphistry.compute.endpoint_utils import drop_null_endpoint_edges
 from graphistry.compute.util import generate_safe_column_name
 from .dtypes import endpoint_ids
-from .membership import is_in_ids
+from .membership import id_set
 from .predicates import filter_by_dict_polars
 
 if TYPE_CHECKING:
@@ -116,8 +116,10 @@ def _keep_edges_with_both_endpoints_resolvable(
     """Filter both endpoints against the non-null identity universe."""
     import polars as pl
 
+    universe = id_set(resolvable_ids)
+
     def _resolvable(endpoint_col: str) -> "pl.Expr":
-        return is_in_ids(pl.col(endpoint_col).cast(node_dtype), resolvable_ids)
+        return pl.col(endpoint_col).cast(node_dtype).is_in(universe)
 
     return edges_idx.filter(_resolvable(src) & _resolvable(dst))
 

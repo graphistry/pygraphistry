@@ -19,7 +19,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
-- GFQL Polars: id-set membership (`is_in`) is spelled per installed polars version by one helper (`membership.is_in_ids`): the imploded RHS on polars >= 1.28, the bare Series RHS below it. Fixes `ComputeError: shapes don't match ... 'is_in'` on polars 1.21 (RAPIDS 25.02) for seeded typed-hop and OPTIONAL traversals, and removes the remaining bare-Series deprecation warnings on polars >= 1.28 (#2082, #1938).
+- GFQL Polars: id-set membership (`is_in`) is spelled per installed polars version by one helper (`membership.is_in_ids`): the imploded RHS on polars >= 1.28, the bare Series RHS below it. Fixes `ComputeError: shapes don't match ... 'is_in'` on polars 1.21 (RAPIDS 25.02) for hop endpoint resolution, the seeded chain lanes, and EXISTS/OPTIONAL row ops (1792 of the 2361 polars-engine test failures in that image), and removes the remaining bare-Series deprecation warnings on polars >= 1.28 (#2082, #1938).
 - GFQL: record whole-entity projection kind and presence independently of identity columns, so adapters distinguish unlabeled entities, property returns, and absent entities; preserve presence through OPTIONAL null-fill and reentry (tck-gfql#200).
 - GFQL: explicit `polars-gpu` row aggregation collects the aggregate plan on GPU; unsupported aggregation plans raise a structured operation decline (#2075).
 - GFQL: reject malformed aggregation sources during validation while preserving literal column names and valid expressions (#2076).

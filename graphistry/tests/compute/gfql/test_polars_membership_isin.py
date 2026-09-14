@@ -15,13 +15,13 @@ import pandas as pd
 import pytest
 
 import graphistry
-from graphistry.compute.gfql.lazy.engine.polars import membership
-from graphistry.compute.gfql.lazy.engine.polars.membership import (
-    IMPLODED_RHS_FLOOR, imploded_rhs_supported, is_in_ids,
-)
 from .polars_test_utils import edge_pair_set
 
 pl = pytest.importorskip("polars")
+from graphistry.compute.gfql.lazy.engine.polars import membership  # noqa: E402
+from graphistry.compute.gfql.lazy.engine.polars.membership import (  # noqa: E402
+    IMPLODED_RHS_FLOOR, imploded_rhs_supported, is_in_ids,
+)
 
 
 # --- the version predicate is a pure function of the version string -------------------------
@@ -43,7 +43,8 @@ def _deprecations(caught):
     """polars raises its ``is_in`` deprecation from Rust: under a ``-W error`` filter it is PRINTED,
     not raised (verified against a mutant), so only record-and-assert can observe it.
     ``CategoricalRemappingWarning`` (local categoricals) is a perf hint, not part of the contract."""
-    return [str(w.message) for w in caught if issubclass(w.category, DeprecationWarning)]
+    return [str(w.message) for w in caught
+            if issubclass(w.category, DeprecationWarning) and "is_in" in str(w.message)]
 
 
 # --- set semantics + no warning on the INSTALLED polars, every dtype/shape ------------------
@@ -119,19 +120,21 @@ def _pairs(pairs, id_dtype):
 @pytest.mark.parametrize("id_dtype", [pl.Int64, pl.Utf8, pl.Categorical], ids=["int", "str", "cat"])
 def test_polars_hop_endpoint_gate_runs_on_the_installed_polars(direction, id_dtype):
     """Unseeded hop through ``_keep_edges_with_both_endpoints_resolvable``: only the closed edge
-    survives, in every direction, for int / string / categorical ids (hand oracle)."""
+    survives, in every direction, for int / string / categorical ids (hand oracle).
+    ``to_fixed_point`` keeps the hop OFF the single-bounded-hop lazy semi-join lane, so the
+    eager ``is_in`` gate is the code that runs."""
     g = _bind(_NODES, _EDGES, id_dtype)
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
-        out = g.hop(direction=direction, engine="polars")
+        out = g.hop(direction=direction, to_fixed_point=True, engine="polars")
     assert edge_pair_set(out) == _pairs(_CLOSED, id_dtype)
     assert _deprecations(caught) == []
 
 
 @pytest.mark.parametrize("id_dtype", [pl.Int64, pl.Utf8], ids=["int", "str"])
 def test_polars_seeded_hop_with_a_target_wavefront_gate(id_dtype):
-    """Seeded 2-hop: the universe is the node table widened by the wavefront; a 1-row seed
-    is the degenerate 'got 1' shape that tripped polars 1.21."""
+    """Seeded 2-hop (hops=2 leaves the single-bounded-hop lane): the eager gate filters
+    every wave's edges against the node-table universe; the dangling 3->4 edge never enters."""
     nodes = pd.DataFrame({"id": [0, 1, 2, 3]})
     edges = pd.DataFrame({"s": [0, 1, 2, 3], "d": [1, 2, 3, 4]})  # 3->4 dangles
     g = _bind(nodes, edges, id_dtype)
@@ -142,5 +145,21 @@ def test_polars_seeded_hop_with_a_target_wavefront_gate(id_dtype):
 
 def test_polars_hop_empty_node_table_over_edges_keeps_nothing():
     g = _bind(_NODES.iloc[0:0], _EDGES, pl.Int64)
-    out = g.hop(direction="forward", engine="polars")
+    out = g.hop(direction="forward", to_fixed_point=True, engine="polars")
     assert out._edges.height == 0
+
+
+@pytest.mark.parametrize("id_dtype", [pl.Utf8, pl.Categorical], ids=["str", "cat"])
+def test_endpoint_gate_kernel_directly_on_string_and_categorical_ids(id_dtype):
+    """``test_hop_kernel_contracts`` pins the kernel on Int64; #2082's failing corpus was
+    categorical-heavy, so the same rule is pinned on string-typed ids here."""
+    from graphistry.compute.gfql.lazy.engine.polars.hop_eager import (
+        _keep_edges_with_both_endpoints_resolvable,
+    )
+    edges = pl.DataFrame({"s": _ids([0, 1, 7, 8], id_dtype), "d": _ids([1, 5, 2, 6], id_dtype)})
+    for ids, expected in ((_ids([0, 1, 2], id_dtype), {(0, 1)}), (_ids([], id_dtype), set())):
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            kept = _keep_edges_with_both_endpoints_resolvable(edges, "s", "d", id_dtype, ids)
+        assert set(zip(kept["s"].to_list(), kept["d"].to_list())) == _pairs(expected, id_dtype)
+        assert _deprecations(caught) == []

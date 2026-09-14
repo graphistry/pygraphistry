@@ -105,8 +105,8 @@ def select_by_ids(df: DataFrameT, col: str, ids: ArrayLike, engine: Engine) -> D
         import numpy as np
         import polars as pl
 
-        # Semi-join (not Expr.is_in(Series), which polars 1.42 deprecates as ambiguous —
-        # pola-rs/polars#22149) — vectorized AND preserves the left (df) row order, which
+        # Semi-join (not Expr.is_in(Series), which polars >= 1.28.0 deprecates as ambiguous —
+        # pola-rs/polars#22149; see lazy/engine/polars/membership.py) — vectorized AND preserves the left (df) row order, which
         # the node materialization relies on (table-order parity with the scan).
         # Not deduplicated: a semi-join emits a left row iff >=1 match exists, so repeated
         # ids neither change the result nor multiply rows — the dedup is a hash pass for

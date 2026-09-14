@@ -18,9 +18,9 @@ from graphistry.compute.endpoint_utils import drop_null_endpoint_edges
 from graphistry.compute.typing import ArrayLike, ArrayNamespace, DataFrameT
 from graphistry.compute.gfql.lazy.engine.polars.dtypes import endpoint_ids
 from graphistry.compute.gfql.lazy.engine.polars.hop_eager import ensure_nodes_polars
+from graphistry.compute.gfql.lazy.engine.polars.membership import is_in_ids
 from graphistry.compute.gfql.lazy.engine.polars.predicates import filter_by_dict_polars
 from .admission import polars_seeded_lane_admits
-from graphistry.compute.gfql.lazy.engine.polars.membership import is_in_ids
 
 if TYPE_CHECKING:
     import polars as pl

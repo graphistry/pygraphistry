@@ -314,9 +314,10 @@ def _semi_join_prune_arm_rows_to_base_keys(
     """Arm rows restricted to join-key values already present in the accumulated result."""
     if is_polars_df(joined):
         import polars as pl
+        from graphistry.compute.gfql.lazy.engine.polars.membership import is_in_ids
         if len(join_cols) == 1:
             # polars-stub gap: ``is_polars_df`` cannot narrow the eager-or-lazy union.
-            return opt_rows_df.filter(pl.col(join_cols[0]).is_in(joined[join_cols[0]]))  # type: ignore[index,arg-type]
+            return opt_rows_df.filter(is_in_ids(pl.col(join_cols[0]), joined[join_cols[0]]))  # type: ignore[index,arg-type]
         return opt_rows_df.join(joined.select(join_cols).unique(), on=join_cols, how="inner")
     if len(join_cols) == 1:
         return opt_rows_df[opt_rows_df[join_cols[0]].isin(joined[join_cols[0]])]
@@ -523,7 +524,9 @@ def _apply_connected_optional_match(
         seed_ids: SeriesT = seed_frame[node_col]
         node_ids: SeriesT = base_nodes[node_col]
         if is_polars_df(base_nodes):
-            return cast(DataFrameT, base_nodes.filter(node_ids.is_in(seed_ids)))
+            import polars as pl
+            from graphistry.compute.gfql.lazy.engine.polars.membership import is_in_ids
+            return cast(DataFrameT, base_nodes.filter(is_in_ids(pl.col(node_col), seed_ids)))
         return cast(DataFrameT, base_nodes[node_ids.isin(seed_ids)].copy())
 
     # Run base chain to get binding rows.

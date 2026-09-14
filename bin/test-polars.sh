@@ -125,6 +125,7 @@ POLARS_TEST_FILES=(
     graphistry/tests/compute/gfql/test_endpoint_closure_matrix.py
     graphistry/tests/compute/gfql/test_gfql_unified_routing_contracts.py
     graphistry/tests/compute/gfql/test_hop_kernel_contracts.py
+    graphistry/tests/compute/gfql/test_polars_membership_isin.py
     graphistry/tests/compute/gfql/test_polars_dtype_classifier_contracts.py
     graphistry/tests/compute/gfql/cypher/test_grouped_aggregate_fused_polars.py
     graphistry/tests/compute/gfql/cypher/test_grouped_aggregate_lowcard_count.py

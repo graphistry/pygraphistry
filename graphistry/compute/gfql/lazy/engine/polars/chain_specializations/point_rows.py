@@ -12,8 +12,8 @@ from graphistry.compute.chain_fast_paths import (
     _index_edge_rows, _index_node_rows, _record_native_seed_lane,
     _resident_node_id_index, _resident_seed_indexes, _seed_node_rows_from_index,
 )
-from .admission import polars_seeded_lane_admits
 from graphistry.compute.gfql.lazy.engine.polars.membership import is_in_ids
+from .admission import polars_seeded_lane_admits
 
 
 def polars_point_rows_admits(ops: Sequence[ASTObject]) -> Optional[int]:
