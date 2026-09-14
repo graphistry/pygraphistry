@@ -20,6 +20,7 @@ from graphistry.compute.gfql.lazy.engine.polars.dtypes import endpoint_ids
 from graphistry.compute.gfql.lazy.engine.polars.hop_eager import ensure_nodes_polars
 from graphistry.compute.gfql.lazy.engine.polars.predicates import filter_by_dict_polars
 from .admission import polars_seeded_lane_admits
+from graphistry.compute.gfql.lazy.engine.polars.membership import is_in_ids
 
 if TYPE_CHECKING:
     import polars as pl
@@ -141,7 +142,7 @@ def _seeded_typed_return_dst_polars(
         return None
     from_col, to_col = (src, dst) if direction == "forward" else (dst, src)
 
-    # membership sets are drop_nulls()'d (null ids never link) and passed via implode() (Series-arg is_in is deprecated)
+    # membership sets are drop_nulls()'d (null ids never link); is_in spelling per polars version: membership.is_in_ids
     ctx = index_ctx if index_ctx is not None else _resident_seed_indexes(
         g, nodes_df, edges_df, node, src, dst, direction)
     nid_ctx = (ctx[0], ctx[2], ctx[3]) if ctx is not None else _resident_node_id_index(g, nodes_df, node)
@@ -162,10 +163,10 @@ def _seeded_typed_return_dst_polars(
         from_ids = seed_nodes.get_column(node).drop_nulls()
         if from_ids.len() == 0:
             return nodes_df.clear(), edges_df.clear(), seed_nodes, kernel_admits
-        edges = edges_df.filter(pl.col(from_col).is_in(from_ids.implode()))
+        edges = edges_df.filter(is_in_ids(pl.col(from_col), from_ids))
         edges = filter_by_dict_polars(edges, e1.edge_match)
         dst_ids = edges.get_column(to_col).drop_nulls().unique()
-        dstn = nodes_df.filter(pl.col(node).is_in(dst_ids.implode()))
+        dstn = nodes_df.filter(is_in_ids(pl.col(node), dst_ids))
     assert edges is not None and dstn is not None  # both branches above assign
     if direction == "forward":
         from graphistry.compute.gfql.row.pipeline import RowPipelineMixin
@@ -179,7 +180,7 @@ def _seeded_typed_return_dst_polars(
     # A sole destination was selected from the sole surviving edge.
     if not (edges.height == 1 and dstn.height == 1):
         keep_ids = dstn.get_column(node).drop_nulls()
-        edges = edges.filter(pl.col(to_col).is_in(keep_ids.implode()))
+        edges = edges.filter(is_in_ids(pl.col(to_col), keep_ids))
     if dstn.height > 1:
         dstn = dstn.unique(subset=[node], maintain_order=True)
     return dstn, edges, seed_nodes, kernel_admits
@@ -229,14 +230,14 @@ def _try_seeded_chain_polars(g: Plottable, ops: Sequence[ASTObject]) -> Optional
         nid, xp, engine = nid_ctx
         result_nodes = _index_node_rows(nid, endpoint_ids, xp, engine, nodes, preserve_input_order=True)
     if result_nodes is None:
-        result_nodes = nodes.filter(pl.col(node).is_in(endpoint_ids.implode()))
+        result_nodes = nodes.filter(is_in_ids(pl.col(node), endpoint_ids))
         if result_nodes.get_column(node).n_unique() != result_nodes.height:
             return None
     if not isinstance(result_nodes, pl.DataFrame):
         return None
     from_col, to_col = (src, dst) if e1.direction == "forward" else (dst, src)
     flags = [
-        pl.col(node).is_in(pl.lit(kept_edges.get_column(endpoint)).implode()).fill_null(False).alias(name)
+        is_in_ids(pl.col(node), kept_edges.get_column(endpoint)).fill_null(False).alias(name)
         for name, endpoint in ((n0._name, from_col), (n2._name, to_col)) if name is not None
     ]
     if flags:

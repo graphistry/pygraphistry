@@ -21,6 +21,7 @@ if TYPE_CHECKING:
     from graphistry.compute.gfql.row.prefilter import AliasPrefilters
 
 from .dtypes import is_lazy
+from .membership import is_in_ids
 from .row_pipeline import _active_table, _rewrap
 
 
@@ -281,7 +282,7 @@ def semi_apply_mark_polars(
     # is_in (not a join): row ORDER preserved trivially; a null LEFT key marks
     # False, same as the pandas merge-no-match path (null -> fill_null(False)).
     marked = left.with_columns(
-        pl.col(join_col).is_in(key_series).fill_null(False).alias(out_col)
+        is_in_ids(pl.col(join_col), key_series).fill_null(False).alias(out_col)
     )
     return _rewrap(g, marked)
 
@@ -312,5 +313,5 @@ def anti_semi_apply_polars(
         return None  # see semi_apply_mark_polars: NaN==NaN merge semantics (wave-1 E1)
     # filter (not an anti-join): order preserved; a null LEFT key row SURVIVES like
     # the pandas merge-no-match path (is_in null -> fill_null(False) -> not_ -> True).
-    kept = left.filter(pl.col(join_col).is_in(key_series).fill_null(False).not_())
+    kept = left.filter(is_in_ids(pl.col(join_col), key_series).fill_null(False).not_())
     return _rewrap(g, kept)

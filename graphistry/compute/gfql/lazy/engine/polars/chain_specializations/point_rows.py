@@ -13,6 +13,7 @@ from graphistry.compute.chain_fast_paths import (
     _resident_node_id_index, _resident_seed_indexes, _seed_node_rows_from_index,
 )
 from .admission import polars_seeded_lane_admits
+from graphistry.compute.gfql.lazy.engine.polars.membership import is_in_ids
 
 
 def polars_point_rows_admits(ops: Sequence[ASTObject]) -> Optional[int]:
@@ -181,7 +182,7 @@ def _try_point_rows_polars(g: Plottable, ops: List[ASTObject], start_nodes: Opti
         tail = filter_by_dict_polars(tail, tail_op.filter_dict)
         # A single gathered tail is the endpoint of the single surviving edge.
         if not (kept_edges.height == 1 and tail.height == 1):
-            kept_edges = kept_edges.filter(pl.col(to_col).is_in(tail.get_column(node).implode()))
+            kept_edges = kept_edges.filter(is_in_ids(pl.col(to_col), tail.get_column(node)))
         if source is None:
             projection = ops[-1]
             assert isinstance(projection, ASTCall) and isinstance(n0._name, str) and isinstance(tail_op._name, str)
@@ -201,12 +202,12 @@ def _try_point_rows_polars(g: Plottable, ops: List[ASTObject], start_nodes: Opti
         elif seed.height == 1 and kept_edges.height:
             selected = seed
         else:
-            selected = seed.filter(pl.col(node).is_in(kept_edges.get_column(from_col).implode()))
+            selected = seed.filter(is_in_ids(pl.col(node), kept_edges.get_column(from_col)))
         if seed.height == tail.height == selected.height == 1 and kept_edges.height:
             selected = _with_singleton_aliases(selected, seed, tail, node, n0._name, tail_op._name)
         else:
             selected = selected.with_columns([
-                pl.col(node).is_in(kept_edges.get_column(endpoint).implode()).fill_null(False).alias(alias)
+                is_in_ids(pl.col(node), kept_edges.get_column(endpoint)).fill_null(False).alias(alias)
                 for alias, endpoint in ((n0._name, from_col), (tail_op._name, to_col)) if alias is not None
             ])
         if edge._name is not None:

@@ -4,9 +4,10 @@ A helper named ``_keep_edges_with_both_endpoints_resolvable`` only carries meani
 something fails when it stops doing that. Each helper below gets a pin naming its rule, plus
 the two behaviour-adjacent changes the #1895 remediation made:
 
-  * ``.implode()`` on the endpoint membership test (the bare ``is_in(<Series>)`` form is
-    deprecated in polars 1.x) -- pinned VALUE-IDENTICAL on the shapes where the two forms
-    could plausibly differ: nulls among the ids, nulls among the endpoints, and empty.
+  * the endpoint membership test goes through ``membership.is_in_ids`` (``.implode()`` RHS
+    on polars >= 1.28, bare ``Series`` RHS below -- #2082) -- pinned VALUE-IDENTICAL to the
+    bare form on the shapes where the two could plausibly differ: nulls among the ids,
+    nulls among the endpoints, and empty.
   * the unconditional trailing de-dup in ``hop()``'s endpoint backfill, which replaced a
     de-dup that used to live only on the else-branch -- pinned on ``to_fixed_point``, the
     only shape where deleting it changes an answer (round-5 mutation audit; every bounded
@@ -88,7 +89,7 @@ def test_keep_edges_drops_everything_when_no_id_resolves():
 def test_implode_membership_is_value_identical_to_the_deprecated_bare_form(
     label, ids_vals, edge_s, edge_d
 ):
-    """The switch to ``.implode()`` was a deprecation fix, NOT a semantics change. Nulls are
+    """The ``.implode()`` spelling (polars >= 1.28) was a deprecation fix, NOT a semantics change. Nulls are
     where a membership test is most likely to differ, so they are pinned explicitly."""
     import warnings
 
@@ -104,7 +105,7 @@ def test_implode_membership_is_value_identical_to_the_deprecated_bare_form(
 
 
 def test_endpoint_membership_does_not_emit_a_polars_deprecation_warning():
-    """The bare ``is_in(<Series>)`` form warns on polars 1.x; ``.implode()`` must not."""
+    """The bare ``is_in(<Series>)`` form warns on polars >= 1.28; the routed spelling must not."""
     import warnings
 
     ids = pl.Series("id", [0, 1, 2], dtype=pl.Int64)
