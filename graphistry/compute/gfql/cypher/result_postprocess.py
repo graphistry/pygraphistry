@@ -1,13 +1,13 @@
 from __future__ import annotations
 
 from dataclasses import replace
-from typing import Any, Dict, List, Literal, Optional, Set, TypedDict, cast
+from typing import TYPE_CHECKING, Union, Any, Dict, List, Literal, Optional, Sequence, Set, TypedDict, cast
 
 import pandas as pd
 
 from graphistry.Plottable import Plottable
 from graphistry.compute.typing import DataFrameT, SeriesT
-from graphistry.Engine import is_polars_df
+from graphistry.Engine import df_to_engine, is_polars_df, is_polars_series, resolve_engine
 from graphistry.compute.gfql.cypher.projection_columns import alias_field_sources
 from graphistry.compute.gfql.identifiers import shadow_restore_column
 from graphistry.compute.gfql.series_str_compat import is_non_textual_scalar_dtype
@@ -29,11 +29,20 @@ from graphistry.compute.gfql.row.entity_props import (
 from graphistry.compute.gfql.row.pipeline import _RowPipelineAdapter
 
 
+if TYPE_CHECKING:
+    import polars as pl
+    from typing_extensions import TypeIs
+
+
 class WholeRowProjectionMeta(TypedDict):
     table: Literal["nodes", "edges"]
     alias: str
     id_column: str
-    ids: SeriesT
+    ids: Union[SeriesT, "pl.Series"]
+
+
+def is_polars_projection_ids(ids: Union[SeriesT, "pl.Series"]) -> TypeIs["pl.Series"]:
+    return is_polars_series(ids)
 
 
 def entity_projection_meta_entry(
@@ -53,11 +62,8 @@ def entity_projection_meta_entry(
     """
     from graphistry.compute.exceptions import ErrorCode, GFQLValidationError
 
-    entity_meta = cast(
-        Optional[Dict[str, WholeRowProjectionMeta]],
-        getattr(result, "_cypher_entity_projection_meta", None),
-    )
-    if not isinstance(entity_meta, dict) or output_name not in entity_meta:
+    entity_meta = result._cypher_entity_projection_meta
+    if output_name not in entity_meta:
         raise GFQLValidationError(
             ErrorCode.E108,
             message,
@@ -196,22 +202,50 @@ def render_entity_text(
         DataFrameT,
         rows_df[field_cols].rename(columns={col: str(col)[len(prefix):] for col in field_cols}),
     )
-    # An OPTIONAL-MATCH miss flattens to a row whose fields are all null; such
-    # rows must render as null, not "()". Track presence (any field non-null).
+    # Prefer source presence; legacy flattened results infer it from non-null fields.
     present: Optional[SeriesT] = None
-    for field in frame.columns:
-        not_na = cast(SeriesT, frame[field].notna())
-        present = not_na if present is None else cast(SeriesT, present | not_na)
+    presence = result._cypher_entity_projection_presence
+    marker_frame = presence.get(alias)
+    if marker_frame is not None:
+        marker_frame = df_to_engine(marker_frame, resolve_engine("auto", rows_df))
+        if len(marker_frame) != len(rows_df):
+            raise ValueError("entity presence metadata is not aligned with result rows")
+        present = marker_frame[marker_frame.columns[0]].notna()
+        present.index = rows_df.index
+    else:
+        for field in frame.columns:
+            not_na: SeriesT = frame[field].notna()
+            present = not_na if present is None else present | not_na
     # _format_*_entities anchors length/null on a bare alias column; render every
     # row, then null absent rows below.
     frame = cast(DataFrameT, frame.assign(**{alias: True}))
     projection = ResultProjectionPlan(alias=alias, table=table, columns=(), exclude_columns=())
     rendered = _format_node_entities(frame, projection) if table == "nodes" else _format_edge_entities(frame, projection)
-    if present is not None and hasattr(rendered, "where"):
+    if present is not None:
         # Null absent rows. ``other=None`` fills NaN/None (valid pandas/cuDF);
         # the pandas-stubs ``where`` overload is stricter than runtime here.
-        rendered = cast(SeriesT, rendered.where(present, None))  # type: ignore[call-overload]
+        rendered = rendered.where(present, None)
     return rendered
+
+
+def entity_projection_presence_for_rows(
+    result: Plottable,
+    row_indices: Sequence[Optional[int]],
+) -> Dict[str, DataFrameT]:
+    """Gather presence by row position; a null index inserts an absent entity."""
+    presence = result._cypher_entity_projection_presence
+    if not presence:
+        return {}
+    aligned: Dict[str, DataFrameT] = {}
+    for alias, marker in presence.items():
+        if is_polars_df(marker):
+            import polars as pl
+            indices = pl.Series(row_indices, dtype=pl.UInt32)
+            aligned[alias] = marker.select(pl.all().gather(indices))
+        else:
+            aligned[alias] = marker.reset_index(drop=True).reindex(row_indices).reset_index(drop=True)
+    return aligned
+
 
 
 def _project_property_column(
@@ -295,10 +329,33 @@ def apply_result_projection(
     rows_df = result._nodes
     if is_polars_df(rows_df):
         from graphistry.compute.gfql.lazy.engine.polars.projection import apply_result_projection_polars
-        return apply_result_projection_polars(
+        out = apply_result_projection_polars(
             result, projection, structured=structured, source_node_id=source_node_id,
         )
-    return _apply_result_projection_pandas(result, projection, structured=structured)
+    else:
+        out = _apply_result_projection_pandas(result, projection, structured=structured)
+    if out is result:
+        out = out.bind()
+    # Whole-entity provenance remains valid when an identity column is unavailable.
+    kinds = {
+        column.output_name: projection.table
+        for column in projection.columns
+        if structured and column.kind == "whole_row"
+    }
+    out._cypher_entity_projection_kinds = kinds
+    presence: Dict[str, DataFrameT] = {}
+    if kinds and rows_df is not None:
+        for column in projection.columns:
+            if column.kind != "whole_row":
+                continue
+            source_alias = column.source_name or projection.alias
+            sources = alias_field_sources(rows_df.columns, source_alias)
+            if sources is not None and source_alias in sources:
+                marker_column = source_alias if source_alias in rows_df.columns else sources[source_alias]
+                marker_frame = rows_df[[marker_column]]
+                presence[column.output_name] = marker_frame.clone() if is_polars_df(marker_frame) else marker_frame.copy()
+    out._cypher_entity_projection_presence = presence
+    return out
 
 
 def _apply_result_projection_pandas(
@@ -408,7 +465,7 @@ def _apply_result_projection_pandas(
     out = result.bind()
     out._nodes = projected_nodes
     if projected_entity_meta:
-        setattr(out, "_cypher_entity_projection_meta", projected_entity_meta)
+        out._cypher_entity_projection_meta = projected_entity_meta
     edges_df = result._edges
     if edges_df is not None:
         out._edges = edges_df[:0]

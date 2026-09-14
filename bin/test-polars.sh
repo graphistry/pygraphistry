@@ -107,6 +107,8 @@ POLARS_TEST_FILES=(
     graphistry/tests/compute/gfql/test_validate_execute_agreement_1889.py
     # dotted/hyphenated column names as group_by aggregation sources: the polars params
     # (polars aggregates existing columns only) only run in this lane
+    graphistry/tests/compute/gfql/test_entity_projection_kinds.py
+    graphistry/tests/compute/gfql/cypher/test_result_postprocess.py
     graphistry/tests/compute/gfql/test_group_by_agg_source_columns.py
     graphistry/tests/compute/gfql/test_aggregate_expression_shapes.py
     graphistry/tests/compute/gfql/test_polars_rows_entity_groupby.py

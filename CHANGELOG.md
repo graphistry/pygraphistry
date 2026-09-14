@@ -19,6 +19,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- GFQL: record whole-entity projection kind and presence independently of identity columns, so adapters distinguish unlabeled entities, property returns, and absent entities; preserve presence through OPTIONAL null-fill and reentry (tck-gfql#200).
 - GFQL: explicit `polars-gpu` row aggregation collects the aggregate plan on GPU; unsupported aggregation plans raise a structured operation decline (#2075).
 - GFQL: reject malformed aggregation sources during validation while preserving literal column names and valid expressions (#2076).
 * GFQL Polars: property returns from multiple aliases gather existing columns directly around the endpoint joins, avoiding expression-plan overhead.

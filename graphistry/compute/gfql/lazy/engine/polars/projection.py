@@ -14,7 +14,7 @@ from __future__ import annotations
 import typing
 from dataclasses import dataclass
 
-from typing_extensions import Literal, TypedDict
+from typing_extensions import Literal
 
 from graphistry.Plottable import Plottable
 from graphistry.compute.gfql.cypher.projection_columns import alias_field_sources
@@ -22,6 +22,7 @@ from graphistry.compute.gfql.cypher.projection_columns import alias_field_source
 if typing.TYPE_CHECKING:
     import polars as pl
     from graphistry.compute.gfql.cypher.lowering import ResultProjectionPlan
+    from graphistry.compute.gfql.cypher.result_postprocess import WholeRowProjectionMeta
 
 
 from graphistry.Engine import is_polars_df as _is_polars_frame
@@ -30,13 +31,6 @@ from graphistry.compute.gfql.row.entity_props import (
     NODE_INTERNAL_COLS,
     label_flag_columns,
 )
-
-
-class _PolarsWholeRowProjectionMeta(TypedDict):
-    table: Literal["nodes", "edges"]
-    alias: str
-    id_column: str
-    ids: pl.Series
 
 
 @dataclass(frozen=True)
@@ -194,7 +188,7 @@ def _flat_entity_exprs_polars(
 
 
 def _record_entity_meta(
-    entity_meta: typing.MutableMapping[str, _PolarsWholeRowProjectionMeta],
+    entity_meta: typing.MutableMapping[str, WholeRowProjectionMeta],
     view: _AliasView,
     projection: ResultProjectionPlan,
     source_alias: str,
@@ -225,7 +219,7 @@ def _try_native_projection(
     import polars as pl
 
     exprs: typing.List[pl.Expr] = []
-    entity_meta: typing.MutableMapping[str, _PolarsWholeRowProjectionMeta] = {}
+    entity_meta: typing.Dict[str, WholeRowProjectionMeta] = {}
     id_column = result._node if result._node is not None else source_node_id
     primary = _alias_view_polars(rows_df, projection.alias)
     primary_columns = primary.columns if primary is not None else {}
@@ -268,7 +262,7 @@ def _try_native_projection(
     out = result.bind()
     out._nodes = rows_df.select(exprs)
     if entity_meta:
-        setattr(out, "_cypher_entity_projection_meta", entity_meta)
+        out._cypher_entity_projection_meta = entity_meta
     edges_df = result._edges
     if edges_df is not None:
         out._edges = edges_df.clear() if _is_polars_frame(edges_df) else edges_df[:0]
