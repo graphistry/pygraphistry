@@ -33,11 +33,11 @@ GFQL is an in-process graph query language for the compute tier. With it you can
 - **Move work to a remote GPU** when the data or the hardware lives elsewhere.
 
 On CPU alone, GFQL's Polars engine is faster than Kuzu, Memgraph, and Neo4j on most of
-the nine graph-benchmark analytics queries at both graph sizes, and the GPU engines are
-faster still on heavy work; the graph databases win the SNB-derived single-node lookups by id. The
-per-query boards, with every loss shown, are on :doc:`performance`, and a full filter,
-PageRank, filter pipeline against Neo4j + GDS is the :doc:`speedup case study
-<benchmark_filter_pagerank>`.
+the nine graph-benchmark analytics queries at both graph sizes. Polars also leads the
+four-engine SNB-derived comparison for message-content and creator lookups at both
+scales. See :doc:`performance` for the full tables. The :doc:`speedup case study
+<benchmark_filter_pagerank>` compares a full filter, PageRank, filter pipeline
+against Neo4j + GDS on CPU and GPU.
 
 Typical uses include cybersecurity, fraud detection, financial analysis, and knowledge
 graphs. The engine design is described in the blog post
@@ -54,23 +54,25 @@ GFQL is built into pygraphistry:
 
     pip install graphistry
 
-Ensure you have `pandas` or `cudf` installed, depending on whether you want to run on CPU or GPU.
+The base installation includes pandas. Add Polars for columnar CPU execution or the
+RAPIDS stack for GPU execution. See :doc:`engines` for installation and engine selection.
 
 For more information, see :doc:`../install/index` .
 
 Key GFQL Concepts
 ~~~~~~~~~~~~~~~~~~~~~
 
-GFQL works on the same graphs as the rest of the PyGraphistry library. The operations run on top of the dataframe engine of your choice, with initial support for Pandas dataframes (CPU) and cuDF dataframes (GPU). 
+GFQL works on the same graphs as the rest of PyGraphistry. Choose pandas, Polars,
+cuDF, or Polars-GPU to execute dataframe operations.
 
-- **Nodes and Edges**: Represented using dataframes, so they integrate directly with pandas and cuDF
+- **Nodes and Edges**: Represented as pandas, Polars, or cuDF dataframes
 - **Cypher strings**: Write queries as Cypher strings — ``g.gfql("MATCH (n) WHERE n.score > 5 RETURN n")``
 - **Native chains**: Or compose queries as Python objects — ``g.gfql([n({"score": gt(5)})])``
 - **Predicates**: Apply conditions to filter nodes and edges based on their properties, reusing the optimized native operations of the underlying dataframe engine
 - **Same-path constraints (WHERE)**: Relate attributes across steps in a chain using `where`
 - **Row pipelines (`MATCH ... RETURN` style)**: Move from graph pattern matches to tabular results with `rows()`, `where_rows()`, `return_()`, `order_by()`, `group_by()`, `skip()`, and `limit()`
 - **Result kinds**: Some stages keep you in graph state, while row-pipeline stages and row-returning local Cypher `CALL` queries move you into row state
-- **GPU & CPU vectorization**: GFQL automatically uses GPU acceleration and in-memory columnar processing for massive speedups on your queries
+- **CPU and GPU execution**: Select an engine to run dataframe operations on CPU or GPU
 - **Optional remote mode**: Bind to remote data or upload it quickly as Arrow, and run your same Python and GFQL queries on remote GPU resources when available
 
 Choosing Entry Points And Result Kinds
@@ -78,7 +80,7 @@ Choosing Entry Points And Result Kinds
 
 Use the entrypoint that matches where the query executes:
 
-- **Local in-memory GFQL / Cypher-style execution**: `g.gfql([...])` or `g.gfql("MATCH ...")` runs on the current `Plottable` in pandas/cuDF.
+- **Local in-memory GFQL / Cypher-style execution**: `g.gfql([...])` or `g.gfql("MATCH ...")` runs on the current `Plottable` with the selected dataframe engine.
 - **Remote GFQL execution**: `g.gfql_remote([...])` runs the same GFQL chains/DAGs remotely, which is useful for larger datasets and remote GPU execution. See :ref:`gfql-remote`.
 
 .. warning::

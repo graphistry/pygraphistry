@@ -8,10 +8,10 @@
       "disclosures": [],
       "engine": "kuzu",
       "measurement_profile": "graphbench-kuzu-execute-text-per-call",
-      "run": "graphbench-q1q9-100k-master-20260907",
+      "run": "graphbench-q1q9-100k-master-d20c6ae1a-20260914",
       "status": "ok",
       "unit": "ms",
-      "value": 149.47,
+      "value": 141.73,
       "workload": "graph-benchmark 100k q1"
     },
     "graphbench.100k.q1.memgraph": {
@@ -22,7 +22,7 @@
       "disclosures": [],
       "engine": "memgraph",
       "measurement_profile": "graphbench-memgraph-bolt-text-keyed-plan-cache",
-      "run": "graphbench-q1q9-100k-master-20260907",
+      "run": "graphbench-q1q9-100k-master-d20c6ae1a-20260914",
       "status": "ok",
       "unit": "ms",
       "value": 655.5,
@@ -36,7 +36,7 @@
       "disclosures": [],
       "engine": "neo4j",
       "measurement_profile": "graphbench-neo4j-bolt-text-keyed-plan-cache",
-      "run": "graphbench-q1q9-100k-master-20260907",
+      "run": "graphbench-q1q9-100k-master-d20c6ae1a-20260914",
       "status": "ok",
       "unit": "ms",
       "value": 680.72,
@@ -50,10 +50,10 @@
       "disclosures": [],
       "engine": "pandas",
       "measurement_profile": "graphbench-cold-binding",
-      "run": "graphbench-q1q9-100k-master-20260907",
+      "run": "graphbench-q1q9-100k-master-d20c6ae1a-20260914",
       "status": "ok",
       "unit": "ms",
-      "value": 163.72,
+      "value": 163.45,
       "workload": "graph-benchmark 100k q1"
     },
     "graphbench.100k.q1.polars": {
@@ -64,10 +64,10 @@
       "disclosures": [],
       "engine": "polars",
       "measurement_profile": "graphbench-cold-binding",
-      "run": "graphbench-q1q9-100k-master-20260907",
+      "run": "graphbench-q1q9-100k-master-d20c6ae1a-20260914",
       "status": "ok",
       "unit": "ms",
-      "value": 26.61,
+      "value": 25.83,
       "workload": "graph-benchmark 100k q1"
     },
     "graphbench.100k.q1.polars_gpu": {
@@ -78,10 +78,10 @@
       "disclosures": [],
       "engine": "polars-gpu",
       "measurement_profile": "graphbench-cold-binding",
-      "run": "graphbench-q1q9-100k-master-20260907",
+      "run": "graphbench-q1q9-100k-master-d20c6ae1a-20260914",
       "status": "ok",
       "unit": "ms",
-      "value": 19.02,
+      "value": 17.94,
       "workload": "graph-benchmark 100k q1"
     },
     "graphbench.100k.q1.polars_gpu_vs_pandas": {
@@ -95,10 +95,10 @@
         "graphbench.100k.q1.polars_gpu",
         "graphbench.100k.q1.pandas"
       ],
-      "run": "graphbench-q1q9-100k-master-20260907",
+      "run": "graphbench-q1q9-100k-master-d20c6ae1a-20260914",
       "status": "ok",
       "unit": "x",
-      "value": 8.6,
+      "value": 9.1,
       "workload": "graph-benchmark 100k q1 \u2014 GFQL-polars-gpu vs GFQL-pandas"
     },
     "graphbench.100k.q1.polars_vs_pandas": {
@@ -112,10 +112,10 @@
         "graphbench.100k.q1.polars",
         "graphbench.100k.q1.pandas"
       ],
-      "run": "graphbench-q1q9-100k-master-20260907",
+      "run": "graphbench-q1q9-100k-master-d20c6ae1a-20260914",
       "status": "ok",
       "unit": "x",
-      "value": 6.2,
+      "value": 6.3,
       "workload": "graph-benchmark 100k q1 \u2014 GFQL-polars vs GFQL-pandas"
     },
     "graphbench.100k.q2.kuzu": {
@@ -126,10 +126,10 @@
       "disclosures": [],
       "engine": "kuzu",
       "measurement_profile": "graphbench-kuzu-execute-text-per-call",
-      "run": "graphbench-q1q9-100k-master-20260907",
+      "run": "graphbench-q1q9-100k-master-d20c6ae1a-20260914",
       "status": "ok",
       "unit": "ms",
-      "value": 275.88,
+      "value": 257.01,
       "workload": "graph-benchmark 100k q2"
     },
     "graphbench.100k.q2.memgraph": {
@@ -140,7 +140,7 @@
       "disclosures": [],
       "engine": "memgraph",
       "measurement_profile": "graphbench-memgraph-bolt-text-keyed-plan-cache",
-      "run": "graphbench-q1q9-100k-master-20260907",
+      "run": "graphbench-q1q9-100k-master-d20c6ae1a-20260914",
       "status": "ok",
       "unit": "ms",
       "value": 468.94,
@@ -154,7 +154,7 @@
       "disclosures": [],
       "engine": "neo4j",
       "measurement_profile": "graphbench-neo4j-bolt-text-keyed-plan-cache",
-      "run": "graphbench-q1q9-100k-master-20260907",
+      "run": "graphbench-q1q9-100k-master-d20c6ae1a-20260914",
       "status": "ok",
       "unit": "ms",
       "value": 632.7,
@@ -168,10 +168,10 @@
       "disclosures": [],
       "engine": "pandas",
       "measurement_profile": "graphbench-cold-binding",
-      "run": "graphbench-q1q9-100k-master-20260907",
+      "run": "graphbench-q1q9-100k-master-d20c6ae1a-20260914",
       "status": "ok",
       "unit": "ms",
-      "value": 167.74,
+      "value": 168.01,
       "workload": "graph-benchmark 100k q2"
     },
     "graphbench.100k.q2.polars": {
@@ -182,10 +182,10 @@
       "disclosures": [],
       "engine": "polars",
       "measurement_profile": "graphbench-cold-binding",
-      "run": "graphbench-q1q9-100k-master-20260907",
+      "run": "graphbench-q1q9-100k-master-d20c6ae1a-20260914",
       "status": "ok",
       "unit": "ms",
-      "value": 40.28,
+      "value": 34.52,
       "workload": "graph-benchmark 100k q2"
     },
     "graphbench.100k.q2.polars_gpu": {
@@ -196,10 +196,10 @@
       "disclosures": [],
       "engine": "polars-gpu",
       "measurement_profile": "graphbench-cold-binding",
-      "run": "graphbench-q1q9-100k-master-20260907",
+      "run": "graphbench-q1q9-100k-master-d20c6ae1a-20260914",
       "status": "ok",
       "unit": "ms",
-      "value": 29.08,
+      "value": 27.08,
       "workload": "graph-benchmark 100k q2"
     },
     "graphbench.100k.q2.polars_gpu_vs_pandas": {
@@ -213,10 +213,10 @@
         "graphbench.100k.q2.polars_gpu",
         "graphbench.100k.q2.pandas"
       ],
-      "run": "graphbench-q1q9-100k-master-20260907",
+      "run": "graphbench-q1q9-100k-master-d20c6ae1a-20260914",
       "status": "ok",
       "unit": "x",
-      "value": 5.8,
+      "value": 6.2,
       "workload": "graph-benchmark 100k q2 \u2014 GFQL-polars-gpu vs GFQL-pandas"
     },
     "graphbench.100k.q2.polars_vs_pandas": {
@@ -230,10 +230,10 @@
         "graphbench.100k.q2.polars",
         "graphbench.100k.q2.pandas"
       ],
-      "run": "graphbench-q1q9-100k-master-20260907",
+      "run": "graphbench-q1q9-100k-master-d20c6ae1a-20260914",
       "status": "ok",
       "unit": "x",
-      "value": 4.2,
+      "value": 4.9,
       "workload": "graph-benchmark 100k q2 \u2014 GFQL-polars vs GFQL-pandas"
     },
     "graphbench.100k.q3.kuzu": {
@@ -244,10 +244,10 @@
       "disclosures": [],
       "engine": "kuzu",
       "measurement_profile": "graphbench-kuzu-execute-text-per-call",
-      "run": "graphbench-q1q9-100k-master-20260907",
+      "run": "graphbench-q1q9-100k-master-d20c6ae1a-20260914",
       "status": "ok",
       "unit": "ms",
-      "value": 34.4,
+      "value": 23.5,
       "workload": "graph-benchmark 100k q3"
     },
     "graphbench.100k.q3.memgraph": {
@@ -258,7 +258,7 @@
       "disclosures": [],
       "engine": "memgraph",
       "measurement_profile": "graphbench-memgraph-bolt-text-keyed-plan-cache",
-      "run": "graphbench-q1q9-100k-master-20260907",
+      "run": "graphbench-q1q9-100k-master-d20c6ae1a-20260914",
       "status": "ok",
       "unit": "ms",
       "value": 30.17,
@@ -272,7 +272,7 @@
       "disclosures": [],
       "engine": "neo4j",
       "measurement_profile": "graphbench-neo4j-bolt-text-keyed-plan-cache",
-      "run": "graphbench-q1q9-100k-master-20260907",
+      "run": "graphbench-q1q9-100k-master-d20c6ae1a-20260914",
       "status": "ok",
       "unit": "ms",
       "value": 51.14,
@@ -286,10 +286,10 @@
       "disclosures": [],
       "engine": "pandas",
       "measurement_profile": "graphbench-cold-binding",
-      "run": "graphbench-q1q9-100k-master-20260907",
+      "run": "graphbench-q1q9-100k-master-d20c6ae1a-20260914",
       "status": "ok",
       "unit": "ms",
-      "value": 69.65,
+      "value": 70.08,
       "workload": "graph-benchmark 100k q3"
     },
     "graphbench.100k.q3.polars": {
@@ -300,10 +300,10 @@
       "disclosures": [],
       "engine": "polars",
       "measurement_profile": "graphbench-cold-binding",
-      "run": "graphbench-q1q9-100k-master-20260907",
+      "run": "graphbench-q1q9-100k-master-d20c6ae1a-20260914",
       "status": "ok",
       "unit": "ms",
-      "value": 10.06,
+      "value": 8.74,
       "workload": "graph-benchmark 100k q3"
     },
     "graphbench.100k.q3.polars_gpu": {
@@ -314,10 +314,10 @@
       "disclosures": [],
       "engine": "polars-gpu",
       "measurement_profile": "graphbench-cold-binding",
-      "run": "graphbench-q1q9-100k-master-20260907",
+      "run": "graphbench-q1q9-100k-master-d20c6ae1a-20260914",
       "status": "ok",
       "unit": "ms",
-      "value": 9.62,
+      "value": 9.18,
       "workload": "graph-benchmark 100k q3"
     },
     "graphbench.100k.q3.polars_gpu_vs_pandas": {
@@ -331,10 +331,10 @@
         "graphbench.100k.q3.polars_gpu",
         "graphbench.100k.q3.pandas"
       ],
-      "run": "graphbench-q1q9-100k-master-20260907",
+      "run": "graphbench-q1q9-100k-master-d20c6ae1a-20260914",
       "status": "ok",
       "unit": "x",
-      "value": 7.2,
+      "value": 7.6,
       "workload": "graph-benchmark 100k q3 \u2014 GFQL-polars-gpu vs GFQL-pandas"
     },
     "graphbench.100k.q3.polars_vs_pandas": {
@@ -348,10 +348,10 @@
         "graphbench.100k.q3.polars",
         "graphbench.100k.q3.pandas"
       ],
-      "run": "graphbench-q1q9-100k-master-20260907",
+      "run": "graphbench-q1q9-100k-master-d20c6ae1a-20260914",
       "status": "ok",
       "unit": "x",
-      "value": 6.9,
+      "value": 8.0,
       "workload": "graph-benchmark 100k q3 \u2014 GFQL-polars vs GFQL-pandas"
     },
     "graphbench.100k.q4.kuzu": {
@@ -362,10 +362,10 @@
       "disclosures": [],
       "engine": "kuzu",
       "measurement_profile": "graphbench-kuzu-execute-text-per-call",
-      "run": "graphbench-q1q9-100k-master-20260907",
+      "run": "graphbench-q1q9-100k-master-d20c6ae1a-20260914",
       "status": "ok",
       "unit": "ms",
-      "value": 13.15,
+      "value": 10.01,
       "workload": "graph-benchmark 100k q4"
     },
     "graphbench.100k.q4.memgraph": {
@@ -376,7 +376,7 @@
       "disclosures": [],
       "engine": "memgraph",
       "measurement_profile": "graphbench-memgraph-bolt-text-keyed-plan-cache",
-      "run": "graphbench-q1q9-100k-master-20260907",
+      "run": "graphbench-q1q9-100k-master-d20c6ae1a-20260914",
       "status": "ok",
       "unit": "ms",
       "value": 37.64,
@@ -390,7 +390,7 @@
       "disclosures": [],
       "engine": "neo4j",
       "measurement_profile": "graphbench-neo4j-bolt-text-keyed-plan-cache",
-      "run": "graphbench-q1q9-100k-master-20260907",
+      "run": "graphbench-q1q9-100k-master-d20c6ae1a-20260914",
       "status": "ok",
       "unit": "ms",
       "value": 63.76,
@@ -404,10 +404,10 @@
       "disclosures": [],
       "engine": "pandas",
       "measurement_profile": "graphbench-cold-binding",
-      "run": "graphbench-q1q9-100k-master-20260907",
+      "run": "graphbench-q1q9-100k-master-d20c6ae1a-20260914",
       "status": "ok",
       "unit": "ms",
-      "value": 62.39,
+      "value": 62.74,
       "workload": "graph-benchmark 100k q4"
     },
     "graphbench.100k.q4.polars": {
@@ -418,10 +418,10 @@
       "disclosures": [],
       "engine": "polars",
       "measurement_profile": "graphbench-cold-binding",
-      "run": "graphbench-q1q9-100k-master-20260907",
+      "run": "graphbench-q1q9-100k-master-d20c6ae1a-20260914",
       "status": "ok",
       "unit": "ms",
-      "value": 8.84,
+      "value": 7.82,
       "workload": "graph-benchmark 100k q4"
     },
     "graphbench.100k.q4.polars_gpu": {
@@ -432,10 +432,10 @@
       "disclosures": [],
       "engine": "polars-gpu",
       "measurement_profile": "graphbench-cold-binding",
-      "run": "graphbench-q1q9-100k-master-20260907",
+      "run": "graphbench-q1q9-100k-master-d20c6ae1a-20260914",
       "status": "ok",
       "unit": "ms",
-      "value": 9.99,
+      "value": 9.82,
       "workload": "graph-benchmark 100k q4"
     },
     "graphbench.100k.q4.polars_gpu_vs_pandas": {
@@ -449,10 +449,10 @@
         "graphbench.100k.q4.polars_gpu",
         "graphbench.100k.q4.pandas"
       ],
-      "run": "graphbench-q1q9-100k-master-20260907",
+      "run": "graphbench-q1q9-100k-master-d20c6ae1a-20260914",
       "status": "ok",
       "unit": "x",
-      "value": 6.2,
+      "value": 6.4,
       "workload": "graph-benchmark 100k q4 \u2014 GFQL-polars-gpu vs GFQL-pandas"
     },
     "graphbench.100k.q4.polars_vs_pandas": {
@@ -466,10 +466,10 @@
         "graphbench.100k.q4.polars",
         "graphbench.100k.q4.pandas"
       ],
-      "run": "graphbench-q1q9-100k-master-20260907",
+      "run": "graphbench-q1q9-100k-master-d20c6ae1a-20260914",
       "status": "ok",
       "unit": "x",
-      "value": 7.1,
+      "value": 8.0,
       "workload": "graph-benchmark 100k q4 \u2014 GFQL-polars vs GFQL-pandas"
     },
     "graphbench.100k.q5.kuzu": {
@@ -480,10 +480,10 @@
       "disclosures": [],
       "engine": "kuzu",
       "measurement_profile": "graphbench-kuzu-execute-text-per-call",
-      "run": "graphbench-q1q9-100k-master-20260907",
+      "run": "graphbench-q1q9-100k-master-d20c6ae1a-20260914",
       "status": "ok",
       "unit": "ms",
-      "value": 12.46,
+      "value": 12.69,
       "workload": "graph-benchmark 100k q5"
     },
     "graphbench.100k.q5.memgraph": {
@@ -494,7 +494,7 @@
       "disclosures": [],
       "engine": "memgraph",
       "measurement_profile": "graphbench-memgraph-bolt-text-keyed-plan-cache",
-      "run": "graphbench-q1q9-100k-master-20260907",
+      "run": "graphbench-q1q9-100k-master-d20c6ae1a-20260914",
       "status": "ok",
       "unit": "ms",
       "value": 3.95,
@@ -508,7 +508,7 @@
       "disclosures": [],
       "engine": "neo4j",
       "measurement_profile": "graphbench-neo4j-bolt-text-keyed-plan-cache",
-      "run": "graphbench-q1q9-100k-master-20260907",
+      "run": "graphbench-q1q9-100k-master-d20c6ae1a-20260914",
       "status": "ok",
       "unit": "ms",
       "value": 8.96,
@@ -522,10 +522,10 @@
       "disclosures": [],
       "engine": "pandas",
       "measurement_profile": "graphbench-cold-binding",
-      "run": "graphbench-q1q9-100k-master-20260907",
+      "run": "graphbench-q1q9-100k-master-d20c6ae1a-20260914",
       "status": "ok",
       "unit": "ms",
-      "value": 397.67,
+      "value": 399.18,
       "workload": "graph-benchmark 100k q5"
     },
     "graphbench.100k.q5.polars": {
@@ -536,10 +536,10 @@
       "disclosures": [],
       "engine": "polars",
       "measurement_profile": "graphbench-cold-binding",
-      "run": "graphbench-q1q9-100k-master-20260907",
+      "run": "graphbench-q1q9-100k-master-d20c6ae1a-20260914",
       "status": "ok",
       "unit": "ms",
-      "value": 12.87,
+      "value": 7.7,
       "workload": "graph-benchmark 100k q5"
     },
     "graphbench.100k.q5.polars_gpu": {
@@ -550,10 +550,10 @@
       "disclosures": [],
       "engine": "polars-gpu",
       "measurement_profile": "graphbench-cold-binding",
-      "run": "graphbench-q1q9-100k-master-20260907",
+      "run": "graphbench-q1q9-100k-master-d20c6ae1a-20260914",
       "status": "ok",
       "unit": "ms",
-      "value": 13.65,
+      "value": 13.11,
       "workload": "graph-benchmark 100k q5"
     },
     "graphbench.100k.q5.polars_gpu_vs_pandas": {
@@ -567,10 +567,10 @@
         "graphbench.100k.q5.polars_gpu",
         "graphbench.100k.q5.pandas"
       ],
-      "run": "graphbench-q1q9-100k-master-20260907",
+      "run": "graphbench-q1q9-100k-master-d20c6ae1a-20260914",
       "status": "ok",
       "unit": "x",
-      "value": 29.1,
+      "value": 30.5,
       "workload": "graph-benchmark 100k q5 \u2014 GFQL-polars-gpu vs GFQL-pandas"
     },
     "graphbench.100k.q5.polars_vs_pandas": {
@@ -584,10 +584,10 @@
         "graphbench.100k.q5.polars",
         "graphbench.100k.q5.pandas"
       ],
-      "run": "graphbench-q1q9-100k-master-20260907",
+      "run": "graphbench-q1q9-100k-master-d20c6ae1a-20260914",
       "status": "ok",
       "unit": "x",
-      "value": 30.9,
+      "value": 51.8,
       "workload": "graph-benchmark 100k q5 \u2014 GFQL-polars vs GFQL-pandas"
     },
     "graphbench.100k.q6.kuzu": {
@@ -598,10 +598,10 @@
       "disclosures": [],
       "engine": "kuzu",
       "measurement_profile": "graphbench-kuzu-execute-text-per-call",
-      "run": "graphbench-q1q9-100k-master-20260907",
+      "run": "graphbench-q1q9-100k-master-d20c6ae1a-20260914",
       "status": "ok",
       "unit": "ms",
-      "value": 24.43,
+      "value": 16.06,
       "workload": "graph-benchmark 100k q6"
     },
     "graphbench.100k.q6.memgraph": {
@@ -612,7 +612,7 @@
       "disclosures": [],
       "engine": "memgraph",
       "measurement_profile": "graphbench-memgraph-bolt-text-keyed-plan-cache",
-      "run": "graphbench-q1q9-100k-master-20260907",
+      "run": "graphbench-q1q9-100k-master-d20c6ae1a-20260914",
       "status": "ok",
       "unit": "ms",
       "value": 5.14,
@@ -626,7 +626,7 @@
       "disclosures": [],
       "engine": "neo4j",
       "measurement_profile": "graphbench-neo4j-bolt-text-keyed-plan-cache",
-      "run": "graphbench-q1q9-100k-master-20260907",
+      "run": "graphbench-q1q9-100k-master-d20c6ae1a-20260914",
       "status": "ok",
       "unit": "ms",
       "value": 22.94,
@@ -640,10 +640,10 @@
       "disclosures": [],
       "engine": "pandas",
       "measurement_profile": "graphbench-cold-binding",
-      "run": "graphbench-q1q9-100k-master-20260907",
+      "run": "graphbench-q1q9-100k-master-d20c6ae1a-20260914",
       "status": "ok",
       "unit": "ms",
-      "value": 400.05,
+      "value": 403.32,
       "workload": "graph-benchmark 100k q6"
     },
     "graphbench.100k.q6.polars": {
@@ -654,10 +654,10 @@
       "disclosures": [],
       "engine": "polars",
       "measurement_profile": "graphbench-cold-binding",
-      "run": "graphbench-q1q9-100k-master-20260907",
+      "run": "graphbench-q1q9-100k-master-d20c6ae1a-20260914",
       "status": "ok",
       "unit": "ms",
-      "value": 12.66,
+      "value": 8.67,
       "workload": "graph-benchmark 100k q6"
     },
     "graphbench.100k.q6.polars_gpu": {
@@ -668,10 +668,10 @@
       "disclosures": [],
       "engine": "polars-gpu",
       "measurement_profile": "graphbench-cold-binding",
-      "run": "graphbench-q1q9-100k-master-20260907",
+      "run": "graphbench-q1q9-100k-master-d20c6ae1a-20260914",
       "status": "ok",
       "unit": "ms",
-      "value": 13.71,
+      "value": 13.66,
       "workload": "graph-benchmark 100k q6"
     },
     "graphbench.100k.q6.polars_gpu_vs_pandas": {
@@ -685,10 +685,10 @@
         "graphbench.100k.q6.polars_gpu",
         "graphbench.100k.q6.pandas"
       ],
-      "run": "graphbench-q1q9-100k-master-20260907",
+      "run": "graphbench-q1q9-100k-master-d20c6ae1a-20260914",
       "status": "ok",
       "unit": "x",
-      "value": 29.2,
+      "value": 29.5,
       "workload": "graph-benchmark 100k q6 \u2014 GFQL-polars-gpu vs GFQL-pandas"
     },
     "graphbench.100k.q6.polars_vs_pandas": {
@@ -702,10 +702,10 @@
         "graphbench.100k.q6.polars",
         "graphbench.100k.q6.pandas"
       ],
-      "run": "graphbench-q1q9-100k-master-20260907",
+      "run": "graphbench-q1q9-100k-master-d20c6ae1a-20260914",
       "status": "ok",
       "unit": "x",
-      "value": 31.6,
+      "value": 46.5,
       "workload": "graph-benchmark 100k q6 \u2014 GFQL-polars vs GFQL-pandas"
     },
     "graphbench.100k.q7.kuzu": {
@@ -716,10 +716,10 @@
       "disclosures": [],
       "engine": "kuzu",
       "measurement_profile": "graphbench-kuzu-execute-text-per-call",
-      "run": "graphbench-q1q9-100k-master-20260907",
+      "run": "graphbench-q1q9-100k-master-d20c6ae1a-20260914",
       "status": "ok",
       "unit": "ms",
-      "value": 9.81,
+      "value": 7.62,
       "workload": "graph-benchmark 100k q7"
     },
     "graphbench.100k.q7.memgraph": {
@@ -730,7 +730,7 @@
       "disclosures": [],
       "engine": "memgraph",
       "measurement_profile": "graphbench-memgraph-bolt-text-keyed-plan-cache",
-      "run": "graphbench-q1q9-100k-master-20260907",
+      "run": "graphbench-q1q9-100k-master-d20c6ae1a-20260914",
       "status": "ok",
       "unit": "ms",
       "value": 3.74,
@@ -744,7 +744,7 @@
       "disclosures": [],
       "engine": "neo4j",
       "measurement_profile": "graphbench-neo4j-bolt-text-keyed-plan-cache",
-      "run": "graphbench-q1q9-100k-master-20260907",
+      "run": "graphbench-q1q9-100k-master-d20c6ae1a-20260914",
       "status": "ok",
       "unit": "ms",
       "value": 140.18,
@@ -758,10 +758,10 @@
       "disclosures": [],
       "engine": "pandas",
       "measurement_profile": "graphbench-cold-binding",
-      "run": "graphbench-q1q9-100k-master-20260907",
+      "run": "graphbench-q1q9-100k-master-d20c6ae1a-20260914",
       "status": "ok",
       "unit": "ms",
-      "value": 112.47,
+      "value": 113.18,
       "workload": "graph-benchmark 100k q7"
     },
     "graphbench.100k.q7.polars": {
@@ -772,10 +772,10 @@
       "disclosures": [],
       "engine": "polars",
       "measurement_profile": "graphbench-cold-binding",
-      "run": "graphbench-q1q9-100k-master-20260907",
+      "run": "graphbench-q1q9-100k-master-d20c6ae1a-20260914",
       "status": "ok",
       "unit": "ms",
-      "value": 6.51,
+      "value": 5.54,
       "workload": "graph-benchmark 100k q7"
     },
     "graphbench.100k.q7.polars_gpu": {
@@ -786,10 +786,10 @@
       "disclosures": [],
       "engine": "polars-gpu",
       "measurement_profile": "graphbench-cold-binding",
-      "run": "graphbench-q1q9-100k-master-20260907",
+      "run": "graphbench-q1q9-100k-master-d20c6ae1a-20260914",
       "status": "ok",
       "unit": "ms",
-      "value": 12.97,
+      "value": 15.01,
       "workload": "graph-benchmark 100k q7"
     },
     "graphbench.100k.q7.polars_gpu_vs_pandas": {
@@ -803,10 +803,10 @@
         "graphbench.100k.q7.polars_gpu",
         "graphbench.100k.q7.pandas"
       ],
-      "run": "graphbench-q1q9-100k-master-20260907",
+      "run": "graphbench-q1q9-100k-master-d20c6ae1a-20260914",
       "status": "ok",
       "unit": "x",
-      "value": 8.7,
+      "value": 7.5,
       "workload": "graph-benchmark 100k q7 \u2014 GFQL-polars-gpu vs GFQL-pandas"
     },
     "graphbench.100k.q7.polars_vs_pandas": {
@@ -820,10 +820,10 @@
         "graphbench.100k.q7.polars",
         "graphbench.100k.q7.pandas"
       ],
-      "run": "graphbench-q1q9-100k-master-20260907",
+      "run": "graphbench-q1q9-100k-master-d20c6ae1a-20260914",
       "status": "ok",
       "unit": "x",
-      "value": 17.3,
+      "value": 20.4,
       "workload": "graph-benchmark 100k q7 \u2014 GFQL-polars vs GFQL-pandas"
     },
     "graphbench.100k.q8.kuzu": {
@@ -834,10 +834,10 @@
       "disclosures": [],
       "engine": "kuzu",
       "measurement_profile": "graphbench-kuzu-execute-text-per-call",
-      "run": "graphbench-q1q9-100k-master-20260907",
+      "run": "graphbench-q1q9-100k-master-d20c6ae1a-20260914",
       "status": "ok",
       "unit": "ms",
-      "value": 9.79,
+      "value": 9.1,
       "workload": "graph-benchmark 100k q8"
     },
     "graphbench.100k.q8.memgraph": {
@@ -848,7 +848,7 @@
       "disclosures": [],
       "engine": "memgraph",
       "measurement_profile": "graphbench-memgraph-bolt-text-keyed-plan-cache",
-      "run": "graphbench-q1q9-100k-master-20260907",
+      "run": "graphbench-q1q9-100k-master-d20c6ae1a-20260914",
       "status": "ok",
       "unit": "ms",
       "value": 7316.46,
@@ -862,7 +862,7 @@
       "disclosures": [],
       "engine": "neo4j",
       "measurement_profile": "graphbench-neo4j-bolt-text-keyed-plan-cache",
-      "run": "graphbench-q1q9-100k-master-20260907",
+      "run": "graphbench-q1q9-100k-master-d20c6ae1a-20260914",
       "status": "ok",
       "unit": "ms",
       "value": 3766.74,
@@ -876,10 +876,10 @@
       "disclosures": [],
       "engine": "pandas",
       "measurement_profile": "graphbench-cold-binding",
-      "run": "graphbench-q1q9-100k-master-20260907",
+      "run": "graphbench-q1q9-100k-master-d20c6ae1a-20260914",
       "status": "ok",
       "unit": "ms",
-      "value": 75.99,
+      "value": 76.86,
       "workload": "graph-benchmark 100k q8"
     },
     "graphbench.100k.q8.polars": {
@@ -890,10 +890,10 @@
       "disclosures": [],
       "engine": "polars",
       "measurement_profile": "graphbench-cold-binding",
-      "run": "graphbench-q1q9-100k-master-20260907",
+      "run": "graphbench-q1q9-100k-master-d20c6ae1a-20260914",
       "status": "ok",
       "unit": "ms",
-      "value": 13.78,
+      "value": 13.25,
       "workload": "graph-benchmark 100k q8"
     },
     "graphbench.100k.q8.polars_gpu": {
@@ -904,10 +904,10 @@
       "disclosures": [],
       "engine": "polars-gpu",
       "measurement_profile": "graphbench-cold-binding",
-      "run": "graphbench-q1q9-100k-master-20260907",
+      "run": "graphbench-q1q9-100k-master-d20c6ae1a-20260914",
       "status": "ok",
       "unit": "ms",
-      "value": 176.81,
+      "value": 168.88,
       "workload": "graph-benchmark 100k q8"
     },
     "graphbench.100k.q8.polars_gpu_vs_pandas": {
@@ -921,10 +921,10 @@
         "graphbench.100k.q8.polars_gpu",
         "graphbench.100k.q8.pandas"
       ],
-      "run": "graphbench-q1q9-100k-master-20260907",
+      "run": "graphbench-q1q9-100k-master-d20c6ae1a-20260914",
       "status": "ok",
       "unit": "x",
-      "value": 0.4,
+      "value": 0.5,
       "workload": "graph-benchmark 100k q8 \u2014 GFQL-polars-gpu vs GFQL-pandas"
     },
     "graphbench.100k.q8.polars_vs_pandas": {
@@ -938,10 +938,10 @@
         "graphbench.100k.q8.polars",
         "graphbench.100k.q8.pandas"
       ],
-      "run": "graphbench-q1q9-100k-master-20260907",
+      "run": "graphbench-q1q9-100k-master-d20c6ae1a-20260914",
       "status": "ok",
       "unit": "x",
-      "value": 5.5,
+      "value": 5.8,
       "workload": "graph-benchmark 100k q8 \u2014 GFQL-polars vs GFQL-pandas"
     },
     "graphbench.100k.q9.kuzu": {
@@ -952,10 +952,10 @@
       "disclosures": [],
       "engine": "kuzu",
       "measurement_profile": "graphbench-kuzu-execute-text-per-call",
-      "run": "graphbench-q1q9-100k-master-20260907",
+      "run": "graphbench-q1q9-100k-master-d20c6ae1a-20260914",
       "status": "ok",
       "unit": "ms",
-      "value": 83.5,
+      "value": 80.89,
       "workload": "graph-benchmark 100k q9"
     },
     "graphbench.100k.q9.memgraph": {
@@ -966,7 +966,7 @@
       "disclosures": [],
       "engine": "memgraph",
       "measurement_profile": "graphbench-memgraph-bolt-text-keyed-plan-cache",
-      "run": "graphbench-q1q9-100k-master-20260907",
+      "run": "graphbench-q1q9-100k-master-d20c6ae1a-20260914",
       "status": "ok",
       "unit": "ms",
       "value": 6199.8,
@@ -980,7 +980,7 @@
       "disclosures": [],
       "engine": "neo4j",
       "measurement_profile": "graphbench-neo4j-bolt-text-keyed-plan-cache",
-      "run": "graphbench-q1q9-100k-master-20260907",
+      "run": "graphbench-q1q9-100k-master-d20c6ae1a-20260914",
       "status": "ok",
       "unit": "ms",
       "value": 4843.46,
@@ -994,10 +994,10 @@
       "disclosures": [],
       "engine": "pandas",
       "measurement_profile": "graphbench-cold-binding",
-      "run": "graphbench-q1q9-100k-master-20260907",
+      "run": "graphbench-q1q9-100k-master-d20c6ae1a-20260914",
       "status": "ok",
       "unit": "ms",
-      "value": 137.05,
+      "value": 139.59,
       "workload": "graph-benchmark 100k q9"
     },
     "graphbench.100k.q9.polars": {
@@ -1008,10 +1008,10 @@
       "disclosures": [],
       "engine": "polars",
       "measurement_profile": "graphbench-cold-binding",
-      "run": "graphbench-q1q9-100k-master-20260907",
+      "run": "graphbench-q1q9-100k-master-d20c6ae1a-20260914",
       "status": "ok",
       "unit": "ms",
-      "value": 33.77,
+      "value": 37.43,
       "workload": "graph-benchmark 100k q9"
     },
     "graphbench.100k.q9.polars_gpu": {
@@ -1022,10 +1022,10 @@
       "disclosures": [],
       "engine": "polars-gpu",
       "measurement_profile": "graphbench-cold-binding",
-      "run": "graphbench-q1q9-100k-master-20260907",
+      "run": "graphbench-q1q9-100k-master-d20c6ae1a-20260914",
       "status": "ok",
       "unit": "ms",
-      "value": 23.81,
+      "value": 23.54,
       "workload": "graph-benchmark 100k q9"
     },
     "graphbench.100k.q9.polars_gpu_vs_pandas": {
@@ -1039,10 +1039,10 @@
         "graphbench.100k.q9.polars_gpu",
         "graphbench.100k.q9.pandas"
       ],
-      "run": "graphbench-q1q9-100k-master-20260907",
+      "run": "graphbench-q1q9-100k-master-d20c6ae1a-20260914",
       "status": "ok",
       "unit": "x",
-      "value": 5.8,
+      "value": 5.9,
       "workload": "graph-benchmark 100k q9 \u2014 GFQL-polars-gpu vs GFQL-pandas"
     },
     "graphbench.100k.q9.polars_vs_pandas": {
@@ -1056,10 +1056,10 @@
         "graphbench.100k.q9.polars",
         "graphbench.100k.q9.pandas"
       ],
-      "run": "graphbench-q1q9-100k-master-20260907",
+      "run": "graphbench-q1q9-100k-master-d20c6ae1a-20260914",
       "status": "ok",
       "unit": "x",
-      "value": 4.1,
+      "value": 3.7,
       "workload": "graph-benchmark 100k q9 \u2014 GFQL-polars vs GFQL-pandas"
     },
     "graphbench.20k.q1.kuzu": {
@@ -1070,10 +1070,10 @@
       "disclosures": [],
       "engine": "kuzu",
       "measurement_profile": "graphbench-kuzu-execute-text-per-call",
-      "run": "graphbench-q1q9-20k-master-20260907",
+      "run": "graphbench-q1q9-20k-master-d20c6ae1a-20260914",
       "status": "ok",
       "unit": "ms",
-      "value": 15.39,
+      "value": 14.71,
       "workload": "graph-benchmark 20k q1"
     },
     "graphbench.20k.q1.memgraph": {
@@ -1084,7 +1084,7 @@
       "disclosures": [],
       "engine": "memgraph",
       "measurement_profile": "graphbench-memgraph-bolt-text-keyed-plan-cache",
-      "run": "graphbench-q1q9-20k-master-20260907",
+      "run": "graphbench-q1q9-20k-master-d20c6ae1a-20260914",
       "status": "ok",
       "unit": "ms",
       "value": 66.08,
@@ -1098,7 +1098,7 @@
       "disclosures": [],
       "engine": "neo4j",
       "measurement_profile": "graphbench-neo4j-bolt-text-keyed-plan-cache",
-      "run": "graphbench-q1q9-20k-master-20260907",
+      "run": "graphbench-q1q9-20k-master-d20c6ae1a-20260914",
       "status": "ok",
       "unit": "ms",
       "value": 74.5,
@@ -1112,10 +1112,10 @@
       "disclosures": [],
       "engine": "pandas",
       "measurement_profile": "graphbench-cold-binding",
-      "run": "graphbench-q1q9-20k-master-20260907",
+      "run": "graphbench-q1q9-20k-master-d20c6ae1a-20260914",
       "status": "ok",
       "unit": "ms",
-      "value": 27.78,
+      "value": 27.1,
       "workload": "graph-benchmark 20k q1"
     },
     "graphbench.20k.q1.polars": {
@@ -1126,10 +1126,10 @@
       "disclosures": [],
       "engine": "polars",
       "measurement_profile": "graphbench-cold-binding",
-      "run": "graphbench-q1q9-20k-master-20260907",
+      "run": "graphbench-q1q9-20k-master-d20c6ae1a-20260914",
       "status": "ok",
       "unit": "ms",
-      "value": 7.32,
+      "value": 6.69,
       "workload": "graph-benchmark 20k q1"
     },
     "graphbench.20k.q1.polars_gpu": {
@@ -1140,10 +1140,10 @@
       "disclosures": [],
       "engine": "polars-gpu",
       "measurement_profile": "graphbench-cold-binding",
-      "run": "graphbench-q1q9-20k-master-20260907",
+      "run": "graphbench-q1q9-20k-master-d20c6ae1a-20260914",
       "status": "ok",
       "unit": "ms",
-      "value": 6.3,
+      "value": 6.04,
       "workload": "graph-benchmark 20k q1"
     },
     "graphbench.20k.q1.polars_gpu_vs_pandas": {
@@ -1157,10 +1157,10 @@
         "graphbench.20k.q1.polars_gpu",
         "graphbench.20k.q1.pandas"
       ],
-      "run": "graphbench-q1q9-20k-master-20260907",
+      "run": "graphbench-q1q9-20k-master-d20c6ae1a-20260914",
       "status": "ok",
       "unit": "x",
-      "value": 4.4,
+      "value": 4.5,
       "workload": "graph-benchmark 20k q1 \u2014 GFQL-polars-gpu vs GFQL-pandas"
     },
     "graphbench.20k.q1.polars_vs_pandas": {
@@ -1174,10 +1174,10 @@
         "graphbench.20k.q1.polars",
         "graphbench.20k.q1.pandas"
       ],
-      "run": "graphbench-q1q9-20k-master-20260907",
+      "run": "graphbench-q1q9-20k-master-d20c6ae1a-20260914",
       "status": "ok",
       "unit": "x",
-      "value": 3.8,
+      "value": 4.0,
       "workload": "graph-benchmark 20k q1 \u2014 GFQL-polars vs GFQL-pandas"
     },
     "graphbench.20k.q2.kuzu": {
@@ -1188,10 +1188,10 @@
       "disclosures": [],
       "engine": "kuzu",
       "measurement_profile": "graphbench-kuzu-execute-text-per-call",
-      "run": "graphbench-q1q9-20k-master-20260907",
+      "run": "graphbench-q1q9-20k-master-d20c6ae1a-20260914",
       "status": "ok",
       "unit": "ms",
-      "value": 41.28,
+      "value": 26.81,
       "workload": "graph-benchmark 20k q2"
     },
     "graphbench.20k.q2.memgraph": {
@@ -1202,7 +1202,7 @@
       "disclosures": [],
       "engine": "memgraph",
       "measurement_profile": "graphbench-memgraph-bolt-text-keyed-plan-cache",
-      "run": "graphbench-q1q9-20k-master-20260907",
+      "run": "graphbench-q1q9-20k-master-d20c6ae1a-20260914",
       "status": "ok",
       "unit": "ms",
       "value": 44.41,
@@ -1216,7 +1216,7 @@
       "disclosures": [],
       "engine": "neo4j",
       "measurement_profile": "graphbench-neo4j-bolt-text-keyed-plan-cache",
-      "run": "graphbench-q1q9-20k-master-20260907",
+      "run": "graphbench-q1q9-20k-master-d20c6ae1a-20260914",
       "status": "ok",
       "unit": "ms",
       "value": 67.74,
@@ -1230,10 +1230,10 @@
       "disclosures": [],
       "engine": "pandas",
       "measurement_profile": "graphbench-cold-binding",
-      "run": "graphbench-q1q9-20k-master-20260907",
+      "run": "graphbench-q1q9-20k-master-d20c6ae1a-20260914",
       "status": "ok",
       "unit": "ms",
-      "value": 29.71,
+      "value": 29.06,
       "workload": "graph-benchmark 20k q2"
     },
     "graphbench.20k.q2.polars": {
@@ -1244,10 +1244,10 @@
       "disclosures": [],
       "engine": "polars",
       "measurement_profile": "graphbench-cold-binding",
-      "run": "graphbench-q1q9-20k-master-20260907",
+      "run": "graphbench-q1q9-20k-master-d20c6ae1a-20260914",
       "status": "ok",
       "unit": "ms",
-      "value": 11.4,
+      "value": 9.58,
       "workload": "graph-benchmark 20k q2"
     },
     "graphbench.20k.q2.polars_gpu": {
@@ -1258,10 +1258,10 @@
       "disclosures": [],
       "engine": "polars-gpu",
       "measurement_profile": "graphbench-cold-binding",
-      "run": "graphbench-q1q9-20k-master-20260907",
+      "run": "graphbench-q1q9-20k-master-d20c6ae1a-20260914",
       "status": "ok",
       "unit": "ms",
-      "value": 10.51,
+      "value": 9.43,
       "workload": "graph-benchmark 20k q2"
     },
     "graphbench.20k.q2.polars_gpu_vs_pandas": {
@@ -1275,10 +1275,10 @@
         "graphbench.20k.q2.polars_gpu",
         "graphbench.20k.q2.pandas"
       ],
-      "run": "graphbench-q1q9-20k-master-20260907",
+      "run": "graphbench-q1q9-20k-master-d20c6ae1a-20260914",
       "status": "ok",
       "unit": "x",
-      "value": 2.8,
+      "value": 3.1,
       "workload": "graph-benchmark 20k q2 \u2014 GFQL-polars-gpu vs GFQL-pandas"
     },
     "graphbench.20k.q2.polars_vs_pandas": {
@@ -1292,10 +1292,10 @@
         "graphbench.20k.q2.polars",
         "graphbench.20k.q2.pandas"
       ],
-      "run": "graphbench-q1q9-20k-master-20260907",
+      "run": "graphbench-q1q9-20k-master-d20c6ae1a-20260914",
       "status": "ok",
       "unit": "x",
-      "value": 2.6,
+      "value": 3.0,
       "workload": "graph-benchmark 20k q2 \u2014 GFQL-polars vs GFQL-pandas"
     },
     "graphbench.20k.q3.kuzu": {
@@ -1306,10 +1306,10 @@
       "disclosures": [],
       "engine": "kuzu",
       "measurement_profile": "graphbench-kuzu-execute-text-per-call",
-      "run": "graphbench-q1q9-20k-master-20260907",
+      "run": "graphbench-q1q9-20k-master-d20c6ae1a-20260914",
       "status": "ok",
       "unit": "ms",
-      "value": 5.86,
+      "value": 6.14,
       "workload": "graph-benchmark 20k q3"
     },
     "graphbench.20k.q3.memgraph": {
@@ -1320,7 +1320,7 @@
       "disclosures": [],
       "engine": "memgraph",
       "measurement_profile": "graphbench-memgraph-bolt-text-keyed-plan-cache",
-      "run": "graphbench-q1q9-20k-master-20260907",
+      "run": "graphbench-q1q9-20k-master-d20c6ae1a-20260914",
       "status": "ok",
       "unit": "ms",
       "value": 4.16,
@@ -1334,7 +1334,7 @@
       "disclosures": [],
       "engine": "neo4j",
       "measurement_profile": "graphbench-neo4j-bolt-text-keyed-plan-cache",
-      "run": "graphbench-q1q9-20k-master-20260907",
+      "run": "graphbench-q1q9-20k-master-d20c6ae1a-20260914",
       "status": "ok",
       "unit": "ms",
       "value": 8.31,
@@ -1348,10 +1348,10 @@
       "disclosures": [],
       "engine": "pandas",
       "measurement_profile": "graphbench-cold-binding",
-      "run": "graphbench-q1q9-20k-master-20260907",
+      "run": "graphbench-q1q9-20k-master-d20c6ae1a-20260914",
       "status": "ok",
       "unit": "ms",
-      "value": 10.56,
+      "value": 10.34,
       "workload": "graph-benchmark 20k q3"
     },
     "graphbench.20k.q3.polars": {
@@ -1362,7 +1362,7 @@
       "disclosures": [],
       "engine": "polars",
       "measurement_profile": "graphbench-cold-binding",
-      "run": "graphbench-q1q9-20k-master-20260907",
+      "run": "graphbench-q1q9-20k-master-d20c6ae1a-20260914",
       "status": "ok",
       "unit": "ms",
       "value": 4.59,
@@ -1376,10 +1376,10 @@
       "disclosures": [],
       "engine": "polars-gpu",
       "measurement_profile": "graphbench-cold-binding",
-      "run": "graphbench-q1q9-20k-master-20260907",
+      "run": "graphbench-q1q9-20k-master-d20c6ae1a-20260914",
       "status": "ok",
       "unit": "ms",
-      "value": 4.54,
+      "value": 4.32,
       "workload": "graph-benchmark 20k q3"
     },
     "graphbench.20k.q3.polars_gpu_vs_pandas": {
@@ -1393,10 +1393,10 @@
         "graphbench.20k.q3.polars_gpu",
         "graphbench.20k.q3.pandas"
       ],
-      "run": "graphbench-q1q9-20k-master-20260907",
+      "run": "graphbench-q1q9-20k-master-d20c6ae1a-20260914",
       "status": "ok",
       "unit": "x",
-      "value": 2.3,
+      "value": 2.4,
       "workload": "graph-benchmark 20k q3 \u2014 GFQL-polars-gpu vs GFQL-pandas"
     },
     "graphbench.20k.q3.polars_vs_pandas": {
@@ -1410,7 +1410,7 @@
         "graphbench.20k.q3.polars",
         "graphbench.20k.q3.pandas"
       ],
-      "run": "graphbench-q1q9-20k-master-20260907",
+      "run": "graphbench-q1q9-20k-master-d20c6ae1a-20260914",
       "status": "ok",
       "unit": "x",
       "value": 2.3,
@@ -1424,10 +1424,10 @@
       "disclosures": [],
       "engine": "kuzu",
       "measurement_profile": "graphbench-kuzu-execute-text-per-call",
-      "run": "graphbench-q1q9-20k-master-20260907",
+      "run": "graphbench-q1q9-20k-master-d20c6ae1a-20260914",
       "status": "ok",
       "unit": "ms",
-      "value": 3.41,
+      "value": 3.09,
       "workload": "graph-benchmark 20k q4"
     },
     "graphbench.20k.q4.memgraph": {
@@ -1438,7 +1438,7 @@
       "disclosures": [],
       "engine": "memgraph",
       "measurement_profile": "graphbench-memgraph-bolt-text-keyed-plan-cache",
-      "run": "graphbench-q1q9-20k-master-20260907",
+      "run": "graphbench-q1q9-20k-master-d20c6ae1a-20260914",
       "status": "ok",
       "unit": "ms",
       "value": 6.38,
@@ -1452,7 +1452,7 @@
       "disclosures": [],
       "engine": "neo4j",
       "measurement_profile": "graphbench-neo4j-bolt-text-keyed-plan-cache",
-      "run": "graphbench-q1q9-20k-master-20260907",
+      "run": "graphbench-q1q9-20k-master-d20c6ae1a-20260914",
       "status": "ok",
       "unit": "ms",
       "value": 11.54,
@@ -1466,10 +1466,10 @@
       "disclosures": [],
       "engine": "pandas",
       "measurement_profile": "graphbench-cold-binding",
-      "run": "graphbench-q1q9-20k-master-20260907",
+      "run": "graphbench-q1q9-20k-master-d20c6ae1a-20260914",
       "status": "ok",
       "unit": "ms",
-      "value": 9.05,
+      "value": 8.91,
       "workload": "graph-benchmark 20k q4"
     },
     "graphbench.20k.q4.polars": {
@@ -1480,10 +1480,10 @@
       "disclosures": [],
       "engine": "polars",
       "measurement_profile": "graphbench-cold-binding",
-      "run": "graphbench-q1q9-20k-master-20260907",
+      "run": "graphbench-q1q9-20k-master-d20c6ae1a-20260914",
       "status": "ok",
       "unit": "ms",
-      "value": 3.35,
+      "value": 3.02,
       "workload": "graph-benchmark 20k q4"
     },
     "graphbench.20k.q4.polars_gpu": {
@@ -1494,10 +1494,10 @@
       "disclosures": [],
       "engine": "polars-gpu",
       "measurement_profile": "graphbench-cold-binding",
-      "run": "graphbench-q1q9-20k-master-20260907",
+      "run": "graphbench-q1q9-20k-master-d20c6ae1a-20260914",
       "status": "ok",
       "unit": "ms",
-      "value": 4.53,
+      "value": 4.44,
       "workload": "graph-benchmark 20k q4"
     },
     "graphbench.20k.q4.polars_gpu_vs_pandas": {
@@ -1511,7 +1511,7 @@
         "graphbench.20k.q4.polars_gpu",
         "graphbench.20k.q4.pandas"
       ],
-      "run": "graphbench-q1q9-20k-master-20260907",
+      "run": "graphbench-q1q9-20k-master-d20c6ae1a-20260914",
       "status": "ok",
       "unit": "x",
       "value": 2.0,
@@ -1528,10 +1528,10 @@
         "graphbench.20k.q4.polars",
         "graphbench.20k.q4.pandas"
       ],
-      "run": "graphbench-q1q9-20k-master-20260907",
+      "run": "graphbench-q1q9-20k-master-d20c6ae1a-20260914",
       "status": "ok",
       "unit": "x",
-      "value": 2.7,
+      "value": 2.9,
       "workload": "graph-benchmark 20k q4 \u2014 GFQL-polars vs GFQL-pandas"
     },
     "graphbench.20k.q5.kuzu": {
@@ -1542,10 +1542,10 @@
       "disclosures": [],
       "engine": "kuzu",
       "measurement_profile": "graphbench-kuzu-execute-text-per-call",
-      "run": "graphbench-q1q9-20k-master-20260907",
+      "run": "graphbench-q1q9-20k-master-d20c6ae1a-20260914",
       "status": "ok",
       "unit": "ms",
-      "value": 6.33,
+      "value": 5.0,
       "workload": "graph-benchmark 20k q5"
     },
     "graphbench.20k.q5.memgraph": {
@@ -1556,7 +1556,7 @@
       "disclosures": [],
       "engine": "memgraph",
       "measurement_profile": "graphbench-memgraph-bolt-text-keyed-plan-cache",
-      "run": "graphbench-q1q9-20k-master-20260907",
+      "run": "graphbench-q1q9-20k-master-d20c6ae1a-20260914",
       "status": "ok",
       "unit": "ms",
       "value": 4.63,
@@ -1570,7 +1570,7 @@
       "disclosures": [],
       "engine": "neo4j",
       "measurement_profile": "graphbench-neo4j-bolt-text-keyed-plan-cache",
-      "run": "graphbench-q1q9-20k-master-20260907",
+      "run": "graphbench-q1q9-20k-master-d20c6ae1a-20260914",
       "status": "ok",
       "unit": "ms",
       "value": 18.33,
@@ -1584,10 +1584,10 @@
       "disclosures": [],
       "engine": "pandas",
       "measurement_profile": "graphbench-cold-binding",
-      "run": "graphbench-q1q9-20k-master-20260907",
+      "run": "graphbench-q1q9-20k-master-d20c6ae1a-20260914",
       "status": "ok",
       "unit": "ms",
-      "value": 79.44,
+      "value": 77.01,
       "workload": "graph-benchmark 20k q5"
     },
     "graphbench.20k.q5.polars": {
@@ -1598,10 +1598,10 @@
       "disclosures": [],
       "engine": "polars",
       "measurement_profile": "graphbench-cold-binding",
-      "run": "graphbench-q1q9-20k-master-20260907",
+      "run": "graphbench-q1q9-20k-master-d20c6ae1a-20260914",
       "status": "ok",
       "unit": "ms",
-      "value": 3.95,
+      "value": 2.81,
       "workload": "graph-benchmark 20k q5"
     },
     "graphbench.20k.q5.polars_gpu": {
@@ -1612,10 +1612,10 @@
       "disclosures": [],
       "engine": "polars-gpu",
       "measurement_profile": "graphbench-cold-binding",
-      "run": "graphbench-q1q9-20k-master-20260907",
+      "run": "graphbench-q1q9-20k-master-d20c6ae1a-20260914",
       "status": "ok",
       "unit": "ms",
-      "value": 7.41,
+      "value": 6.86,
       "workload": "graph-benchmark 20k q5"
     },
     "graphbench.20k.q5.polars_gpu_vs_pandas": {
@@ -1629,10 +1629,10 @@
         "graphbench.20k.q5.polars_gpu",
         "graphbench.20k.q5.pandas"
       ],
-      "run": "graphbench-q1q9-20k-master-20260907",
+      "run": "graphbench-q1q9-20k-master-d20c6ae1a-20260914",
       "status": "ok",
       "unit": "x",
-      "value": 10.7,
+      "value": 11.2,
       "workload": "graph-benchmark 20k q5 \u2014 GFQL-polars-gpu vs GFQL-pandas"
     },
     "graphbench.20k.q5.polars_vs_pandas": {
@@ -1646,10 +1646,10 @@
         "graphbench.20k.q5.polars",
         "graphbench.20k.q5.pandas"
       ],
-      "run": "graphbench-q1q9-20k-master-20260907",
+      "run": "graphbench-q1q9-20k-master-d20c6ae1a-20260914",
       "status": "ok",
       "unit": "x",
-      "value": 20.1,
+      "value": 27.4,
       "workload": "graph-benchmark 20k q5 \u2014 GFQL-polars vs GFQL-pandas"
     },
     "graphbench.20k.q6.kuzu": {
@@ -1660,10 +1660,10 @@
       "disclosures": [],
       "engine": "kuzu",
       "measurement_profile": "graphbench-kuzu-execute-text-per-call",
-      "run": "graphbench-q1q9-20k-master-20260907",
+      "run": "graphbench-q1q9-20k-master-d20c6ae1a-20260914",
       "status": "ok",
       "unit": "ms",
-      "value": 8.38,
+      "value": 7.58,
       "workload": "graph-benchmark 20k q6"
     },
     "graphbench.20k.q6.memgraph": {
@@ -1674,7 +1674,7 @@
       "disclosures": [],
       "engine": "memgraph",
       "measurement_profile": "graphbench-memgraph-bolt-text-keyed-plan-cache",
-      "run": "graphbench-q1q9-20k-master-20260907",
+      "run": "graphbench-q1q9-20k-master-d20c6ae1a-20260914",
       "status": "ok",
       "unit": "ms",
       "value": 4.85,
@@ -1688,7 +1688,7 @@
       "disclosures": [],
       "engine": "neo4j",
       "measurement_profile": "graphbench-neo4j-bolt-text-keyed-plan-cache",
-      "run": "graphbench-q1q9-20k-master-20260907",
+      "run": "graphbench-q1q9-20k-master-d20c6ae1a-20260914",
       "status": "ok",
       "unit": "ms",
       "value": 20.99,
@@ -1702,10 +1702,10 @@
       "disclosures": [],
       "engine": "pandas",
       "measurement_profile": "graphbench-cold-binding",
-      "run": "graphbench-q1q9-20k-master-20260907",
+      "run": "graphbench-q1q9-20k-master-d20c6ae1a-20260914",
       "status": "ok",
       "unit": "ms",
-      "value": 80.48,
+      "value": 78.2,
       "workload": "graph-benchmark 20k q6"
     },
     "graphbench.20k.q6.polars": {
@@ -1716,10 +1716,10 @@
       "disclosures": [],
       "engine": "polars",
       "measurement_profile": "graphbench-cold-binding",
-      "run": "graphbench-q1q9-20k-master-20260907",
+      "run": "graphbench-q1q9-20k-master-d20c6ae1a-20260914",
       "status": "ok",
       "unit": "ms",
-      "value": 4.85,
+      "value": 3.25,
       "workload": "graph-benchmark 20k q6"
     },
     "graphbench.20k.q6.polars_gpu": {
@@ -1730,10 +1730,10 @@
       "disclosures": [],
       "engine": "polars-gpu",
       "measurement_profile": "graphbench-cold-binding",
-      "run": "graphbench-q1q9-20k-master-20260907",
+      "run": "graphbench-q1q9-20k-master-d20c6ae1a-20260914",
       "status": "ok",
       "unit": "ms",
-      "value": 7.13,
+      "value": 6.93,
       "workload": "graph-benchmark 20k q6"
     },
     "graphbench.20k.q6.polars_gpu_vs_pandas": {
@@ -1747,7 +1747,7 @@
         "graphbench.20k.q6.polars_gpu",
         "graphbench.20k.q6.pandas"
       ],
-      "run": "graphbench-q1q9-20k-master-20260907",
+      "run": "graphbench-q1q9-20k-master-d20c6ae1a-20260914",
       "status": "ok",
       "unit": "x",
       "value": 11.3,
@@ -1764,10 +1764,10 @@
         "graphbench.20k.q6.polars",
         "graphbench.20k.q6.pandas"
       ],
-      "run": "graphbench-q1q9-20k-master-20260907",
+      "run": "graphbench-q1q9-20k-master-d20c6ae1a-20260914",
       "status": "ok",
       "unit": "x",
-      "value": 16.6,
+      "value": 24.0,
       "workload": "graph-benchmark 20k q6 \u2014 GFQL-polars vs GFQL-pandas"
     },
     "graphbench.20k.q7.kuzu": {
@@ -1778,10 +1778,10 @@
       "disclosures": [],
       "engine": "kuzu",
       "measurement_profile": "graphbench-kuzu-execute-text-per-call",
-      "run": "graphbench-q1q9-20k-master-20260907",
+      "run": "graphbench-q1q9-20k-master-d20c6ae1a-20260914",
       "status": "ok",
       "unit": "ms",
-      "value": 4.99,
+      "value": 5.76,
       "workload": "graph-benchmark 20k q7"
     },
     "graphbench.20k.q7.memgraph": {
@@ -1792,7 +1792,7 @@
       "disclosures": [],
       "engine": "memgraph",
       "measurement_profile": "graphbench-memgraph-bolt-text-keyed-plan-cache",
-      "run": "graphbench-q1q9-20k-master-20260907",
+      "run": "graphbench-q1q9-20k-master-d20c6ae1a-20260914",
       "status": "ok",
       "unit": "ms",
       "value": 5.39,
@@ -1806,7 +1806,7 @@
       "disclosures": [],
       "engine": "neo4j",
       "measurement_profile": "graphbench-neo4j-bolt-text-keyed-plan-cache",
-      "run": "graphbench-q1q9-20k-master-20260907",
+      "run": "graphbench-q1q9-20k-master-d20c6ae1a-20260914",
       "status": "ok",
       "unit": "ms",
       "value": 15.14,
@@ -1820,10 +1820,10 @@
       "disclosures": [],
       "engine": "pandas",
       "measurement_profile": "graphbench-cold-binding",
-      "run": "graphbench-q1q9-20k-master-20260907",
+      "run": "graphbench-q1q9-20k-master-d20c6ae1a-20260914",
       "status": "ok",
       "unit": "ms",
-      "value": 19.04,
+      "value": 18.53,
       "workload": "graph-benchmark 20k q7"
     },
     "graphbench.20k.q7.polars": {
@@ -1834,10 +1834,10 @@
       "disclosures": [],
       "engine": "polars",
       "measurement_profile": "graphbench-cold-binding",
-      "run": "graphbench-q1q9-20k-master-20260907",
+      "run": "graphbench-q1q9-20k-master-d20c6ae1a-20260914",
       "status": "ok",
       "unit": "ms",
-      "value": 3.15,
+      "value": 2.44,
       "workload": "graph-benchmark 20k q7"
     },
     "graphbench.20k.q7.polars_gpu": {
@@ -1848,10 +1848,10 @@
       "disclosures": [],
       "engine": "polars-gpu",
       "measurement_profile": "graphbench-cold-binding",
-      "run": "graphbench-q1q9-20k-master-20260907",
+      "run": "graphbench-q1q9-20k-master-d20c6ae1a-20260914",
       "status": "ok",
       "unit": "ms",
-      "value": 7.56,
+      "value": 7.46,
       "workload": "graph-benchmark 20k q7"
     },
     "graphbench.20k.q7.polars_gpu_vs_pandas": {
@@ -1865,7 +1865,7 @@
         "graphbench.20k.q7.polars_gpu",
         "graphbench.20k.q7.pandas"
       ],
-      "run": "graphbench-q1q9-20k-master-20260907",
+      "run": "graphbench-q1q9-20k-master-d20c6ae1a-20260914",
       "status": "ok",
       "unit": "x",
       "value": 2.5,
@@ -1882,10 +1882,10 @@
         "graphbench.20k.q7.polars",
         "graphbench.20k.q7.pandas"
       ],
-      "run": "graphbench-q1q9-20k-master-20260907",
+      "run": "graphbench-q1q9-20k-master-d20c6ae1a-20260914",
       "status": "ok",
       "unit": "x",
-      "value": 6.0,
+      "value": 7.6,
       "workload": "graph-benchmark 20k q7 \u2014 GFQL-polars vs GFQL-pandas"
     },
     "graphbench.20k.q8.kuzu": {
@@ -1896,10 +1896,10 @@
       "disclosures": [],
       "engine": "kuzu",
       "measurement_profile": "graphbench-kuzu-execute-text-per-call",
-      "run": "graphbench-q1q9-20k-master-20260907",
+      "run": "graphbench-q1q9-20k-master-d20c6ae1a-20260914",
       "status": "ok",
       "unit": "ms",
-      "value": 2.8,
+      "value": 2.68,
       "workload": "graph-benchmark 20k q8"
     },
     "graphbench.20k.q8.memgraph": {
@@ -1910,7 +1910,7 @@
       "disclosures": [],
       "engine": "memgraph",
       "measurement_profile": "graphbench-memgraph-bolt-text-keyed-plan-cache",
-      "run": "graphbench-q1q9-20k-master-20260907",
+      "run": "graphbench-q1q9-20k-master-d20c6ae1a-20260914",
       "status": "ok",
       "unit": "ms",
       "value": 198.8,
@@ -1924,7 +1924,7 @@
       "disclosures": [],
       "engine": "neo4j",
       "measurement_profile": "graphbench-neo4j-bolt-text-keyed-plan-cache",
-      "run": "graphbench-q1q9-20k-master-20260907",
+      "run": "graphbench-q1q9-20k-master-d20c6ae1a-20260914",
       "status": "ok",
       "unit": "ms",
       "value": 198.71,
@@ -1938,10 +1938,10 @@
       "disclosures": [],
       "engine": "pandas",
       "measurement_profile": "graphbench-cold-binding",
-      "run": "graphbench-q1q9-20k-master-20260907",
+      "run": "graphbench-q1q9-20k-master-d20c6ae1a-20260914",
       "status": "ok",
       "unit": "ms",
-      "value": 8.0,
+      "value": 7.7,
       "workload": "graph-benchmark 20k q8"
     },
     "graphbench.20k.q8.polars": {
@@ -1952,10 +1952,10 @@
       "disclosures": [],
       "engine": "polars",
       "measurement_profile": "graphbench-cold-binding",
-      "run": "graphbench-q1q9-20k-master-20260907",
+      "run": "graphbench-q1q9-20k-master-d20c6ae1a-20260914",
       "status": "ok",
       "unit": "ms",
-      "value": 2.55,
+      "value": 2.17,
       "workload": "graph-benchmark 20k q8"
     },
     "graphbench.20k.q8.polars_gpu": {
@@ -1966,10 +1966,10 @@
       "disclosures": [],
       "engine": "polars-gpu",
       "measurement_profile": "graphbench-cold-binding",
-      "run": "graphbench-q1q9-20k-master-20260907",
+      "run": "graphbench-q1q9-20k-master-d20c6ae1a-20260914",
       "status": "ok",
       "unit": "ms",
-      "value": 2.53,
+      "value": 2.26,
       "workload": "graph-benchmark 20k q8"
     },
     "graphbench.20k.q8.polars_gpu_vs_pandas": {
@@ -1983,10 +1983,10 @@
         "graphbench.20k.q8.polars_gpu",
         "graphbench.20k.q8.pandas"
       ],
-      "run": "graphbench-q1q9-20k-master-20260907",
+      "run": "graphbench-q1q9-20k-master-d20c6ae1a-20260914",
       "status": "ok",
       "unit": "x",
-      "value": 3.2,
+      "value": 3.4,
       "workload": "graph-benchmark 20k q8 \u2014 GFQL-polars-gpu vs GFQL-pandas"
     },
     "graphbench.20k.q8.polars_vs_pandas": {
@@ -2000,10 +2000,10 @@
         "graphbench.20k.q8.polars",
         "graphbench.20k.q8.pandas"
       ],
-      "run": "graphbench-q1q9-20k-master-20260907",
+      "run": "graphbench-q1q9-20k-master-d20c6ae1a-20260914",
       "status": "ok",
       "unit": "x",
-      "value": 3.1,
+      "value": 3.5,
       "workload": "graph-benchmark 20k q8 \u2014 GFQL-polars vs GFQL-pandas"
     },
     "graphbench.20k.q9.kuzu": {
@@ -2014,10 +2014,10 @@
       "disclosures": [],
       "engine": "kuzu",
       "measurement_profile": "graphbench-kuzu-execute-text-per-call",
-      "run": "graphbench-q1q9-20k-master-20260907",
+      "run": "graphbench-q1q9-20k-master-d20c6ae1a-20260914",
       "status": "ok",
       "unit": "ms",
-      "value": 10.75,
+      "value": 10.46,
       "workload": "graph-benchmark 20k q9"
     },
     "graphbench.20k.q9.memgraph": {
@@ -2028,7 +2028,7 @@
       "disclosures": [],
       "engine": "memgraph",
       "measurement_profile": "graphbench-memgraph-bolt-text-keyed-plan-cache",
-      "run": "graphbench-q1q9-20k-master-20260907",
+      "run": "graphbench-q1q9-20k-master-d20c6ae1a-20260914",
       "status": "ok",
       "unit": "ms",
       "value": 124.91,
@@ -2042,7 +2042,7 @@
       "disclosures": [],
       "engine": "neo4j",
       "measurement_profile": "graphbench-neo4j-bolt-text-keyed-plan-cache",
-      "run": "graphbench-q1q9-20k-master-20260907",
+      "run": "graphbench-q1q9-20k-master-d20c6ae1a-20260914",
       "status": "ok",
       "unit": "ms",
       "value": 422.29,
@@ -2056,10 +2056,10 @@
       "disclosures": [],
       "engine": "pandas",
       "measurement_profile": "graphbench-cold-binding",
-      "run": "graphbench-q1q9-20k-master-20260907",
+      "run": "graphbench-q1q9-20k-master-d20c6ae1a-20260914",
       "status": "ok",
       "unit": "ms",
-      "value": 17.01,
+      "value": 16.52,
       "workload": "graph-benchmark 20k q9"
     },
     "graphbench.20k.q9.polars": {
@@ -2070,10 +2070,10 @@
       "disclosures": [],
       "engine": "polars",
       "measurement_profile": "graphbench-cold-binding",
-      "run": "graphbench-q1q9-20k-master-20260907",
+      "run": "graphbench-q1q9-20k-master-d20c6ae1a-20260914",
       "status": "ok",
       "unit": "ms",
-      "value": 7.88,
+      "value": 7.1,
       "workload": "graph-benchmark 20k q9"
     },
     "graphbench.20k.q9.polars_gpu": {
@@ -2084,10 +2084,10 @@
       "disclosures": [],
       "engine": "polars-gpu",
       "measurement_profile": "graphbench-cold-binding",
-      "run": "graphbench-q1q9-20k-master-20260907",
+      "run": "graphbench-q1q9-20k-master-d20c6ae1a-20260914",
       "status": "ok",
       "unit": "ms",
-      "value": 6.7,
+      "value": 6.54,
       "workload": "graph-benchmark 20k q9"
     },
     "graphbench.20k.q9.polars_gpu_vs_pandas": {
@@ -2101,7 +2101,7 @@
         "graphbench.20k.q9.polars_gpu",
         "graphbench.20k.q9.pandas"
       ],
-      "run": "graphbench-q1q9-20k-master-20260907",
+      "run": "graphbench-q1q9-20k-master-d20c6ae1a-20260914",
       "status": "ok",
       "unit": "x",
       "value": 2.5,
@@ -2118,10 +2118,10 @@
         "graphbench.20k.q9.polars",
         "graphbench.20k.q9.pandas"
       ],
-      "run": "graphbench-q1q9-20k-master-20260907",
+      "run": "graphbench-q1q9-20k-master-d20c6ae1a-20260914",
       "status": "ok",
       "unit": "x",
-      "value": 2.2,
+      "value": 2.3,
       "workload": "graph-benchmark 20k q9 \u2014 GFQL-polars vs GFQL-pandas"
     },
     "graphframes.friendster.filter.gfql_polars": {
@@ -3447,14 +3447,15 @@
       "comparison_allowed": true,
       "decimals": 3,
       "disclosures": [
-        "GFQL arms with resident indexes (gfql_index_all + node property indexes, verified per query) under the same timing contract as the four-engine release board (2 discarded warmups, 5 measured executions with full result materialization, 3 independent process runs, median of run medians); the index engages only on the hop seams (message replies, recent replies); the point lookups still pay the chain pipeline's per-call floor (pygraphistry #2027)."
+        "Matched SNB-derived queries without the official LDBC driver; these are internal results, not official or audited LDBC results. All engines use 8 discarded warmups, 31 timed executions with full result materialization, and 3 independent process runs. The published value is the median of run medians. Comparisons require identical canonical results. Independent competitor runs retain their original measurement dates: 2026-09-13.",
+        "GFQL builds resident adjacency and node-property indexes before measurement. An untimed probe verifies index use per query; the three single-node lookups engage point_rows. Not every query uses an index; per-query evidence records unused indexes too."
       ],
       "engine": "gfql_pandas_idx",
-      "measurement_profile": "snb-interactive-warm-repeated-query",
-      "run": "snb-master-1a4107924-20260907",
+      "measurement_profile": "snb-interactive-warm-repeated-query-v2",
+      "run": "snb-master-f7a7253bc-20260913",
       "status": "ok",
       "unit": "ms",
-      "value": 1.664,
+      "value": 0.418,
       "workload": "SNB-derived matched queries (GFQL, resident indexes) sf0.1 message-content"
     },
     "snb.sf01.message_content.gfql_polars": {
@@ -3462,14 +3463,14 @@
       "comparison_allowed": true,
       "decimals": 3,
       "disclosures": [
-        "Matched SNB-derived query shapes on the SNB Interactive dataset, run without the official LDBC driver; this is internal evidence, not an audited or official LDBC result. Each engine ran under the same timing contract with exact result parity, and the three graph databases are faster than GFQL on every universal point-lookup cell."
+        "Matched SNB-derived queries without the official LDBC driver; these are internal results, not official or audited LDBC results. All engines use 8 discarded warmups, 31 timed executions with full result materialization, and 3 independent process runs. The published value is the median of run medians. Comparisons require identical canonical results. Independent competitor runs retain their original measurement dates: 2026-09-13."
       ],
       "engine": "gfql_polars",
-      "measurement_profile": "snb-interactive-warm-repeated-query",
-      "run": "snb-aligned-release-20260902",
+      "measurement_profile": "snb-interactive-warm-repeated-query-v2",
+      "run": "snb-aligned-master-f7a7253bc-20260913",
       "status": "ok",
       "unit": "ms",
-      "value": 2.91,
+      "value": 0.17,
       "workload": "LDBC SNB-derived aligned queries sf0.1 message-content"
     },
     "snb.sf01.message_content.gfql_polars_idx": {
@@ -3477,14 +3478,15 @@
       "comparison_allowed": true,
       "decimals": 3,
       "disclosures": [
-        "GFQL arms with resident indexes (gfql_index_all + node property indexes, verified per query) under the same timing contract as the four-engine release board (2 discarded warmups, 5 measured executions with full result materialization, 3 independent process runs, median of run medians); the index engages only on the hop seams (message replies, recent replies); the point lookups still pay the chain pipeline's per-call floor (pygraphistry #2027)."
+        "Matched SNB-derived queries without the official LDBC driver; these are internal results, not official or audited LDBC results. All engines use 8 discarded warmups, 31 timed executions with full result materialization, and 3 independent process runs. The published value is the median of run medians. Comparisons require identical canonical results. Independent competitor runs retain their original measurement dates: 2026-09-13.",
+        "GFQL builds resident adjacency and node-property indexes before measurement. An untimed probe verifies index use per query; the three single-node lookups engage point_rows. Not every query uses an index; per-query evidence records unused indexes too."
       ],
       "engine": "gfql_polars_idx",
-      "measurement_profile": "snb-interactive-warm-repeated-query",
-      "run": "snb-master-1a4107924-20260907",
+      "measurement_profile": "snb-interactive-warm-repeated-query-v2",
+      "run": "snb-master-f7a7253bc-20260913",
       "status": "ok",
       "unit": "ms",
-      "value": 3.239,
+      "value": 0.17,
       "workload": "SNB-derived matched queries (GFQL, resident indexes) sf0.1 message-content"
     },
     "snb.sf01.message_content.kuzu": {
@@ -3493,14 +3495,14 @@
       "competitor": "kuzu",
       "decimals": 3,
       "disclosures": [
-        "Matched SNB-derived query shapes on the SNB Interactive dataset, run without the official LDBC driver; this is internal evidence, not an audited or official LDBC result. Each engine ran under the same timing contract with exact result parity, and the three graph databases are faster than GFQL on every universal point-lookup cell."
+        "Matched SNB-derived queries without the official LDBC driver; these are internal results, not official or audited LDBC results. All engines use 8 discarded warmups, 31 timed executions with full result materialization, and 3 independent process runs. The published value is the median of run medians. Comparisons require identical canonical results. Independent competitor runs retain their original measurement dates: 2026-09-13."
       ],
       "engine": "kuzu",
-      "measurement_profile": "snb-interactive-warm-repeated-query",
-      "run": "snb-aligned-release-20260902",
+      "measurement_profile": "snb-interactive-warm-repeated-query-v2",
+      "run": "snb-aligned-master-f7a7253bc-20260913",
       "status": "ok",
       "unit": "ms",
-      "value": 0.717,
+      "value": 0.658,
       "workload": "LDBC SNB-derived aligned queries sf0.1 message-content"
     },
     "snb.sf01.message_content.memgraph": {
@@ -3509,14 +3511,14 @@
       "competitor": "memgraph",
       "decimals": 3,
       "disclosures": [
-        "Matched SNB-derived query shapes on the SNB Interactive dataset, run without the official LDBC driver; this is internal evidence, not an audited or official LDBC result. Each engine ran under the same timing contract with exact result parity, and the three graph databases are faster than GFQL on every universal point-lookup cell."
+        "Matched SNB-derived queries without the official LDBC driver; these are internal results, not official or audited LDBC results. All engines use 8 discarded warmups, 31 timed executions with full result materialization, and 3 independent process runs. The published value is the median of run medians. Comparisons require identical canonical results. Independent competitor runs retain their original measurement dates: 2026-09-13."
       ],
       "engine": "memgraph",
-      "measurement_profile": "snb-interactive-warm-repeated-query",
-      "run": "snb-aligned-release-20260902",
+      "measurement_profile": "snb-interactive-warm-repeated-query-v2",
+      "run": "snb-aligned-master-f7a7253bc-20260913",
       "status": "ok",
       "unit": "ms",
-      "value": 0.486,
+      "value": 0.489,
       "workload": "LDBC SNB-derived aligned queries sf0.1 message-content"
     },
     "snb.sf01.message_content.neo4j": {
@@ -3525,14 +3527,14 @@
       "competitor": "neo4j",
       "decimals": 3,
       "disclosures": [
-        "Matched SNB-derived query shapes on the SNB Interactive dataset, run without the official LDBC driver; this is internal evidence, not an audited or official LDBC result. Each engine ran under the same timing contract with exact result parity, and the three graph databases are faster than GFQL on every universal point-lookup cell."
+        "Matched SNB-derived queries without the official LDBC driver; these are internal results, not official or audited LDBC results. All engines use 8 discarded warmups, 31 timed executions with full result materialization, and 3 independent process runs. The published value is the median of run medians. Comparisons require identical canonical results. Independent competitor runs retain their original measurement dates: 2026-09-13."
       ],
       "engine": "neo4j",
-      "measurement_profile": "snb-interactive-warm-repeated-query",
-      "run": "snb-aligned-release-20260902",
+      "measurement_profile": "snb-interactive-warm-repeated-query-v2",
+      "run": "snb-aligned-master-f7a7253bc-20260913",
       "status": "ok",
       "unit": "ms",
-      "value": 2.26,
+      "value": 1.445,
       "workload": "LDBC SNB-derived aligned queries sf0.1 message-content"
     },
     "snb.sf01.message_creator.gfql_pandas_idx": {
@@ -3540,14 +3542,15 @@
       "comparison_allowed": true,
       "decimals": 3,
       "disclosures": [
-        "GFQL arms with resident indexes (gfql_index_all + node property indexes, verified per query) under the same timing contract as the four-engine release board (2 discarded warmups, 5 measured executions with full result materialization, 3 independent process runs, median of run medians); the index engages only on the hop seams (message replies, recent replies); the point lookups still pay the chain pipeline's per-call floor (pygraphistry #2027)."
+        "Matched SNB-derived queries without the official LDBC driver; these are internal results, not official or audited LDBC results. All engines use 8 discarded warmups, 31 timed executions with full result materialization, and 3 independent process runs. The published value is the median of run medians. Comparisons require identical canonical results. Independent competitor runs retain their original measurement dates: 2026-09-13.",
+        "GFQL builds resident adjacency and node-property indexes before measurement. An untimed probe verifies index use per query; the three single-node lookups engage point_rows. Not every query uses an index; per-query evidence records unused indexes too."
       ],
       "engine": "gfql_pandas_idx",
-      "measurement_profile": "snb-interactive-warm-repeated-query",
-      "run": "snb-master-1a4107924-20260907",
+      "measurement_profile": "snb-interactive-warm-repeated-query-v2",
+      "run": "snb-master-f7a7253bc-20260913",
       "status": "ok",
       "unit": "ms",
-      "value": 2.329,
+      "value": 0.613,
       "workload": "SNB-derived matched queries (GFQL, resident indexes) sf0.1 message-creator"
     },
     "snb.sf01.message_creator.gfql_polars": {
@@ -3555,14 +3558,14 @@
       "comparison_allowed": true,
       "decimals": 3,
       "disclosures": [
-        "Matched SNB-derived query shapes on the SNB Interactive dataset, run without the official LDBC driver; this is internal evidence, not an audited or official LDBC result. Each engine ran under the same timing contract with exact result parity, and the three graph databases are faster than GFQL on every universal point-lookup cell."
+        "Matched SNB-derived queries without the official LDBC driver; these are internal results, not official or audited LDBC results. All engines use 8 discarded warmups, 31 timed executions with full result materialization, and 3 independent process runs. The published value is the median of run medians. Comparisons require identical canonical results. Independent competitor runs retain their original measurement dates: 2026-09-13."
       ],
       "engine": "gfql_polars",
-      "measurement_profile": "snb-interactive-warm-repeated-query",
-      "run": "snb-aligned-release-20260902",
+      "measurement_profile": "snb-interactive-warm-repeated-query-v2",
+      "run": "snb-aligned-master-f7a7253bc-20260913",
       "status": "ok",
       "unit": "ms",
-      "value": 20.352,
+      "value": 0.249,
       "workload": "LDBC SNB-derived aligned queries sf0.1 message-creator"
     },
     "snb.sf01.message_creator.gfql_polars_idx": {
@@ -3570,14 +3573,15 @@
       "comparison_allowed": true,
       "decimals": 3,
       "disclosures": [
-        "GFQL arms with resident indexes (gfql_index_all + node property indexes, verified per query) under the same timing contract as the four-engine release board (2 discarded warmups, 5 measured executions with full result materialization, 3 independent process runs, median of run medians); the index engages only on the hop seams (message replies, recent replies); the point lookups still pay the chain pipeline's per-call floor (pygraphistry #2027)."
+        "Matched SNB-derived queries without the official LDBC driver; these are internal results, not official or audited LDBC results. All engines use 8 discarded warmups, 31 timed executions with full result materialization, and 3 independent process runs. The published value is the median of run medians. Comparisons require identical canonical results. Independent competitor runs retain their original measurement dates: 2026-09-13.",
+        "GFQL builds resident adjacency and node-property indexes before measurement. An untimed probe verifies index use per query; the three single-node lookups engage point_rows. Not every query uses an index; per-query evidence records unused indexes too."
       ],
       "engine": "gfql_polars_idx",
-      "measurement_profile": "snb-interactive-warm-repeated-query",
-      "run": "snb-master-1a4107924-20260907",
+      "measurement_profile": "snb-interactive-warm-repeated-query-v2",
+      "run": "snb-master-f7a7253bc-20260913",
       "status": "ok",
       "unit": "ms",
-      "value": 6.26,
+      "value": 0.249,
       "workload": "SNB-derived matched queries (GFQL, resident indexes) sf0.1 message-creator"
     },
     "snb.sf01.message_creator.kuzu": {
@@ -3586,14 +3590,14 @@
       "competitor": "kuzu",
       "decimals": 3,
       "disclosures": [
-        "Matched SNB-derived query shapes on the SNB Interactive dataset, run without the official LDBC driver; this is internal evidence, not an audited or official LDBC result. Each engine ran under the same timing contract with exact result parity, and the three graph databases are faster than GFQL on every universal point-lookup cell."
+        "Matched SNB-derived queries without the official LDBC driver; these are internal results, not official or audited LDBC results. All engines use 8 discarded warmups, 31 timed executions with full result materialization, and 3 independent process runs. The published value is the median of run medians. Comparisons require identical canonical results. Independent competitor runs retain their original measurement dates: 2026-09-13."
       ],
       "engine": "kuzu",
-      "measurement_profile": "snb-interactive-warm-repeated-query",
-      "run": "snb-aligned-release-20260902",
+      "measurement_profile": "snb-interactive-warm-repeated-query-v2",
+      "run": "snb-aligned-master-f7a7253bc-20260913",
       "status": "ok",
       "unit": "ms",
-      "value": 1.433,
+      "value": 1.318,
       "workload": "LDBC SNB-derived aligned queries sf0.1 message-creator"
     },
     "snb.sf01.message_creator.memgraph": {
@@ -3602,14 +3606,14 @@
       "competitor": "memgraph",
       "decimals": 3,
       "disclosures": [
-        "Matched SNB-derived query shapes on the SNB Interactive dataset, run without the official LDBC driver; this is internal evidence, not an audited or official LDBC result. Each engine ran under the same timing contract with exact result parity, and the three graph databases are faster than GFQL on every universal point-lookup cell."
+        "Matched SNB-derived queries without the official LDBC driver; these are internal results, not official or audited LDBC results. All engines use 8 discarded warmups, 31 timed executions with full result materialization, and 3 independent process runs. The published value is the median of run medians. Comparisons require identical canonical results. Independent competitor runs retain their original measurement dates: 2026-09-13."
       ],
       "engine": "memgraph",
-      "measurement_profile": "snb-interactive-warm-repeated-query",
-      "run": "snb-aligned-release-20260902",
+      "measurement_profile": "snb-interactive-warm-repeated-query-v2",
+      "run": "snb-aligned-master-f7a7253bc-20260913",
       "status": "ok",
       "unit": "ms",
-      "value": 0.603,
+      "value": 0.462,
       "workload": "LDBC SNB-derived aligned queries sf0.1 message-creator"
     },
     "snb.sf01.message_creator.neo4j": {
@@ -3618,14 +3622,14 @@
       "competitor": "neo4j",
       "decimals": 3,
       "disclosures": [
-        "Matched SNB-derived query shapes on the SNB Interactive dataset, run without the official LDBC driver; this is internal evidence, not an audited or official LDBC result. Each engine ran under the same timing contract with exact result parity, and the three graph databases are faster than GFQL on every universal point-lookup cell."
+        "Matched SNB-derived queries without the official LDBC driver; these are internal results, not official or audited LDBC results. All engines use 8 discarded warmups, 31 timed executions with full result materialization, and 3 independent process runs. The published value is the median of run medians. Comparisons require identical canonical results. Independent competitor runs retain their original measurement dates: 2026-09-13."
       ],
       "engine": "neo4j",
-      "measurement_profile": "snb-interactive-warm-repeated-query",
-      "run": "snb-aligned-release-20260902",
+      "measurement_profile": "snb-interactive-warm-repeated-query-v2",
+      "run": "snb-aligned-master-f7a7253bc-20260913",
       "status": "ok",
       "unit": "ms",
-      "value": 2.63,
+      "value": 1.339,
       "workload": "LDBC SNB-derived aligned queries sf0.1 message-creator"
     },
     "snb.sf01.message_replies.gfql_pandas_idx": {
@@ -3633,14 +3637,15 @@
       "comparison_allowed": true,
       "decimals": 3,
       "disclosures": [
-        "GFQL arms with resident indexes (gfql_index_all + node property indexes, verified per query) under the same timing contract as the four-engine release board (2 discarded warmups, 5 measured executions with full result materialization, 3 independent process runs, median of run medians); the index engages only on the hop seams (message replies, recent replies); the point lookups still pay the chain pipeline's per-call floor (pygraphistry #2027)."
+        "Matched SNB-derived queries without the official LDBC driver; these are internal results, not official or audited LDBC results. All engines use 8 discarded warmups, 31 timed executions with full result materialization, and 3 independent process runs. The published value is the median of run medians. Comparisons require identical canonical results. Independent competitor runs retain their original measurement dates: 2026-09-13.",
+        "GFQL builds resident adjacency and node-property indexes before measurement. An untimed probe verifies index use per query; the three single-node lookups engage point_rows. Not every query uses an index; per-query evidence records unused indexes too."
       ],
       "engine": "gfql_pandas_idx",
-      "measurement_profile": "snb-interactive-warm-repeated-query",
-      "run": "snb-master-1a4107924-20260907",
+      "measurement_profile": "snb-interactive-warm-repeated-query-v2",
+      "run": "snb-master-f7a7253bc-20260913",
       "status": "ok",
       "unit": "ms",
-      "value": 15.159,
+      "value": 10.864,
       "workload": "SNB-derived matched queries (GFQL, resident indexes) sf0.1 message-replies"
     },
     "snb.sf01.message_replies.gfql_polars": {
@@ -3648,14 +3653,14 @@
       "comparison_allowed": true,
       "decimals": 3,
       "disclosures": [
-        "Matched SNB-derived query shapes on the SNB Interactive dataset, run without the official LDBC driver; this is internal evidence, not an audited or official LDBC result. Each engine ran under the same timing contract with exact result parity, and the three graph databases are faster than GFQL on every universal point-lookup cell."
+        "Matched SNB-derived queries without the official LDBC driver; these are internal results, not official or audited LDBC results. All engines use 8 discarded warmups, 31 timed executions with full result materialization, and 3 independent process runs. The published value is the median of run medians. Comparisons require identical canonical results. Independent competitor runs retain their original measurement dates: 2026-09-13."
       ],
       "engine": "gfql_polars",
-      "measurement_profile": "snb-interactive-warm-repeated-query",
-      "run": "snb-aligned-release-20260902",
+      "measurement_profile": "snb-interactive-warm-repeated-query-v2",
+      "run": "snb-aligned-master-f7a7253bc-20260913",
       "status": "ok",
       "unit": "ms",
-      "value": 48.017,
+      "value": 9.255,
       "workload": "LDBC SNB-derived aligned queries sf0.1 message-replies"
     },
     "snb.sf01.message_replies.gfql_polars_idx": {
@@ -3663,14 +3668,15 @@
       "comparison_allowed": true,
       "decimals": 3,
       "disclosures": [
-        "GFQL arms with resident indexes (gfql_index_all + node property indexes, verified per query) under the same timing contract as the four-engine release board (2 discarded warmups, 5 measured executions with full result materialization, 3 independent process runs, median of run medians); the index engages only on the hop seams (message replies, recent replies); the point lookups still pay the chain pipeline's per-call floor (pygraphistry #2027)."
+        "Matched SNB-derived queries without the official LDBC driver; these are internal results, not official or audited LDBC results. All engines use 8 discarded warmups, 31 timed executions with full result materialization, and 3 independent process runs. The published value is the median of run medians. Comparisons require identical canonical results. Independent competitor runs retain their original measurement dates: 2026-09-13.",
+        "GFQL builds resident adjacency and node-property indexes before measurement. An untimed probe verifies index use per query; the three single-node lookups engage point_rows. Not every query uses an index; per-query evidence records unused indexes too."
       ],
       "engine": "gfql_polars_idx",
-      "measurement_profile": "snb-interactive-warm-repeated-query",
-      "run": "snb-master-1a4107924-20260907",
+      "measurement_profile": "snb-interactive-warm-repeated-query-v2",
+      "run": "snb-master-f7a7253bc-20260913",
       "status": "ok",
       "unit": "ms",
-      "value": 12.489,
+      "value": 9.255,
       "workload": "SNB-derived matched queries (GFQL, resident indexes) sf0.1 message-replies"
     },
     "snb.sf01.message_replies.kuzu": {
@@ -3679,14 +3685,14 @@
       "competitor": "kuzu",
       "decimals": 3,
       "disclosures": [
-        "Matched SNB-derived query shapes on the SNB Interactive dataset, run without the official LDBC driver; this is internal evidence, not an audited or official LDBC result. Each engine ran under the same timing contract with exact result parity, and the three graph databases are faster than GFQL on every universal point-lookup cell."
+        "Matched SNB-derived queries without the official LDBC driver; these are internal results, not official or audited LDBC results. All engines use 8 discarded warmups, 31 timed executions with full result materialization, and 3 independent process runs. The published value is the median of run medians. Comparisons require identical canonical results. Independent competitor runs retain their original measurement dates: 2026-09-13."
       ],
       "engine": "kuzu",
-      "measurement_profile": "snb-interactive-warm-repeated-query",
-      "run": "snb-aligned-release-20260902",
+      "measurement_profile": "snb-interactive-warm-repeated-query-v2",
+      "run": "snb-aligned-master-f7a7253bc-20260913",
       "status": "ok",
       "unit": "ms",
-      "value": 23.904,
+      "value": 23.712,
       "workload": "LDBC SNB-derived aligned queries sf0.1 message-replies"
     },
     "snb.sf01.new_topics.gfql_pandas_idx": {
@@ -3694,14 +3700,15 @@
       "comparison_allowed": true,
       "decimals": 3,
       "disclosures": [
-        "GFQL arms with resident indexes (gfql_index_all + node property indexes, verified per query) under the same timing contract as the four-engine release board (2 discarded warmups, 5 measured executions with full result materialization, 3 independent process runs, median of run medians); the index engages only on the hop seams (message replies, recent replies); the point lookups still pay the chain pipeline's per-call floor (pygraphistry #2027)."
+        "Matched SNB-derived queries without the official LDBC driver; these are internal results, not official or audited LDBC results. All engines use 8 discarded warmups, 31 timed executions with full result materialization, and 3 independent process runs. The published value is the median of run medians. Comparisons require identical canonical results. Independent competitor runs retain their original measurement dates: 2026-09-13.",
+        "GFQL builds resident adjacency and node-property indexes before measurement. An untimed probe verifies index use per query; the three single-node lookups engage point_rows. Not every query uses an index; per-query evidence records unused indexes too."
       ],
       "engine": "gfql_pandas_idx",
-      "measurement_profile": "snb-interactive-warm-repeated-query",
-      "run": "snb-master-1a4107924-20260907",
+      "measurement_profile": "snb-interactive-warm-repeated-query-v2",
+      "run": "snb-master-f7a7253bc-20260913",
       "status": "ok",
       "unit": "ms",
-      "value": 68.848,
+      "value": 68.554,
       "workload": "SNB-derived matched queries (GFQL, resident indexes) sf0.1 new-topics"
     },
     "snb.sf01.new_topics.gfql_polars": {
@@ -3709,14 +3716,14 @@
       "comparison_allowed": true,
       "decimals": 3,
       "disclosures": [
-        "Matched SNB-derived query shapes on the SNB Interactive dataset, run without the official LDBC driver; this is internal evidence, not an audited or official LDBC result. Each engine ran under the same timing contract with exact result parity, and the three graph databases are faster than GFQL on every universal point-lookup cell."
+        "Matched SNB-derived queries without the official LDBC driver; these are internal results, not official or audited LDBC results. All engines use 8 discarded warmups, 31 timed executions with full result materialization, and 3 independent process runs. The published value is the median of run medians. Comparisons require identical canonical results. Independent competitor runs retain their original measurement dates: 2026-09-13."
       ],
       "engine": "gfql_polars",
-      "measurement_profile": "snb-interactive-warm-repeated-query",
-      "run": "snb-aligned-release-20260902",
+      "measurement_profile": "snb-interactive-warm-repeated-query-v2",
+      "run": "snb-aligned-master-f7a7253bc-20260913",
       "status": "ok",
       "unit": "ms",
-      "value": 45.86,
+      "value": 42.903,
       "workload": "LDBC SNB-derived aligned queries sf0.1 new-topics"
     },
     "snb.sf01.new_topics.gfql_polars_idx": {
@@ -3724,14 +3731,15 @@
       "comparison_allowed": true,
       "decimals": 3,
       "disclosures": [
-        "GFQL arms with resident indexes (gfql_index_all + node property indexes, verified per query) under the same timing contract as the four-engine release board (2 discarded warmups, 5 measured executions with full result materialization, 3 independent process runs, median of run medians); the index engages only on the hop seams (message replies, recent replies); the point lookups still pay the chain pipeline's per-call floor (pygraphistry #2027)."
+        "Matched SNB-derived queries without the official LDBC driver; these are internal results, not official or audited LDBC results. All engines use 8 discarded warmups, 31 timed executions with full result materialization, and 3 independent process runs. The published value is the median of run medians. Comparisons require identical canonical results. Independent competitor runs retain their original measurement dates: 2026-09-13.",
+        "GFQL builds resident adjacency and node-property indexes before measurement. An untimed probe verifies index use per query; the three single-node lookups engage point_rows. Not every query uses an index; per-query evidence records unused indexes too."
       ],
       "engine": "gfql_polars_idx",
-      "measurement_profile": "snb-interactive-warm-repeated-query",
-      "run": "snb-master-1a4107924-20260907",
+      "measurement_profile": "snb-interactive-warm-repeated-query-v2",
+      "run": "snb-master-f7a7253bc-20260913",
       "status": "ok",
       "unit": "ms",
-      "value": 48.141,
+      "value": 42.903,
       "workload": "SNB-derived matched queries (GFQL, resident indexes) sf0.1 new-topics"
     },
     "snb.sf01.new_topics.kuzu": {
@@ -3740,14 +3748,14 @@
       "competitor": "kuzu",
       "decimals": 3,
       "disclosures": [
-        "Matched SNB-derived query shapes on the SNB Interactive dataset, run without the official LDBC driver; this is internal evidence, not an audited or official LDBC result. Each engine ran under the same timing contract with exact result parity, and the three graph databases are faster than GFQL on every universal point-lookup cell."
+        "Matched SNB-derived queries without the official LDBC driver; these are internal results, not official or audited LDBC results. All engines use 8 discarded warmups, 31 timed executions with full result materialization, and 3 independent process runs. The published value is the median of run medians. Comparisons require identical canonical results. Independent competitor runs retain their original measurement dates: 2026-09-13."
       ],
       "engine": "kuzu",
-      "measurement_profile": "snb-interactive-warm-repeated-query",
-      "run": "snb-aligned-release-20260902",
+      "measurement_profile": "snb-interactive-warm-repeated-query-v2",
+      "run": "snb-aligned-master-f7a7253bc-20260913",
       "status": "ok",
       "unit": "ms",
-      "value": 47.198,
+      "value": 48.082,
       "workload": "LDBC SNB-derived aligned queries sf0.1 new-topics"
     },
     "snb.sf01.recent_replies.gfql_pandas_idx": {
@@ -3755,14 +3763,15 @@
       "comparison_allowed": true,
       "decimals": 3,
       "disclosures": [
-        "GFQL arms with resident indexes (gfql_index_all + node property indexes, verified per query) under the same timing contract as the four-engine release board (2 discarded warmups, 5 measured executions with full result materialization, 3 independent process runs, median of run medians); the index engages only on the hop seams (message replies, recent replies); the point lookups still pay the chain pipeline's per-call floor (pygraphistry #2027)."
+        "Matched SNB-derived queries without the official LDBC driver; these are internal results, not official or audited LDBC results. All engines use 8 discarded warmups, 31 timed executions with full result materialization, and 3 independent process runs. The published value is the median of run medians. Comparisons require identical canonical results. Independent competitor runs retain their original measurement dates: 2026-09-13.",
+        "GFQL builds resident adjacency and node-property indexes before measurement. An untimed probe verifies index use per query; the three single-node lookups engage point_rows. Not every query uses an index; per-query evidence records unused indexes too."
       ],
       "engine": "gfql_pandas_idx",
-      "measurement_profile": "snb-interactive-warm-repeated-query",
-      "run": "snb-master-1a4107924-20260907",
+      "measurement_profile": "snb-interactive-warm-repeated-query-v2",
+      "run": "snb-master-f7a7253bc-20260913",
       "status": "ok",
       "unit": "ms",
-      "value": 48.911,
+      "value": 41.636,
       "workload": "SNB-derived matched queries (GFQL, resident indexes) sf0.1 recent-replies"
     },
     "snb.sf01.recent_replies.gfql_polars": {
@@ -3770,14 +3779,14 @@
       "comparison_allowed": true,
       "decimals": 3,
       "disclosures": [
-        "Matched SNB-derived query shapes on the SNB Interactive dataset, run without the official LDBC driver; this is internal evidence, not an audited or official LDBC result. Each engine ran under the same timing contract with exact result parity, and the three graph databases are faster than GFQL on every universal point-lookup cell."
+        "Matched SNB-derived queries without the official LDBC driver; these are internal results, not official or audited LDBC results. All engines use 8 discarded warmups, 31 timed executions with full result materialization, and 3 independent process runs. The published value is the median of run medians. Comparisons require identical canonical results. Independent competitor runs retain their original measurement dates: 2026-09-13."
       ],
       "engine": "gfql_polars",
-      "measurement_profile": "snb-interactive-warm-repeated-query",
-      "run": "snb-aligned-release-20260902",
+      "measurement_profile": "snb-interactive-warm-repeated-query-v2",
+      "run": "snb-aligned-master-f7a7253bc-20260913",
       "status": "ok",
       "unit": "ms",
-      "value": 84.978,
+      "value": 27.88,
       "workload": "LDBC SNB-derived aligned queries sf0.1 recent-replies"
     },
     "snb.sf01.recent_replies.gfql_polars_idx": {
@@ -3785,14 +3794,15 @@
       "comparison_allowed": true,
       "decimals": 3,
       "disclosures": [
-        "GFQL arms with resident indexes (gfql_index_all + node property indexes, verified per query) under the same timing contract as the four-engine release board (2 discarded warmups, 5 measured executions with full result materialization, 3 independent process runs, median of run medians); the index engages only on the hop seams (message replies, recent replies); the point lookups still pay the chain pipeline's per-call floor (pygraphistry #2027)."
+        "Matched SNB-derived queries without the official LDBC driver; these are internal results, not official or audited LDBC results. All engines use 8 discarded warmups, 31 timed executions with full result materialization, and 3 independent process runs. The published value is the median of run medians. Comparisons require identical canonical results. Independent competitor runs retain their original measurement dates: 2026-09-13.",
+        "GFQL builds resident adjacency and node-property indexes before measurement. An untimed probe verifies index use per query; the three single-node lookups engage point_rows. Not every query uses an index; per-query evidence records unused indexes too."
       ],
       "engine": "gfql_polars_idx",
-      "measurement_profile": "snb-interactive-warm-repeated-query",
-      "run": "snb-master-1a4107924-20260907",
+      "measurement_profile": "snb-interactive-warm-repeated-query-v2",
+      "run": "snb-master-f7a7253bc-20260913",
       "status": "ok",
       "unit": "ms",
-      "value": 35.368,
+      "value": 27.88,
       "workload": "SNB-derived matched queries (GFQL, resident indexes) sf0.1 recent-replies"
     },
     "snb.sf01.recent_replies.kuzu": {
@@ -3801,14 +3811,14 @@
       "competitor": "kuzu",
       "decimals": 3,
       "disclosures": [
-        "Matched SNB-derived query shapes on the SNB Interactive dataset, run without the official LDBC driver; this is internal evidence, not an audited or official LDBC result. Each engine ran under the same timing contract with exact result parity, and the three graph databases are faster than GFQL on every universal point-lookup cell."
+        "Matched SNB-derived queries without the official LDBC driver; these are internal results, not official or audited LDBC results. All engines use 8 discarded warmups, 31 timed executions with full result materialization, and 3 independent process runs. The published value is the median of run medians. Comparisons require identical canonical results. Independent competitor runs retain their original measurement dates: 2026-09-13."
       ],
       "engine": "kuzu",
-      "measurement_profile": "snb-interactive-warm-repeated-query",
-      "run": "snb-aligned-release-20260902",
+      "measurement_profile": "snb-interactive-warm-repeated-query-v2",
+      "run": "snb-aligned-master-f7a7253bc-20260913",
       "status": "ok",
       "unit": "ms",
-      "value": 32.407,
+      "value": 32.884,
       "workload": "LDBC SNB-derived aligned queries sf0.1 recent-replies"
     },
     "snb.sf01.recent_replies.memgraph": {
@@ -3817,14 +3827,14 @@
       "competitor": "memgraph",
       "decimals": 3,
       "disclosures": [
-        "Matched SNB-derived query shapes on the SNB Interactive dataset, run without the official LDBC driver; this is internal evidence, not an audited or official LDBC result. Each engine ran under the same timing contract with exact result parity, and the three graph databases are faster than GFQL on every universal point-lookup cell."
+        "Matched SNB-derived queries without the official LDBC driver; these are internal results, not official or audited LDBC results. All engines use 8 discarded warmups, 31 timed executions with full result materialization, and 3 independent process runs. The published value is the median of run medians. Comparisons require identical canonical results. Independent competitor runs retain their original measurement dates: 2026-09-13."
       ],
       "engine": "memgraph",
-      "measurement_profile": "snb-interactive-warm-repeated-query",
-      "run": "snb-aligned-release-20260902",
+      "measurement_profile": "snb-interactive-warm-repeated-query-v2",
+      "run": "snb-aligned-master-f7a7253bc-20260913",
       "status": "ok",
       "unit": "ms",
-      "value": 4.342,
+      "value": 6.333,
       "workload": "LDBC SNB-derived aligned queries sf0.1 recent-replies"
     },
     "snb.sf01.recent_replies.neo4j": {
@@ -3833,14 +3843,14 @@
       "competitor": "neo4j",
       "decimals": 3,
       "disclosures": [
-        "Matched SNB-derived query shapes on the SNB Interactive dataset, run without the official LDBC driver; this is internal evidence, not an audited or official LDBC result. Each engine ran under the same timing contract with exact result parity, and the three graph databases are faster than GFQL on every universal point-lookup cell."
+        "Matched SNB-derived queries without the official LDBC driver; these are internal results, not official or audited LDBC results. All engines use 8 discarded warmups, 31 timed executions with full result materialization, and 3 independent process runs. The published value is the median of run medians. Comparisons require identical canonical results. Independent competitor runs retain their original measurement dates: 2026-09-13."
       ],
       "engine": "neo4j",
-      "measurement_profile": "snb-interactive-warm-repeated-query",
-      "run": "snb-aligned-release-20260902",
+      "measurement_profile": "snb-interactive-warm-repeated-query-v2",
+      "run": "snb-aligned-master-f7a7253bc-20260913",
       "status": "ok",
       "unit": "ms",
-      "value": 7.454,
+      "value": 5.425,
       "workload": "LDBC SNB-derived aligned queries sf0.1 recent-replies"
     },
     "snb.sf01.seed_lookup.gfql_pandas_idx": {
@@ -3848,14 +3858,15 @@
       "comparison_allowed": true,
       "decimals": 3,
       "disclosures": [
-        "GFQL arms with resident indexes (gfql_index_all + node property indexes, verified per query) under the same timing contract as the four-engine release board (2 discarded warmups, 5 measured executions with full result materialization, 3 independent process runs, median of run medians); the index engages only on the hop seams (message replies, recent replies); the point lookups still pay the chain pipeline's per-call floor (pygraphistry #2027)."
+        "Matched SNB-derived queries without the official LDBC driver; these are internal results, not official or audited LDBC results. All engines use 8 discarded warmups, 31 timed executions with full result materialization, and 3 independent process runs. The published value is the median of run medians. Comparisons require identical canonical results. Independent competitor runs retain their original measurement dates: 2026-09-13.",
+        "GFQL builds resident adjacency and node-property indexes before measurement. An untimed probe verifies index use per query; the three single-node lookups engage point_rows. Not every query uses an index; per-query evidence records unused indexes too."
       ],
       "engine": "gfql_pandas_idx",
-      "measurement_profile": "snb-interactive-warm-repeated-query",
-      "run": "snb-master-1a4107924-20260907",
+      "measurement_profile": "snb-interactive-warm-repeated-query-v2",
+      "run": "snb-master-f7a7253bc-20260913",
       "status": "ok",
       "unit": "ms",
-      "value": 3.861,
+      "value": 0.896,
       "workload": "SNB-derived matched queries (GFQL, resident indexes) sf0.1 seed-lookup"
     },
     "snb.sf01.seed_lookup.gfql_polars": {
@@ -3863,14 +3874,14 @@
       "comparison_allowed": true,
       "decimals": 3,
       "disclosures": [
-        "Matched SNB-derived query shapes on the SNB Interactive dataset, run without the official LDBC driver; this is internal evidence, not an audited or official LDBC result. Each engine ran under the same timing contract with exact result parity, and the three graph databases are faster than GFQL on every universal point-lookup cell."
+        "Matched SNB-derived queries without the official LDBC driver; these are internal results, not official or audited LDBC results. All engines use 8 discarded warmups, 31 timed executions with full result materialization, and 3 independent process runs. The published value is the median of run medians. Comparisons require identical canonical results. Independent competitor runs retain their original measurement dates: 2026-09-13."
       ],
       "engine": "gfql_polars",
-      "measurement_profile": "snb-interactive-warm-repeated-query",
-      "run": "snb-aligned-release-20260902",
+      "measurement_profile": "snb-interactive-warm-repeated-query-v2",
+      "run": "snb-aligned-master-f7a7253bc-20260913",
       "status": "ok",
       "unit": "ms",
-      "value": 26.706,
+      "value": 1.018,
       "workload": "LDBC SNB-derived aligned queries sf0.1 seed-lookup"
     },
     "snb.sf01.seed_lookup.gfql_polars_idx": {
@@ -3878,14 +3889,15 @@
       "comparison_allowed": true,
       "decimals": 3,
       "disclosures": [
-        "GFQL arms with resident indexes (gfql_index_all + node property indexes, verified per query) under the same timing contract as the four-engine release board (2 discarded warmups, 5 measured executions with full result materialization, 3 independent process runs, median of run medians); the index engages only on the hop seams (message replies, recent replies); the point lookups still pay the chain pipeline's per-call floor (pygraphistry #2027)."
+        "Matched SNB-derived queries without the official LDBC driver; these are internal results, not official or audited LDBC results. All engines use 8 discarded warmups, 31 timed executions with full result materialization, and 3 independent process runs. The published value is the median of run medians. Comparisons require identical canonical results. Independent competitor runs retain their original measurement dates: 2026-09-13.",
+        "GFQL builds resident adjacency and node-property indexes before measurement. An untimed probe verifies index use per query; the three single-node lookups engage point_rows. Not every query uses an index; per-query evidence records unused indexes too."
       ],
       "engine": "gfql_polars_idx",
-      "measurement_profile": "snb-interactive-warm-repeated-query",
-      "run": "snb-master-1a4107924-20260907",
+      "measurement_profile": "snb-interactive-warm-repeated-query-v2",
+      "run": "snb-master-f7a7253bc-20260913",
       "status": "ok",
       "unit": "ms",
-      "value": 11.287,
+      "value": 1.018,
       "workload": "SNB-derived matched queries (GFQL, resident indexes) sf0.1 seed-lookup"
     },
     "snb.sf01.seed_lookup.kuzu": {
@@ -3894,14 +3906,14 @@
       "competitor": "kuzu",
       "decimals": 3,
       "disclosures": [
-        "Matched SNB-derived query shapes on the SNB Interactive dataset, run without the official LDBC driver; this is internal evidence, not an audited or official LDBC result. Each engine ran under the same timing contract with exact result parity, and the three graph databases are faster than GFQL on every universal point-lookup cell."
+        "Matched SNB-derived queries without the official LDBC driver; these are internal results, not official or audited LDBC results. All engines use 8 discarded warmups, 31 timed executions with full result materialization, and 3 independent process runs. The published value is the median of run medians. Comparisons require identical canonical results. Independent competitor runs retain their original measurement dates: 2026-09-13."
       ],
       "engine": "kuzu",
-      "measurement_profile": "snb-interactive-warm-repeated-query",
-      "run": "snb-aligned-release-20260902",
+      "measurement_profile": "snb-interactive-warm-repeated-query-v2",
+      "run": "snb-aligned-master-f7a7253bc-20260913",
       "status": "ok",
       "unit": "ms",
-      "value": 2.329,
+      "value": 2.277,
       "workload": "LDBC SNB-derived aligned queries sf0.1 seed-lookup"
     },
     "snb.sf01.seed_lookup.memgraph": {
@@ -3910,14 +3922,14 @@
       "competitor": "memgraph",
       "decimals": 3,
       "disclosures": [
-        "Matched SNB-derived query shapes on the SNB Interactive dataset, run without the official LDBC driver; this is internal evidence, not an audited or official LDBC result. Each engine ran under the same timing contract with exact result parity, and the three graph databases are faster than GFQL on every universal point-lookup cell."
+        "Matched SNB-derived queries without the official LDBC driver; these are internal results, not official or audited LDBC results. All engines use 8 discarded warmups, 31 timed executions with full result materialization, and 3 independent process runs. The published value is the median of run medians. Comparisons require identical canonical results. Independent competitor runs retain their original measurement dates: 2026-09-13."
       ],
       "engine": "memgraph",
-      "measurement_profile": "snb-interactive-warm-repeated-query",
-      "run": "snb-aligned-release-20260902",
+      "measurement_profile": "snb-interactive-warm-repeated-query-v2",
+      "run": "snb-aligned-master-f7a7253bc-20260913",
       "status": "ok",
       "unit": "ms",
-      "value": 0.592,
+      "value": 0.46,
       "workload": "LDBC SNB-derived aligned queries sf0.1 seed-lookup"
     },
     "snb.sf01.seed_lookup.neo4j": {
@@ -3926,14 +3938,14 @@
       "competitor": "neo4j",
       "decimals": 3,
       "disclosures": [
-        "Matched SNB-derived query shapes on the SNB Interactive dataset, run without the official LDBC driver; this is internal evidence, not an audited or official LDBC result. Each engine ran under the same timing contract with exact result parity, and the three graph databases are faster than GFQL on every universal point-lookup cell."
+        "Matched SNB-derived queries without the official LDBC driver; these are internal results, not official or audited LDBC results. All engines use 8 discarded warmups, 31 timed executions with full result materialization, and 3 independent process runs. The published value is the median of run medians. Comparisons require identical canonical results. Independent competitor runs retain their original measurement dates: 2026-09-13."
       ],
       "engine": "neo4j",
-      "measurement_profile": "snb-interactive-warm-repeated-query",
-      "run": "snb-aligned-release-20260902",
+      "measurement_profile": "snb-interactive-warm-repeated-query-v2",
+      "run": "snb-aligned-master-f7a7253bc-20260913",
       "status": "ok",
       "unit": "ms",
-      "value": 3.497,
+      "value": 3.166,
       "workload": "LDBC SNB-derived aligned queries sf0.1 seed-lookup"
     },
     "snb.sf01.tag_cooccurrence.gfql_pandas_idx": {
@@ -3941,15 +3953,16 @@
       "comparison_allowed": false,
       "decimals": 3,
       "disclosures": [
-        "GFQL arms with resident indexes (gfql_index_all + node property indexes, verified per query) under the same timing contract as the four-engine release board (2 discarded warmups, 5 measured executions with full result materialization, 3 independent process runs, median of run medians); the index engages only on the hop seams (message replies, recent replies); the point lookups still pay the chain pipeline's per-call floor (pygraphistry #2027).",
+        "Matched SNB-derived queries without the official LDBC driver; these are internal results, not official or audited LDBC results. All engines use 8 discarded warmups, 31 timed executions with full result materialization, and 3 independent process runs. The published value is the median of run medians. Comparisons require identical canonical results. Independent competitor runs retain their original measurement dates: 2026-09-13.",
+        "GFQL builds resident adjacency and node-property indexes before measurement. An untimed probe verifies index use per query; the three single-node lookups engage point_rows. Not every query uses an index; per-query evidence records unused indexes too.",
         "tag-cooccurrence: not comparable with the four-engine board (parity, eligibility, or cardinality differs from the release GFQL arm)."
       ],
       "engine": "gfql_pandas_idx",
-      "measurement_profile": "snb-interactive-warm-repeated-query",
-      "run": "snb-master-1a4107924-20260907",
+      "measurement_profile": "snb-interactive-warm-repeated-query-v2",
+      "run": "snb-master-f7a7253bc-20260913",
       "status": "result_mismatch",
       "unit": "ms",
-      "value": 59.43,
+      "value": 59.147,
       "workload": "SNB-derived matched queries (GFQL, resident indexes) sf0.1 tag-cooccurrence"
     },
     "snb.sf01.tag_cooccurrence.gfql_polars_idx": {
@@ -3957,15 +3970,16 @@
       "comparison_allowed": false,
       "decimals": 3,
       "disclosures": [
-        "GFQL arms with resident indexes (gfql_index_all + node property indexes, verified per query) under the same timing contract as the four-engine release board (2 discarded warmups, 5 measured executions with full result materialization, 3 independent process runs, median of run medians); the index engages only on the hop seams (message replies, recent replies); the point lookups still pay the chain pipeline's per-call floor (pygraphistry #2027).",
+        "Matched SNB-derived queries without the official LDBC driver; these are internal results, not official or audited LDBC results. All engines use 8 discarded warmups, 31 timed executions with full result materialization, and 3 independent process runs. The published value is the median of run medians. Comparisons require identical canonical results. Independent competitor runs retain their original measurement dates: 2026-09-13.",
+        "GFQL builds resident adjacency and node-property indexes before measurement. An untimed probe verifies index use per query; the three single-node lookups engage point_rows. Not every query uses an index; per-query evidence records unused indexes too.",
         "tag-cooccurrence: not comparable with the four-engine board (parity, eligibility, or cardinality differs from the release GFQL arm)."
       ],
       "engine": "gfql_polars_idx",
-      "measurement_profile": "snb-interactive-warm-repeated-query",
-      "run": "snb-master-1a4107924-20260907",
+      "measurement_profile": "snb-interactive-warm-repeated-query-v2",
+      "run": "snb-master-f7a7253bc-20260913",
       "status": "result_mismatch",
       "unit": "ms",
-      "value": 34.64,
+      "value": 33.189,
       "workload": "SNB-derived matched queries (GFQL, resident indexes) sf0.1 tag-cooccurrence"
     },
     "snb.sf1.is3.single_query.polars": {
@@ -4003,14 +4017,15 @@
       "comparison_allowed": true,
       "decimals": 3,
       "disclosures": [
-        "GFQL arms with resident indexes (gfql_index_all + node property indexes, verified per query) under the same timing contract as the four-engine release board (2 discarded warmups, 5 measured executions with full result materialization, 3 independent process runs, median of run medians); the index engages only on the hop seams (message replies, recent replies); the point lookups still pay the chain pipeline's per-call floor (pygraphistry #2027)."
+        "Matched SNB-derived queries without the official LDBC driver; these are internal results, not official or audited LDBC results. All engines use 8 discarded warmups, 31 timed executions with full result materialization, and 3 independent process runs. The published value is the median of run medians. Comparisons require identical canonical results. Independent competitor runs retain their original measurement dates: 2026-09-13.",
+        "GFQL builds resident adjacency and node-property indexes before measurement. An untimed probe verifies index use per query; the three single-node lookups engage point_rows. Not every query uses an index; per-query evidence records unused indexes too."
       ],
       "engine": "gfql_pandas_idx",
-      "measurement_profile": "snb-interactive-warm-repeated-query",
-      "run": "snb-master-1a4107924-20260907",
+      "measurement_profile": "snb-interactive-warm-repeated-query-v2",
+      "run": "snb-master-f7a7253bc-20260913",
       "status": "ok",
       "unit": "ms",
-      "value": 1.677,
+      "value": 0.418,
       "workload": "SNB-derived matched queries (GFQL, resident indexes) sf1 message-content"
     },
     "snb.sf1.message_content.gfql_polars": {
@@ -4018,14 +4033,14 @@
       "comparison_allowed": true,
       "decimals": 3,
       "disclosures": [
-        "Matched SNB-derived query shapes on the SNB Interactive dataset, run without the official LDBC driver; this is internal evidence, not an audited or official LDBC result. Each engine ran under the same timing contract with exact result parity, and the three graph databases are faster than GFQL on every universal point-lookup cell."
+        "Matched SNB-derived queries without the official LDBC driver; these are internal results, not official or audited LDBC results. All engines use 8 discarded warmups, 31 timed executions with full result materialization, and 3 independent process runs. The published value is the median of run medians. Comparisons require identical canonical results. Independent competitor runs retain their original measurement dates: 2026-09-13."
       ],
       "engine": "gfql_polars",
-      "measurement_profile": "snb-interactive-warm-repeated-query",
-      "run": "snb-aligned-release-20260902",
+      "measurement_profile": "snb-interactive-warm-repeated-query-v2",
+      "run": "snb-aligned-master-f7a7253bc-20260913",
       "status": "ok",
       "unit": "ms",
-      "value": 3.556,
+      "value": 0.172,
       "workload": "LDBC SNB-derived aligned queries sf1 message-content"
     },
     "snb.sf1.message_content.gfql_polars_idx": {
@@ -4033,14 +4048,15 @@
       "comparison_allowed": true,
       "decimals": 3,
       "disclosures": [
-        "GFQL arms with resident indexes (gfql_index_all + node property indexes, verified per query) under the same timing contract as the four-engine release board (2 discarded warmups, 5 measured executions with full result materialization, 3 independent process runs, median of run medians); the index engages only on the hop seams (message replies, recent replies); the point lookups still pay the chain pipeline's per-call floor (pygraphistry #2027)."
+        "Matched SNB-derived queries without the official LDBC driver; these are internal results, not official or audited LDBC results. All engines use 8 discarded warmups, 31 timed executions with full result materialization, and 3 independent process runs. The published value is the median of run medians. Comparisons require identical canonical results. Independent competitor runs retain their original measurement dates: 2026-09-13.",
+        "GFQL builds resident adjacency and node-property indexes before measurement. An untimed probe verifies index use per query; the three single-node lookups engage point_rows. Not every query uses an index; per-query evidence records unused indexes too."
       ],
       "engine": "gfql_polars_idx",
-      "measurement_profile": "snb-interactive-warm-repeated-query",
-      "run": "snb-master-1a4107924-20260907",
+      "measurement_profile": "snb-interactive-warm-repeated-query-v2",
+      "run": "snb-master-f7a7253bc-20260913",
       "status": "ok",
       "unit": "ms",
-      "value": 2.914,
+      "value": 0.172,
       "workload": "SNB-derived matched queries (GFQL, resident indexes) sf1 message-content"
     },
     "snb.sf1.message_content.kuzu": {
@@ -4049,14 +4065,14 @@
       "competitor": "kuzu",
       "decimals": 3,
       "disclosures": [
-        "Matched SNB-derived query shapes on the SNB Interactive dataset, run without the official LDBC driver; this is internal evidence, not an audited or official LDBC result. Each engine ran under the same timing contract with exact result parity, and the three graph databases are faster than GFQL on every universal point-lookup cell."
+        "Matched SNB-derived queries without the official LDBC driver; these are internal results, not official or audited LDBC results. All engines use 8 discarded warmups, 31 timed executions with full result materialization, and 3 independent process runs. The published value is the median of run medians. Comparisons require identical canonical results. Independent competitor runs retain their original measurement dates: 2026-09-13."
       ],
       "engine": "kuzu",
-      "measurement_profile": "snb-interactive-warm-repeated-query",
-      "run": "snb-aligned-release-20260902",
+      "measurement_profile": "snb-interactive-warm-repeated-query-v2",
+      "run": "snb-aligned-master-f7a7253bc-20260913",
       "status": "ok",
       "unit": "ms",
-      "value": 0.674,
+      "value": 0.336,
       "workload": "LDBC SNB-derived aligned queries sf1 message-content"
     },
     "snb.sf1.message_content.memgraph": {
@@ -4065,14 +4081,14 @@
       "competitor": "memgraph",
       "decimals": 3,
       "disclosures": [
-        "Matched SNB-derived query shapes on the SNB Interactive dataset, run without the official LDBC driver; this is internal evidence, not an audited or official LDBC result. Each engine ran under the same timing contract with exact result parity, and the three graph databases are faster than GFQL on every universal point-lookup cell."
+        "Matched SNB-derived queries without the official LDBC driver; these are internal results, not official or audited LDBC results. All engines use 8 discarded warmups, 31 timed executions with full result materialization, and 3 independent process runs. The published value is the median of run medians. Comparisons require identical canonical results. Independent competitor runs retain their original measurement dates: 2026-09-13."
       ],
       "engine": "memgraph",
-      "measurement_profile": "snb-interactive-warm-repeated-query",
-      "run": "snb-aligned-release-20260902",
+      "measurement_profile": "snb-interactive-warm-repeated-query-v2",
+      "run": "snb-aligned-master-f7a7253bc-20260913",
       "status": "ok",
       "unit": "ms",
-      "value": 0.293,
+      "value": 0.527,
       "workload": "LDBC SNB-derived aligned queries sf1 message-content"
     },
     "snb.sf1.message_content.neo4j": {
@@ -4081,14 +4097,14 @@
       "competitor": "neo4j",
       "decimals": 3,
       "disclosures": [
-        "Matched SNB-derived query shapes on the SNB Interactive dataset, run without the official LDBC driver; this is internal evidence, not an audited or official LDBC result. Each engine ran under the same timing contract with exact result parity, and the three graph databases are faster than GFQL on every universal point-lookup cell."
+        "Matched SNB-derived queries without the official LDBC driver; these are internal results, not official or audited LDBC results. All engines use 8 discarded warmups, 31 timed executions with full result materialization, and 3 independent process runs. The published value is the median of run medians. Comparisons require identical canonical results. Independent competitor runs retain their original measurement dates: 2026-09-13."
       ],
       "engine": "neo4j",
-      "measurement_profile": "snb-interactive-warm-repeated-query",
-      "run": "snb-aligned-release-20260902",
+      "measurement_profile": "snb-interactive-warm-repeated-query-v2",
+      "run": "snb-aligned-master-f7a7253bc-20260913",
       "status": "ok",
       "unit": "ms",
-      "value": 2.435,
+      "value": 2.06,
       "workload": "LDBC SNB-derived aligned queries sf1 message-content"
     },
     "snb.sf1.message_creator.gfql_pandas_idx": {
@@ -4096,14 +4112,15 @@
       "comparison_allowed": true,
       "decimals": 3,
       "disclosures": [
-        "GFQL arms with resident indexes (gfql_index_all + node property indexes, verified per query) under the same timing contract as the four-engine release board (2 discarded warmups, 5 measured executions with full result materialization, 3 independent process runs, median of run medians); the index engages only on the hop seams (message replies, recent replies); the point lookups still pay the chain pipeline's per-call floor (pygraphistry #2027)."
+        "Matched SNB-derived queries without the official LDBC driver; these are internal results, not official or audited LDBC results. All engines use 8 discarded warmups, 31 timed executions with full result materialization, and 3 independent process runs. The published value is the median of run medians. Comparisons require identical canonical results. Independent competitor runs retain their original measurement dates: 2026-09-13.",
+        "GFQL builds resident adjacency and node-property indexes before measurement. An untimed probe verifies index use per query; the three single-node lookups engage point_rows. Not every query uses an index; per-query evidence records unused indexes too."
       ],
       "engine": "gfql_pandas_idx",
-      "measurement_profile": "snb-interactive-warm-repeated-query",
-      "run": "snb-master-1a4107924-20260907",
+      "measurement_profile": "snb-interactive-warm-repeated-query-v2",
+      "run": "snb-master-f7a7253bc-20260913",
       "status": "ok",
       "unit": "ms",
-      "value": 2.408,
+      "value": 0.625,
       "workload": "SNB-derived matched queries (GFQL, resident indexes) sf1 message-creator"
     },
     "snb.sf1.message_creator.gfql_polars": {
@@ -4111,14 +4128,14 @@
       "comparison_allowed": true,
       "decimals": 3,
       "disclosures": [
-        "Matched SNB-derived query shapes on the SNB Interactive dataset, run without the official LDBC driver; this is internal evidence, not an audited or official LDBC result. Each engine ran under the same timing contract with exact result parity, and the three graph databases are faster than GFQL on every universal point-lookup cell."
+        "Matched SNB-derived queries without the official LDBC driver; these are internal results, not official or audited LDBC results. All engines use 8 discarded warmups, 31 timed executions with full result materialization, and 3 independent process runs. The published value is the median of run medians. Comparisons require identical canonical results. Independent competitor runs retain their original measurement dates: 2026-09-13."
       ],
       "engine": "gfql_polars",
-      "measurement_profile": "snb-interactive-warm-repeated-query",
-      "run": "snb-aligned-release-20260902",
+      "measurement_profile": "snb-interactive-warm-repeated-query-v2",
+      "run": "snb-aligned-master-f7a7253bc-20260913",
       "status": "ok",
       "unit": "ms",
-      "value": 78.38,
+      "value": 0.25,
       "workload": "LDBC SNB-derived aligned queries sf1 message-creator"
     },
     "snb.sf1.message_creator.gfql_polars_idx": {
@@ -4126,14 +4143,15 @@
       "comparison_allowed": true,
       "decimals": 3,
       "disclosures": [
-        "GFQL arms with resident indexes (gfql_index_all + node property indexes, verified per query) under the same timing contract as the four-engine release board (2 discarded warmups, 5 measured executions with full result materialization, 3 independent process runs, median of run medians); the index engages only on the hop seams (message replies, recent replies); the point lookups still pay the chain pipeline's per-call floor (pygraphistry #2027)."
+        "Matched SNB-derived queries without the official LDBC driver; these are internal results, not official or audited LDBC results. All engines use 8 discarded warmups, 31 timed executions with full result materialization, and 3 independent process runs. The published value is the median of run medians. Comparisons require identical canonical results. Independent competitor runs retain their original measurement dates: 2026-09-13.",
+        "GFQL builds resident adjacency and node-property indexes before measurement. An untimed probe verifies index use per query; the three single-node lookups engage point_rows. Not every query uses an index; per-query evidence records unused indexes too."
       ],
       "engine": "gfql_polars_idx",
-      "measurement_profile": "snb-interactive-warm-repeated-query",
-      "run": "snb-master-1a4107924-20260907",
+      "measurement_profile": "snb-interactive-warm-repeated-query-v2",
+      "run": "snb-master-f7a7253bc-20260913",
       "status": "ok",
       "unit": "ms",
-      "value": 5.532,
+      "value": 0.25,
       "workload": "SNB-derived matched queries (GFQL, resident indexes) sf1 message-creator"
     },
     "snb.sf1.message_creator.kuzu": {
@@ -4142,14 +4160,14 @@
       "competitor": "kuzu",
       "decimals": 3,
       "disclosures": [
-        "Matched SNB-derived query shapes on the SNB Interactive dataset, run without the official LDBC driver; this is internal evidence, not an audited or official LDBC result. Each engine ran under the same timing contract with exact result parity, and the three graph databases are faster than GFQL on every universal point-lookup cell."
+        "Matched SNB-derived queries without the official LDBC driver; these are internal results, not official or audited LDBC results. All engines use 8 discarded warmups, 31 timed executions with full result materialization, and 3 independent process runs. The published value is the median of run medians. Comparisons require identical canonical results. Independent competitor runs retain their original measurement dates: 2026-09-13."
       ],
       "engine": "kuzu",
-      "measurement_profile": "snb-interactive-warm-repeated-query",
-      "run": "snb-aligned-release-20260902",
+      "measurement_profile": "snb-interactive-warm-repeated-query-v2",
+      "run": "snb-aligned-master-f7a7253bc-20260913",
       "status": "ok",
       "unit": "ms",
-      "value": 1.509,
+      "value": 1.49,
       "workload": "LDBC SNB-derived aligned queries sf1 message-creator"
     },
     "snb.sf1.message_creator.memgraph": {
@@ -4158,14 +4176,14 @@
       "competitor": "memgraph",
       "decimals": 3,
       "disclosures": [
-        "Matched SNB-derived query shapes on the SNB Interactive dataset, run without the official LDBC driver; this is internal evidence, not an audited or official LDBC result. Each engine ran under the same timing contract with exact result parity, and the three graph databases are faster than GFQL on every universal point-lookup cell."
+        "Matched SNB-derived queries without the official LDBC driver; these are internal results, not official or audited LDBC results. All engines use 8 discarded warmups, 31 timed executions with full result materialization, and 3 independent process runs. The published value is the median of run medians. Comparisons require identical canonical results. Independent competitor runs retain their original measurement dates: 2026-09-13."
       ],
       "engine": "memgraph",
-      "measurement_profile": "snb-interactive-warm-repeated-query",
-      "run": "snb-aligned-release-20260902",
+      "measurement_profile": "snb-interactive-warm-repeated-query-v2",
+      "run": "snb-aligned-master-f7a7253bc-20260913",
       "status": "ok",
       "unit": "ms",
-      "value": 0.308,
+      "value": 0.516,
       "workload": "LDBC SNB-derived aligned queries sf1 message-creator"
     },
     "snb.sf1.message_creator.neo4j": {
@@ -4174,14 +4192,14 @@
       "competitor": "neo4j",
       "decimals": 3,
       "disclosures": [
-        "Matched SNB-derived query shapes on the SNB Interactive dataset, run without the official LDBC driver; this is internal evidence, not an audited or official LDBC result. Each engine ran under the same timing contract with exact result parity, and the three graph databases are faster than GFQL on every universal point-lookup cell."
+        "Matched SNB-derived queries without the official LDBC driver; these are internal results, not official or audited LDBC results. All engines use 8 discarded warmups, 31 timed executions with full result materialization, and 3 independent process runs. The published value is the median of run medians. Comparisons require identical canonical results. Independent competitor runs retain their original measurement dates: 2026-09-13."
       ],
       "engine": "neo4j",
-      "measurement_profile": "snb-interactive-warm-repeated-query",
-      "run": "snb-aligned-release-20260902",
+      "measurement_profile": "snb-interactive-warm-repeated-query-v2",
+      "run": "snb-aligned-master-f7a7253bc-20260913",
       "status": "ok",
       "unit": "ms",
-      "value": 1.671,
+      "value": 1.871,
       "workload": "LDBC SNB-derived aligned queries sf1 message-creator"
     },
     "snb.sf1.new_topics.gfql_pandas_idx": {
@@ -4189,14 +4207,15 @@
       "comparison_allowed": true,
       "decimals": 3,
       "disclosures": [
-        "GFQL arms with resident indexes (gfql_index_all + node property indexes, verified per query) under the same timing contract as the four-engine release board (2 discarded warmups, 5 measured executions with full result materialization, 3 independent process runs, median of run medians); the index engages only on the hop seams (message replies, recent replies); the point lookups still pay the chain pipeline's per-call floor (pygraphistry #2027)."
+        "Matched SNB-derived queries without the official LDBC driver; these are internal results, not official or audited LDBC results. All engines use 8 discarded warmups, 31 timed executions with full result materialization, and 3 independent process runs. The published value is the median of run medians. Comparisons require identical canonical results. Independent competitor runs retain their original measurement dates: 2026-09-13.",
+        "GFQL builds resident adjacency and node-property indexes before measurement. An untimed probe verifies index use per query; the three single-node lookups engage point_rows. Not every query uses an index; per-query evidence records unused indexes too."
       ],
       "engine": "gfql_pandas_idx",
-      "measurement_profile": "snb-interactive-warm-repeated-query",
-      "run": "snb-master-1a4107924-20260907",
+      "measurement_profile": "snb-interactive-warm-repeated-query-v2",
+      "run": "snb-master-f7a7253bc-20260913",
       "status": "ok",
       "unit": "ms",
-      "value": 572.933,
+      "value": 570.63,
       "workload": "SNB-derived matched queries (GFQL, resident indexes) sf1 new-topics"
     },
     "snb.sf1.new_topics.gfql_polars": {
@@ -4204,14 +4223,14 @@
       "comparison_allowed": true,
       "decimals": 3,
       "disclosures": [
-        "Matched SNB-derived query shapes on the SNB Interactive dataset, run without the official LDBC driver; this is internal evidence, not an audited or official LDBC result. Each engine ran under the same timing contract with exact result parity, and the three graph databases are faster than GFQL on every universal point-lookup cell."
+        "Matched SNB-derived queries without the official LDBC driver; these are internal results, not official or audited LDBC results. All engines use 8 discarded warmups, 31 timed executions with full result materialization, and 3 independent process runs. The published value is the median of run medians. Comparisons require identical canonical results. Independent competitor runs retain their original measurement dates: 2026-09-13."
       ],
       "engine": "gfql_polars",
-      "measurement_profile": "snb-interactive-warm-repeated-query",
-      "run": "snb-aligned-release-20260902",
+      "measurement_profile": "snb-interactive-warm-repeated-query-v2",
+      "run": "snb-aligned-master-f7a7253bc-20260913",
       "status": "ok",
       "unit": "ms",
-      "value": 201.442,
+      "value": 170.751,
       "workload": "LDBC SNB-derived aligned queries sf1 new-topics"
     },
     "snb.sf1.new_topics.gfql_polars_idx": {
@@ -4219,14 +4238,15 @@
       "comparison_allowed": true,
       "decimals": 3,
       "disclosures": [
-        "GFQL arms with resident indexes (gfql_index_all + node property indexes, verified per query) under the same timing contract as the four-engine release board (2 discarded warmups, 5 measured executions with full result materialization, 3 independent process runs, median of run medians); the index engages only on the hop seams (message replies, recent replies); the point lookups still pay the chain pipeline's per-call floor (pygraphistry #2027)."
+        "Matched SNB-derived queries without the official LDBC driver; these are internal results, not official or audited LDBC results. All engines use 8 discarded warmups, 31 timed executions with full result materialization, and 3 independent process runs. The published value is the median of run medians. Comparisons require identical canonical results. Independent competitor runs retain their original measurement dates: 2026-09-13.",
+        "GFQL builds resident adjacency and node-property indexes before measurement. An untimed probe verifies index use per query; the three single-node lookups engage point_rows. Not every query uses an index; per-query evidence records unused indexes too."
       ],
       "engine": "gfql_polars_idx",
-      "measurement_profile": "snb-interactive-warm-repeated-query",
-      "run": "snb-master-1a4107924-20260907",
+      "measurement_profile": "snb-interactive-warm-repeated-query-v2",
+      "run": "snb-master-f7a7253bc-20260913",
       "status": "ok",
       "unit": "ms",
-      "value": 180.931,
+      "value": 170.751,
       "workload": "SNB-derived matched queries (GFQL, resident indexes) sf1 new-topics"
     },
     "snb.sf1.new_topics.kuzu": {
@@ -4235,14 +4255,14 @@
       "competitor": "kuzu",
       "decimals": 3,
       "disclosures": [
-        "Matched SNB-derived query shapes on the SNB Interactive dataset, run without the official LDBC driver; this is internal evidence, not an audited or official LDBC result. Each engine ran under the same timing contract with exact result parity, and the three graph databases are faster than GFQL on every universal point-lookup cell."
+        "Matched SNB-derived queries without the official LDBC driver; these are internal results, not official or audited LDBC results. All engines use 8 discarded warmups, 31 timed executions with full result materialization, and 3 independent process runs. The published value is the median of run medians. Comparisons require identical canonical results. Independent competitor runs retain their original measurement dates: 2026-09-13."
       ],
       "engine": "kuzu",
-      "measurement_profile": "snb-interactive-warm-repeated-query",
-      "run": "snb-aligned-release-20260902",
+      "measurement_profile": "snb-interactive-warm-repeated-query-v2",
+      "run": "snb-aligned-master-f7a7253bc-20260913",
       "status": "ok",
       "unit": "ms",
-      "value": 223.715,
+      "value": 217.133,
       "workload": "LDBC SNB-derived aligned queries sf1 new-topics"
     },
     "snb.sf1.seed_lookup.gfql_pandas_idx": {
@@ -4250,14 +4270,15 @@
       "comparison_allowed": true,
       "decimals": 3,
       "disclosures": [
-        "GFQL arms with resident indexes (gfql_index_all + node property indexes, verified per query) under the same timing contract as the four-engine release board (2 discarded warmups, 5 measured executions with full result materialization, 3 independent process runs, median of run medians); the index engages only on the hop seams (message replies, recent replies); the point lookups still pay the chain pipeline's per-call floor (pygraphistry #2027)."
+        "Matched SNB-derived queries without the official LDBC driver; these are internal results, not official or audited LDBC results. All engines use 8 discarded warmups, 31 timed executions with full result materialization, and 3 independent process runs. The published value is the median of run medians. Comparisons require identical canonical results. Independent competitor runs retain their original measurement dates: 2026-09-13.",
+        "GFQL builds resident adjacency and node-property indexes before measurement. An untimed probe verifies index use per query; the three single-node lookups engage point_rows. Not every query uses an index; per-query evidence records unused indexes too."
       ],
       "engine": "gfql_pandas_idx",
-      "measurement_profile": "snb-interactive-warm-repeated-query",
-      "run": "snb-master-1a4107924-20260907",
+      "measurement_profile": "snb-interactive-warm-repeated-query-v2",
+      "run": "snb-master-f7a7253bc-20260913",
       "status": "ok",
       "unit": "ms",
-      "value": 4.138,
+      "value": 1.11,
       "workload": "SNB-derived matched queries (GFQL, resident indexes) sf1 seed-lookup"
     },
     "snb.sf1.seed_lookup.gfql_polars": {
@@ -4265,14 +4286,14 @@
       "comparison_allowed": true,
       "decimals": 3,
       "disclosures": [
-        "Matched SNB-derived query shapes on the SNB Interactive dataset, run without the official LDBC driver; this is internal evidence, not an audited or official LDBC result. Each engine ran under the same timing contract with exact result parity, and the three graph databases are faster than GFQL on every universal point-lookup cell."
+        "Matched SNB-derived queries without the official LDBC driver; these are internal results, not official or audited LDBC results. All engines use 8 discarded warmups, 31 timed executions with full result materialization, and 3 independent process runs. The published value is the median of run medians. Comparisons require identical canonical results. Independent competitor runs retain their original measurement dates: 2026-09-13."
       ],
       "engine": "gfql_polars",
-      "measurement_profile": "snb-interactive-warm-repeated-query",
-      "run": "snb-aligned-release-20260902",
+      "measurement_profile": "snb-interactive-warm-repeated-query-v2",
+      "run": "snb-aligned-master-f7a7253bc-20260913",
       "status": "ok",
       "unit": "ms",
-      "value": 89.161,
+      "value": 1.363,
       "workload": "LDBC SNB-derived aligned queries sf1 seed-lookup"
     },
     "snb.sf1.seed_lookup.gfql_polars_idx": {
@@ -4280,14 +4301,15 @@
       "comparison_allowed": true,
       "decimals": 3,
       "disclosures": [
-        "GFQL arms with resident indexes (gfql_index_all + node property indexes, verified per query) under the same timing contract as the four-engine release board (2 discarded warmups, 5 measured executions with full result materialization, 3 independent process runs, median of run medians); the index engages only on the hop seams (message replies, recent replies); the point lookups still pay the chain pipeline's per-call floor (pygraphistry #2027)."
+        "Matched SNB-derived queries without the official LDBC driver; these are internal results, not official or audited LDBC results. All engines use 8 discarded warmups, 31 timed executions with full result materialization, and 3 independent process runs. The published value is the median of run medians. Comparisons require identical canonical results. Independent competitor runs retain their original measurement dates: 2026-09-13.",
+        "GFQL builds resident adjacency and node-property indexes before measurement. An untimed probe verifies index use per query; the three single-node lookups engage point_rows. Not every query uses an index; per-query evidence records unused indexes too."
       ],
       "engine": "gfql_polars_idx",
-      "measurement_profile": "snb-interactive-warm-repeated-query",
-      "run": "snb-master-1a4107924-20260907",
+      "measurement_profile": "snb-interactive-warm-repeated-query-v2",
+      "run": "snb-master-f7a7253bc-20260913",
       "status": "ok",
       "unit": "ms",
-      "value": 11.128,
+      "value": 1.363,
       "workload": "SNB-derived matched queries (GFQL, resident indexes) sf1 seed-lookup"
     },
     "snb.sf1.seed_lookup.kuzu": {
@@ -4296,14 +4318,14 @@
       "competitor": "kuzu",
       "decimals": 3,
       "disclosures": [
-        "Matched SNB-derived query shapes on the SNB Interactive dataset, run without the official LDBC driver; this is internal evidence, not an audited or official LDBC result. Each engine ran under the same timing contract with exact result parity, and the three graph databases are faster than GFQL on every universal point-lookup cell."
+        "Matched SNB-derived queries without the official LDBC driver; these are internal results, not official or audited LDBC results. All engines use 8 discarded warmups, 31 timed executions with full result materialization, and 3 independent process runs. The published value is the median of run medians. Comparisons require identical canonical results. Independent competitor runs retain their original measurement dates: 2026-09-13."
       ],
       "engine": "kuzu",
-      "measurement_profile": "snb-interactive-warm-repeated-query",
-      "run": "snb-aligned-release-20260902",
+      "measurement_profile": "snb-interactive-warm-repeated-query-v2",
+      "run": "snb-aligned-master-f7a7253bc-20260913",
       "status": "ok",
       "unit": "ms",
-      "value": 2.517,
+      "value": 1.956,
       "workload": "LDBC SNB-derived aligned queries sf1 seed-lookup"
     },
     "snb.sf1.seed_lookup.memgraph": {
@@ -4312,14 +4334,14 @@
       "competitor": "memgraph",
       "decimals": 3,
       "disclosures": [
-        "Matched SNB-derived query shapes on the SNB Interactive dataset, run without the official LDBC driver; this is internal evidence, not an audited or official LDBC result. Each engine ran under the same timing contract with exact result parity, and the three graph databases are faster than GFQL on every universal point-lookup cell."
+        "Matched SNB-derived queries without the official LDBC driver; these are internal results, not official or audited LDBC results. All engines use 8 discarded warmups, 31 timed executions with full result materialization, and 3 independent process runs. The published value is the median of run medians. Comparisons require identical canonical results. Independent competitor runs retain their original measurement dates: 2026-09-13."
       ],
       "engine": "memgraph",
-      "measurement_profile": "snb-interactive-warm-repeated-query",
-      "run": "snb-aligned-release-20260902",
+      "measurement_profile": "snb-interactive-warm-repeated-query-v2",
+      "run": "snb-aligned-master-f7a7253bc-20260913",
       "status": "ok",
       "unit": "ms",
-      "value": 0.523,
+      "value": 0.453,
       "workload": "LDBC SNB-derived aligned queries sf1 seed-lookup"
     },
     "snb.sf1.seed_lookup.neo4j": {
@@ -4328,20 +4350,20 @@
       "competitor": "neo4j",
       "decimals": 3,
       "disclosures": [
-        "Matched SNB-derived query shapes on the SNB Interactive dataset, run without the official LDBC driver; this is internal evidence, not an audited or official LDBC result. Each engine ran under the same timing contract with exact result parity, and the three graph databases are faster than GFQL on every universal point-lookup cell."
+        "Matched SNB-derived queries without the official LDBC driver; these are internal results, not official or audited LDBC results. All engines use 8 discarded warmups, 31 timed executions with full result materialization, and 3 independent process runs. The published value is the median of run medians. Comparisons require identical canonical results. Independent competitor runs retain their original measurement dates: 2026-09-13."
       ],
       "engine": "neo4j",
-      "measurement_profile": "snb-interactive-warm-repeated-query",
-      "run": "snb-aligned-release-20260902",
+      "measurement_profile": "snb-interactive-warm-repeated-query-v2",
+      "run": "snb-aligned-master-f7a7253bc-20260913",
       "status": "ok",
       "unit": "ms",
-      "value": 2.884,
+      "value": 3.082,
       "workload": "LDBC SNB-derived aligned queries sf1 seed-lookup"
     }
   },
   "contract_version": 3,
-  "generated_at": "2026-09-07T19:32:30Z",
-  "generated_by": "graphistry/pyg-bench df60306e scripts/export_docs_numbers.py",
+  "generated_at": "2026-09-14T18:04:44Z",
+  "generated_by": "graphistry/pyg-bench 8e6de7aa scripts/export_docs_numbers.py",
   "policy": {
     "accepted_regressions": [],
     "drift_waivers": {
@@ -4349,7 +4371,6 @@
       "filter-pagerank-gplus-locked-20260830": "Competitor-only cells: this run publishes the Neo4j + GDS GPlus pipeline time (pagerank.gplus.neo4j_gds), which does not depend on graphistry/compute; the GFQL GPlus arms are re-measured at 0.59.0 in filter-pagerank-059-20260904. Re-measure Neo4j only when its own version or the pipeline contract changes.",
       "graphframes-ladder-059-hops-20260904": "Measured at the 0.59.0-era heads (pygraphistry 3fb216dd); the 0.60 stack landed since (#2055 #2056 #2054 #2062) changes chain RESULT contracts (binding-name alias declines, duplicate-id collapse, internal-column scoping) and the route dispatch layout, not the hop/PageRank kernels these rungs time; its perf receipts (sentinel at every head, q1-q9 and SNB re-measured at master 1a4107924 on 2026-09-07) moved within run-to-run spread. The GraphFrames/Spark ladder and the GPlus/Twitter PageRank pipelines are multi-hour dgx campaigns not re-run in this close-out; re-measure scheduled for the 0.60 release board.",
       "graphframes-ladder-20260904": "Measured at the 0.59.0-era heads (pygraphistry e951e9a2c); the 0.60 stack landed since (#2055 #2056 #2054 #2062) changes chain RESULT contracts (binding-name alias declines, duplicate-id collapse, internal-column scoping) and the route dispatch layout, not the hop/PageRank kernels these rungs time; its perf receipts (sentinel at every head, q1-q9 and SNB re-measured at master 1a4107924 on 2026-09-07) moved within run-to-run spread. The GraphFrames/Spark ladder and the GPlus/Twitter PageRank pipelines are multi-hour dgx campaigns not re-run in this close-out; re-measure scheduled for the 0.60 release board.",
-      "snb-aligned-release-20260902": "Competitor arms (Kuzu, Memgraph, Neo4j) of the aligned SNB matrix: their cells do not depend on graphistry/compute. The run's GFQL polars arm (unindexed, pygraphistry 3fb216dd) is not quoted by the docs; the GFQL SNB cells the docs quote are the indexed arms re-measured at master 1a4107924 (snb-master-1a4107924-20260907).",
       "snb-is3-single-query-20260727": "Diagnostic-only probe (comparison_allowed false) at pygraphistry 233b64c8; kept for the IS3 single-query versus two-pass note, never quoted as a result."
     },
     "literal_allowlist": {},
@@ -4403,35 +4424,35 @@
       "row_validation": "All 12 selected-node sets had Jaccard 1.0 against the reference (gate 0.95); every slot passed typed result, exact run-contract, and load/self-spike validation; the committed aggregate exactly recomputes from all slots.",
       "runtime": "RAPIDS 26.02 (NVIDIA nvcr.io/nvidia/rapidsai/base:26.02-cuda12-py3.13 image, Python 3.13); GFQL Python 3.13.12, pandas 2.3.3, python-igraph 1.0.0; Neo4j 2026.02.2 + graph-data-science with Python client 3.12.3 on the same host; benchmark image graphistry/test-rapids-official:26.02-gfql-polars"
     },
-    "graphbench-q1q9-100k-master-20260907": {
-      "artifact": "results/graphbench-master-1a4107924-100k-20260907 with results/graphbench-memgraph-20260812 and results/graphbench-neo4j-20260812",
+    "graphbench-q1q9-100k-master-d20c6ae1a-20260914": {
+      "artifact": "results/graphbench-master-d20c6ae1a-100k-20260914 with historical results/graphbench-memgraph-20260812 and results/graphbench-neo4j-20260812",
       "competitor": "Kuzu, Memgraph, Neo4j",
       "competitor_version": "Kuzu 0.11.3 (embedded, CPU); Memgraph 2.18.1 (Docker); Neo4j 5 community (Docker)",
       "dataset": "prrao87 graph-benchmark, 100,000 persons / 2,417,738 FOLLOWS / 2,775,195 edges",
       "host": "dgx-spark (NVIDIA GB10), 20 CPU",
-      "measured_at": "2026-09-07",
+      "measured_at": "2026-09-14",
       "perf_lock_held": true,
-      "pyg_bench_commit": "56873798e",
-      "pygraphistry_commit": "1a4107924",
+      "pyg_bench_commit": "47201b4d155b81f9612a3ac93508f63a8d4eaf9a",
+      "pygraphistry_commit": "d20c6ae1af73e64b05aa4b24459dfd3ba247edf9",
       "quiet_host": true,
       "reps": "GFQL and Kuzu: 5 warmups then 51 timed runs per slot, 4 position-balanced slots per engine (K/G/GPU), slot median then median across slots; GFQL binds the graph cold in every timed run (bind time included); the polars-gpu slots run under dgx-guard/safe_run.sh. Memgraph and Neo4j: 4 slots each of 7 timed runs over Bolt on 2026-08-12, values matched to the GFQL board. GFQL/Kuzu slots re-measured at pygraphistry master (release close-out); Memgraph and Neo4j arms unchanged.",
       "row_validation": "every cell emits a canonical, column-order-independent row set; a GFQL cell is publishable only when its rows equal every competitor's on every slot",
-      "runtime": "RAPIDS 26.02 (NVIDIA nvcr.io/nvidia/rapidsai/base:26.02-cuda12-py3.13 image, Python 3.13), polars 1.35.2, cudf-polars for polars-gpu; Kuzu 0.11.3 in a host venv on CPU; Memgraph 2.18.1 and Neo4j 5 community in Docker on the same host; benchmark image graphistry/test-rapids-official:26.02-gfql-polars"
+      "runtime": "GFQL: RAPIDS 26.02 image sha256:74544b1b30faa80674ed9ee8def391d6865cc999b1662c8be4ff6f8e8649db75, Polars 1.35.2; Kuzu 0.11.3 on host Python 3.12.3. Historical Memgraph 2.18.1 and Neo4j 5 community Docker arms retain their 2026-08-12 runtime records. CPU/Kuzu: 32 GiB, no swap, a 20-CPU quota ceiling, 4096 processes, 3600-second per-slot limit. All new CPU, GPU and Kuzu slots use CPUs 5-9,15-19 (ten higher-frequency cores), with 20 Polars threads. Actual affinity is verified in every runtime receipt; historical Bolt arms retain their original unrecorded CPU placement. GPU slots use dgx-guard; image, driver, enforced CPU scope and dataset checks are retained in the preflight directory."
     },
-    "graphbench-q1q9-20k-master-20260907": {
-      "artifact": "results/graphbench-master-1a4107924-20k-20260907 with results/graphbench-memgraph-20260812 and results/graphbench-neo4j-20260812",
+    "graphbench-q1q9-20k-master-d20c6ae1a-20260914": {
+      "artifact": "results/graphbench-master-d20c6ae1a-20k-20260914 with historical results/graphbench-memgraph-20260812 and results/graphbench-neo4j-20260812",
       "competitor": "Kuzu, Memgraph, Neo4j",
       "competitor_version": "Kuzu 0.11.3 (embedded, CPU); Memgraph 2.18.1 (Docker); Neo4j 5 community (Docker)",
       "dataset": "prrao87 graph-benchmark, 20,000 persons / 199,939 FOLLOWS / 260,107 edges",
       "host": "dgx-spark (NVIDIA GB10), 20 CPU",
-      "measured_at": "2026-09-07",
+      "measured_at": "2026-09-14",
       "perf_lock_held": true,
-      "pyg_bench_commit": "56873798e",
-      "pygraphistry_commit": "1a4107924",
+      "pyg_bench_commit": "47201b4d155b81f9612a3ac93508f63a8d4eaf9a",
+      "pygraphistry_commit": "d20c6ae1af73e64b05aa4b24459dfd3ba247edf9",
       "quiet_host": true,
       "reps": "GFQL and Kuzu: 5 warmups then 51 timed runs per slot, 4 position-balanced slots per engine (K/G/GPU), slot median then median across slots; GFQL binds the graph cold in every timed run (bind time included); the polars-gpu slots run under dgx-guard/safe_run.sh. Memgraph and Neo4j: 4 slots each of 7 timed runs over Bolt on 2026-08-12, values matched to the GFQL board. GFQL/Kuzu slots re-measured at pygraphistry master (release close-out); Memgraph and Neo4j arms unchanged.",
       "row_validation": "every cell emits a canonical, column-order-independent row set; a GFQL cell is publishable only when its rows equal every competitor's on every slot",
-      "runtime": "RAPIDS 26.02 (NVIDIA nvcr.io/nvidia/rapidsai/base:26.02-cuda12-py3.13 image, Python 3.13), polars 1.35.2, cudf-polars for polars-gpu; Kuzu 0.11.3 in a host venv on CPU; Memgraph 2.18.1 and Neo4j 5 community in Docker on the same host; benchmark image graphistry/test-rapids-official:26.02-gfql-polars"
+      "runtime": "GFQL: RAPIDS 26.02 image sha256:74544b1b30faa80674ed9ee8def391d6865cc999b1662c8be4ff6f8e8649db75, Polars 1.35.2; Kuzu 0.11.3 on host Python 3.12.3. Historical Memgraph 2.18.1 and Neo4j 5 community Docker arms retain their 2026-08-12 runtime records. CPU/Kuzu: 32 GiB, no swap, a 20-CPU quota ceiling, 4096 processes, 3600-second per-slot limit. All new CPU, GPU and Kuzu slots use CPUs 5-9,15-19 (ten higher-frequency cores), with 20 Polars threads. Actual affinity is verified in every runtime receipt; historical Bolt arms retain their original unrecorded CPU placement. GPU slots use dgx-guard; image, driver, enforced CPU scope and dataset checks are retained in the preflight directory. Separate device diagnostics show CPU-only execution for q8 even with the polars-gpu engine selection."
     },
     "graphframes-ladder-059-hops-20260904": {
       "artifact": "results/graphframes-ladder-20260904 (one receipted rung directory per dataset x system x task group; fix2024/ holds the #2024-head hop rungs; stale-attempts/ the breached ones)",
@@ -4463,20 +4484,20 @@
       "row_validation": "every task records the materialized result size (node count of the filter / k-hop ball, scored vertex count for PageRank); a cell is comparable only when every system on that dataset and task reports the same size, else it is published as a direct, diagnostic-only time",
       "runtime": "GFQL in graphistry/test-rapids-official:26.02-gfql-polars (RAPIDS 26.02, Python 3.13, polars 1.35.2, cuDF/cuGraph 26.2) under dgx-guard safe_run (RMM 80 GB, 100 GB for the Friendster rungs; host floor 20 GB); the two CPU PageRank rungs (fix2024/lj-polars-pagerank, orkut-polars-pagerank) in graphistry/test-rapids-official:26.02-gfql-polars-igraph, the same image plus python-igraph 1.0.0 (image id and versions in each rung's IMAGE_RECEIPT.txt, recorded after the run); GraphFrames on host PySpark 3.5.3 + graphframes assembly jar, OpenJDK 1.8.0_492"
     },
-    "snb-aligned-release-20260902": {
-      "artifact": "results/snb-aligned-release-20260902",
+    "snb-aligned-master-f7a7253bc-20260913": {
+      "artifact": "results/snb-master-f7a7253bc",
       "competitor": "Kuzu, Neo4j, Memgraph",
-      "competitor_version": "Kuzu 0.11.3; Neo4j 5 community; Memgraph 2.18.1",
+      "competitor_version": "Kuzu 0.11.3; Neo4j 5 community; Memgraph 2.18.1; pinned image digests in run records",
       "dataset": "LDBC SNB Interactive SF0.1 and SF1, derived matched query shapes (SF10 is a capability boundary and is excluded)",
       "host": "dgx-spark (NVIDIA GB10), 20 CPU",
-      "measured_at": "2026-09-02",
+      "measured_at": "2026-09-13",
       "perf_lock_held": true,
-      "pyg_bench_commit": "15a6f3a7",
-      "pygraphistry_commit": "3fb216dd",
+      "pyg_bench_commit": "684c0b40945b181d4a1504d1e297db5907694415",
+      "pygraphistry_commit": "f7a7253bc95d9cc0663bd130a53a03f2f355cbcd",
       "quiet_host": true,
-      "reps": "2 discarded warmups, 5 measured executions with full result materialization, 3 independent process runs; median of the three run medians",
-      "row_validation": "exact result parity for every measured query across all engines; cells with zero rows, reduced adapters, or missing queries are excluded",
-      "runtime": "GFQL Polars on CPU in a uv Python 3.12 container; Kuzu 0.11.3; Memgraph 2.18.1 (Docker); Neo4j 5 community (Docker); all on the same host"
+      "reps": "8 discarded warmups, 31 timed executions with full result materialization, 3 independent process runs; median of the three run medians",
+      "row_validation": "Exact canonical result hashes and row counts verified in every run and across eligible GFQL, Kuzu, Neo4j, and Memgraph comparisons; pandas also matches Polars.",
+      "runtime": "GFQL Polars 1.35.2 (explicit runner pin) and pandas on CPU in Python 3.12.12; GFQL/Kuzu runner image ghcr.io/astral-sh/uv:python3.12-bookworm-slim@sha256:e5b65587bce7de595f299855d7385fe7fca39b8a74baa261ba1b7147afa78e58; Kuzu 0.11.3 embedded CPU; Memgraph 2.18.1 and Neo4j 5 community in pinned Docker images. Memgraph SF0.1: 4 GiB container / 3072 MiB engine; SF1: 16 GiB / 12288 MiB. Per-run records retain exact image digests and execution guards."
     },
     "snb-is3-single-query-20260727": {
       "artifact": "results/is3-single-query-r{1,2,3} and results/is3-twopass-base-r{1,2,3}",
@@ -4493,20 +4514,20 @@
       "row_validation": "920/920 rows, value-identical to the independently derived expected fixture in all 3 repetitions",
       "runtime": "RAPIDS 26.02 (NVIDIA nvcr.io/nvidia/rapidsai/base:26.02-cuda12-py3.13 image, Python 3.13), polars 1.35.2; benchmark image graphistry/test-rapids-official:26.02-gfql-polars"
     },
-    "snb-master-1a4107924-20260907": {
-      "artifact": "results/snb-master-1a4107924 (per-engine r1..r3 receipts + aggregate.json built with scripts/aggregate_snb_arm_runs.py from the release runner's run directories at pygraphistry master)",
-      "competitor": "none in this run (the competitor columns are the 2026-09-02 release board's)",
-      "competitor_version": "n/a",
+    "snb-master-f7a7253bc-20260913": {
+      "artifact": "results/snb-master-f7a7253bc",
+      "competitor": "Kuzu, Neo4j, Memgraph",
+      "competitor_version": "Kuzu 0.11.3; Neo4j 5 community; Memgraph 2.18.1; pinned image digests in run records",
       "dataset": "LDBC SNB Interactive SF0.1 and SF1, derived matched query shapes (the release board's parameters)",
       "host": "dgx-spark (NVIDIA GB10), 20 CPU",
-      "measured_at": "2026-09-07",
+      "measured_at": "2026-09-13",
       "perf_lock_held": true,
-      "pyg_bench_commit": "56873798e",
-      "pygraphistry_commit": "1a4107924",
+      "pyg_bench_commit": "684c0b40945b181d4a1504d1e297db5907694415",
+      "pygraphistry_commit": "f7a7253bc95d9cc0663bd130a53a03f2f355cbcd",
       "quiet_host": true,
-      "reps": "2 discarded warmups, 5 measured executions with full result materialization, 3 independent process runs; median of the three run medians",
-      "row_validation": "exact result parity per query against the suite's expected rows in every run; a cell is comparable only when its cardinalities equal the release GFQL arm's for the same query",
-      "runtime": "GFQL polars / pandas on CPU in a uv Python 3.12 container, gfql_index: use with node property indexes (auto) and per-query engagement verification; same host, lock and contract as the 2026-09-02 four-engine board"
+      "reps": "8 discarded warmups, 31 timed executions with full result materialization, 3 independent process runs; median of the three run medians",
+      "row_validation": "Exact canonical result hashes and row counts verified in every run and across eligible GFQL, Kuzu, Neo4j, and Memgraph comparisons; pandas also matches Polars.",
+      "runtime": "GFQL Polars 1.35.2 (explicit runner pin) and pandas on CPU in Python 3.12.12; GFQL/Kuzu runner image ghcr.io/astral-sh/uv:python3.12-bookworm-slim@sha256:e5b65587bce7de595f299855d7385fe7fca39b8a74baa261ba1b7147afa78e58; Kuzu 0.11.3 embedded CPU; Memgraph 2.18.1 and Neo4j 5 community in pinned Docker images. Memgraph SF0.1: 4 GiB container / 3072 MiB engine; SF1: 16 GiB / 12288 MiB. Per-run records retain exact image digests and execution guards."
     }
   },
   "schema_version": 1
