@@ -35,19 +35,38 @@ config_paths = [
 ]
 
 
-def _jwt_exp(token: str) -> Optional[float]:
-    """Best-effort read of a JWT's "exp" claim, without verifying its signature --
+def _jwt_payload(token: str) -> Optional[Dict[str, Any]]:  # hygiene-ok: explicit-any -- decoded JWT claims are arbitrary server-provided JSON
+    """Best-effort decode of a JWT's payload, without verifying its signature --
     the token is already trusted (this client received it from the server over
-    the auth flow it just completed); this only reads a claim out of a token
+    the auth flow it just completed); this only reads claims out of a token
     it already holds, never validates one from an untrusted source."""
     try:
         payload_b64 = token.split(".")[1]
         padded = payload_b64 + "=" * (-len(payload_b64) % 4)
         payload = json.loads(base64.urlsafe_b64decode(padded))
+        return payload if isinstance(payload, dict) else None
+    except Exception:
+        return None
+
+
+def _jwt_exp(token: str) -> Optional[float]:
+    payload = _jwt_payload(token)
+    if payload is None:
+        return None
+    try:
         exp = payload.get("exp")
         return float(exp) if exp is not None else None
     except Exception:
         return None
+
+
+def _jwt_user_id(token: str) -> Optional[str]:
+    """The Hub's "user_id" claim as a string, or None when the token is opaque / has no such claim."""
+    payload = _jwt_payload(token)
+    if payload is None:
+        return None
+    user_id = payload.get("user_id")
+    return str(user_id) if user_id is not None and user_id != "" else None
 
 
 def _jwt_expired(token: str) -> bool:
@@ -137,12 +156,19 @@ class ClientSession:
             return
         self._verified_org_tokens[org_name] = (token, _jwt_exp(token))
 
-    def get_verified_token(self, org_name: str) -> Optional[str]:
+    def get_verified_token(self, org_name: str, same_user_as: Optional[str] = None) -> Optional[str]:
         """Return a still-unexpired token previously verified for org_name, if any.
 
         May differ from the currently-active token (e.g. a later SSO login
         for a different org minted a new one) -- callers that use this to
         skip a switch should swap it in as the active token.
+
+        When ``same_user_as`` is given, the cached token is only returned if
+        both it and ``same_user_as`` carry a readable Hub ``user_id`` claim and
+        the two match. The cache is keyed by org only, and login()/api_token()
+        can change the active principal without resetting the session, so
+        without this guard a switch could silently reinstate another user's
+        token. Opaque tokens (no claim) never qualify.
         """
         entry = self._verified_org_tokens.get(org_name)
         if entry is None:
@@ -151,6 +177,10 @@ class ClientSession:
         if _jwt_expired(token):
             del self._verified_org_tokens[org_name]
             return None
+        if same_user_as is not None:
+            cached_user = _jwt_user_id(token)
+            if cached_user is None or cached_user != _jwt_user_id(same_user_as):
+                return None
         return token
 
     def copy(self) -> "ClientSession":

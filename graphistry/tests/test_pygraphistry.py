@@ -149,22 +149,29 @@ def test_maybe_switch_org_new_org_switches():
     mock_switch.assert_called_once_with("mock-org")
 
 
-def _fake_jwt(exp: Optional[float] = None) -> str:
-    """Minimal unsigned-looking JWT with an optional exp claim, for exercising
-    ClientSession's exp-aware verified-org cache without a real server."""
+def _fake_jwt(exp: Optional[float] = None, user_id: Optional[int] = None, jti: Optional[str] = None) -> str:
+    """Minimal unsigned-looking JWT with optional exp / user_id claims, for exercising
+    ClientSession's exp-aware, user-bound verified-org cache without a real server.
+    ``jti`` only makes two otherwise-identical tokens distinct."""
     header = base64.urlsafe_b64encode(b'{"alg":"none"}').rstrip(b"=").decode()
-    payload = {} if exp is None else {"exp": exp}
+    payload: dict = {}
+    if exp is not None:
+        payload["exp"] = exp
+    if user_id is not None:
+        payload["user_id"] = user_id
+    if jti is not None:
+        payload["jti"] = jti
     body = base64.urlsafe_b64encode(json.dumps(payload).encode()).rstrip(b"=").decode()
     return f"{header}.{body}.sig"
 
 
 def test_switch_org_reuses_earlier_verified_token_for_different_org():
     """Org A was SSO-verified under token1; a later SSO login to org B mints
-    token2 (now active). Switching back to org A should swap token1 back in
-    locally instead of hitting the server, since token1 hasn't expired."""
+    token2 (now active) for the same user. Switching back to org A should swap
+    token1 back in locally instead of hitting the server, since token1 hasn't expired."""
     client = graphistry.client()
-    token1 = _fake_jwt(exp=time.time() + 3600)
-    token2 = _fake_jwt(exp=time.time() + 3600)
+    token1 = _fake_jwt(exp=time.time() + 3600, user_id=7, jti="t1")
+    token2 = _fake_jwt(exp=time.time() + 3600, user_id=7, jti="t2")
 
     client.api_token(token1)
     client.session.mark_org_verified(token1, "org-a")
@@ -184,10 +191,47 @@ def test_switch_org_reuses_earlier_verified_token_for_different_org():
     assert client.session._is_authenticated is True
 
 
+def test_switch_org_does_not_reuse_cached_token_of_another_user():
+    """Cache is keyed by org only, and login()/api_token() can change the active
+    principal without resetting the session. A cached token belonging to a
+    different Hub user must never be swapped back in."""
+    client = graphistry.client()
+    user_a_token = _fake_jwt(exp=time.time() + 3600, user_id=1)
+    user_b_token = _fake_jwt(exp=time.time() + 3600, user_id=2)
+
+    client.api_token(user_a_token)
+    client.session.mark_org_verified(user_a_token, "shared-org")
+    client.api_token(user_b_token)
+
+    with patch("graphistry.pygraphistry.switch_org_request") as mock_req:
+        client.switch_org("shared-org")
+
+    mock_req.assert_called_once()
+    assert client.api_token() == user_b_token
+
+
+def test_switch_org_does_not_reuse_cached_token_without_user_claim():
+    """Opaque tokens (no readable user_id) can't prove they belong to the current
+    user, so they never qualify for the swap-in fast path."""
+    client = graphistry.client()
+    opaque_cached = "opaque-token-a"
+    opaque_active = "opaque-token-b"
+
+    client.api_token(opaque_cached)
+    client.session.mark_org_verified(opaque_cached, "org-a")
+    client.api_token(opaque_active)
+
+    with patch("graphistry.pygraphistry.switch_org_request") as mock_req:
+        client.switch_org("org-a")
+
+    mock_req.assert_called_once()
+    assert client.api_token() == opaque_active
+
+
 def test_switch_org_does_not_reuse_expired_cached_token():
     client = graphistry.client()
-    expired_token = _fake_jwt(exp=time.time() - 10)
-    active_token = _fake_jwt(exp=time.time() + 3600)
+    expired_token = _fake_jwt(exp=time.time() - 10, user_id=7, jti="old")
+    active_token = _fake_jwt(exp=time.time() + 3600, user_id=7, jti="new")
 
     client.api_token(expired_token)
     client.session.mark_org_verified(expired_token, "org-a")
@@ -247,6 +291,25 @@ class TestSsoPollErrorHandling:
                 out = client._handle_auth_url("http://auth", 3, None)
 
         assert out is None
+
+    def test_pending_state_stops_at_timeout_without_ipython(self):
+        # IPython is an optional dependency; its absence must not skip the
+        # per-iteration sleep/timeout, or the loop spins forever at full speed.
+        client = self._client()
+        blocked = {"IPython": None, "IPython.core": None, "IPython.core.display": None, "IPython.display": None}
+        with patch.dict("sys.modules", blocked):
+            with patch.object(
+                client, "_sso_get_token",
+                side_effect=SsoPendingException("State is invalid")
+            ) as mock_poll:
+                with patch("graphistry.pygraphistry.time.sleep") as mock_sleep:
+                    out = client._handle_auth_url("http://auth", 3, None)
+
+        assert out is None
+        # elapsed_time starts at 1; polls at 1, 2, 3 then elapsed hits 4 > 3 and exits.
+        assert mock_poll.call_count == 3
+        # One initial sleep before the loop plus one per poll.
+        assert mock_sleep.call_count == 4
 
     def test_status_less_body_is_treated_as_pending(self):
         # A proxy/DRF error body with no 'status' key must not abort the login.

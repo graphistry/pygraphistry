@@ -33,7 +33,7 @@ from . import util
 from . import bolt_util
 from .plotter import Plotter
 from .util import in_databricks, setup_logger, in_ipython
-from .exceptions import SsoRetrieveTokenTimeoutException, TokenExpireException, SsoStateInvalidException, SsoPendingException
+from .exceptions import TokenExpireException, SsoStateInvalidException, SsoPendingException
 
 from .messages import (
     MSG_REGISTER_MISSING_PASSWORD,
@@ -340,25 +340,24 @@ class GraphistryClient(AuthManagerProtocol):
                     logger.debug("Transient error polling SSO token, will retry: %s", exc)
                     token = None
                     org_name = None
-                try:
-                    if not token:
-                        if elapsed_time % 10 == 1:
-                            count_down = "Waiting for token : {} seconds ...".format(sso_timeout - elapsed_time + 1)
-                            print(count_down)
+                if token:
+                    break
+                if elapsed_time % 10 == 1:
+                    count_down = "Waiting for token : {} seconds ...".format(sso_timeout - elapsed_time + 1)
+                    print(count_down)
+                    # Display-only nicety: must never affect the sleep/timeout below (IPython is an optional dependency).
+                    if in_ipython():
+                        try:
                             from IPython.core.display import HTML
                             from IPython.display import display
                             display(HTML(f'<strong>{count_down}</strong>'))
-                        time.sleep(1)
-                        elapsed_time = elapsed_time + 1
-                        if elapsed_time > sso_timeout:
-                            raise SsoRetrieveTokenTimeoutException("[SSO] Get token timeout")
-                    else:
-                        break
-                except SsoRetrieveTokenTimeoutException as toe:
-                    logger.debug(toe, exc_info=1)
+                        except Exception as exc:
+                            logger.debug("Could not render SSO countdown in notebook: %s", exc)
+                time.sleep(1)
+                elapsed_time = elapsed_time + 1
+                if elapsed_time > sso_timeout:
+                    logger.debug("[SSO] Get token timeout after %s seconds", sso_timeout)
                     break
-                except Exception:
-                    token = None
             if token:
                 # set org_name to sso org
                 self.session.org_name = org_name
@@ -2725,8 +2724,8 @@ class GraphistryClient(AuthManagerProtocol):
             logger.debug("Already switched to organization %s with current token; skipping request.", org_name)
             return
 
-        # Fast path 2: an earlier, still-unexpired token already verified org_name (now superseded as active by a later SSO login elsewhere) -- swap it back in.
-        cached_token = self.session.get_verified_token(org_name)
+        # Fast path 2: swap back in an earlier, still-unexpired token verified for org_name -- same Hub user only, since the cache is per-org and login()/api_token() don't reset it.
+        cached_token = self.session.get_verified_token(org_name, same_user_as=token) if token else None
         if cached_token:
             # Direct assign: api_token()'s setter would clear _is_authenticated and force a needless refresh().
             self.session.api_token = cached_token
