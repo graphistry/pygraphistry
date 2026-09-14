@@ -6,13 +6,13 @@ polars changed the ``is_in`` right-hand-side contract in 1.28.0:
 * ``< 1.28``: a bare ``Series`` RHS is set membership. A List-typed RHS is matched ROW-WISE and
   must have the column's length, so the length-1 ``ids.implode()`` raises
   ``ComputeError: shapes don't match: expected N elements in 'is_in' comparison, got 1``
-  (#2082 — RAPIDS 25.02 pins polars 1.21 through cudf-polars).
+  (RAPIDS 25.02 pins polars 1.21 through cudf-polars).
 * ``>= 1.28``: a bare same-dtype ``Series`` RHS emits ``DeprecationWarning`` ("ambiguous ...
-  use implode"; #1938 item 5) and the imploded RHS is the supported spelling.
+  use implode") and the imploded RHS is the supported spelling.
 
 ONE helper so the spelling cannot drift per call site. Boundary pinned by a per-release sweep
-over polars 1.21.0..1.35.2 (#2082): the imploded RHS fails through 1.27.1 and passes from
-1.28.0; the bare RHS passes on every release and warns from 1.28.0.
+over polars 1.21.0..1.35.2: the imploded RHS fails through 1.27.1 and passes from 1.28.0; the
+bare RHS passes on every release and warns from 1.28.0.
 
 The ``< 1.28`` branch is NOT dead code even though the ``polars`` extra declares
 ``polars>=1.29`` (setup.py): the supported RAPIDS 25.02 environment pins polars 1.21 through
@@ -24,6 +24,8 @@ from functools import lru_cache
 from typing import TYPE_CHECKING
 
 from packaging.version import Version
+
+from graphistry.compute.gfql.cache_registry import register_process_singleton
 
 if TYPE_CHECKING:
     import polars as pl
@@ -40,6 +42,11 @@ def imploded_rhs_supported(polars_version: str) -> bool:
 def _installed_polars_implodes() -> bool:
     import polars as pl
     return imploded_rhs_supported(pl.__version__)
+
+
+register_process_singleton(
+    _installed_polars_implodes,
+    "is_in RHS spelling for the installed polars; a function of the environment, not of caller input")
 
 
 def id_set(ids: "pl.Series") -> "pl.Series":
