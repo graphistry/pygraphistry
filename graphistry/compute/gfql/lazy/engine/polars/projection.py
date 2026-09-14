@@ -67,9 +67,22 @@ def _columns_have_temporal_constructor_text(
             values = [rows_df.get_column(col).item() for col in columns]
             if all(value is None or isinstance(value, str) and "(" not in value for value in values):
                 return False
+        # Every constructor string contains "("; a literal scan is far cheaper than the
+        # anchored regex, so only columns that pass it are regex-checked.
+        candidates = [
+            col for col, hit in zip(
+                columns,
+                rows_df.select([
+                    pl.col(col).str.contains("(", literal=True).any() for col in columns
+                ]).row(0),
+            )
+            if hit
+        ]
+        if not candidates:
+            return False
         return bool(
             rows_df.select(pl.any_horizontal([
-                pl.col(col).str.contains(pattern).any() for col in columns
+                pl.col(col).str.contains(pattern).any() for col in candidates
             ])).item()
         )
     except Exception:

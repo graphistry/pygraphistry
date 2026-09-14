@@ -121,13 +121,6 @@ def resolve_engine(
         if isinstance(g_or_df, pa.Table):
             return Engine.PANDAS
 
-        try:
-            from pyspark.sql import DataFrame as SparkDataFrame
-            if isinstance(g_or_df, SparkDataFrame):
-                return Engine.PANDAS
-        except ImportError:
-            pass
-
         if 'polars' in str(type(g_or_df).__module__):
             try:
                 import polars as pl
@@ -137,6 +130,13 @@ def resolve_engine(
                     return Engine.POLARS
             except ImportError:
                 pass
+
+        try:
+            from pyspark.sql import DataFrame as SparkDataFrame
+            if isinstance(g_or_df, SparkDataFrame):
+                return Engine.PANDAS
+        except ImportError:
+            pass
 
         type_module = type(g_or_df).__module__
         if 'dask' in type_module and 'cudf' not in type_module:
