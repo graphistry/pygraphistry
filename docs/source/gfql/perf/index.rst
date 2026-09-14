@@ -13,8 +13,7 @@ Read in this order if you are deciding whether GFQL fits.
 1. :doc:`Speedup case study: Cypher + PageRank vs Neo4j + GDS <../benchmark_filter_pagerank>`
    — one real pipeline, measured end to end on a 30M-edge graph, on CPU and GPU.
 2. :doc:`Measured against graph databases <../performance>` — the q1–q9 Cypher board
-   against Kuzu, Memgraph and Neo4j, and the SNB point-query comparison, with the losses
-   shown next to the wins.
+   against Kuzu, Memgraph and Neo4j, plus SNB-derived lookups and small-result queries.
 3. :doc:`GFQL vs Spark GraphFrames <../benchmark_graphframes>` — one machine against a
    cluster framework on LiveJournal and Orkut.
 

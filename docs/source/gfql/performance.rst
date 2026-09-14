@@ -3,25 +3,24 @@
 GFQL Performance: Measured Against Graph Databases
 ==================================================
 
-This page holds GFQL's measured performance results. Every number comes from a
-recorded benchmark run; the Provenance section at the end names the runs, hosts,
-and commits. Losses appear next to wins.
+Compare GFQL execution times across dataframe engines and graph databases.
+The tables below link to the run dates, hardware, and measurement profiles.
 
 Choose an engine
 ----------------
 
-GFQL runs the same query on ``pandas`` (the default), ``polars`` (CPU), ``cudf``
-(NVIDIA GPU), or ``polars-gpu``, and every engine returns the same rows. On the q1–q9
-boards below, the
-Polars engine is faster than pandas on :bench-tally:`graphbench.100k|polars|pandas`
-queries at 100,000 people, by up to :bench:`graphbench.100k.q6.polars_vs_pandas`
-(q6). See :doc:`engines` for the selection guide.
+GFQL runs queries on ``pandas`` and ``polars`` on CPU, or ``cudf`` and ``polars-gpu``
+with NVIDIA GPU support. The default ``engine='auto'`` selects from the input frames.
+Supported queries return the same rows across engines. On the q1–q9 boards below,
+the Polars engine is faster than pandas on :bench-tally:`graphbench.100k|polars|pandas`
+queries at 100,000 people, by up to :bench:`graphbench.100k.q5.polars_vs_pandas`
+(q5). See :doc:`engines` for the selection guide.
 
 .. doc-test: skip
 
 .. code-block:: python
 
-   g.gfql(query)                    # engine='pandas' (default)
+   g.gfql(query)                    # engine='auto': follows the input frames
    g.gfql(query, engine='polars')   # columnar CPU execution
 
 .. _gfql-vs-kuzu-board:
@@ -34,8 +33,9 @@ filter records, and count two-hop paths on synthetic social graphs with 20,000 a
 100,000 people. Every cell passed result-row validation against every other engine.
 Times are milliseconds; lower is better.
 
-GFQL binds the graph cold inside every timed run; the ``polars-gpu`` column runs the
-same fused plan on the GPU. Kuzu compiles the query text on each call. Memgraph and
+GFQL binds the graph inside every timed run. The GPU column uses ``polars-gpu``.
+At 20,000 people, q8 runs on CPU even with this engine setting.
+Kuzu compiles the query text on each call. Memgraph and
 Neo4j answer over Bolt with their default plan caches. These are direct times under
 those profiles, not cross-engine speedup ratios. At these sizes the queries are
 millisecond-scale, so the GPU engine wins some and loses others to the CPU engine:
@@ -49,10 +49,14 @@ At 20,000 people, GFQL Polars is faster than Kuzu on
 :bench-tally:`graphbench.20k|polars|neo4j`. At 100,000 people the counts are
 :bench-tally:`graphbench.100k|polars|kuzu` (Kuzu),
 :bench-tally:`graphbench.100k|polars|memgraph` (Memgraph), and
-:bench-tally:`graphbench.100k|polars|neo4j` (Neo4j). Kuzu ties GFQL on q4 and q8 at 20,000 people and on q5 at 100,000
-people, and wins q8 at 100,000 people, where the per-slot medians overlap. Memgraph ties
-q3 and q6 at 20,000 people and wins q5, q6, and q7 at 100,000 people. Neo4j also wins q5 there. Their planners
-start from the ten-node interest side, which GFQL's Cypher path does not yet do.
+:bench-tally:`graphbench.100k|polars|neo4j` (Neo4j).
+
+GFQL and Kuzu discard five warmups, then time 51 calls in each of four
+position-balanced slots. Each cell is the median of the four slot medians.
+These runs use the same ten faster CPU cores on the DGX host, including CPU work
+in the GPU slots. Polars uses 20 worker threads. Memgraph and Neo4j retain their
+August 12 measurements: four slots of seven calls over Bolt, with their original
+CPU placement.
 
 The 20,000-person board
 ~~~~~~~~~~~~~~~~~~~~~~~
@@ -70,35 +74,27 @@ The 100,000-person board
 
 .. _gfql-snb-aligned:
 
-SNB-derived point and small-result queries: the databases win
--------------------------------------------------------------
+SNB-derived lookups and small-result queries
+--------------------------------------------
 
-Matched query shapes derived from the LDBC Social Network Benchmark (SNB) Interactive
-workload, run on the SF0.1 and SF1 datasets without the official LDBC driver. This is
-internal evidence, not an official LDBC result. All four engines ran under one timing
-contract and returned identical results. Times are milliseconds.
+These queries come from the LDBC Social Network Benchmark Interactive workload.
+They run on SF0.1 and SF1 datasets with identical results across the compared
+engines. They are internal measurements; the official LDBC driver was not used.
+Times are milliseconds.
 
-Kuzu, Neo4j, and Memgraph are faster than GFQL on every point-lookup row, and Memgraph
-is fastest on most. The GFQL columns run with resident indexes built once before the
-timed runs (``gfql_index_all`` plus node property indexes), the same footing as the
-databases' primary-key and label indexes, and the GFQL arm runs native op lists, not
-Cypher text. A lookup from a known node, a typed hop from it, and a node-only lookup now use
-the node-id, adjacency, and node-property indexes on every CPU engine,
-so the SF0.1 point rows sit in the low single-digit milliseconds on pandas and under
-about ten milliseconds on polars, against a database's sub-millisecond index probe. The
-hop-shaped rows (message replies, recent replies, new topics) are unchanged by that work
-and remain GFQL's slowest cells here. GFQL's strengths are the bulk shapes above and on
-the :doc:`speedup case study <benchmark_filter_pagerank>`; choose a database when the
-workload is mostly single-node lookups by id.
+GFQL Polars is fastest among the four engines for message content and creator
+lookups at both scales. At SF1, these take
+:bench:`snb.sf1.message_content.gfql_polars_idx` and
+:bench:`snb.sf1.message_creator.gfql_polars_idx`, respectively.
+Polars is also faster than Kuzu on every eligible query in these tables, including
+message replies and new topics. The tables show each engine's result for the
+profile lookup and recent replies as well.
 
-Open items behind the remaining gaps: CPU PageRank spends most of its time converting to
-igraph (`#2032 <https://github.com/graphistry/pygraphistry/issues/2032>`_); a polars
-native chain whose edge alias collides with the edge column its own filter uses raises
-where pandas serves it (`#2039 <https://github.com/graphistry/pygraphistry/issues/2039>`_);
-``rows(table=nodes, source=alias)`` multiplies rows for duplicate node ids
-(`#2034 <https://github.com/graphistry/pygraphistry/issues/2034>`_). The SF0.1 and SF1 GFQL
-cells are the release measurement on landed master; the Measurement block below carries the
-provenance.
+GFQL builds adjacency and node-property indexes before timing, then reuses them
+across queries. The single-node lookups use these indexes to select matching rows.
+The GFQL arm runs native operation lists. Each engine discards eight warmups,
+times 31 executions with full result materialization, and repeats the process
+three times. Each table cell is the median of the three run medians.
 
 SF0.1
 ~~~~~
@@ -122,24 +118,21 @@ rows; those cells are excluded rather than estimated. SF10 was not run.
 Lookups from known nodes
 ------------------------
 
-A query that starts from known node ids (a watchlist, a session) scans every edge by
-default. The opt-in adjacency index turns that scan into a gather over the seeds'
-neighbors, so its cost tracks the seeds rather than the graph, on every engine. This
-path has not yet been measured under the protocol used above, so
-this page prints no figure for it; see :doc:`index_adjacency` for the design and
-:doc:`indexing` for the lifecycle.
+Queries that start from known node IDs can use an adjacency index to read only
+those nodes' neighborhoods. The SNB tables exercise indexed lookups and
+traversals. See :doc:`index_adjacency` for how the index works and :doc:`indexing`
+for when to build or refresh it.
 
 How GFQL is fast, and when it is not
 ------------------------------------
 
 GFQL joins tables of nodes and edges in batches instead of following one path at a
 time, over columnar frames based on `Apache Arrow <https://arrow.apache.org/>`_. Polars
-fuses the operations into one lazy plan and collects once; cuDF and Polars GPU run the
-same columnar operations on NVIDIA GPUs. That favors bulk work: multi-join analytics,
-expansion from many starting nodes, and full-graph aggregation. It does not favor
-single-node lookups by id: the indexes bring such a lookup to a few
-milliseconds, and an indexed database still answers in well under a millisecond, as the
-SNB tables show.
+combines operations into lazy query plans to reduce intermediate work. cuDF and
+Polars GPU use NVIDIA GPUs for columnar operations. That favors bulk work: multi-join analytics,
+expansion from many starting nodes, and full-graph aggregation. For small results,
+GFQL uses indexed lookups and direct row selection to avoid work over the whole
+graph. The SNB tables measure those paths alongside larger queries.
 
 Start on CPU with no special hardware, and move to a GPU engine by changing one
 keyword when the graph or result becomes large. The :doc:`speedup case study
@@ -154,11 +147,9 @@ traversals, and PageRank against Spark GraphFrames.
 Provenance
 ----------
 
-Every figure on this page is printed from ``docs/source/_data/gfql_benchmarks.json``,
-which pyg-bench publishes. The documentation build and ``docs/test_bench_numbers.py``
-reject missing, stale, or unpublished values.
+Run dates, source revisions, hardware, and measurement profiles are listed below.
 
-.. bench-provenance:: graphbench-q1q9-20k-master-20260905 graphbench-q1q9-100k-master-20260905 snb-aligned-release-20260902 snb-master-5a6586f22-20260905
+.. bench-provenance:: graphbench-q1q9-20k-master-d20c6ae1a-20260914 graphbench-q1q9-100k-master-d20c6ae1a-20260914 snb-aligned-master-f7a7253bc-20260913 snb-master-f7a7253bc-20260913
    :disclosures:
 
 Next steps
