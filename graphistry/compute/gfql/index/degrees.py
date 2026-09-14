@@ -60,6 +60,13 @@ def degrees_from_index(
     ii = _valid_adjacency(registry, EDGE_IN_ADJ, edges_df, cols, engine)
     if oi is None or ii is None:
         return None
+    if int(oi.row_positions.shape[0]) != oi.n_edges or int(ii.row_positions.shape[0]) != ii.n_edges:
+        return None  # Endpoint groupby counts null links that traversal must omit.
+    if engine in (Engine.POLARS, Engine.POLARS_GPU):
+        if nodes_df.get_column(node_col).null_count():
+            return None
+    elif bool(nodes_df[node_col].isna().any()):
+        return None
     xp, _ = array_namespace(engine)
     node_ids = col_to_array(nodes_df, node_col, engine)
     out_deg = _degree_for_nodes(oi, node_ids, xp)   # out = src-keyed adjacency

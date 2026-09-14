@@ -280,10 +280,10 @@ def infer_graph(
     if node not in df.columns:
         df[node] = numeric_indices
 
-    NDF = res._nodes
-    NDF[BATCH] = 0
-    EDF = res._edges
-    EDF[BATCH] = 0
+    # Owned copies via assign: writing through res._nodes/_edges mutates the
+    # fitted graph's bound frames (bound-frame immutability contract).
+    NDF = res._nodes.assign(**{BATCH: 0})
+    EDF = res._edges.assign(**{BATCH: 0})
     src = res._source
     dst = res._destination
 
@@ -501,8 +501,8 @@ def infer_self_graph(res: Plottable,
     if was_cudf:
         import cudf
         if isinstance(df, pd.DataFrame):
-            df = cudf.DataFrame.from_pandas(df)
+            df = cudf.from_pandas(df)  # pragma: no cover - cudf-only, covered by the GPU run
         if isinstance(new_edges_df, pd.DataFrame):
-            new_edges_df = cudf.DataFrame.from_pandas(new_edges_df)
+            new_edges_df = cudf.from_pandas(new_edges_df)  # pragma: no cover - cudf-only, covered by the GPU run
 
     return hydrate_graph(res, df, new_edges_df, node, src, dst, emb_orig, X_orig, y_orig)

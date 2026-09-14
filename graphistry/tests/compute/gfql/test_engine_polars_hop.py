@@ -56,7 +56,14 @@ def test_polars_hop_parity(gname, case, seed):
     # label_node_hops / label_seeds are NATIVE on the plain BFS as of #1741 — see
     # TestHopLabelsDifferential; only label_edge_hops and min_hops>1 labeling still decline.
     {"label_edge_hops": "h"},
-    {"min_hops": 2},   # min_hops>1 is native in chain()/gfql() only; a DIRECT hop() stays NIE
+    # min_hops>1 is native in chain()/gfql() only; a DIRECT hop() stays NIE.
+    # #1918 F6: max_hops=3 added. This case used to be a bare {"min_hops": 2} against the
+    # shared `hops=1` below, i.e. min 2 > max 1 -- CONTRADICTORY bounds, which pandas has
+    # always rejected with ValueError. polars validated no bounds at all, so the NIE gate
+    # fired first and the case silently tested the wrong thing. With bound validation now
+    # shared, that spelling correctly raises ValueError; widening max_hops keeps the case
+    # testing what it was written to test (the min_hops>1 decline) on a SATISFIABLE window.
+    {"min_hops": 2, "max_hops": 3},
     {"output_min_hops": 1},
     {"output_max_hops": 2},
     {"source_node_query": "s == 'a'"},
@@ -319,3 +326,56 @@ class TestHopLabelsDifferential:
         # pandas redirected the label to a non-clobbering name and kept the user's "_h" strings.
         assert "_h_1" in exp.columns and "_h_1" in act.columns
         assert set(act["_h"].to_list()) <= {"u0", "u1", "u2", "u3", "u4"}
+
+
+class TestHopLazyInputEagernessMatrix:
+    """Direct ``g.hop(engine='polars')`` on LazyFrame inputs (#1740 class): the chain entry
+    normalizes eagerness but this route bypasses chain_polars, so the hop entry must too.
+    Values equal the pandas oracle on the same graph."""
+
+    CASES = [
+        dict(hops=2, direction="forward"),
+        dict(to_fixed_point=True, direction="forward"),
+        dict(hops=2, direction="undirected"),
+    ]
+
+    def _oracle(self, case):
+        base_pd = graphistry.edges(GRAPHS["branch"], "s", "d").materialize_nodes()
+        return base_pd.hop(nodes=pd.DataFrame({base_pd._node: ["a"]}), engine="pandas", **case)
+
+    def _polars_graph(self, nodes_lazy, edges_lazy):
+        base_pd = graphistry.edges(GRAPHS["branch"], "s", "d").materialize_nodes()
+        npl = pl.from_pandas(base_pd._nodes)
+        epl = pl.from_pandas(GRAPHS["branch"])
+        return graphistry.nodes(npl.lazy() if nodes_lazy else npl, base_pd._node).edges(
+            epl.lazy() if edges_lazy else epl, "s", "d")
+
+    @pytest.mark.parametrize("case", CASES)
+    @pytest.mark.parametrize("nodes_lazy", [False, True])
+    @pytest.mark.parametrize("edges_lazy", [False, True])
+    def test_lazy_eagerness_matrix_matches_pandas(self, case, nodes_lazy, edges_lazy):
+        oracle = self._oracle(case)
+        got = self._polars_graph(nodes_lazy, edges_lazy).hop(
+            nodes=pd.DataFrame({"id": ["a"]}), engine="polars", **case)
+        assert "polars" in type(got._nodes).__module__
+        assert not isinstance(got._nodes, pl.LazyFrame)
+        assert not isinstance(got._edges, pl.LazyFrame)
+        assert _node_set(oracle) == _node_set(got), f"node mismatch {case}"
+        assert _edge_set(oracle) == _edge_set(got), f"edge mismatch {case}"
+
+    @pytest.mark.parametrize("case", CASES)
+    def test_lazy_seed_parameter_matches_pandas(self, case):
+        got = self._polars_graph(nodes_lazy=True, edges_lazy=True).hop(
+            nodes=pl.DataFrame({"id": ["a"]}).lazy(), engine="polars", **case)
+        oracle = self._oracle(case)
+        assert _node_set(oracle) == _node_set(got), f"node mismatch {case}"
+        assert _edge_set(oracle) == _edge_set(got), f"edge mismatch {case}"
+
+    @pytest.mark.parametrize("case", CASES)
+    def test_edges_only_lazy_graph_matches_pandas(self, case):
+        # No node table: ensure_nodes_polars must synthesize an EAGER one from lazy edges.
+        oracle = self._oracle(case)
+        got = graphistry.edges(pl.from_pandas(GRAPHS["branch"]).lazy(), "s", "d").hop(
+            nodes=pd.DataFrame({"id": ["a"]}), engine="polars", **case)
+        assert _node_set(oracle) == _node_set(got), f"node mismatch {case}"
+        assert _edge_set(oracle) == _edge_set(got), f"edge mismatch {case}"

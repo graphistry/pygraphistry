@@ -49,14 +49,15 @@ def gfql_explain(
             error = None
         except Exception as ex:  # report, don't raise — explain is diagnostic
             error = f"{type(ex).__name__}: {ex}"
-    used_index = any(s.get("path") == "index" for s in steps)
+    index_steps = [s for s in steps if s.get("op") != "fast_path"]  # a served fast path is not an index
+    used_index = any(s.get("path") == "index" for s in index_steps)
     # Surface the planner's cost signal at the top level (LP1): prefer the step that
     # actually took the index, else the last decision. `est_seed_cardinality` = number
     # of seeds; `est_result_rows` = estimated fanout (Σ seed degree, free from CSR).
-    ref = [s for s in steps if s.get("path") == "index"] or list(steps)
+    ref = [s for s in index_steps if s.get("path") == "index"] or index_steps
     last = ref[-1] if ref else {}
-    if not last and resolved_policy == "off":
-        last = {"decision_reason": "policy=off", "decision_code": "policy_off"}
+    if resolved_policy == "off":
+        last = {"decision_reason": "policy=off", **last, "decision_code": "policy_off"}
     resident_names = cast(List[str], resident["name"].tolist() if len(resident) else [])
     return {
         "engine": eng.value,

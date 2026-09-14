@@ -2,7 +2,7 @@ import numpy as np
 import pandas as pd
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Sequence, Union
 from typing_extensions import Literal
-from graphistry.Engine import Engine, EngineAbstract, EngineAbstractType, POLARS_ENGINES, resolve_engine, df_to_engine, df_concat, safe_merge
+from graphistry.Engine import Engine, EngineAbstract, EngineAbstractType, POLARS_ENGINES, resolve_input_engine, df_to_engine, df_concat, safe_merge
 from graphistry.Plottable import Plottable
 from graphistry.util import setup_logger
 from graphistry.utils.json import JSONVal
@@ -11,6 +11,7 @@ from .chain import Chain, chain as chain_base
 from .chain_let import chain_let as chain_let_base
 from .gfql_unified import gfql as gfql_base
 from .gfql_validate import gfql_validate as gfql_validate_base
+from .gfql.strictness import StrictInput
 from .chain_remote import (
     chain_remote as chain_remote_base,
     chain_remote_shape as chain_remote_shape_base
@@ -20,7 +21,7 @@ from .python_remote import (
     python_remote_table as python_remote_table_base,
     python_remote_json as python_remote_json_base
 )
-from graphistry.models.compute.chain_remote import OutputTypeGraph, FormatType
+from graphistry.models.compute.chain_remote import DFImportArgs, OutputTypeGraph, FormatType
 from .collapse import collapse_by
 from .hop import hop as hop_base
 from .filter_by_dict import (
@@ -214,7 +215,7 @@ class ComputeMixin(Plottable):
         # to that engine. This ensures GPU mode is preserved: polars/arrow/spark/dask are
         # converted to cuDF (not pandas) when engine='cudf'. The old pattern
         # (ensure_local_engine_match then _coerce_to_pandas) was wrong for cross-engine scenarios.
-        engine_concrete = resolve_engine(engine, g)
+        engine_concrete = resolve_input_engine(engine, g)
         g = _coerce_input_formats(g, engine_concrete)
 
         if reuse:
@@ -259,7 +260,7 @@ class ComputeMixin(Plottable):
 
     def _single_direction_degree(self, key_col: str, col: str) -> "Plottable":
         """Shared body for get_indegrees / get_outdegrees: groupby one direction, merge into nodes."""
-        engine_concrete = resolve_engine(EngineAbstract.AUTO, self)
+        engine_concrete = resolve_input_engine(EngineAbstract.AUTO, self)
         g = _coerce_input_formats(self, engine_concrete)
         g_nodes = g.materialize_nodes(engine=engine_concrete.value)
         node_id = g_nodes._node
@@ -311,7 +312,7 @@ class ComputeMixin(Plottable):
                 g2 = g.get_degrees()
                 print(g2._nodes)  # pd.DataFrame with 'id', 'degree', 'degree_in', 'degree_out'
         """
-        engine_concrete = resolve_engine(EngineAbstract.AUTO, self)
+        engine_concrete = resolve_input_engine(EngineAbstract.AUTO, self)
         g = _coerce_input_formats(self, engine_concrete)
         g_nodes = g.materialize_nodes(engine=engine_concrete.value)
         node_id = g_nodes._node
@@ -511,7 +512,7 @@ class ComputeMixin(Plottable):
             g2 = g2.drop_nodes(roots[g2._node])
         nodes_df0 = nodes_with_levels[0]
         if len(nodes_with_levels) > 1:
-            engine = resolve_engine(EngineAbstract.AUTO, nodes_df0)
+            engine = resolve_input_engine(EngineAbstract.AUTO, nodes_df0)
             concat_fn = df_concat(engine)
             nodes_df = concat_fn([nodes_df0] + nodes_with_levels[1:])
         else:
@@ -574,7 +575,13 @@ class ComputeMixin(Plottable):
         return self.edges(df[mask])
 
     def prune_self_edges(self):
-        return self.edges(self._edges[ self._edges[self._source] != self._edges[self._destination] ])
+        edges = self._edges
+        if "polars" in type(edges).__module__:
+            # polars boolean __getitem__ selects COLUMNS; fill_null(True) keeps null endpoints like pandas NaN != x
+            import polars as pl
+            return self.edges(edges.filter(
+                (pl.col(self._source) != pl.col(self._destination)).fill_null(True)))  # #1913 finding-4
+        return self.edges(edges[ edges[self._source] != edges[self._destination] ])
 
     def collapse(
         self,
@@ -660,10 +667,32 @@ class ComputeMixin(Plottable):
         from graphistry.compute.gfql.index import gfql_index_edges as _gie
         return _gie(self, direction, engine=engine)
 
-    def gfql_index_all(self, engine='auto'):
-        """Convenience: build all GFQL physical indexes (both edge adjacencies + node_id). Returns a new Plottable."""
+    def gfql_index_all(self, col_stats_by_type: bool = False, engine='auto'):
+        """Convenience: build all GFQL physical indexes (both edge adjacencies + node_id). Returns a new Plottable.
+
+        ``col_stats_by_type=True`` also builds per-type column-stat facts for the
+        types a bound schema declares. Off by default: it costs a grouped pass per
+        type column and only typed count shapes can spend it."""
         from graphistry.compute.gfql.index import gfql_index_all as _gia
-        return _gia(self, engine=engine)
+        return _gia(self, col_stats_by_type=col_stats_by_type, engine=engine)
+
+    def gfql_index_col_stats(self, node_columns: Optional[Sequence[str]] = None,
+                             edge_columns: Optional[Sequence[str]] = None,
+                             node_type_column: Optional[str] = None,
+                             edge_type_column: Optional[str] = None,
+                             col_stats_by_type: bool = False,
+                             engine: EngineAbstractType = 'auto') -> 'Plottable':
+        """Convenience: build verified column-stat facts — the bound id columns by
+        default, plus any explicitly named columns (which raise if unfactable).
+        Naming a type column additionally builds PER-TYPE facts over the bindings,
+        which is what lets a typed pattern reach the bound proofs at all;
+        ``col_stats_by_type=True`` does the same from a bound schema (opt-in: it
+        costs a grouped pass per type column, so it suits typed query workloads).
+        Consumed as under-approximations by count fast paths. Returns a new Plottable."""
+        from graphistry.compute.gfql.index import gfql_index_col_stats as _gics
+        return _gics(self, node_columns=node_columns, edge_columns=edge_columns,
+                     node_type_column=node_type_column, edge_type_column=edge_type_column,
+                     col_stats_by_type=col_stats_by_type, engine=engine)
 
     def gfql_index_node_props(self, columns: Sequence[str], engine: EngineAbstractType = 'auto') -> 'Plottable':
         """Convenience: build node PROPERTY indexes for ``columns`` (secondary indexes).
@@ -731,7 +760,19 @@ class ComputeMixin(Plottable):
             'force' (always probe the index). Also accepts index DDL strings
             (``CREATE GFQL INDEX ...``) / wire ops as the query — routed to the
             index registry. See :meth:`create_index` and :doc:`gfql/index_adjacency`.
-    """
+    
+
+        Bound frames are treated as IMMUTABLE (like any engine with indexes):
+        mutating a bound frame in place is undefined behavior for caches,
+        indexes, and results. To recover, rebind a FRESH frame object
+        (``g.edges(df.copy(), ...)`` / ``g.nodes(...)``) or drop the resident
+        indexes (:meth:`drop_index`); either re-establishes a sound binding, and a
+        brand-new ``nodes()/edges()`` graph always starts clean. Note
+        ``gfql_clear_caches()`` is NOT a recovery here: it empties the
+        process-lifetime memos (compiled plans, parse caches) and deliberately
+        leaves graph-keyed state — the #1658 index registry included — on the
+        ``Plottable`` that owns it.
+        """
 
     def gfql_explain(
         self,
@@ -789,8 +830,10 @@ class ComputeMixin(Plottable):
         engine: EngineAbstractType = 'auto',
         validate: bool = True,
         persist: bool = False,
-        params: Optional[Dict[str, Any]] = None,
+        df_import_args: Optional[DFImportArgs] = None,
+        params: Optional[Dict[str, Any]] = None,  # hygiene-ok: explicit-any -- Cypher params are heterogeneous JSON scalars, matching gfql_remote()
         output: Optional[str] = None,
+        strict: StrictInput = None,
     ) -> Plottable:
         """Run GFQL query remotely.
 
@@ -806,6 +849,8 @@ class ComputeMixin(Plottable):
             Cypher string (compiled locally before sending).
         :param params: Optional parameter dict for Cypher string queries
             (e.g., ``params={"val": 10}`` for ``$val`` references).
+        :param strict: Absent-label/property strictness for the local preflight, also sent
+            to the server as the ``strictness`` request field; see :meth:`gfql`.
 
         Example::
 
@@ -826,7 +871,7 @@ class ComputeMixin(Plottable):
         return chain_remote_base(
             self, chain, api_token, dataset_id, output_type, format,
             df_export_args, node_col_subset, edge_col_subset, engine, validate, persist,
-            params=params, output=output,
+            params=params, output=output, df_import_args=df_import_args, strict=strict,
         )
     
     def gfql_remote_shape(
@@ -840,18 +885,29 @@ class ComputeMixin(Plottable):
         edge_col_subset: Optional[List[str]] = None,
         engine: EngineAbstractType = 'auto',
         validate: bool = True,
-        persist: bool = False
+        persist: bool = False,
+        df_import_args: Optional[DFImportArgs] = None,
+        params: Optional[Dict[str, Any]] = None,  # hygiene-ok: explicit-any -- Cypher params are heterogeneous JSON scalars, matching gfql_remote()
+        output: Optional[str] = None,
+        strict: StrictInput = None,
     ) -> pd.DataFrame:
         """Get shape metadata for remote GFQL query execution.
 
         This is the remote shape version of :meth:`gfql`. Returns metadata about the
         resulting graph without downloading the full data.
 
+        :param params: Optional parameter dict for Cypher string queries
+            (e.g., ``params={"cutoff": 10}`` for ``$cutoff`` references).
+        :param output: Optional Let/DAG binding name to return; requires a Let/DAG query.
+        :param strict: Absent-name strictness sent to the server as ``strictness``;
+            see :meth:`gfql`.
+
         See :meth:`chain_remote_shape` for detailed documentation (chain_remote_shape is deprecated).
         """
         return chain_remote_shape_base(
             self, chain, api_token, dataset_id, format, df_export_args,
-            node_col_subset, edge_col_subset, engine, validate, persist
+            node_col_subset, edge_col_subset, engine, validate, persist,
+            df_import_args=df_import_args, params=params, output=output, strict=strict,
         )
 
     def python_remote_g(self, *args, **kwargs) -> Any:

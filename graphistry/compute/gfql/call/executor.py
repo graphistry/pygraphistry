@@ -16,7 +16,7 @@ from graphistry.compute.gfql.row.pipeline import (
     execute_row_pipeline_call,
     is_row_pipeline_call,
 )
-from graphistry.compute.exceptions import ErrorCode, GFQLTypeError
+from graphistry.compute.exceptions import ErrorCode, GFQLSchemaError, GFQLTypeError
 from graphistry.compute.engine_coercion import ensure_engine_match
 from graphistry.compute.gfql.policy import PolicyContext, PolicyException
 from graphistry.compute.gfql.policy.stats import extract_graph_stats
@@ -67,6 +67,9 @@ from graphistry.Engine import active_frames_are_polars as _active_frames_are_pol
 # construction a non-native eager analytic. Mirrors the GRAPHISTRY_CUDF_SAME_PATH_MODE auto/strict
 # precedent. (Follow-ups tracked in plan PHASE 12: G3 otel attribution, G4 queryable flag, G5 size guard.)
 _OFFENGINE_BRIDGE_WARNED: Set[str] = set()
+# A warn-once ledger that cannot be emptied makes warnings order-dependent across a session.
+from graphistry.compute.gfql.cache_registry import register_clearable_dict as _register_clearable_dict
+_register_clearable_dict("_OFFENGINE_BRIDGE_WARNED", _OFFENGINE_BRIDGE_WARNED)
 
 
 def _compute_engine_for_offengine_call(engine: Engine, function: str) -> Engine:
@@ -104,10 +107,8 @@ def _bridge_graph_for_offengine_call(g: Plottable, function: str, engine: Engine
             "Use engine='pandas', or set call_mode='auto' (the default) to run it off-engine."
         )
     compute_engine = _compute_engine_for_offengine_call(engine, function)
-    # Convert the frames EXPLICITLY via df_to_engine — not ensure_engine_match, whose
-    # resolve_engine(AUTO, ...) detection classifies a polars frame as PANDAS (polars isn't a
-    # resolve_engine target), so it would treat the polars input as "already pandas" and no-op.
-    # df_to_engine is a genuine no-op when the frame is already compute_engine's type.
+    # df_to_engine, not ensure_engine_match: the conversion must key on the frame's
+    # actual type (no-op only when it already matches compute_engine).
     from graphistry.Engine import df_to_engine
     bridged = g
     if g._nodes is not None:
@@ -303,6 +304,8 @@ def execute_call(g: Plottable, function: str, params: Dict[str, Any], engine: En
         ) from error
     if isinstance(error, GFQLTypeError):
         raise error
+    if isinstance(error, GFQLSchemaError):
+        raise error  # absent-name verdicts keep their own E301 taxonomy (#1916)
     if isinstance(error, NotImplementedError) and (
         engine in (Engine.POLARS, Engine.POLARS_GPU) or is_row_pipeline_call(function)
     ):

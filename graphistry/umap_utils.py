@@ -616,7 +616,7 @@ class UMAPMixin(MIXIN_BASE):
             if not isinstance(emb, cudf.DataFrame):
                 warnings.warn(f'Expected cudf.DataFrame, trying to convert from {type(emb)}')
                 if isinstance(emb, pd.DataFrame):
-                    emb = cudf.DataFrame.from_pandas(emb)
+                    emb = cudf.from_pandas(emb)  # pragma: no cover - cudf-only, covered by the GPU run
                 else:
                     emb = cudf.DataFrame(emb)
             if emb.shape[1] == 2:
@@ -1122,7 +1122,7 @@ class UMAPMixin(MIXIN_BASE):
                     if res._edges is not None and isinstance(res._nodes, pd.DataFrame) and not isinstance(res._nodes, type(res._edges)):
                         try:
                             import cudf
-                            res = res.nodes(cudf.DataFrame.from_pandas(res._nodes))
+                            res = res.nodes(cudf.from_pandas(res._nodes))  # pragma: no cover - cudf-only, covered by the GPU run
                             logger.debug('Converted nodes to cuDF to match cuML engine and cuDF edges')
                         except (ImportError, AttributeError) as e:
                             logger.warning(f'Could not convert nodes to cuDF despite cuML engine: {e}')

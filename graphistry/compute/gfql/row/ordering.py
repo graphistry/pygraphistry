@@ -256,6 +256,60 @@ def order_detect_temporal_mode(series: Any) -> Optional[str]:
     return None
 
 
+def order_detect_native_temporal_mode(series: Any) -> Optional[str]:  # hygiene-ok: explicit-any -- pandas/cuDF series probe, module-wide idiom
+    """Temporal mode for a series whose *dtype* is already temporal (pandas/cuDF
+    ``datetime64``, tz-naive or tz-aware).
+
+    ``order_detect_temporal_mode`` only recognises temporals stored as TEXT, so a
+    real datetime column used to skip the temporal comparison path entirely and fall
+    through to a ``datetime64``-vs-``str`` compare. Kept separate from
+    the text detector so ORDER BY keeps its existing native-dtype sort path.
+    """
+    dtype = getattr(series, "dtype", None)
+    if dtype is None or not hasattr(series, "astype"):
+        return None
+    # pandas datetime64[ns] and DatetimeTZDtype both report kind 'M'; so does cuDF.
+    if getattr(dtype, "kind", None) == "M":
+        return "datetime_native"
+    return None
+
+
+# Rebases native epoch keys onto the text path's civil-calendar Julian day scale.
+_GFQL_JULIAN_DAY_AT_EPOCH = 2_440_588
+
+
+_GFQL_DATETIME_UNIT_NANOSECONDS = {"s": 1_000_000_000, "ms": 1_000_000, "us": 1_000, "ns": 1}
+_GFQL_DATETIME_UNIT_RE = re.compile(r"datetime64\[(?P<unit>[a-zA-Z]+)")
+
+
+def _native_temporal_unit_nanoseconds(dtype: Any) -> int:  # hygiene-ok: explicit-any -- pandas/cuDF dtype probe, module-wide idiom
+    """Nanoseconds per stored tick of a native datetime dtype.
+
+    ``astype('int64')`` on a datetime column yields the raw ticks in the dtype's OWN
+    resolution, which is not always nanoseconds: pandas 3 dropped the datetime64[ns]
+    coercion, so ``pd.to_datetime([...])`` now returns datetime64[us] where pandas 2
+    returned datetime64[ns]. Ask the dtype for its unit rather than assuming ns.
+    """
+    unit = getattr(dtype, "unit", None)  # pandas/cuDF tz-aware dtypes expose it directly
+    if not isinstance(unit, str):
+        match = _GFQL_DATETIME_UNIT_RE.search(str(dtype))
+        unit = match.group("unit") if match is not None else None
+    return _GFQL_DATETIME_UNIT_NANOSECONDS.get(unit or "", 1)
+
+
+def _native_epoch_ticks(value: Any) -> Any:  # hygiene-ok: explicit-any -- pandas/cuDF datetime series in/int64 series out, module-wide idiom
+    """UTC epoch ticks (in the dtype's own unit) for a native datetime series.
+
+    Tz-aware normalises to UTC first.
+    """
+    if getattr(getattr(value, "dtype", None), "tz", None) is not None:
+        try:
+            value = value.dt.tz_convert("UTC").dt.tz_localize(None)
+        except (AttributeError, TypeError, ValueError):
+            pass
+    return value.astype("int64")
+
+
 def build_list_sort_columns(
     work_df: Any,
     sort_col: str,
@@ -347,6 +401,35 @@ def build_temporal_sort_columns(
     fresh_col_name_fn: FreshColNameFn,
 ) -> Tuple[Any, list[str]]:
     value = work_df[sort_col]
+    day_nanos = 86_400 * 1_000_000_000
+    if mode == "datetime_native":
+        # The instant is already exact, so key straight off the UTC epoch.
+        if month_shift != 0:
+            raise ValueError("native datetime order_by duration support currently rejects year/month offsets")
+        native_null_mask = null_mask_fn(work_df, value)
+        # Key in the dtype's OWN unit: assuming nanoseconds overflows int64 for [s]/[ms].
+        unit_nanos = _native_temporal_unit_nanoseconds(getattr(value, "dtype", None))
+        ticks_per_day = day_nanos // unit_nanos
+        shift_ticks, shift_nanos_remainder = divmod(nanosecond_shift, unit_nanos)
+        epoch_ticks = _native_epoch_ticks(value)
+        if hasattr(epoch_ticks, "where"):
+            epoch_ticks = epoch_ticks.where(~native_null_mask, 0)
+        epoch_ticks = epoch_ticks + shift_ticks
+        native_days = epoch_ticks // ticks_per_day
+        native_day_col = fresh_col_name_fn(work_df.columns, f"{key_prefix}_day")
+        native_nanos_col = fresh_col_name_fn(work_df.columns, f"{key_prefix}_ns")
+        nanos_of_day = (epoch_ticks - native_days * ticks_per_day) * unit_nanos + shift_nanos_remainder
+        out = work_df.assign(
+            **{
+                native_day_col: (native_days + _GFQL_JULIAN_DAY_AT_EPOCH).where(
+                    ~native_null_mask, 9_223_372_036_854_775_000
+                ),
+                native_nanos_col: nanos_of_day.where(
+                    ~native_null_mask, day_nanos + 1
+                ),
+            }
+        )
+        return out, [native_day_col, native_nanos_col]
     text = value.astype(str)
     null_mask = null_mask_fn(work_df, value)
     if mode == "date":
@@ -422,7 +505,6 @@ def build_temporal_sort_columns(
         off_hours = timezone.str[1:3].where(use_tz, "0").replace("", "0").astype("int64")
         off_minutes = timezone.str[4:6].where(use_tz, "0").replace("", "0").astype("int64")
 
-    day_nanos = 86_400 * 1_000_000_000
     if mode in {"date", "date_constructor"}:
         time_nanos = month.astype("int64") * 0
         if nanosecond_shift % day_nanos != 0:

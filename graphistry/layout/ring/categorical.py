@@ -3,7 +3,7 @@ from typing import Any, Callable, Dict, List, Optional, Set, Union
 import numpy as np
 import pandas as pd
 
-from graphistry.Engine import Engine, EngineAbstract, EngineAbstractType, resolve_engine
+from graphistry.Engine import Engine, EngineAbstract, EngineAbstractType, resolve_input_engine
 from graphistry.Plottable import Plottable
 from graphistry.layout.ring.util import polar_to_xy
 
@@ -170,7 +170,7 @@ def ring_categorical(
 
     g = g.nodes(g._nodes.reset_index(drop=True))
 
-    engine_concrete = resolve_engine(engine, g._nodes)
+    engine_concrete = resolve_input_engine(engine, g._nodes)
 
     if ring_col is None or not isinstance(ring_col, str):
         raise ValueError('Must name a column for ring_col (string)')

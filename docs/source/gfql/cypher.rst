@@ -324,7 +324,11 @@ and ``RETURN`` expressions:
   ``lower`` / ``upper`` (the idiomatic case-insensitive compare, e.g.
   ``WHERE toLower(n.name) = 'bob'``), plus ``substring`` and
   ``size``, and conversions ``toInteger`` / ``toFloat`` / ``toString`` /
-  ``toBoolean`` and ``coalesce``.
+  ``toBoolean`` and ``coalesce``. ``size`` is defined over strings
+  (character count) and lists (element count) only; over a numeric,
+  boolean or temporal column it is a type error and declines. The same
+  applies to the list-walking forms ``any`` / ``all`` / ``none`` /
+  ``single`` and list comprehensions.
 - Regex ``=~`` (see WHERE Forms above).
 - ``searchAny(entity, term[, opts])`` — cross-column search predicate (WHERE
   position; GFQL extension for the viz filter pipeline): True where ANY of the

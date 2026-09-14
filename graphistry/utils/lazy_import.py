@@ -7,8 +7,10 @@ logger = setup_logger(__name__)
 #TODO use new importer when it lands (this is copied from umap_utils)
 def lazy_cudf_import():
     try:
-        warnings.filterwarnings("ignore")
-        import cudf  # type: ignore
+        # scoped, not global: a bare filterwarnings here mutes every later warning in the process
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore")
+            import cudf  # type: ignore
 
         # cudf >= 26.02 removed DataFrame.from_pandas() and Series.from_pandas().
         # Restore them so existing call sites keep working across RAPIDS versions.
@@ -27,7 +29,6 @@ def lazy_cudf_import():
 
 def lazy_cuml_import():
     try:
-        warnings.filterwarnings("ignore")
         with warnings.catch_warnings():
             warnings.filterwarnings("ignore")
             import cuml  # type: ignore
@@ -185,7 +186,8 @@ def lazy_import_has_min_dependancy():
         return False, e
     except Exception as e:
         logger.warn('Unexpected exn during lazy import', exc_info=e)
-        return False, e, None
+        # 2-tuple on every path: callers unpack two values.
+        return False, e
 
 def assert_imported_text():
     has_dependancy_text_, import_text_exn, _ = lazy_sentence_transformers_import()

@@ -7,15 +7,26 @@ either a clearable handle (``register_clearable`` / ``register_clearable_dict``
 written reason. ``gfql_clear_caches`` empties exactly the registered clearables.
 
 THE LOCK here is completeness: a static AST sweep discovers every
-``@lru_cache``/``@cache`` function and every module-level dict/set binding
-named cache/memo in the GFQL tree, imports their modules, and fails when any
-discovered cache is absent from the registry. Registration is enforced, not
-optional -- adding a memo without registering it fails this file.
+``@lru_cache``/``@cache`` function, every module-level dict/set binding named
+cache/memo, and every module-level mutable container that is WRITTEN at runtime
+whatever its name, imports their modules, and fails when any discovered cache is
+absent from the registry. Registration is enforced, not optional -- adding a memo
+without registering it fails this file.
 
 Why this exists: a clear that looked its target up BY NAME once turned into a
 silent no-op (``parse_cypher`` vs the ``_parse_cypher_cached`` body holding the
 memo) and published a wrong "cold-process" number for days. Registration hands
 over the bound clear at definition time, so there is no later lookup to miss.
+
+Two blind spots closed by #1913, both found with live (if benign) instances:
+
+* SCOPE -- the sweep read only ``compute/gfql/**`` + ``gfql_unified.py``, while
+  ``chain.py``, ``hop.py``, ``chain_fast_paths.py``, ``gfql_fast_paths.py`` and
+  ``ComputeMixin.py`` are just as much the GFQL execution path.
+* NAMING -- it matched only names containing cache/memo, so ``_OFFENGINE_BRIDGE_WARNED``
+  (a warn-once ledger) and ``_COST_GATE_FRAC_OVERRIDES`` (planner tuning) were
+  invisible process-global state. Neither could produce a wrong answer, which is
+  exactly why a name-based lock would never have surfaced them.
 """
 
 from __future__ import annotations
@@ -28,15 +39,46 @@ from typing import Dict
 import pytest
 
 GFQL_TREE = Path(__file__).resolve().parents[3] / "compute" / "gfql"
-GFQL_UNIFIED = Path(__file__).resolve().parents[3] / "compute" / "gfql_unified.py"
+_COMPUTE = Path(__file__).resolve().parents[3] / "compute"
+GFQL_UNIFIED = _COMPUTE / "gfql_unified.py"
 REPO_ROOT = Path(__file__).resolve().parents[4]
+
+# The GFQL execution path is wider than the gfql/ package: these modules run on every
+# query too, so a memo parked in one of them is exactly as process-global (#1913).
+EXECUTION_PATH_MODULES = [
+    GFQL_UNIFIED,
+    _COMPUTE / "chain.py",
+    _COMPUTE / "hop.py",
+    _COMPUTE / "chain_fast_paths.py",
+    _COMPUTE / "gfql_fast_paths.py",
+    _COMPUTE / "ComputeMixin.py",
+]
+
+# Mutating method names + container constructors used by the runtime-write scan below.
+_MUTATORS = frozenset({
+    "add", "append", "clear", "discard", "extend", "insert", "pop", "popitem",
+    "remove", "setdefault", "update", "__setitem__",
+})
+_CONTAINER_CTORS = frozenset({
+    "dict", "set", "list", "OrderedDict", "WeakValueDictionary", "WeakKeyDictionary",
+    "defaultdict", "deque", "Counter",
+})
+
+
+def _scanned_files() -> list:
+    """Every file the lock reads: the GFQL package plus the wider execution path."""
+    seen = sorted(GFQL_TREE.rglob("*.py"))
+    for path in EXECUTION_PATH_MODULES:
+        assert path.exists(), f"scan target moved or was renamed: {path}"
+        if path not in seen:
+            seen.append(path)
+    return seen
 
 
 def _lru_cached_functions() -> Dict[str, Path]:
     """Every ``@lru_cache``/``@cache``-decorated def in the GFQL tree, name -> file."""
     found: Dict[str, Path] = {}
-    files = sorted(GFQL_TREE.rglob("*.py")) + [GFQL_UNIFIED]
-    for path in files:
+    for path in _scanned_files():
         tree = ast.parse(path.read_text(), filename=str(path))
         for node in ast.walk(tree):
             if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
@@ -62,34 +104,89 @@ def _module_dict_caches() -> Dict[str, Path]:
     file can catch.
     """
     found: Dict[str, Path] = {}
-    files = sorted(GFQL_TREE.rglob("*.py")) + [GFQL_UNIFIED]
-    for path in files:
+    for path in _scanned_files():
         tree = ast.parse(path.read_text(), filename=str(path))
-        for node in tree.body:
-            targets = []
-            value = None
-            if isinstance(node, ast.Assign):
-                targets = [t for t in node.targets if isinstance(t, ast.Name)]
-                value = node.value
-            elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
-                targets = [node.target]
-                value = node.value
-            if value is None:
-                continue
-            is_container = (
-                isinstance(value, (ast.Dict, ast.Set))
-                or (
-                    isinstance(value, ast.Call)
-                    and isinstance(value.func, ast.Name)
-                    and value.func.id in ("dict", "OrderedDict", "WeakValueDictionary", "set")
-                )
+        for name in _module_level_containers(tree):
+            lowered = name.lower()
+            if "cache" in lowered or "memo" in lowered:
+                found[name] = path
+    return found
+
+
+def _module_level_containers(tree: ast.Module) -> Dict[str, ast.AST]:
+    """Module-level names bound to a mutable container literal/constructor."""
+    out: Dict[str, ast.AST] = {}
+    for node in tree.body:
+        targets = []
+        value = None
+        if isinstance(node, ast.Assign):
+            targets = [t for t in node.targets if isinstance(t, ast.Name)]
+            value = node.value
+        elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
+            targets = [node.target]
+            value = node.value
+        if value is None:
+            continue
+        is_container = (
+            isinstance(value, (ast.Dict, ast.Set, ast.List))
+            or (
+                isinstance(value, ast.Call)
+                and isinstance(value.func, ast.Name)
+                and value.func.id in _CONTAINER_CTORS
             )
-            if not is_container:
-                continue
+        )
+        if is_container:
             for target in targets:
-                lowered = target.id.lower()
-                if "cache" in lowered or "memo" in lowered:
-                    found[target.id] = path
+                out[target.id] = value
+    return out
+
+
+def _runtime_written_names(tree: ast.Module) -> set:
+    """Names this module MUTATES at runtime: ``x[k] = ``, ``del x[k]``, ``x.add(...)``
+    and friends, or a ``global x`` rebind. Read-only lookup tables are left alone --
+    the point is state that changes as queries run."""
+    written: set = set()
+    for node in ast.walk(tree):
+        if (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and isinstance(node.func.value, ast.Name)
+            and node.func.attr in _MUTATORS
+        ):
+            written.add(node.func.value.id)
+        elif isinstance(node, (ast.Assign, ast.AugAssign)):
+            targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+            for target in targets:
+                if isinstance(target, ast.Subscript) and isinstance(target.value, ast.Name):
+                    written.add(target.value.id)
+        elif isinstance(node, ast.Delete):
+            for target in node.targets:
+                if isinstance(target, ast.Subscript) and isinstance(target.value, ast.Name):
+                    written.add(target.value.id)
+        elif isinstance(node, ast.Global):
+            written.update(node.names)
+    return written
+
+
+def _mutated_process_state() -> Dict[str, Path]:
+    """Every module-level mutable container that the module WRITES at runtime, whatever
+    it is called.
+
+    The name-based scan above only sees state that admits to being a cache.
+    ``_OFFENGINE_BRIDGE_WARNED`` (a warn-once set) and ``_COST_GATE_FRAC_OVERRIDES``
+    (planner tuning) are both process-lifetime and both were invisible to it (#1913).
+    Neither can produce a wrong answer -- which is the point: a lock that only fires on
+    correctness bugs is not a completeness lock. Each hit must end up registered as
+    clearable or exempted with a written reason.
+    """
+    found: Dict[str, Path] = {}
+    for path in _scanned_files():
+        tree = ast.parse(path.read_text(), filename=str(path))
+        containers = _module_level_containers(tree)
+        if not containers:
+            continue
+        for name in sorted(set(containers) & _runtime_written_names(tree)):
+            found[name] = path
     return found
 
 
@@ -100,7 +197,7 @@ def _import_module(path: Path) -> None:
 
 def test_every_discovered_cache_is_registered() -> None:
     """THE LOCK. A new memo in the GFQL tree must register itself, at its own def site."""
-    discovered = {**_lru_cached_functions(), **_module_dict_caches()}
+    discovered = {**_lru_cached_functions(), **_module_dict_caches(), **_mutated_process_state()}
     assert discovered, "the AST scans found no caches at all -- the scan itself is broken"
 
     for path in sorted(set(discovered.values())):
@@ -124,6 +221,56 @@ def test_every_discovered_cache_is_registered() -> None:
         f"registered but not discovered by the scans: {stale}. Either the cache moved out "
         "of the GFQL tree (move or drop its registration) or the scan needs a new pattern."
     )
+
+
+def test_lock_scans_the_whole_gfql_execution_path() -> None:
+    """#1913 SCOPE pin: narrowing the sweep back to compute/gfql/** must fail here."""
+    scanned = set(_scanned_files())
+    for path in EXECUTION_PATH_MODULES:
+        assert path in scanned, f"{path.name} dropped out of the cache-coverage sweep"
+
+
+def test_lock_sees_process_state_that_does_not_say_cache() -> None:
+    """#1913 NAMING pin: the two live examples that a cache/memo name match cannot see.
+
+    Both are benign today (warning order; plan choice) -- that is precisely why only a
+    name-blind, mutation-based scan finds them. If either is renamed or retired, retarget
+    this pin at whatever module-level mutable state remains; do not delete it.
+    """
+    discovered = _mutated_process_state()
+    assert "_OFFENGINE_BRIDGE_WARNED" in discovered, discovered
+    assert "_COST_GATE_FRAC_OVERRIDES" in discovered, discovered
+    # ...and neither name would have been matched by the cache/memo scan
+    named = _module_dict_caches()
+    assert "_OFFENGINE_BRIDGE_WARNED" not in named and "_COST_GATE_FRAC_OVERRIDES" not in named
+
+
+def test_clear_caches_empties_the_offengine_bridge_warn_ledger() -> None:
+    """CLEARABLE verdict for the warn-once set: a ledger that cannot be emptied makes
+    warning behavior depend on what ran earlier in the process."""
+    from graphistry.compute.gfql.call import executor
+    from graphistry.compute.gfql_unified import gfql_clear_caches
+
+    executor._OFFENGINE_BRIDGE_WARNED.add("probe_fn")
+    gfql_clear_caches()
+    assert executor._OFFENGINE_BRIDGE_WARNED == set()
+
+
+def test_clear_caches_preserves_cost_gate_overrides() -> None:
+    """EXEMPT verdict, and it is load-bearing: set_cost_gate_frac is deliberate tuning,
+    not a memo, so a call named "clear caches" must not silently revert it."""
+    from graphistry.Engine import Engine
+    from graphistry.compute.gfql.index.cost import (
+        cost_gate_frac, reset_cost_gate_frac, set_cost_gate_frac,
+    )
+    from graphistry.compute.gfql_unified import gfql_clear_caches
+
+    try:
+        set_cost_gate_frac(Engine.PANDAS, 0.123)
+        gfql_clear_caches()
+        assert cost_gate_frac(Engine.PANDAS) == 0.123
+    finally:
+        reset_cost_gate_frac(Engine.PANDAS)
 
 
 def test_registry_fails_loud() -> None:

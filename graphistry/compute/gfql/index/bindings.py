@@ -15,6 +15,7 @@ from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple, Union, c
 from graphistry.Engine import Engine, df_concat
 from graphistry.Plottable import Plottable
 from graphistry.compute.typing import DataFrameT
+from graphistry.compute.gfql.identifiers import WALK_CURRENT_COL
 
 from .api import (
     _record_indexed_traversal,
@@ -50,7 +51,7 @@ from .registry import (
 from .traverse import _indices_for_direction
 
 
-_CURRENT = "__current__"
+_CURRENT = WALK_CURRENT_COL
 _FROM = "__gfql_ib_from__"
 _TO = "__gfql_ib_to__"
 _PATH_ORD = "__gfql_ib_path_ord__"
@@ -104,6 +105,8 @@ def _integer_index(index: Union[AdjacencyIndex, NodeIdIndex, NodePropIndex]) -> 
     keys are declined rather than risking a lossy compare.
     """
     key_ok = index.keys_sorted.dtype.kind in ("i", "u")
+    if isinstance(index, NodeIdIndex) and index.source_ref is not None:
+        key_ok = key_ok and index.n_nodes == len(index.source_ref)
     if not isinstance(index, AdjacencyIndex):
         return key_ok
     return key_ok and index.other_values.dtype.kind in ("i", "u")
@@ -116,12 +119,15 @@ def _filter_compatible(frame: DataFrameT, filter_dict: Optional[dict]) -> bool:
     from graphistry.compute.filter_by_dict import (
         _is_numeric_dtype_safe,
         _is_string_dtype_safe,
-        resolve_filter_column,
+        resolve_filter_column_or_absent,
     )
 
     try:
         for col, value in filter_dict.items():
-            resolved, resolved_value = resolve_filter_column(frame, col, value)
+            resolved_pair = resolve_filter_column_or_absent(frame, col, value)
+            if resolved_pair is None:
+                return False  # absent name; the canonical path applies the 3VL verdict (#1916)
+            resolved, resolved_value = resolved_pair
             series = (
                 frame.get_column(resolved)  # type: ignore[operator]
                 if "polars" in type(frame).__module__
@@ -232,7 +238,24 @@ def _orient_edges(
         reverse = one(dst, src, 1)
         if engine == Engine.POLARS:
             reverse = reverse.select(forward.columns)  # type: ignore[operator]
-        return cast(DataFrameT, df_concat(engine)([forward, reverse], ignore_index=True))
+        combined = cast(DataFrameT, df_concat(engine)([forward, reverse], ignore_index=True))
+        # A self-loop's two undirected orientations are the SAME binding: drop the per-ordinal twin.
+        if _EDGE_ORD in combined.columns:
+            if engine == Engine.POLARS:
+                combined = cast(  # hygiene-ok: explicit-cast -- DataFrameT narrowing, module-wide idiom
+                    DataFrameT,
+                    combined.unique(  # type: ignore[operator]
+                        subset=[_FROM, _TO, _EDGE_ORD], keep="first", maintain_order=True
+                    ),
+                )
+            else:
+                combined = cast(  # hygiene-ok: explicit-cast -- DataFrameT narrowing, module-wide idiom
+                    DataFrameT,
+                    combined.drop_duplicates(
+                        subset=[_FROM, _TO, _EDGE_ORD], keep="first", ignore_index=True
+                    ),
+                )
+        return combined
     if direction == "reverse":
         return one(dst, src, 0)
     return one(src, dst, 0)
@@ -274,6 +297,10 @@ def _seed_rows_via_property_index(
         if value is None or isinstance(value, bool) or not isinstance(value, Integral):
             continue
         index = registry.get_node_prop_valid(column, nodes, engine)
+        if index is None and engine in (Engine.POLARS, Engine.POLARS_GPU):
+            # Both Polars targets index the same host frame with NumPy arrays.
+            other = Engine.POLARS_GPU if engine == Engine.POLARS else Engine.POLARS
+            index = registry.get_node_prop_valid(column, nodes, other)
         if index is None:
             continue
         values = xp.asarray([value])

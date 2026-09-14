@@ -272,8 +272,8 @@ class HeterographEmbedModuleMixin(ComputeMixin):
         embedding_dim : int
             relation embedding dimension. defaults to 32
         use_feat : bool
-            wether to featurize nodes, if False will produce random embeddings and shape them during training.
-            Defaults to True
+            whether to featurize nodes, if False will produce random embeddings and shape them during training.
+            Defaults to False
         X : XSymbolic
             Which columns in the nodes dataframe to featurize. Inherets args from graphistry.featurize().
             Defaults to None.
@@ -288,13 +288,13 @@ class HeterographEmbedModuleMixin(ComputeMixin):
         num_steps : int
             num_steps. Defaults to 50
         lr : float
-            learning rate. Defaults to 0.002
+            learning rate. Defaults to 0.01
         inplace : Optional[bool]
             inplace
         device : Optional[str]
             accelarator. Defaults to "cpu"
         evaluate : bool
-            Whether to evaluate. Defaults to False.
+            Whether to evaluate. Defaults to True.
 
         Returns
         -------

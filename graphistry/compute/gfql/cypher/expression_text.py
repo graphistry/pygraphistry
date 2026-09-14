@@ -60,6 +60,15 @@ def cypher_literal_expr_text(value: Any) -> str:
     )
 
 
+def _sign_separator(op: str, operand_text: str) -> str:
+    """Space that keeps a signed operand from fusing into an unparseable `--`/`++`.
+
+    The parser folds a signed numeric literal into the Literal itself, so `- -2` holds
+    ``UnaryOp('-', Literal(-2))`` and would otherwise re-render as `(--2)`.
+    """
+    return " " if operand_text[:1] in {"+", "-"} else ""
+
+
 def render_expr_node(node: ExprNode) -> str:
     if isinstance(node, Identifier):
         return node.name
@@ -69,7 +78,7 @@ def render_expr_node(node: ExprNode) -> str:
         operand = render_expr_node(node.operand)
         if node.op == "not":
             return f"(NOT {operand})"
-        return f"({node.op}{operand})"
+        return f"({node.op}{_sign_separator(node.op, operand)}{operand})"
     if isinstance(node, BinaryOp):
         left = render_expr_node(node.left)
         right = render_expr_node(node.right)

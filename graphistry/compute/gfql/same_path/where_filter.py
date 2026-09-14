@@ -3,6 +3,7 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple, TYPE_CHECKING
 from graphistry.compute.ast import ASTEdge, ASTNode
 from graphistry.compute.dataframe import project_node_attrs, semijoin_eval_pairs
 from graphistry.compute.typing import DataFrameT, DomainT
+from graphistry.compute.gfql.identifiers import WALK_FROM_COL, WALK_TO_COL
 from graphistry.compute.gfql.same_path_types import (
     ComparisonOp,
     EQ_NEQ_WHERE_OPS,
@@ -162,12 +163,12 @@ def apply_edge_where_post_prune(executor: "DFSamePathExecutor", state: PathState
         edges_with_id = edges_df.reset_index(drop=True)
         edges_with_id[edge_id_col] = edges_with_id.index
         oriented = sem.orient_edges(edges_with_id, src, dst, dedupe=sem.is_undirected)
-        rename_map = {left_label: "__from__", right_label: "__to__"}
+        rename_map = {left_label: WALK_FROM_COL, right_label: WALK_TO_COL}
         if value_label is not None and value_col is not None:
             rename_map[value_label] = value_col
-            on_cols = ["__from__", "__to__", value_col]
+            on_cols = [WALK_FROM_COL, WALK_TO_COL, value_col]
         else:
-            on_cols = ["__from__", "__to__"]
+            on_cols = [WALK_FROM_COL, WALK_TO_COL]
         merged = oriented.merge(pairs_df.rename(columns=rename_map), on=on_cols, how="inner")
         edge_ids = merged[edge_id_col].drop_duplicates()
         edges_out = edges_with_id[edges_with_id[edge_id_col].isin(edge_ids)].copy()
@@ -179,7 +180,7 @@ def apply_edge_where_post_prune(executor: "DFSamePathExecutor", state: PathState
     def _build_value_pairs(edges_df: DataFrameT, sem: EdgeSemantics, value_col: str, left_label: str, right_label: str, value_label: str) -> DataFrameT:
         pairs = sem.orient_edges(
             edges_df[[src, dst, value_col]], src, dst, dedupe=sem.is_undirected
-        ).rename(columns={"__from__": left_label, "__to__": right_label, value_col: value_label}).drop_duplicates()
+        ).rename(columns={WALK_FROM_COL: left_label, WALK_TO_COL: right_label, value_col: value_label}).drop_duplicates()
         return pairs[pairs[value_label].notna()]
 
     if edge_semijoin_enabled or edge_semijoin_auto:
@@ -324,9 +325,9 @@ def apply_edge_where_post_prune(executor: "DFSamePathExecutor", state: PathState
         edges_subset = edges_df_step[cols].rename(columns={col: f"e{edge_idx}_{col}" for col in cols[2:]})
         left_col = f"n{left_node_idx}"
         edges_oriented = sem.orient_edges(edges_subset, src_col, dst_col)
-        paths_df = paths_df.merge(edges_oriented, left_on=left_col, right_on="__from__", how="inner")
-        paths_df[f"n{right_node_idx}"] = paths_df["__to__"]
-        paths_df = paths_df.drop(columns=["__from__", "__to__", src_col, dst_col], errors="ignore")
+        paths_df = paths_df.merge(edges_oriented, left_on=left_col, right_on=WALK_FROM_COL, how="inner")
+        paths_df[f"n{right_node_idx}"] = paths_df[WALK_TO_COL]
+        paths_df = paths_df.drop(columns=[WALK_FROM_COL, WALK_TO_COL, src_col, dst_col], errors="ignore")
         right_allowed = local_allowed_nodes.get(right_node_idx)
         if right_allowed is not None and not domain_is_empty(right_allowed):
             paths_df = paths_df[paths_df[f"n{right_node_idx}"].isin(right_allowed)]

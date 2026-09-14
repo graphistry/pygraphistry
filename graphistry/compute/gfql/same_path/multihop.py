@@ -3,6 +3,7 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple, TYPE_CHECKING
 from graphistry.compute.ast import ASTEdge
 from graphistry.compute.dataframe import project_node_attrs, semijoin_eval_pairs
 from graphistry.compute.typing import DataFrameT, DomainT
+from graphistry.compute.gfql.identifiers import WALK_CURRENT_COL, WALK_FROM_COL, WALK_TO_COL
 from graphistry.compute.gfql.same_path_types import (
     EQ_NEQ_WHERE_OPS,
     INEQ_WHERE_OPS,
@@ -32,7 +33,7 @@ def filter_multihop_edges_by_endpoints(edges_df: DataFrameT, left_allowed: Optio
     left_domain = domain_from_values(left_allowed, edge_pairs)
     right_domain = domain_from_values(right_allowed, edge_pairs)
     fwd_df = bfs_reachability(edge_pairs, left_domain, sem.max_hops, "__fwd_hop__")
-    rev_edge_pairs = edge_pairs.rename(columns={"__from__": "__to__", "__to__": "__from__"})
+    rev_edge_pairs = edge_pairs.rename(columns={WALK_FROM_COL: WALK_TO_COL, WALK_TO_COL: WALK_FROM_COL})
     bwd_df = bfs_reachability(rev_edge_pairs, right_domain, sem.max_hops, "__bwd_hop__")
     if len(fwd_df) == 0 or len(bwd_df) == 0:
         return edges_df.iloc[:0]
@@ -162,7 +163,7 @@ def apply_non_adjacent_where_post_prune(executor: "DFSamePathExecutor", state: P
     def _edge_pairs_cached(edge_idx: int, sem: EdgeSemantics, allowed_edges: Optional[DomainT]) -> DataFrameT:
         edges_df = executor.forward_steps[edge_idx]._edges
         if edges_df is None or len(edges_df) == 0:
-            return df_cons(nodes_df, {"__from__": [], "__to__": []})
+            return df_cons(nodes_df, {WALK_FROM_COL: [], WALK_TO_COL: []})
         if allowed_edges is None:
             cached = edge_pairs_cache.get(edge_idx)
             if cached is None:
@@ -173,14 +174,14 @@ def apply_non_adjacent_where_post_prune(executor: "DFSamePathExecutor", state: P
             edges_df = edges_df[edges_df[edge_id_col].isin(allowed_edges)]
         return build_edge_pairs(edges_df, src, dst, sem)
 
-    def _pairs_from_endpoints(pairs_left: DataFrameT, pairs_right: DataFrameT, start_df: DataFrameT, end_df: DataFrameT, left_cols: Sequence[str], right_cols: Sequence[str], *, left_id: str = "__start__", right_id: str = "__current__") -> Tuple[DataFrameT, DataFrameT]:
-        start_vals = start_df[[left_id] + list(left_cols)].rename(columns={left_id: "__from__"}).drop_duplicates()
-        end_vals = end_df[[right_id] + list(right_cols)].rename(columns={right_id: "__to__"}).drop_duplicates()
-        left_pairs = pairs_left.merge(start_vals, on="__from__", how="inner").rename(columns={"__from__": "__start__", "__to__": "__mid__"})[
+    def _pairs_from_endpoints(pairs_left: DataFrameT, pairs_right: DataFrameT, start_df: DataFrameT, end_df: DataFrameT, left_cols: Sequence[str], right_cols: Sequence[str], *, left_id: str = "__start__", right_id: str = WALK_CURRENT_COL) -> Tuple[DataFrameT, DataFrameT]:
+        start_vals = start_df[[left_id] + list(left_cols)].rename(columns={left_id: WALK_FROM_COL}).drop_duplicates()
+        end_vals = end_df[[right_id] + list(right_cols)].rename(columns={right_id: WALK_TO_COL}).drop_duplicates()
+        left_pairs = pairs_left.merge(start_vals, on=WALK_FROM_COL, how="inner").rename(columns={WALK_FROM_COL: "__start__", WALK_TO_COL: "__mid__"})[
             ["__start__", "__mid__"] + list(left_cols)
         ]
-        right_pairs = pairs_right.merge(end_vals, on="__to__", how="inner").rename(columns={"__from__": "__mid__", "__to__": "__current__"})[
-            ["__mid__", "__current__"] + list(right_cols)
+        right_pairs = pairs_right.merge(end_vals, on=WALK_TO_COL, how="inner").rename(columns={WALK_FROM_COL: "__mid__", WALK_TO_COL: WALK_CURRENT_COL})[
+            ["__mid__", WALK_CURRENT_COL] + list(right_cols)
         ]
         return left_pairs, right_pairs
 
@@ -208,7 +209,7 @@ def apply_non_adjacent_where_post_prune(executor: "DFSamePathExecutor", state: P
             end_cols = [end_col for _, end_col, _ in eq_entries]
             label_cols = [f"__label{idx}__" for idx in range(len(start_cols))]
             start_df = _attr_frame(start_nodes, start_cols, "__start__", label_cols)
-            end_df = _attr_frame(end_nodes, end_cols, "__current__", label_cols)
+            end_df = _attr_frame(end_nodes, end_cols, WALK_CURRENT_COL, label_cols)
             if start_df is None or end_df is None:
                 continue
             if _empty_pair(start_df, end_df, start_node_idx, end_node_idx):
@@ -216,12 +217,12 @@ def apply_non_adjacent_where_post_prune(executor: "DFSamePathExecutor", state: P
             label_cardinality = max(len(start_df[label_cols].drop_duplicates()), len(end_df[label_cols].drop_duplicates()))
             if value_card_max is None or label_cardinality <= value_card_max:
                 processed_clause_ids.update(group_clause_ids)
-                state_df = start_df[["__start__"] + label_cols].rename(columns={"__start__": "__current__"}).drop_duplicates()
+                state_df = start_df[["__start__"] + label_cols].rename(columns={"__start__": WALK_CURRENT_COL}).drop_duplicates()
                 state_df = walk_edge_state(executor, relevant_edge_indices, state_df, label_cols, local_allowed_edges, edge_id_col, src_col, dst_col)
-                state_df = state_df[state_df["__current__"].isin(end_nodes)]
+                state_df = state_df[state_df[WALK_CURRENT_COL].isin(end_nodes)]
                 if _empty_pair(state_df, state_df, start_node_idx, end_node_idx):
                     continue
-                valid_labels = state_df.merge(end_df, on=["__current__"] + label_cols, how="inner")[label_cols].drop_duplicates()
+                valid_labels = state_df.merge(end_df, on=[WALK_CURRENT_COL] + label_cols, how="inner")[label_cols].drop_duplicates()
                 if len(valid_labels) == 0:
                     _set_empty_nodes(start_node_idx, end_node_idx)
                     continue
@@ -229,7 +230,7 @@ def apply_non_adjacent_where_post_prune(executor: "DFSamePathExecutor", state: P
                 valid_ends_df = end_df.merge(valid_labels, on=label_cols, how="inner")
                 if _empty_pair(valid_starts_df, valid_ends_df, start_node_idx, end_node_idx):
                     continue
-                _apply_pairs_and_backprop(start_node_idx, end_node_idx, valid_starts_df["__start__"], valid_ends_df["__current__"])
+                _apply_pairs_and_backprop(start_node_idx, end_node_idx, valid_starts_df["__start__"], valid_ends_df[WALK_CURRENT_COL])
     for clause_entries in endpoint_clauses.values():
         endpoint_clause_count = len(clause_entries)
         for clause, start_idx, end_idx, _, _ in clause_entries:
@@ -243,7 +244,7 @@ def apply_non_adjacent_where_post_prune(executor: "DFSamePathExecutor", state: P
             if start_nodes is None or end_nodes is None:
                 continue
             left_vals = _attr_frame(start_nodes, [clause.left.column], "__start__", ["__start_val__"])
-            right_vals = _attr_frame(end_nodes, [clause.right.column], "__current__", ["__end_val__"])
+            right_vals = _attr_frame(end_nodes, [clause.right.column], WALK_CURRENT_COL, ["__end_val__"])
             if left_vals is None or right_vals is None:
                 continue
             if _empty_pair(left_vals, right_vals, start_idx, end_idx):
@@ -283,7 +284,7 @@ def apply_non_adjacent_where_post_prune(executor: "DFSamePathExecutor", state: P
                         if len(left_vals_df) == 0:
                             _set_empty_nodes(start_idx, end_idx)
                             continue
-                _apply_pairs_and_backprop(start_idx, end_idx, left_vals_df["__start__"], right_vals_df["__current__"], backprop=False)
+                _apply_pairs_and_backprop(start_idx, end_idx, left_vals_df["__start__"], right_vals_df[WALK_CURRENT_COL], backprop=False)
                 left_domain = series_values(left_vals_df["__start_val__"])
                 right_domain = series_values(right_vals_df["__end_val__"])
             if bounds_enabled and clause.op in INEQ_WHERE_OPS:
@@ -298,7 +299,7 @@ def apply_non_adjacent_where_post_prune(executor: "DFSamePathExecutor", state: P
                     if _empty_pair(left_vals_df, right_vals_df, start_idx, end_idx):
                         continue
                     start_nodes = series_values(left_vals_df["__start__"])
-                    end_nodes = series_values(right_vals_df["__current__"])
+                    end_nodes = series_values(right_vals_df[WALK_CURRENT_COL])
                     _update_allowed(start_idx, start_nodes)
                     _update_allowed(end_idx, end_nodes)
                     left_domain = series_values(left_vals_df["__start_val__"])
@@ -342,11 +343,11 @@ def apply_non_adjacent_where_post_prune(executor: "DFSamePathExecutor", state: P
                         )
                         if start_nodes is not None and not domain_is_empty(start_nodes):
                             pairs_left = pairs_left[
-                                pairs_left["__from__"].isin(start_nodes)
+                                pairs_left[WALK_FROM_COL].isin(start_nodes)
                             ]
                         if end_nodes is not None and not domain_is_empty(end_nodes):
                             pairs_right = pairs_right[
-                                pairs_right["__to__"].isin(end_nodes)
+                                pairs_right[WALK_TO_COL].isin(end_nodes)
                             ]
                         force_semijoin = (
                             (not domain_semijoin_enabled)
@@ -363,7 +364,7 @@ def apply_non_adjacent_where_post_prune(executor: "DFSamePathExecutor", state: P
                             left_pairs, right_pairs = _pairs_from_endpoints(pairs_left, pairs_right, start_val_df, end_val_df, ["__value__"], ["__value__"])
                             if _empty_pair(left_pairs, right_pairs, start_idx, end_idx):
                                 continue
-                            left_eval, right_eval, mid_values = semijoin_eval_pairs(left_pairs, right_pairs, clause.op, left_value="__value__", right_value="__value__", left_unique_col="__left_unique__", right_unique_col="__right_unique__", left_only_col="__left_only__", right_only_col="__right_only__", left_keep=["__start__"], right_keep=["__current__"])
+                            left_eval, right_eval, mid_values = semijoin_eval_pairs(left_pairs, right_pairs, clause.op, left_value="__value__", right_value="__value__", left_unique_col="__left_unique__", right_unique_col="__right_unique__", left_only_col="__left_only__", right_only_col="__right_only__", left_keep=["__start__"], right_keep=[WALK_CURRENT_COL])
                             if mid_values is not None:
                                 if left_eval is None or right_eval is None:
                                     _set_empty_nodes(start_idx, end_idx)
@@ -371,18 +372,18 @@ def apply_non_adjacent_where_post_prune(executor: "DFSamePathExecutor", state: P
                             else:
                                 if left_eval is None or right_eval is None or _empty_pair(left_eval, right_eval, start_idx, end_idx):
                                     continue
-                            _apply_pairs_and_backprop(start_idx, end_idx, left_eval["__start__"], right_eval["__current__"])
+                            _apply_pairs_and_backprop(start_idx, end_idx, left_eval["__start__"], right_eval[WALK_CURRENT_COL])
                             continue
             state_label_col = "__start_val__" if value_mode_enabled else "__start__"
-            state_df = left_vals[["__start__", state_label_col]].rename(columns={"__start__": "__current__"}).drop_duplicates() if value_mode_enabled else left_vals[["__start__"]].assign(__current__=left_vals["__start__"])
+            state_df = left_vals[["__start__", state_label_col]].rename(columns={"__start__": WALK_CURRENT_COL}).drop_duplicates() if value_mode_enabled else left_vals[["__start__"]].assign(__current__=left_vals["__start__"])
             state_df = walk_edge_state(executor, edge_idxs, state_df, [state_label_col], local_allowed_edges, edge_id_col, src_col, dst_col)
             if end_nodes is None:
                 continue
-            state_df = state_df[state_df["__current__"].isin(end_nodes)]
+            state_df = state_df[state_df[WALK_CURRENT_COL].isin(end_nodes)]
             if len(state_df) == 0:
                 _set_empty_nodes(start_idx, end_idx)
                 continue
-            pairs_df = state_df.merge(right_vals, on="__current__", how="inner") if value_mode_enabled else state_df.merge(left_vals, on="__start__", how="inner").merge(right_vals, on="__current__", how="inner")
+            pairs_df = state_df.merge(right_vals, on=WALK_CURRENT_COL, how="inner") if value_mode_enabled else state_df.merge(left_vals, on="__start__", how="inner").merge(right_vals, on=WALK_CURRENT_COL, how="inner")
             left_col = state_label_col if value_mode_enabled else "__start_val__"
             mask = evaluate_clause(pairs_df[left_col], clause.op, pairs_df["__end_val__"], null_safe=True)
             valid_pairs = pairs_df[mask]
@@ -390,6 +391,6 @@ def apply_non_adjacent_where_post_prune(executor: "DFSamePathExecutor", state: P
                 start_series = left_vals[left_vals["__start_val__"].isin(series_values(valid_pairs[left_col]))]["__start__"]
             else:
                 start_series = valid_pairs["__start__"]
-            end_series = valid_pairs["__current__"]
+            end_series = valid_pairs[WALK_CURRENT_COL]
             _apply_pairs_and_backprop(start_idx, end_idx, start_series, end_series)
     return PathState.from_mutable(local_allowed_nodes, local_allowed_edges, local_pruned_edges)

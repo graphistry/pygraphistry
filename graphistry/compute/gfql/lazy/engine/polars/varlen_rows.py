@@ -12,10 +12,23 @@ multiplicity, which the bounded loop reproduces in full.
 Only ``min_hops <= 1`` reaches the unbounded arm — the gate in ``row_pipeline.py``
 declines ``-[*2..]->`` because pandas' ``step_pairs`` prune by min_hops against a
 dedup-by-node eccentricity that the raw-edge reconstruction here cannot reproduce.
+
+openCypher TRAIL semantics: when ``pairs`` carries the stable
+``ident_col`` identity column, each expansion hop filters the new edge against
+every edge already bound on the path (this segment's and prior elements', via
+``trail_cols_in``) and records it as a ``__gfql_trail_*`` column — mirroring the
+pandas ``_gfql_multihop_binding_rows`` twin exactly.
 """
 from __future__ import annotations
 
-from typing import List, TYPE_CHECKING
+from typing import List, Optional, Tuple, TYPE_CHECKING
+from graphistry.compute.gfql.identifiers import (
+    DEFAULT_ROW_EDGE_IDENTITY_COL,
+    WALK_CURRENT_COL,
+    WALK_FROM_COL,
+    WALK_TO_COL,
+    trail_column_name,
+)
 
 if TYPE_CHECKING:
     import polars as pl
@@ -28,32 +41,49 @@ def _directed_varlen_reachable_polars(
     *,
     min_hops: int,
     max_hops: int,
-) -> "pl.LazyFrame":
+    trail_cols_in: Optional[List[str]] = None,
+    ident_col: str = DEFAULT_ROW_EDGE_IDENTITY_COL,
+) -> Tuple["pl.LazyFrame", List[str]]:
     """Bounded DIRECTED variable-length expansion of a bindings path bag.
 
-    One row per distinct edge SEQUENCE: ``pairs`` is NOT deduped, so parallel edges
-    multiply per hop, matching pandas' ``_gfql_multihop_binding_rows`` merge. Zero-hop
-    rows (``min_hops == 0``) keep the seed row (endpoint == start) and come first, then
-    hop 1, 2, ... — the same ``reachable`` concat order pandas builds.
+    One row per distinct edge SEQUENCE under trail semantics: ``pairs`` is not
+    deduped (parallel edges multiply per hop), and when it carries
+    ``ident_col`` a relationship binds at most once per path. Zero-hop
+    rows (``min_hops == 0``) keep the seed row (endpoint == start) and come first,
+    then hop 1, 2, ... — the same ``reachable`` concat order pandas builds.
 
     Stays fully lazy: all ``max_hops`` iterations are built without an eager
     ``.height`` early-break, because an empty intermediate lazily joins to empty and
     yields the identical result (pandas' break is an optimization, not semantics).
+
+    Returns ``(frame, new_trail_cols)``; hop-k rows carry k trail columns, rows
+    from shallower hops null-fill the deeper ones (diagonal concat).
     """
     import polars as pl
 
-    reachable: List["pl.LazyFrame"] = [state] if min_hops == 0 else []
+    trail = ident_col in pairs.collect_schema().names()
+    outer_trail = list(trail_cols_in or [])
+    segment_trail_cols: List[str] = []
+
+    reachable: List["pl.LazyFrame"] = [state.select(state_cols)] if min_hops == 0 else []
     current = state
     for hop in range(1, max_hops + 1):
-        current = (
-            current.join(pairs, left_on="__current__", right_on="__from__", how="inner")
-            .drop("__current__")
-            .rename({"__to__": "__current__"})
-            .select(state_cols)
-        )
+        current = current.join(pairs, left_on=WALK_CURRENT_COL, right_on=WALK_FROM_COL, how="inner")
+        if trail:
+            for used_col in outer_trail + segment_trail_cols:
+                current = current.filter(
+                    (pl.col(ident_col) != pl.col(used_col)) | pl.col(used_col).is_null()
+                )
+            hop_trail_col = trail_column_name(len(outer_trail) + len(segment_trail_cols))
+            current = current.rename({ident_col: hop_trail_col})
+            segment_trail_cols.append(hop_trail_col)
+        current = current.drop(WALK_CURRENT_COL).rename({WALK_TO_COL: WALK_CURRENT_COL})
+        current = current.select(state_cols + segment_trail_cols)
         if hop >= min_hops:
             reachable.append(current)
-    return pl.concat(reachable, how="vertical") if reachable else state.limit(0)
+    if not reachable:
+        return state.limit(0), segment_trail_cols
+    return pl.concat(reachable, how="diagonal"), segment_trail_cols
 
 
 def _directed_fixed_point_binding_rows_polars(
@@ -62,37 +92,25 @@ def _directed_fixed_point_binding_rows_polars(
     state_cols: List[str],
     *,
     min_hops: int,
-) -> "pl.LazyFrame":
+) -> Tuple["pl.LazyFrame", List[str]]:
     """Unbounded DIRECTED variable-length binding rows (``-[*0..]->`` / ``-[*]->``), #1709.
 
     The native twin of the ``max_hops is None and to_fixed_point`` arm of pandas'
     ``RowPipelineMixin._gfql_multihop_binding_rows``. One row per distinct edge
-    SEQUENCE (Cypher path multiplicity): ``pairs`` is never deduped, so parallel
+    SEQUENCE (Cypher trail multiplicity): ``pairs`` is never deduped, so parallel
     edges multiply per hop exactly as the pandas merge does. ``min_hops == 0``
     contributes the zero-hop rows (endpoint == start) first, then hop 1, 2, ... —
     the same ``reachable`` concat order pandas builds.
 
     Pandas discovers the traversal depth by expanding the PATH frontier until it is
-    empty, which materializes every partial path at every hop. This lowering splits
-    that into (a) a cheap dedup-by-node frontier walk that computes the exhaustion
-    depth ``D``, then (b) the SAME lazy bounded pair-join loop the ``-[*1..k]->`` arm
-    uses, with ``max_hops = D``. Step (a) is exact, not an approximation: the path
-    frontier at hop ``h`` is non-empty iff a walk of length ``h`` leaves some seed,
-    and deduping by endpoint node changes no walk's EXISTENCE — only its
-    multiplicity, which step (b) then reproduces in full. So the emitted rows are
-    identical to pandas' while the exponential path blow-up happens once, lazily.
+    empty. This lowering splits that into (a) a cheap dedup-by-node frontier walk
+    that computes the exhaustion depth ``D``, then (b) the SAME lazy bounded
+    pair-join loop the ``-[*1..k]->`` arm uses, with ``max_hops = D``.
 
-    Non-termination: a cycle reachable from a seed makes the walk infinite, and
-    pandas raises ``E108`` ("require terminating variable-length segments"). We raise
-    the same error via the same helper, and we detect it strictly, by pigeonhole over
-    the REACHABLE set: a walk of ``h`` edges visits ``h + 1`` nodes, all of them seeds
-    or frontier members, so once ``h + 1`` exceeds the number of nodes seen the walk has
-    repeated a node — a reachable cycle, exactly the condition under which pandas' own
-    cap (``max(len(step_pairs), 1) + 1``) also fails to exhaust. Conversely an acyclic
-    reachable subgraph empties the frontier first, so both engines exhaust. Same outcome
-    on both sides of the branch, without pandas' cost of expanding paths into the cycle
-    before giving up — and the bound is the reachable node count, so an unreachable
-    remainder of the graph costs nothing (see the probe's own note).
+    Cyclic reachability: the node-frontier probe cannot see trail exhaustion (a
+    cycle keeps the node frontier alive even though trails are finite), so a
+    reachable cycle still raises the terminating-segments error here — the pandas
+    twin now serves those via trail tracking; this decline is the #1903 residual.
     """
     import polars as pl
     from graphistry.compute.gfql.lazy import collect as _lazy_collect
@@ -100,6 +118,7 @@ def _directed_fixed_point_binding_rows_polars(
 
     pairs_df = _lazy_collect(pairs)
     pairs_lf = pairs_df.lazy()
+    pairs_step = pairs_lf.select([WALK_FROM_COL, WALK_TO_COL])
 
     # (a) depth probe: dedup-by-node frontier, so each hop costs O(N) not O(paths).
     #
@@ -107,14 +126,9 @@ def _directed_fixed_point_binding_rows_polars(
     # by the graph's node count. A walk of length ``hop`` visits ``hop + 1`` nodes, every
     # one of them a seed or a frontier member, i.e. all inside ``seen``; so the moment
     # ``hop + 1`` exceeds ``seen.height`` some node has repeated, and a repeat on a walk IS
-    # a reachable cycle. That is the same pigeonhole argument as a global-N bound but over
-    # the only set that matters, and it is still exact in both directions: an acyclic
-    # reachable subgraph empties the frontier before the bound, and a reachable cycle keeps
-    # it non-empty past it. Bounding by the global count instead makes a two-node cycle
-    # reachable from one seed cost O(graph) eager collects before raising — measured linear
-    # in the GLOBAL node count, which at LDBC SF1 scale is minutes of spinning to reach a
-    # validation error.
-    frontier = _lazy_collect(state.select(pl.col("__current__")).unique())
+    # a reachable cycle. An acyclic reachable subgraph empties the frontier before the
+    # bound; a reachable cycle keeps it non-empty past it.
+    frontier = _lazy_collect(state.select(pl.col(WALK_CURRENT_COL)).unique())
     seen = frontier
     frontier_lf = frontier.lazy()
     depth = 0
@@ -124,8 +138,8 @@ def _directed_fixed_point_binding_rows_polars(
     while not exhausted:
         hop += 1
         frontier = _lazy_collect(
-            frontier_lf.join(pairs_lf, left_on="__current__", right_on="__from__", how="inner")
-            .select(pl.col("__to__").alias("__current__"))
+            frontier_lf.join(pairs_step, left_on=WALK_CURRENT_COL, right_on=WALK_FROM_COL, how="inner")
+            .select(pl.col(WALK_TO_COL).alias(WALK_CURRENT_COL))
             .unique()
         )
         if frontier.height == 0:

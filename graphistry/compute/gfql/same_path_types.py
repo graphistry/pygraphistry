@@ -2,12 +2,13 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from types import MappingProxyType
-from typing import Any, Dict, FrozenSet, List, Literal, Mapping, Optional, Sequence
+from typing import Any, Dict, Final, FrozenSet, List, Literal, Mapping, Optional, Sequence
 
 from graphistry.compute.typing import DataFrameT, DomainT
 
 ComparisonOp = Literal["==", "!=", "<", "<=", ">", ">="]
-NODE_IDENTITY_COLUMN = "__gfql_node_id__"
+NODE_IDENTITY_COLUMN: Final[str] = "__gfql_node_id__"
+EDGE_IDENTITY_COLUMN: Final[str] = "__gfql_edge_index_0__"
 _WHERE_OP_MAP: Dict[str, ComparisonOp] = {
     "eq": "==",
     "neq": "!=",

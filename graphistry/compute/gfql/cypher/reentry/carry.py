@@ -11,6 +11,7 @@ from graphistry.compute.gfql.cypher.ast import (
     ParameterRef,
     ProjectionStage,
 )
+from graphistry.compute.gfql.identifiers import is_bare_identifier
 
 if TYPE_CHECKING:
     from graphistry.compute.gfql.cypher.lowering import ResultProjectionPlan
@@ -55,7 +56,7 @@ def _bounded_reentry_carry_columns(
     )
     if not carried_columns:
         return reentry_alias, (), non_source_aliases
-    invalid_output = next((name for name in carried_columns if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", name)), None)
+    invalid_output = next((name for name in carried_columns if not is_bare_identifier(name)), None)
     if invalid_output is not None:
         raise _lowering._unsupported_at_span(
             "Cypher MATCH after WITH carried scalar columns currently require identifier-style WITH aliases",
@@ -98,7 +99,7 @@ def _bounded_reentry_scalar_prefix_columns(
             value=projection_items,
             span=prefix_stage.span,
         )
-    invalid_output = next((name for name in carried_columns if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", name)), None)
+    invalid_output = next((name for name in carried_columns if not is_bare_identifier(name)), None)
     if invalid_output is not None:
         raise _lowering._unsupported_at_span(
             "Cypher MATCH after WITH scalar-only prefix stages currently require identifier-style WITH aliases",

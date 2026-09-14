@@ -109,6 +109,11 @@ CORPUS = [
     # NaN from a FUNCTION / division result (AST inference missed these; output-dtype
     # guard catches them — polars NaN-as-largest would otherwise leak)
     "RETURN abs(0.0 / 0.0) > 1 AS a, coalesce(0.0 / 0.0, 0.0) > 1 AS b",
+    # literal temporal comparison now constant-folds to the CIP2016-06-14 instant
+    # semantics on BOTH engines (was a polars NIE decline); parity + oracle-checked
+    "RETURN time({hour: 10, timezone: '+01:00'}) > time({hour: 9, timezone: '+00:00'}) AS x",
+    "RETURN date({year: 1984, month: 10, day: 12}) < date({year: 1985, month: 5, day: 6}) AS x",
+    "RETURN datetime('2020-01-02T05:00:00+05:00') = datetime('2020-01-02T00:00:00Z') AS x",
     "MATCH (n) RETURN n.val > 50 AS big, n.kind",
     "MATCH (n) RETURN n.val >= 50 AND n.val <= 80 AS mid",
     # Kleene 3-valued booleans over bare null literals — must not crash on Null dtype (polars
@@ -180,10 +185,6 @@ DEFERRED = [
     # a value/null), so the lowering must decline rather than crash
     "MATCH (n) RETURN n.val > 'a' AS x",
     "MATCH (n) WHERE n.val < 'z' RETURN n.id",
-    # ISO temporal comparison: cypher time()/date()/datetime() lower to ISO strings;
-    # polars would compare them lexicographically (wrong across timezones) -> NIE
-    "RETURN time({hour: 10, timezone: '+01:00'}) > time({hour: 9, timezone: '+00:00'}) AS x",
-    "RETURN date({year: 1984, month: 10, day: 12}) < date({year: 1985, month: 5, day: 6}) AS x",
     # temporal arithmetic: duration(...) lowers to an ISO string literal, so
     # a.time + duration(...) must NOT silently become string concatenation
     "MATCH (n) RETURN n.val + duration({minutes: 6}) AS t",
@@ -544,10 +545,10 @@ class TestAutoEngineRoutesPolarsNative:
             assert "polars" in type(g.gfql(q, engine=eng)._nodes).__module__
 
 
-class TestAutoEngineDoesNotRoutePolarsNative:
-    """The negative half: what must NOT be diverted. A routing change is only as safe as the
-    set of inputs it refuses, so each of these pins a case where the pre-change path must
-    still be taken byte-for-byte."""
+class TestAutoEngineRoutingBoundaries:
+    """Where AUTO's polars routing starts and stops: pandas-frame graphs stay
+    pandas, explicit engines are honored, mixed frames follow the edges frame,
+    and a policy-carrying query keeps the hook-emitting path."""
 
     NODES = {"id": [0, 1, 2, 3], "label__Person": [True] * 4}
     EDGES = {"s": [0, 1, 2], "d": [1, 2, 3], "type": ["KNOWS"] * 3}
@@ -557,12 +558,17 @@ class TestAutoEngineDoesNotRoutePolarsNative:
         g = graphistry.nodes(pd.DataFrame(self.NODES), "id").edges(pd.DataFrame(self.EDGES), "s", "d")
         assert "pandas" in type(g.gfql(self.Q)._nodes).__module__
 
-    def test_mixed_frames_not_routed(self):
-        """Polars edges + pandas nodes: the native engine has no bridge, so AUTO must not try."""
+    def test_mixed_frames_follow_the_edges_frame(self):
+        """Modern AUTO resolves mixed frames by the edges frame and coerces the
+        nodes across. The invariant is the VALUE plus result-engine-follows-
+        resolution ('must not try' pinned the absence of a bridge that now
+        exists -- accident, not spec)."""
         g = (graphistry
              .nodes(pd.DataFrame(self.NODES), "id")
              .edges(pl.DataFrame(self.EDGES), "s", "d"))
-        assert "pandas" in type(g.gfql(self.Q)._nodes).__module__
+        out = g.gfql(self.Q)
+        assert "polars" in type(out._nodes).__module__
+        assert out._nodes.to_pandas()["bid"].tolist() == [1]
         g2 = (graphistry
               .nodes(pl.DataFrame(self.NODES), "id")
               .edges(pd.DataFrame(self.EDGES), "s", "d"))
@@ -592,6 +598,32 @@ class TestAutoEngineDoesNotRoutePolarsNative:
         g.gfql(self.Q, policy=pol)
         assert "postload" in seen, "postload must still fire under AUTO on a polars graph"
 
+    def test_policy_guard_covers_every_polars_resolution(self):
+        """The guard's predicate must be resolve_engine itself: MIXED frames
+        (polars edges + pandas nodes) also resolve to polars under AUTO, and a
+        frame-shape guard once let them bypass a DENYING postload policy --
+        governance silently off is the worst failure mode this surface has."""
+        from graphistry.compute.gfql.policy import PolicyException
+
+        def deny(ctx):
+            raise PolicyException(phase="postload", reason="denied by test")
+
+        mixed = (graphistry
+                 .nodes(pd.DataFrame(self.NODES), "id")
+                 .edges(pl.DataFrame(self.EDGES), "s", "d"))
+        with pytest.raises(PolicyException):
+            mixed.gfql(self.Q, policy={"postload": deny})
+
+        edges_only = graphistry.edges(pl.DataFrame(self.EDGES), "s", "d")
+        with pytest.raises(PolicyException):
+            edges_only.gfql("MATCH (a)-[:KNOWS]->(b) RETURN b LIMIT 1",
+                            policy={"postload": deny})
+
+        nodes_only = graphistry.nodes(pl.DataFrame(self.NODES), "id")
+        with pytest.raises(PolicyException):
+            nodes_only.gfql("MATCH (a:Person) RETURN a.id LIMIT 1",
+                            policy={"postload": deny})
+
     def test_policy_hooks_fire_once_on_nie_shape(self):
         """A retry-on-NIE route would fire the compile/load hooks twice for one user call."""
         g = graphistry.nodes(pl.DataFrame(self.NODES), "id").edges(pl.DataFrame(self.EDGES), "s", "d")
@@ -608,6 +640,30 @@ class TestAutoEngineLazyFrames:
     """LazyFrame is the other member of the PolarsFrame union `is_polars_df` admits, so
     the AUTO route must take it too — and hand back EAGER polars, same as explicit
     engine='polars' does."""
+
+    @pytest.mark.parametrize("query", [
+        "MATCH (a {id: 0})-[]-(b) RETURN b.id AS x ORDER BY x",
+        "MATCH (a {id: 0})-[*1..2]-(b) RETURN DISTINCT b.id AS x ORDER BY x",
+        "MATCH (a {id: 0})-[]-(m)-[]-(b) RETURN DISTINCT b.id AS x ORDER BY x",
+    ], ids=["single_hop", "varlen", "two_hop_chain"])
+    @pytest.mark.parametrize("nodes_lazy", [False, True])
+    @pytest.mark.parametrize("edges_lazy", [False, True])
+    def test_undirected_shapes_any_eagerness_mix(self, query, nodes_lazy, edges_lazy):
+        """#1740: polars joins do not mix eagerness, and the traversal joins the
+        user's frames against eager wavefronts at MANY seams -- patching one
+        seam left varlen and multi-hop undirected crashing, so the chain entry
+        normalizes eagerness once and this pin sweeps the shape class. Every
+        combination must answer with pandas parity, eagerly."""
+        nodes = pl.DataFrame({"id": [0, 1, 2, 3], "node_type": ["P"] * 4})
+        edges = pl.DataFrame({"s": [0, 1, 2], "d": [1, 2, 3], "rel": ["F"] * 3})
+        oracle = (graphistry.nodes(nodes.to_pandas(), "id")
+                  .edges(edges.to_pandas(), "s", "d")
+                  .gfql(query, engine="pandas")._nodes.to_dict("records"))
+        g = graphistry.nodes(nodes.lazy() if nodes_lazy else nodes, "id").edges(
+            edges.lazy() if edges_lazy else edges, "s", "d")
+        out = g.gfql(query, engine="polars")._nodes
+        assert isinstance(out, pl.DataFrame), type(out)  # eager out
+        assert out.to_pandas().to_dict("records") == oracle
 
     def test_lazyframe_auto_routes_native_and_matches_explicit(self):
         nodes = pl.DataFrame({"id": [0, 1, 2, 3], "label__Person": [True] * 4}).lazy()
@@ -1092,3 +1148,30 @@ class TestAutoEnginePandasOracleParity:
         b = _normalize_nulls(_round_floats(oracle.reset_index(drop=True)))
         assert list(a.columns) == list(b.columns), (list(a.columns), list(b.columns))
         pd.testing.assert_frame_equal(a.astype(str), b.astype(str), check_dtype=False)
+
+
+class TestAutoFallbackCoercesFrames:
+    """Round-002 BUG-2 (#1885's route): when native polars declines and AUTO
+    falls back to pandas, the frames must be coerced first -- the pandas
+    executors are pandas-idiom, and uncoerced polars frames crashed 7/7
+    same-path projection shapes on the DEFAULT route."""
+
+    SHAPES = [
+        "MATCH (p)-[]->(q) WHERE q.score > p.score RETURN p.name AS pn, q.name AS qn",
+        "MATCH (p)-[]->(q) WHERE q.score > p.score RETURN p, q",
+        "MATCH (p)-[r]->(q) WHERE q.score > p.score RETURN p.name AS pn ORDER BY pn",
+    ]
+
+    @pytest.mark.parametrize("shape_i", [0, 1, 2])
+    @pytest.mark.parametrize("lazy", [False, True])
+    def test_same_path_projection_answers_on_default_engine(self, shape_i, lazy):
+        nodes = pl.DataFrame({"id": [0, 1, 2], "name": ["a", "b", "c"], "score": [1, 2, 3]})
+        edges = pl.DataFrame({"s": [0, 1], "d": [1, 2]})
+        q = self.SHAPES[shape_i]
+        oracle = (graphistry.nodes(nodes.to_pandas(), "id")
+                  .edges(edges.to_pandas(), "s", "d").gfql(q, engine="pandas")._nodes.to_dict("records"))
+        g = graphistry.nodes(nodes.lazy() if lazy else nodes, "id").edges(
+            edges.lazy() if lazy else edges, "s", "d")
+        out = g.gfql(q)._nodes  # DEFAULT engine
+        out = (out.to_pandas() if hasattr(out, "to_pandas") else out).to_dict("records")
+        assert out == oracle

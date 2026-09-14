@@ -41,6 +41,11 @@ SELF = "graphistry/tests/compute/gfql/test_polars_lane_completeness.py"
 # Modules that mention polars but are NOT polars-gated, each with the reason. A new entry
 # here is a deliberate, reviewable statement -- which is the point of the guard.
 NOT_POLARS_GATED: Dict[str, str] = {
+    "graphistry/tests/test_pandas_without_polars.py": (
+        "the ANTI-polars pin: a subprocess hard-blocks the polars import and asserts the "
+        "pandas engine works without ever importing it -- running it in the polars lane "
+        "would prove nothing the minimal lanes don't already prove"
+    ),
     "graphistry/tests/compute/gfql/cypher/test_row_pushdown.py": (
         "single engine-agnostic to_pandas() branch; every test runs on the pandas lane"
     ),
@@ -58,6 +63,11 @@ NOT_POLARS_GATED: Dict[str, str] = {
         "built and no polars runtime is needed. The cross-engine half of that pass lives in "
         "test_const_fold_engine_parity.py, which IS in the lane -- and is what caught the "
         "engine-blind key in the first place"
+    ),
+    "graphistry/tests/compute/test_remote_engine_contract.py": (
+        "remote preflight contract only: 'polars' and 'polars-gpu' are plain engine strings "
+        "that must be rejected before upload or POST; the module imports no polars runtime "
+        "and builds no polars frame, so every test runs in the ordinary core lanes"
     ),
     "graphistry/tests/compute/gfql/index/test_index_gpu_edge_match.py": (
         "cudf/GPU-gated (module-level importorskip('cudf') + skipif no GPU), not polars-gated; "

@@ -16,6 +16,12 @@ from graphistry.Engine import Engine
 _COST_GATE_FRAC = {Engine.PANDAS: 0.5}
 _COST_GATE_FRAC_DEFAULT = 0.02
 _COST_GATE_FRAC_OVERRIDES: Dict[Engine, float] = {}
+from graphistry.compute.gfql.cache_registry import register_exempt as _register_exempt
+_register_exempt(
+    "_COST_GATE_FRAC_OVERRIDES",
+    "deliberate per-process planner configuration set by set_cost_gate_frac, not a memo; "
+    "reset_cost_gate_frac is its own public reset and a cache clear must not revert tuning",
+)
 
 
 def _validate_cost_gate_frac(frac: float) -> float:

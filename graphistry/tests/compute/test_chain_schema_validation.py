@@ -41,23 +41,23 @@ class TestChainSchemaValidation:
         assert len(result._nodes) > 0
     
     def test_nonexistent_node_column(self):
-        """Reference to non-existent node column fails."""
+        """Reference to non-existent node column fails under strict."""
         with pytest.raises(GFQLSchemaError) as exc_info:
             self.g.gfql([
                 n({'missing_column': 'value'})
-            ])
+            ], strict=True)
         
         assert exc_info.value.code == ErrorCode.E301
         assert 'missing_column' in str(exc_info.value)
         assert 'does not exist' in str(exc_info.value)
     
     def test_nonexistent_edge_column(self):
-        """Reference to non-existent edge column fails."""
+        """Reference to non-existent edge column fails under strict."""
         with pytest.raises(GFQLSchemaError) as exc_info:
             self.g.gfql([
                 n(),
                 e_forward({'missing_edge_col': 'value'})
-            ])
+            ], strict=True)
         
         assert exc_info.value.code == ErrorCode.E301
         assert 'missing_edge_col' in str(exc_info.value)
@@ -83,11 +83,14 @@ class TestChainSchemaValidation:
         result = empty_g.gfql([n()])
         assert len(result._nodes) == 0
         
-        # But filtering on non-existent column should still fail
+        # But filtering on non-existent column should still fail under strict
         with pytest.raises(GFQLSchemaError) as exc_info:
-            empty_g.gfql([n({'any_col': 'value'})])
-        
+            empty_g.gfql([n({'any_col': 'value'})], strict=True)
+
         assert exc_info.value.code == ErrorCode.E301
+
+        # and resolve to null -- so match nothing -- at the warn default
+        assert len(empty_g.gfql([n({'any_col': 'value'})])._nodes) == 0
     
     def test_collect_all_schema_errors(self):
         """Can collect multiple schema errors."""

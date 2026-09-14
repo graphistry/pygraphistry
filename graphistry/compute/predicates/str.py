@@ -13,12 +13,50 @@ def _series_supports_str_ops(s: Any) -> bool:
     A numeric, temporal, or boolean column does NOT: pandas and cuDF both raise on ``s.str``
     attribute access for those dtypes. Used to make the string predicates value-safe instead of
     surfacing an opaque ``AttributeError: Can only use .str accessor with string values!``.
+
+    ENGINE-DIVERGENT for categorical-of-str: pandas exposes ``.str`` on it, cuDF does not.
+    Callers must go through ``_str_ops_series`` so the two engines answer the same.
     """
     try:
         s.str  # the accessor validates dtype on attribute access
     except (AttributeError, TypeError):
         return False
     return True
+
+
+def _categories_are_strings(s: SeriesT) -> bool:
+    """True iff ``s`` is a categorical whose CATEGORIES are strings.
+
+    Only string categories may be decategorized for ``.str``: a numeric/temporal categorical
+    would have to be stringified, and that rendering diverges pandas<->cuDF.
+    """
+    import pandas.api.types as pd_types
+    cats = getattr(getattr(s, 'dtype', None), 'categories', None)
+    if cats is None:
+        return False
+    cat_dtype = getattr(cats, 'dtype', None)
+    if cat_dtype is None:
+        return False
+    return bool(pd_types.is_string_dtype(cat_dtype)) or bool(pd_types.is_object_dtype(cat_dtype))
+
+
+def _str_ops_series(s: SeriesT) -> Optional[SeriesT]:
+    """``s`` rendered so ``.str`` works, or None when the column is not string-valued.
+
+    A categorical-of-str is string-VALUED on every engine, but only pandas lends it a ``.str``
+    accessor; on cuDF the raw accessor raises, which previously routed the whole column into the
+    non-string (null/False) result — a silently wrong answer instead of pandas' rows. Decoding the
+    codes back to their string categories is exact and null-preserving on both engines.
+    """
+    if _series_supports_str_ops(s):
+        return s
+    if not _categories_are_strings(s):
+        return None
+    try:
+        decoded = s.astype(str)
+    except Exception:
+        return None
+    return decoded if _series_supports_str_ops(decoded) else None
 
 
 def _nonstring_null_result(s: Any, na: Optional[bool]) -> Any:
@@ -129,8 +167,10 @@ class Contains(ASTPredicate):
         self.regex = regex
 
     def __call__(self, s: SeriesT) -> SeriesT:
-        if not _series_supports_str_ops(s):
+        s_str = _str_ops_series(s)
+        if s_str is None:
             return _nonstring_null_result(s, self.na)
+        s = s_str
         is_cudf = hasattr(s, '__module__') and 'cudf' in s.__module__
 
         # workaround cuDF not supporting 'case' and 'na' parameters
@@ -300,8 +340,10 @@ class _BoundaryStringPredicate(ASTPredicate):
         return self._match_boundary(s, self.pat)
 
     def __call__(self, s: SeriesT) -> SeriesT:
-        if not _series_supports_str_ops(s):
+        s_str = _str_ops_series(s)
+        if s_str is None:
             return _nonstring_null_result(s, self.na)
+        s = s_str
         is_cudf = hasattr(s, '__module__') and 'cudf' in s.__module__
         result = self._compute_result(s, is_cudf)
         if is_cudf:
@@ -423,8 +465,10 @@ class _RegexStringPredicate(ASTPredicate):
         raise NotImplementedError
 
     def __call__(self, s: SeriesT) -> SeriesT:
-        if not _series_supports_str_ops(s):
+        s_str = _str_ops_series(s)
+        if s_str is None:
             return _nonstring_null_result(s, self.na)
+        s = s_str
         is_cudf = hasattr(s, '__module__') and 'cudf' in s.__module__
         result = self._compute_result(s, is_cudf)
         if is_cudf:
@@ -652,7 +696,8 @@ class _CallablePredicate(ASTPredicate):
         raise NotImplementedError()
 
     def __call__(self, s: SeriesT) -> SeriesT:
-        return cast(SeriesT, type(self).predicate(s))
+        s_str = _str_ops_series(s)
+        return cast(SeriesT, type(self).predicate(s if s_str is None else s_str))
 
 
 class IsNumeric(_CallablePredicate):

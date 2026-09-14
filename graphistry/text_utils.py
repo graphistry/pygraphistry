@@ -155,14 +155,14 @@ class SearchToGraphMixin(MIXIN_BASE):
         Args:
             :query (str): natural language query.
             :cols (list or str, optional): if fuzzy=False, select which column to query.
-                                            Defaults to None since fuzzy=True by defaul.
+                                            Defaults to None since fuzzy=True by default.
             :thresh (float, optional): distance threshold from query vector to returned results.
                                         Defaults to 5000, set large just in case,
                                         but could be as low as 10.
             :fuzzy (bool, optional): if True, uses embedding + annoy index for recall,
                                         otherwise does string matching over given `cols`
                                         Defaults to True.
-            :top_n (int, optional): how many results to return. Defaults to 100.
+            :top_n (int, optional): how many results to return. Defaults to 10.
 
         Returns:
             **pd.DataFrame, vector_encoding_of_query:**

@@ -964,3 +964,110 @@ def test_string_predicate_on_string_and_mixed_unchanged():
     r = Contains("a", regex=False)(pd.Series(["a1", 2, None], dtype="object"))
     assert r.iloc[0] == True  # noqa: E712
     assert pd.isna(r.iloc[1]) and pd.isna(r.iloc[2])
+
+
+# --- Regression: a CATEGORICAL-of-strings column is string-VALUED on every engine, but only
+# pandas lends it a `.str` accessor. cuDF raises on `.str`, which routed the whole column into
+# the non-string (null/False) result: pandas answered rows, cuDF answered NOTHING, silently. ---
+class _NoStrAccessorCategorical:
+    """cuDF-shaped categorical stand-in: string categories, no working ``.str``.
+
+    Lets the CPU lane pin the decode contract that only a GPU can otherwise exercise.
+    """
+
+    def __init__(self, values):
+        self._s = pd.Series(values, dtype='object')
+        self.dtype = pd.CategoricalDtype(pd.Index(['ab', 'cd'], dtype='object'))
+
+    @property
+    def str(self):
+        raise AttributeError("Can only use .str accessor with string values")
+
+    def astype(self, _t):
+        return self._s
+
+
+class _NoStrAccessorFloatCategorical(_NoStrAccessorCategorical):
+    def __init__(self, values):
+        super().__init__(values)
+        self.dtype = pd.CategoricalDtype(pd.Index([1.5, 2.5], dtype='float64'))
+
+
+def test_str_ops_series_passes_through_usable_accessor():
+    from graphistry.compute.predicates.str import _str_ops_series
+    s = pd.Series(['a', 'b'])
+    assert _str_ops_series(s) is s
+
+
+def test_str_ops_series_decodes_string_categories_without_accessor():
+    from graphistry.compute.predicates.str import _str_ops_series
+    out = _str_ops_series(_NoStrAccessorCategorical(['ab', None, 'cd']))
+    assert out is not None
+    assert list(out) == ['ab', None, 'cd']
+
+
+def test_str_ops_series_declines_non_string_categories():
+    """Stringifying a numeric categorical would render engine-divergently, so it stays a
+    non-string column (null result) rather than becoming a wrong match."""
+    from graphistry.compute.predicates.str import _str_ops_series
+    assert _str_ops_series(_NoStrAccessorFloatCategorical([1.5, 2.5])) is None
+    assert _str_ops_series(pd.Series([1, 2, 3])) is None
+
+
+def test_pandas_categorical_string_predicates_match_values():
+    """The pandas oracle every non-pandas engine is held to."""
+    s = pd.Series(pd.Categorical(['Xa', None, 'yb', 'XC']))
+    assert list(Contains('x', case=False, regex=False, na=False)(s)) == [True, False, False, True]
+    assert list(Startswith('X', na=False)(s)) == [True, False, False, True]
+    assert list(Match('^X', na=False)(s)) == [True, False, False, True]
+
+
+@requires_cudf
+class TestCudfCategoricalStringPredicateParity:
+    """Every string predicate on a cuDF categorical-of-str must equal the pandas answer."""
+
+    @staticmethod
+    def _pair(values):
+        import cudf
+        p = pd.Series(pd.Categorical(values))
+        return p, cudf.from_pandas(p)
+
+    @pytest.mark.parametrize("pred", [
+        Contains('x', case=False, regex=False, na=False),
+        Contains('X', case=True, regex=False, na=False),
+        Startswith('X', na=False),
+        Endswith('a', na=False),
+        Match('^X', na=False),
+        Fullmatch('Xa', na=False),
+    ])
+    def test_matches_pandas(self, pred):
+        p, c = self._pair(['Xa', None, 'yb', 'XC', 'zz'])
+        assert list(pred(c).to_pandas()) == list(pred(p)), f"{pred!r} diverged on cuDF"
+
+    def test_callable_predicate_matches_pandas(self):
+        """``isalpha`` & co. take an unguarded ``.str``: on a cuDF categorical that was a raw
+        AttributeError where pandas answered."""
+        from graphistry.compute.predicates.str import IsAlpha, IsUpper
+        p, c = self._pair(['Xa', None, 'yb', 'XC', 'zz'])
+        for pred in [IsAlpha(), IsUpper()]:
+            got = list(pred(c).to_pandas().fillna(-1))
+            want = list(pd.Series(pred(p)).fillna(-1))
+            assert got == want, f"{pred!r} diverged on cuDF"
+
+    def test_searchany_explicit_categorical_column_matches_pandas(self):
+        from graphistry.compute.gfql.search_any import search_any_mask
+        import cudf
+        pdf = pd.DataFrame({'id': list(range(5)),
+                            'cat': pd.Categorical(['Xa', None, 'yb', 'XC', 'zz'])})
+        cdf = cudf.from_pandas(pdf)
+        want = list(search_any_mask(pdf, 'x', columns=['cat']))
+        assert want == [True, False, False, True, False], "pandas oracle drift"
+        assert list(search_any_mask(cdf, 'x', columns=['cat']).to_pandas()) == want
+
+    def test_searchany_explicit_float_categorical_still_declines(self):
+        """Numeric-categorical stringification stays an honest NIE, not a silent divergence."""
+        from graphistry.compute.gfql.search_any import search_any_mask
+        import cudf
+        cdf = cudf.from_pandas(pd.DataFrame({'catf': pd.Categorical([1.5, 2.5, 1.5])}))
+        with pytest.raises(NotImplementedError):
+            search_any_mask(cdf, '1', columns=['catf'])

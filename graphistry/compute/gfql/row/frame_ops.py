@@ -46,7 +46,7 @@ def _empty_like(df: Any) -> Any:
     """Zero-row copy preserving schema, for pandas/cuDF and polars frames."""
     if _is_polars(df):
         return df.clear()
-    return df.iloc[0:0].copy()
+    return df.iloc[0:0]
 
 
 def _alias_true_mask(table_df: Any, source: str) -> Any:
@@ -54,11 +54,77 @@ def _alias_true_mask(table_df: Any, source: str) -> Any:
     polars equivalent expr is ``pl.col(source).fill_null(False).cast(pl.Boolean)``).
     Shared by ``rows``/``count_table`` so the null handling can't diverge."""
     mask = table_df[source]
+    if isinstance(mask, pd.Series) and mask.dtype == bool:
+        return mask
     if hasattr(mask, "isna") and hasattr(mask, "where"):
         mask = mask.where(~mask.isna(), False)
     elif hasattr(mask, "fillna"):
         mask = mask.fillna(False)
     return mask.astype(bool)
+
+
+def _restore_alias_shadowed_user_column(
+    ctx: RowPipelineCtx, table_df: "DataFrameT", table: Optional[str], source: str
+) -> "DataFrameT":
+    """An alias named like a user column (``MATCH (name:P) RETURN name.name``) has that
+    column overwritten by the alias marker upstream, so ``source.source`` read back the
+    marker. Re-key the user's values from the base frame under an internal restore
+    column the projection resolves, keeping the boolean marker intact for every other
+    read. No-op when the alias shadows nothing, the base column is itself a boolean
+    marker (an intermediate dispatch graph), or rows cannot be re-keyed."""
+    from graphistry.compute.gfql.identifiers import shadow_restore_column
+
+    if shadow_restore_column(source) in table_df.columns:
+        return table_df  # the chain already carried the shadowed values under the restore name
+    base_graph = ctx._gfql_rows_base_graph if ctx._gfql_rows_base_graph is not None else ctx._g
+    base_frame = None if base_graph is None else (
+        base_graph._nodes if table == "nodes" else base_graph._edges
+    )
+    if base_frame is None or source not in base_frame.columns:
+        return table_df
+    if _is_polars(table_df):
+        import polars as pl
+        base_is_marker = base_frame.schema.get(source) == pl.Boolean
+    else:
+        base_is_marker = str(getattr(base_frame[source], "dtype", "")).startswith("bool")
+    if base_is_marker:
+        return table_df
+    key = base_graph._node if table == "nodes" else base_graph._edge  # type: ignore[union-attr]
+    if _is_polars(table_df):
+        if (
+            key is not None and key != source
+            and key in table_df.columns and key in base_frame.columns
+            and base_frame[key].n_unique() == len(base_frame)
+        ):
+            orig_cols = list(table_df.columns)
+            return table_df.drop(source).join(
+                base_frame.select([key, source]), on=key, how="left"
+            ).select(orig_cols)
+        return table_df
+    restore_col = shadow_restore_column(source)
+    # Traversal merges may reset row indexes; unique binding keys retain entity identity.
+    if (
+        key is not None and key != source
+        and key in table_df.columns and key in base_frame.columns
+        and bool(base_frame[key].is_unique)
+    ):
+        restored = base_frame.set_index(key)[source].reindex(table_df[key])
+        restored.index = table_df.index
+        out = table_df.copy()
+        out[restore_col] = restored
+        return out
+    base_index = getattr(base_frame, "index", None)
+    if base_index is not None and bool(base_index.is_unique):
+        # guarded .loc proves index-subset alignment (cuDF Index.isin disagrees with pandas)
+        try:
+            restored = base_frame[source].loc[table_df.index]
+        except (KeyError, IndexError, TypeError):
+            restored = None
+        if restored is not None and len(restored) == len(table_df):
+            out = table_df.copy()
+            out[restore_col] = restored
+            return out
+    return table_df
 
 
 def row_table(ctx: RowPipelineCtx, table_df: Any) -> "Plottable":
@@ -216,7 +282,7 @@ def rows(
             table_df = _empty_like(ctx._edges)
         else:
             table_df = empty_frame(ctx)
-    elif not _is_polars(table_df):
+    elif not _is_polars(table_df) and source is None:
         table_df = table_df.copy()
 
     if source is not None:
@@ -228,11 +294,13 @@ def rows(
             # the polars frame would otherwise widen the variable's type and break the pandas
             # ``.loc`` branch below (``is_polars_df`` is a TypeGuard, so it does not narrow the
             # negative branch back to pandas). Same call, same argument, same result.
-            return row_table(ctx, table_df.filter(pl.col(source).fill_null(False).cast(pl.Boolean)))
+            return row_table(ctx, _restore_alias_shadowed_user_column(
+                ctx, table_df.filter(pl.col(source).fill_null(False).cast(pl.Boolean)), table, source))
         # unreachable for polars (returned above), but the guard on the ``.copy()`` branch
         # further up leaves the polars arm in this variable's type: TypeGuard narrows only
         # the positive branch, so ``not _is_polars(...)`` cannot narrow back to pandas.
         table_df = table_df.loc[_alias_true_mask(table_df, source)]  # type: ignore[union-attr]
+        table_df = _restore_alias_shadowed_user_column(ctx, table_df, table, source)
 
     return row_table(ctx, table_df)
 

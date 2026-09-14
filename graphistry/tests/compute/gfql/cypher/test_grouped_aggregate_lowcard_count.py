@@ -34,7 +34,7 @@ WHAT THESE TESTS PIN:
 """
 from __future__ import annotations
 
-from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 import pandas as pd
@@ -43,6 +43,9 @@ import pytest
 import graphistry
 from graphistry.Plottable import Plottable
 import graphistry.compute.gfql_fast_paths as gfql_fast_paths_module
+
+if TYPE_CHECKING:
+    import polars as pl
 
 
 MAX_GROUPS = gfql_fast_paths_module._LOWCARD_COUNT_MAX_GROUPS
@@ -722,6 +725,17 @@ def test_gate_unit_declines_a_non_polars_owner_frame() -> None:
     }) is None
 
 
+def _twin_count(alias: str) -> "pl.Expr":
+    """The group_by formulation EXACTLY as production builds it -- ``pl.len()`` conformed to the
+    Cypher INTEGER count contract (agg_types.py). A raw ``pl.len()`` here would compare the
+    value_counts lane against a twin production no longer emits, and the schema equality below is
+    the whole point: the two lanes must be type-identical, not merely value-identical."""
+    import polars as pl
+
+    from graphistry.compute.gfql.agg_types import polars_conform_agg_dtype
+    return polars_conform_agg_dtype(pl.len(), "count", None, alias)
+
+
 def test_gate_unit_serves_a_group_key_literally_named_count() -> None:
     """``value_counts`` names its output column ``count`` by default, which would collide.
     The lane passes ``name=`` instead of renaming, so this shape is SERVED, and it must
@@ -741,7 +755,7 @@ def test_gate_unit_serves_a_group_key_literally_named_count() -> None:
         edge_rows=3,
     )
     assert plan is not None
-    twin = work.group_by(["count"], maintain_order=True).agg(pl.len().alias("n")).collect()
+    twin = work.group_by(["count"], maintain_order=True).agg(_twin_count("n")).collect()
     got = plan.collect()
     assert got.schema == twin.schema
     assert sorted(got.rows()) == sorted(twin.rows())
@@ -776,7 +790,7 @@ def test_gate_unit_matches_the_group_by_twin_on_awkward_keys(
         edge_rows=len(values),
     )
     assert plan is not None
-    twin = work.group_by(["city"], maintain_order=True).agg(pl.len().alias("n")).collect()
+    twin = work.group_by(["city"], maintain_order=True).agg(_twin_count("n")).collect()
     got = plan.collect()
     assert got.schema == twin.schema
 

@@ -11,8 +11,33 @@ when you want a report without running the query. Use
 :py:meth:`g.gfql(..., validate=True) <graphistry.compute.ComputeMixin.ComputeMixin.gfql>`
 when you want the same checks before execution.
 
-Local Cypher execution uses these schema checks. Environment variables or
-keyword arguments do not switch local Cypher execution back to a looser mode.
+Strictness Levels
+-----------------
+
+How an absent label or property is reported is chosen by a strictness level:
+
+``"strict"``
+  Raise ``GFQLValidationError`` / ``GFQLSchemaError``, before execution where
+  possible.
+
+``"warn"`` (default)
+  Emit one ``UserWarning`` per distinct absent name per call and resolve the name
+  to null, which is openCypher: an absent label matches nothing, an absent
+  property makes a predicate null so the row does not match, ``IS NULL`` on an
+  absent property is true, and an absent property in ``RETURN`` is a null column.
+
+``"quiet"``
+  Same answers as ``"warn"``, silently.
+
+``warn`` is the default because working on a subgraph with partial columns is
+normal usage, not a typo. Pass ``strict=`` to ``g.gfql(...)``, ``g.chain(...)``,
+``g.gfql_validate(...)`` and the ``gfql_remote`` family to choose per call. The
+legacy booleans still work: ``strict=True`` means ``"strict"`` and
+``strict=False`` means ``"quiet"``.
+
+The level is resolved once and consulted by both the validator and every
+executor, so ``g.gfql_validate(q, strict=L)`` and ``g.gfql(q, strict=L)`` always
+agree about whether ``q`` is acceptable.
 
 What Gets Checked
 -----------------
@@ -24,8 +49,9 @@ For Cypher queries, strict schema checks verify:
   in scope.
 * Property names exist for the node or edge variable they are read from.
 
-Invalid queries raise ``GFQLValidationError`` before execution. Valid queries
-run the same as before.
+Under ``strict``, invalid queries raise ``GFQLValidationError`` before execution.
+Under ``warn``/``quiet``, an absent name resolves to null instead. Valid queries
+run the same at every level.
 
 It does **not** check every dataframe value's Python or Arrow type. This page is
 about Cypher names and schema references.
@@ -69,8 +95,14 @@ handlers, notebooks, and CI checks.
 Configuration Notes
 -------------------
 
-Most users do not need to configure these checks directly. Prefer
-``g.gfql_validate(...)`` or ``g.gfql(..., validate=True)``.
+Most users do not need to configure these checks directly. Prefer ``strict=`` on
+the call, or ``g.gfql_validate(...)``.
+
+Declaring a schema with ``bind(schema=...)`` sharpens the levels: a name the
+schema does not declare is a typo and raises at every level, while a name the
+schema declares but this instance happens to lack is the narrow-subgraph case and
+resolves to null. Its ``strict=`` field also supplies the default level for the
+bound graph.
 
 Code can also set a catalog metadata flag:
 
@@ -94,12 +126,9 @@ or a process-wide environment variable:
 Truthy values: ``1``, ``true``, ``yes``, ``on`` (case-insensitive).
 Falsy / unset: anything else (default ``false``).
 
-Treat these as opt-in signals, not as switches that disable validation. Setting
-them to ``false`` or leaving them unset does not make local Cypher execution
-looser.
-
-The explicit validation APIs (``g.gfql_validate(strict=True)`` and
-``g.gfql(validate=True)``) are unaffected by these helpers.
+The environment variable is inert for query behavior: it feeds
+``strict_schema_env_default()`` and nothing else reads it. Use ``strict=`` or the
+catalog metadata flag to choose a level.
 
 Error Messages
 --------------

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import operator
-from typing import Any, Callable, Final
+from typing import Any, Callable, Final, Literal, get_args
 
 
 GFQL_COMPARISON_BINARY_OPS: Final[dict[str, Callable[[Any, Any], Any]]] = {
@@ -31,7 +31,9 @@ GFQL_ALLOWED_BINARY_OPS: Final[frozenset[str]] = (
     | frozenset({"in"})
 )
 
-GFQL_ALLOWED_UNARY_OPS: Final[frozenset[str]] = frozenset({"+", "-", "not"})
+#: The ONLY unary operators the grammar can build; `UnaryOpName` keeps dispatch exhaustive.
+UnaryOpName = Literal["+", "-", "not"]
+GFQL_ALLOWED_UNARY_OPS: Final[frozenset[str]] = frozenset(get_args(UnaryOpName))
 GFQL_ALLOWED_QUANTIFIERS: Final[frozenset[str]] = frozenset({"any", "all", "none", "single"})
 
 GFQL_SCALAR_FUNCTIONS: Final[frozenset[str]] = frozenset(

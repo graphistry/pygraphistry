@@ -529,11 +529,17 @@ def _empty_optional_projection_row(
 
 
 def _eligible_optional_projection_query(query: CypherQuery) -> bool:
+    if len(query.matches) != 2:
+        return False
+    where_is_optional_arm_only = (
+        query.matches[0].where is None
+        and query.matches[1].where is not None
+        and query.where == query.matches[1].where
+    )
     return (
-        len(query.matches) == 2
-        and not query.matches[0].optional
+        not query.matches[0].optional
         and query.matches[1].optional
-        and query.where is None
+        and (query.where is None or where_is_optional_arm_only)
         and not query.with_stages
         and not query.unwinds
         and query.order_by is None

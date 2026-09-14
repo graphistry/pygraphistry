@@ -299,13 +299,18 @@ class TestGFQL:
             result = g.gfql([n()])
             assert result is not None
 
-    def test_gfql_validate_true_catches_cypher_schema_errors_by_default(self):
+    def test_gfql_validate_true_catches_cypher_schema_errors_under_strict(self):
         g = _mk_people_company_graph3()
 
         with pytest.raises(GFQLValidationError) as exc_info:
-            g.gfql("MATCH (p:Employee) RETURN p.id AS id", validate=True)
+            g.gfql("MATCH (p:Employee) RETURN p.id AS id", validate=True, strict=True)
 
         assert exc_info.value.code == ErrorCode.E301
+
+    def test_gfql_validate_true_serves_an_absent_label_by_default(self):
+        g = _mk_people_company_graph3()
+
+        assert len(g.gfql("MATCH (p:Employee) RETURN p.id AS id", validate=True)._nodes) == 0
 
     def test_gfql_validate_true_treats_all_strings_as_cypher(self):
         g = _mk_people_company_graph3()

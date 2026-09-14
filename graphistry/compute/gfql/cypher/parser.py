@@ -144,13 +144,14 @@ rel_bidirectional_simple: REL_BIDIR_SIMPLE
 rel_types: ":" LABEL_NAME ("|" ":"? LABEL_NAME)*
 rel_range: "*" INT ".." INT      -> rel_range_bounded
          | "*" INT ".."          -> rel_range_open_max
+         | "*" ".." INT          -> rel_range_open_min
          | "*" INT               -> rel_range_exact
          | "*"                   -> rel_range_fixed
 
 variable: NAME
 
 properties: "{" [property_entry ("," property_entry)*] "}"
-property_entry: NAME ":" expr
+property_entry: PROP_NAME ":" expr
 
 // Unified: every WHERE parses as a generic boolean ``expr`` (so LALR(1) accepts
 // OR/XOR/NOT/parenthesized clauses, no Earley). ``generic_where_clause`` lifts the
@@ -204,8 +205,11 @@ order_direction: "ASC"i  -> asc_order
 skip_clause: "SKIP"i expr
 limit_clause: "LIMIT"i expr
 
-qualified_name: NAME ("." NAME)*
-property_ref.2: NAME "." NAME
+// PROP_NAME (dot/map-key contexts only) admits non-reserved keywords as property
+// names (n.when, n.order, {when: 1}) — openCypher property keys are unreserved;
+// the contextual lexer only expects it where NAME's keyword exclusions cannot apply.
+qualified_name: NAME ("." PROP_NAME)*
+property_ref.2: NAME "." PROP_NAME
 
 unwind_expr: expr
 order_expr: expr
@@ -260,7 +264,7 @@ order_expr: expr
         | postfix_composite
 ?postfix_composite: primary_composite
         | postfix "[" subscript_key "]"     -> subscript
-        | postfix_composite "." NAME        -> property_access
+        | postfix_composite "." PROP_NAME   -> property_access
 
 ?primary_composite: parameter
         | literal
@@ -361,6 +365,7 @@ SEMI: ";"
 MINUS: /-(?!-)/
 NAME: /(?!(?i:MATCH|RETURN|WITH|ORDER|BY|SKIP|LIMIT|UNWIND|WHERE|AS|ASC|ASCENDING|DESC|DESCENDING|AND|OR|XOR|NOT|IN|IS|NULL|TRUE|FALSE|CONTAINS|STARTS|ENDS|ANY|ALL|NONE|SINGLE|CASE|WHEN|THEN|ELSE|END)\b)[A-Za-z_][A-Za-z0-9_]*/
 MAP_KEY_NAME: /[A-Za-z_][A-Za-z0-9_]*/
+PROP_NAME: /[A-Za-z_][A-Za-z0-9_]*/
 NUMBER: /[+-]?(?:0[xX][0-9A-Fa-f]+|0[oO][0-7]+|(?:\d+\.\d+(?:[eE][+-]?\d+)?|\.\d+(?:[eE][+-]?\d+)?|\d+(?:[eE][+-]?\d+)?))/
 INT: /[0-9]+/
 STRING : /'(?:\\.|[^'\\])*'|"(?:\\.|[^"\\])*"/
@@ -942,6 +947,21 @@ def _build_transformer(source: str) -> _TransformerLike:
                     value=self._slice(_span_from_meta(meta)),
                 )
             return {"min_hops": min_hops, "max_hops": max_hops, "to_fixed_point": False}
+
+        def rel_range_open_min(self, meta: Any, items: Sequence[Any]) -> dict[str, Any]:  # hygiene-ok: explicit-any -- lark transformer callback signature, module-wide idiom
+            # openCypher [*..M]: omitted lower bound defaults to 1
+            if len(items) != 1:
+                raise _to_syntax_error("Invalid relationship range", line=meta.line, column=meta.column)
+            max_hops = self._rel_hops(meta, items[0])
+            if max_hops < 1:
+                raise _to_unsupported(
+                    "Cypher relationship ranges require lower bound <= upper bound",
+                    line=meta.line,
+                    column=meta.column,
+                    field="match",
+                    value=self._slice(_span_from_meta(meta)),
+                )
+            return {"min_hops": 1, "max_hops": max_hops, "to_fixed_point": False}
 
         def rel_range_open_max(self, meta: Any, items: Sequence[Any]) -> dict[str, Any]:
             if len(items) != 1:

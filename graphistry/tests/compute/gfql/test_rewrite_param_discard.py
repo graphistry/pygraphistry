@@ -28,7 +28,7 @@ around the same two functions, and neither is caught by the table= cases.
 ENGINE LIST IS FIXED, NOT PROBED-INTO-EXISTENCE. ``polars-gpu`` joins the three engines this
 file already carried: it is the GPU collect target of the SAME native polars chain, so it
 runs the same rewrite and the same indexed bypass, and it must therefore land on the same
-side of every gate polars does — including the strict xfail at the bottom. An engine that
+side of every gate polars does. An engine that
 cannot run in the current environment reports SKIPPED with a reason; it never vanishes from
 the report (the trap in ``polars_test_utils.available_nonpandas_engines()``, which silently
 shrinks). The probe RUNS a query rather than importing a module, because a box where
@@ -204,12 +204,9 @@ def test_indexed_bypass_table_edges_survives_a_projection(engine: str) -> None:
     "pandas",
     "cudf",
     "polars",
-    pytest.param("polars-gpu", marks=pytest.mark.xfail(
-        strict=True,
-        reason="#1803: the indexed bindings bypass excludes Engine.POLARS_GPU "
-               "(index/bindings.py gate), so polars-gpu always takes the scan path",
-    )),
+    "polars-gpu",
 ])
+@pytest.mark.route_engaged("indexed-kernel")
 def test_indexed_bypass_still_serves_a_bare_rows(engine: str) -> None:
     """THE NEGATIVE SIDE: declining on a non-default `table` must not decline everything.
 
@@ -217,14 +214,7 @@ def test_indexed_bypass_still_serves_a_bare_rows(engine: str) -> None:
     retiring the indexed bindings path. Asserted on the trace, not on the answer — the
     answer is identical either way, which is precisely why the regression would be quiet.
 
-    ``polars-gpu`` STRICT-xfails, and that is the point of adding the parameter (#1802). The
-    native polars chain hands `Engine.POLARS_GPU` to `try_indexed_connected_bindings_state`
-    whenever the GPU target is active, but that function's first gate admits only
-    `(PANDAS, CUDF, POLARS)` — so the bypass reports `served: False,
-    reason: 'unsupported_engine'` and polars-gpu silently runs the canonical scan. Values are
-    unaffected (every other case in this file passes on polars-gpu); what is lost is the
-    optimization, with no signal. A strict xfail rather than a skip so that whoever widens the
-    gate is told to delete the marker instead of leaving a stale "known gap" behind.
+    GPU execution must also report an actual served indexed traversal.
     """
     _require(engine)
     from graphistry.compute.gfql.index import index_trace
@@ -297,7 +287,7 @@ def test_named_middle_rewrite_keeps_attach_prop_aliases_values(engine: str) -> N
 
 
 # ---------------------------------------------------------------------------
-# 3. an UNFIXED third instance of the class, pinned rather than left to be rediscovered
+# 3. the third instance of the class: rows(alias_prefilters=...) — fixed (#1804)
 # ---------------------------------------------------------------------------
 
 # Unseeded so the prefilter is the ONLY thing that can narrow the result.
@@ -305,34 +295,17 @@ OPEN_MIDDLE: List[ASTObject] = [n(name="a"), e_forward(name="r"), n(name="b")]
 ALIAS_PREFILTER = {"a": [{"kind": "expr", "text": "a.id < 3"}]}
 
 
-@pytest.mark.parametrize("engine", [
-    "pandas",
-    "cudf",
-    pytest.param("polars", marks=pytest.mark.xfail(
-        strict=True,
-        reason="#1804: native polars bindings builder never receives alias_prefilters",
-    )),
-    pytest.param("polars-gpu", marks=pytest.mark.xfail(
-        strict=True,
-        reason="#1804: polars-gpu is the same native builder as polars, same missing param",
-    )),
-])
+@pytest.mark.parametrize("engine", ENGINES)
 def test_alias_prefilters_are_honoured_by_the_bindings_builder(engine: str) -> None:
-    """`alias_prefilters` narrows the bindings on pandas/cuDF — and is IGNORED on polars.
+    """`alias_prefilters` narrows the bindings on EVERY engine (#1804, fixed).
 
-    The native polars row op calls its bindings builder with `binding_ops` and
-    `attach_prop_aliases` only, so the param never reaches it; the generic path threads it
-    into `_gfql_binding_ops_row_table`. Same query, 5 rows vs 12.
-
-    Filed as #1804. Not fixed here: the hint is documented as ADVISORY (the cypher lowering that emits it
-    always keeps the equivalent post-join filter, so Cypher answers agree across engines
-    and only the pushdown is lost), and honouring it natively means porting the whole
-    prefilter evaluator — a feature, not this fix. Hand-written GFQL that passes
-    `alias_prefilters` without a matching post-filter DOES get engine-dependent answers.
-
-    A STRICT xfail on the polars case, not a skip and not an inverted assertion: when
-    polars learns the param this turns into a failure, so whoever fixes it is told to
-    delete the marker instead of leaving a stale "known gap" behind.
+    The native polars row op used to call its bindings builder with `binding_ops` and
+    `attach_prop_aliases` only, so the param never reached it and the filtered-out rows
+    came back: same query, 12 rows instead of 5. The builder now applies the specs
+    natively per alias (`_apply_alias_prefilters_polars`) at the same points the pandas
+    builder does, and a spec the polars lowering cannot serve raises a typed
+    NotImplementedError naming `alias_prefilters` instead of dropping the filter
+    (see test_engine_polars_alias_prefilters.py).
     """
     _require(engine)
     binding_ops = serialize_binding_ops(OPEN_MIDDLE)

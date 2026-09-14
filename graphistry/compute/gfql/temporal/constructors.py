@@ -862,7 +862,7 @@ def _normalize_duration_map(fields: dict[str, str]) -> str:
     days_combined = (
         _decimal_value("weeks") * 7
         + _decimal_value("days")
-        + months_frac * Decimal("30.436875")
+        + months_frac * _AVERAGE_DAYS_PER_MONTH
     )
     days_int = int(days_combined)
     days_frac = days_combined - Decimal(days_int)
@@ -1068,5 +1068,8 @@ from graphistry.compute.gfql.temporal.values import (  # noqa: E402
     _split_zone_name,
     py_timedelta_from_offset,
 )
-from graphistry.compute.gfql.temporal.durations import _DURATION_TOKEN_RE  # noqa: E402
+from graphistry.compute.gfql.temporal.durations import (  # noqa: E402
+    _AVERAGE_DAYS_PER_MONTH,
+    _DURATION_TOKEN_RE,
+)
 from graphistry.compute.gfql.temporal.truncation import _zone_compatible_local_datetime_text  # noqa: E402

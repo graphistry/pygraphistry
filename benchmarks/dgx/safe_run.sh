@@ -6,14 +6,18 @@
 #  - preflight refuses obviously-oversized runs; host watchdog force-kills on low RAM;
 #    hard timeout + docker kill -s KILL so a hung container can't wedge the box.
 # Usage:
-#   safe_run.sh --name N --est-edges E [--rmm-gb 80] [--floor-gb 20] [--timeout 3600] \
+#   safe_run.sh --name N --est-edges E [--rmm-gb 80] [--host-gb G] [--floor-gb 20] [--timeout 3600] \
 #     [--pythonpath /opt/pygraphistry] -- <extra docker args e.g. -v ...> IMAGE <cmd...>
 set -uo pipefail
 NAME="dgxsafe_$$"; EST_EDGES=0; RMM_GB=80; FLOOR_GB=20; TIMEOUT=3600; PYPATH="/opt/pygraphistry"
+# --host-gb caps host address space (RLIMIT_AS) for CPU lanes, which RMM does not
+# contain. CPU-ONLY: CUDA reserves large virtual ranges, so do not set it on GPU runs.
+HOST_GB=""
 GUARD_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 while [[ $# -gt 0 ]]; do case "$1" in
   --name) NAME="$2"; shift 2;; --est-edges) EST_EDGES="$2"; shift 2;;
   --rmm-gb) RMM_GB="$2"; shift 2;; --floor-gb) FLOOR_GB="$2"; shift 2;;
+  --host-gb) HOST_GB="$2"; shift 2;;
   --timeout) TIMEOUT="$2"; shift 2;; --pythonpath) PYPATH="$2"; shift 2;;
   --) shift; break;; *) echo "unknown arg $1"; exit 2;; esac; done
 
@@ -21,7 +25,9 @@ if [[ "$EST_EDGES" -gt 0 ]]; then
   if ! python3 "$GUARD_DIR/preflight.py" "$EST_EDGES"; then
     echo "[safe_run] REFUSED: estimated peak > budget for $EST_EDGES edges."; exit 3; fi
 fi
-echo "[safe_run] name=$NAME rmm=${RMM_GB}GB floor=${FLOOR_GB}GB timeout=${TIMEOUT}s"
+HOST_ENV=()
+if [[ -n "$HOST_GB" ]]; then HOST_ENV=(-e "GFQL_HOST_LIMIT_GB=$HOST_GB"); fi
+echo "[safe_run] name=$NAME rmm=${RMM_GB}GB host=${HOST_GB:-none} floor=${FLOOR_GB}GB timeout=${TIMEOUT}s"
 
 ( while true; do
     avail=$(free -g | awk '/Mem:/{print $7}')
@@ -33,7 +39,7 @@ echo "[safe_run] name=$NAME rmm=${RMM_GB}GB floor=${FLOOR_GB}GB timeout=${TIMEOU
   done ) & WD=$!
 
 timeout -s KILL "$TIMEOUT" docker run --rm --name "$NAME" --gpus all \
-  -e GFQL_RMM_LIMIT_GB="$RMM_GB" -e PYTHONPATH="/dgx-guard:${PYPATH}" \
+  -e GFQL_RMM_LIMIT_GB="$RMM_GB" "${HOST_ENV[@]}" -e PYTHONPATH="/dgx-guard:${PYPATH}" \
   -v "$GUARD_DIR:/dgx-guard:ro" "$@"
 rc=$?
 docker kill -s KILL "$NAME" >/dev/null 2>&1; kill "$WD" >/dev/null 2>&1

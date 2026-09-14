@@ -303,7 +303,10 @@ def analyze_file(path: str) -> List[Finding]:
         if isinstance(node.func, ast.Name):
             ident = node.func.id
         elif isinstance(node.func, ast.Attribute):
-            ident = node.func.attr
+            # Only module-qualified typing casts; `expr.cast(dtype)` is a dataframe dtype cast.
+            if (isinstance(node.func.value, ast.Name)
+                    and node.func.value.id in ("typing", "t", "typing_extensions")):
+                ident = node.func.attr
         if ident == "cast":
             emit("explicit-cast", node.lineno,
                  "`cast(...)`; prefer engine-agnostic SeriesT/DataFrameT plus a localized "

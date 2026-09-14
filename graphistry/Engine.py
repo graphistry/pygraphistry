@@ -31,7 +31,10 @@ class Engine(Enum):
     POLARS = 'polars'
     # GPU execution TARGET of the lazy Polars engine (cudf_polars): frames stay
     # ``pl.DataFrame`` (handled exactly like POLARS in all frame ops); only the
-    # lazy ``.collect()`` runs on GPU. Explicit opt-in only — AUTO never selects it.
+    # lazy ``.collect()`` runs on GPU. ``resolve_engine`` never RETURNS this for
+    # AUTO. ``gfql`` still reaches it under AUTO by a separate route that re-enters
+    # with an explicit engine when every bound frame is cuDF and a GPU collect
+    # probes usable; that route declines back to the legacy CUDF path.
     POLARS_GPU = 'polars-gpu'
 
 # Engines whose frames use the polars API (unique/with_columns/...) rather than the
@@ -56,6 +59,22 @@ EngineAbstractType = Union[EngineAbstract, Literal['pandas', 'cudf', 'dask', 'da
 DataframeLike = Any  # pdf, cudf, ddf, dgdf
 DataframeLocalLike = Any  # pdf, cudf
 GraphistryLke = Any
+
+def resolve_input_engine(engine: EngineAbstractType, g_or_df: Any = None) -> Engine:
+    """Legacy INPUT-FORMAT resolution: AUTO maps polars frames to PANDAS.
+
+    For surfaces that consume dataframes as input and compute in pandas/cudf
+    (layouts, plotting, featurization). Compute surfaces (GFQL) use
+    ``resolve_engine``, where polars is a first-class engine under AUTO.
+    Migrating a surface to native polars = switching its call site back to
+    ``resolve_engine``.
+    """
+    eng = resolve_engine(engine, g_or_df)
+    abstract = EngineAbstract(engine) if isinstance(engine, str) else engine
+    if eng == Engine.POLARS and abstract == EngineAbstract.AUTO:
+        return Engine.PANDAS
+    return eng
+
 
 def resolve_engine(
     engine: EngineAbstractType,
@@ -113,9 +132,17 @@ def resolve_engine(
             try:
                 import polars as pl
                 if isinstance(g_or_df, (pl.DataFrame, pl.LazyFrame)):
-                    return Engine.PANDAS
+                    # Polars is a compute engine under AUTO; input-format surfaces
+                    # use resolve_input_engine.
+                    return Engine.POLARS
             except ImportError:
                 pass
+
+        type_module = type(g_or_df).__module__
+        if 'dask' in type_module and 'cudf' not in type_module:
+            import dask.dataframe as dd
+            if isinstance(g_or_df, dd.DataFrame):
+                return Engine.PANDAS
 
         if 'cudf.core.dataframe' in str(getmodule(g_or_df)):
             has_cudf_dependancy_, _, _ = lazy_cudf_import()
@@ -455,18 +482,19 @@ def align_shared_column_dtypes(
     if candidate_engine != reference_engine:
         candidate = df_to_engine(candidate, reference_engine)
 
-    shared_cols = [col for col in candidate.columns if col in reference.columns]
-    for col in shared_cols:
+    # Batched assign on an owned result: column-writes into ``candidate`` would
+    # mutate the caller's frame (bound-frame immutability contract).
+    coerced = {}
+    for col in (c for c in candidate.columns if c in reference.columns):
         ref_dtype = getattr(reference[col], "dtype", None)
         cand_dtype = getattr(candidate[col], "dtype", None)
         if ref_dtype is None or cand_dtype is None or str(ref_dtype) == str(cand_dtype):
             continue
         try:
-            candidate[col] = candidate[col].astype(ref_dtype)
+            coerced[col] = candidate[col].astype(ref_dtype)
         except Exception:
             pass
-
-    return candidate
+    return candidate.assign(**coerced) if coerced else candidate
 
 
 def safe_row_concat(

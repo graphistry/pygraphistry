@@ -1,14 +1,30 @@
 from typing import Any, Dict, Mapping, Optional, Tuple, Union, cast
 import pandas as pd
-from graphistry.Engine import EngineAbstract, df_to_engine, resolve_engine
+
+from graphistry.Engine import EngineAbstract, POLARS_ENGINES, df_to_engine, resolve_engine
 from graphistry.util import setup_logger
 
 from graphistry.Plottable import Plottable
+from graphistry.compute.gfql.node_dtypes_memo import memo_get, memo_put
 from .predicates.ASTPredicate import ASTPredicate
-from .typing import DataFrameT, DType, NodeDtypes
+from .typing import DataFrameT, DType, NodeDtypes, SeriesT
 
 
 logger = setup_logger(__name__)
+def _dtype_text(dtype: Any) -> str:
+    from graphistry.compute.gfql.lazy.engine.polars.dtypes import dtype_text
+    return dtype_text(dtype)
+
+
+def _is_numeric_dtype_safe(dtype: Any) -> bool:
+    from graphistry.compute.gfql.lazy.engine.polars.dtypes import is_numeric_dtype_safe
+    return is_numeric_dtype_safe(dtype)
+
+
+def _is_string_dtype_safe(dtype: Any) -> bool:
+    from graphistry.compute.gfql.lazy.engine.polars.dtypes import is_string_dtype_safe
+    return is_string_dtype_safe(dtype)
+
 
 
 def _is_membership_filter_value(value: Any) -> bool:
@@ -18,32 +34,6 @@ def _is_membership_filter_value(value: Any) -> bool:
 def _looks_like_edge_dataframe(df: DataFrameT) -> bool:
     cols = {str(col) for col in df.columns}
     return {"s", "d"} <= cols or {"src", "dst"} <= cols or "edge_id" in cols
-
-
-def _dtype_text(dtype: Any) -> str:
-    try:
-        return str(dtype).lower()
-    except Exception:
-        return ""
-
-
-def _is_numeric_dtype_safe(dtype: Any) -> bool:
-    try:
-        return bool(pd.api.types.is_numeric_dtype(dtype))
-    except Exception:
-        kind = getattr(dtype, "kind", None)
-        if isinstance(kind, str) and kind in {"b", "i", "u", "f", "c"}:
-            return True
-        dtype_txt = _dtype_text(dtype)
-        return any(token in dtype_txt for token in ("bool", "int", "float", "double", "decimal"))
-
-
-def _is_string_dtype_safe(dtype: Any) -> bool:
-    try:
-        return bool(pd.api.types.is_string_dtype(dtype))
-    except Exception:
-        dtype_txt = _dtype_text(dtype)
-        return dtype_txt == "object" or "string" in dtype_txt or dtype_txt.endswith("[python]")
 
 
 def _normalize_labels_cell(value: Any) -> Tuple[Any, ...]:
@@ -93,6 +83,10 @@ def resolve_filter_column(df: DataFrameT, col: str, val: Any) -> Tuple[str, Any]
         if "type" in df.columns and not _looks_like_edge_dataframe(df):
             return "type", label
 
+    # mirror of the rewrite above, for frames carrying labels as per-label boolean columns
+    if col in ("type", "labels") and isinstance(val, str) and f"label__{val}" in df.columns:
+        return f"label__{val}", True
+
     from graphistry.compute.exceptions import ErrorCode, GFQLSchemaError
 
     raise GFQLSchemaError(
@@ -102,6 +96,26 @@ def resolve_filter_column(df: DataFrameT, col: str, val: Any) -> Tuple[str, Any]
         value=val,
         suggestion=f'Available columns: {", ".join(df.columns[:10])}{"..." if len(df.columns) > 10 else ""}'
     )
+
+
+def resolve_filter_column_or_absent(
+    df: DataFrameT,
+    col: str,
+    val: Any,  # hygiene-ok: explicit-any -- filter values are heterogeneous by contract
+    *,
+    context: Optional[str] = None,
+) -> Optional[Tuple[str, Any]]:  # hygiene-ok: explicit-any -- mirrors resolve_filter_column's heterogeneous value contract
+    """``resolve_filter_column``, but ``None`` when the resolved strictness level
+    says an absent column resolves to null rather than raising."""
+    from graphistry.compute.exceptions import GFQLSchemaError
+    from graphistry.compute.gfql.strictness import absent_filter_key_is_lenient
+
+    try:
+        return resolve_filter_column(df, col, val)
+    except GFQLSchemaError:  # only an absent column is leniency-eligible; other errors are real
+        if absent_filter_key_is_lenient(col, val, context=context):
+            return None
+        raise
 
 
 def filter_by_dict(df: DataFrameT, filter_dict: Optional[dict] = None, engine: Union[EngineAbstract, str] = EngineAbstract.AUTO) -> DataFrameT:
@@ -119,12 +133,34 @@ def filter_by_dict(df: DataFrameT, filter_dict: Optional[dict] = None, engine: U
     df = df_to_engine(df, engine_concrete)
     logger.debug('filter_by_dict engine: %s => %s', engine, engine_concrete)
 
+    if engine_concrete in POLARS_ENGINES:
+        from graphistry.compute.gfql.lazy.engine.polars.predicates import filter_by_dict_polars
+        return filter_by_dict_polars(df, filter_dict)  # mask path below is pandas/cuDF-idiom (#1882)
+
+    hits = filter_mask_by_dict(df, filter_dict)
+    return df[hits]
+
+
+def filter_mask_by_dict(df: DataFrameT, filter_dict: Dict[str, Any]) -> SeriesT:  # hygiene-ok: explicit-any -- filter values are heterogeneous by contract (scalars, lists, ASTPredicate)
+    """Boolean row mask ``filter_by_dict`` would apply to an already engine-native
+    ``df`` — same column resolution, same typed validation errors, same 3VL
+    membership semantics. Exposed so callers that read only a column subset can
+    gather it directly (``df.loc[mask, cols]``) without materializing the
+    full-width filtered frame.
+    """
     from graphistry.compute.exceptions import ErrorCode, GFQLSchemaError
+
+    from graphistry.compute.gfql.strictness import absent_column_matches
 
     predicates: Dict[str, Tuple[str, ASTPredicate]] = {}
     concrete_filters: Dict[str, Tuple[str, Any]] = {}
+    absent_never_matches = False
     for col, val in filter_dict.items():
-        resolved_col, resolved_val = resolve_filter_column(df, col, val)
+        resolved = resolve_filter_column_or_absent(df, col, val)
+        if resolved is None:
+            absent_never_matches = absent_never_matches or not absent_column_matches(val)
+            continue
+        resolved_col, resolved_val = resolved
 
         # Type checking for non-predicate values
         if not isinstance(resolved_val, ASTPredicate):
@@ -186,7 +222,9 @@ def filter_by_dict(df: DataFrameT, filter_dict: Optional[dict] = None, engine: U
 
             predicates[col] = (resolved_col, resolved_val)
 
-    hits = df[[]].assign(x=True).x
+    hits = df[[]].assign(x=False if absent_never_matches else True).x
+    if absent_never_matches:
+        return hits
     if concrete_filters:
         for original_col, (resolved_col, resolved_val) in concrete_filters.items():
             if original_col.startswith("label__") and resolved_col == "labels" and isinstance(resolved_val, str):
@@ -202,7 +240,7 @@ def filter_by_dict(df: DataFrameT, filter_dict: Optional[dict] = None, engine: U
     if predicates:
         for resolved_col, op in predicates.values():
             hits = hits & op(df[resolved_col])
-    return df[hits]
+    return hits
 
 
 def filter_nodes_by_dict(self: Plottable, filter_dict: Optional[dict] = None, engine: Union[EngineAbstract, str] = EngineAbstract.AUTO) -> Plottable:
@@ -308,11 +346,25 @@ def _read_node_dtypes(
     A pushed filter is schema-validated against the real column while the row residual
     evaluates leniently, so the planner needs dtypes to avoid turning a correct empty result
     into a type error. An unreadable schema yields an empty mapping, which fails every column
-    lookup and so falls back to the residual.
+    lookup and so falls back to the residual. Memoized per node frame: the read scans every
+    object column's values, and the compile cache key asks for it on every string query.
     """
     nodes = g._nodes
     if nodes is None:
         return {}
+    engine_name = str(getattr(engine, "value", engine))
+    cached = memo_get(nodes, engine_name)
+    if cached is not None:
+        return cached
+    dtypes = _read_node_dtypes_uncached(nodes, engine)
+    memo_put(nodes, engine_name, dtypes)
+    return dtypes
+
+
+def _read_node_dtypes_uncached(
+    nodes: DataFrameT,
+    engine: Union[EngineAbstract, str],
+) -> NodeDtypes:
     try:
         # Classify the frame the EXECUTOR will filter, not the one the caller handed in.
         # `filter_by_dict` validates post-materialization dtypes, so judging the pre-conversion

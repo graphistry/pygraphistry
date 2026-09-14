@@ -447,7 +447,8 @@ def normalize_graph(
 
     :param g: graphistry instance
     :param self_edges: bool, whether to keep duplicates from ndf, edf, default False
-    :param unwrap: bool, whether to unwrap node text with `~`, default True
+    :param unwrap: bool, whether to strip the `~` wrapping from collapsed node/src/dst ids
+        (readability only, but it changes the emitted ids), default False
 
     :returns: final graphistry instance
     """

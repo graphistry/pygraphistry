@@ -42,6 +42,7 @@ against the eager twin for that reason, and says so.
 from __future__ import annotations
 
 import itertools
+import typing
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
@@ -227,11 +228,11 @@ _DECLINED_SHAPES: List[Tuple[str, str]] = [
     ("partial_order_no_limit", Q_PARTIAL_ORDER),
     ("no_order_by", Q_NO_ORDER),
     ("no_order_by_with_limit", Q_NO_ORDER_LIMIT),
-    ("out_col_collides_with_src", Q_OUT_COL_COLLIDES_SRC),
 ]
 
 # NEVER REACHED: the fast path's own shape guard declines before the fused lane exists.
 _UNREACHED_SHAPES: List[Tuple[str, str]] = [
+    ("out_col_collides_with_src", Q_OUT_COL_COLLIDES_SRC),
     ("undirected",
      "MATCH (p {kind:'P'})-[{rel:'L'}]-(c {kind:'C'}) RETURN c.city AS city, count(*) AS n "
      "ORDER BY n DESC, city ASC"),
@@ -333,11 +334,35 @@ def _probe_fused(monkeypatch: pytest.MonkeyPatch) -> List[bool]:
     return calls
 
 
+_PolarsEngine = typing.Literal["polars", "polars-gpu"]
+
+
+def _require_fused_service(
+    engine: _PolarsEngine, calls: Sequence[bool], context: str
+) -> None:
+    observed = list(calls)
+    if engine == "polars-gpu" and observed == [False]:
+        pytest.xfail(
+            "#1997: cudf-polars cannot execute this fused plan; GPU fallback values passed"
+        )
+    assert observed == [True], f"{context}: fused lane must serve on {engine}; got {observed}"
+
+
 def _force_eager(monkeypatch: pytest.MonkeyPatch) -> None:
     """Pin the eager twin as the oracle arm for the differential."""
     monkeypatch.setattr(
         gfql_fast_paths_module, "_single_hop_grouped_aggregate_fused_polars",
         lambda *a, **k: None)
+
+
+def _force_narrowing(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Defeat the polars small-frame gate so the projection actually narrows.
+
+    Test frames are tiny, and on polars ``_filter_project`` skips narrowing below
+    ``_PROJECT_LAZY_MIN_ROWS`` (the lazy plan's fixed cost tripped the receipted
+    q8@20k floor). The contract is AT LEAST the projected columns, exactly them
+    only when large -- so width pins must force the large-frame arm."""
+    monkeypatch.setattr(gfql_fast_paths_module, "_PROJECT_LAZY_MIN_ROWS", 0)
 
 
 def _probe_fast_path(monkeypatch: pytest.MonkeyPatch) -> List[bool]:
@@ -360,7 +385,7 @@ def _probe_fast_path(monkeypatch: pytest.MonkeyPatch) -> List[bool]:
 @pytest.mark.parametrize("engine", ["polars", "polars-gpu"])
 @pytest.mark.parametrize("label,query", _SERVED_SHAPES, ids=[s[0] for s in _SERVED_SHAPES])
 def test_grouped_aggregate_fused_polars_serves_total_order_shapes(
-    engine: str, label: str, query: str, monkeypatch: pytest.MonkeyPatch
+    engine: _PolarsEngine, label: str, query: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Every shape whose ORDER BY names all group keys is SERVED, and answers what pandas
     answers -- row order included."""
@@ -371,8 +396,8 @@ def test_grouped_aggregate_fused_polars_serves_total_order_shapes(
     calls = _probe_fused(monkeypatch)
     result = _records(graph.gfql(query, engine=engine))
 
-    assert calls == [True], f"{label}: fused lane must serve on {engine}"
     assert result == oracle, f"{label}: fused lane diverged from the pandas oracle"
+    _require_fused_service(engine, calls, label)
 
 
 @pytest.mark.parametrize("engine", ["polars", "polars-gpu"])
@@ -436,7 +461,7 @@ def test_grouped_aggregate_fused_polars_is_never_reached_by_dataframe_engines(
 @pytest.mark.parametrize("graph_name", sorted(_GRAPHS))
 @pytest.mark.parametrize("label,query", _SERVED_SHAPES, ids=[s[0] for s in _SERVED_SHAPES])
 def test_grouped_aggregate_fused_polars_matches_eager_twin_and_pandas(
-    engine: str, graph_name: str, label: str, query: str, monkeypatch: pytest.MonkeyPatch
+    engine: _PolarsEngine, graph_name: str, label: str, query: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """DIFFERENTIAL: fused == eager twin == pandas oracle, ORDER-SENSITIVELY, and the fused
     lane really ran (otherwise the comparison is vacuous).
@@ -453,10 +478,10 @@ def test_grouped_aggregate_fused_polars_matches_eager_twin_and_pandas(
     calls = _probe_fused(monkeypatch)
     fused = _records(_graph(engine, nodes, edges).gfql(query, engine=engine))
 
-    assert calls == [True], f"{graph_name}/{label}: lane did not serve -- differential vacuous"
     assert fused == eager, f"{graph_name}/{label}: fused lane diverged from the eager twin"
     if graph_name not in ("dup_node_rows", "dup_start_node_rows"):
         assert fused == oracle, f"{graph_name}/{label}: fused lane diverged from pandas"
+    _require_fused_service(engine, calls, f"{graph_name}/{label}")
 
 
 @pytest.mark.parametrize("graph_name,query,fused_rows,pandas_rows", [
@@ -682,7 +707,7 @@ def test_grouped_aggregate_fused_polars_supports_min_and_max_through_the_ast_sur
 
 @pytest.mark.parametrize("engine", ["polars", "polars-gpu"])
 def test_grouped_aggregate_fused_polars_node_key_named_like_the_source_column(
-    engine: str, monkeypatch: pytest.MonkeyPatch
+    engine: _PolarsEngine, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """The node key may share its name with the edge SOURCE column -- that name then appears
     on both sides of the semi-join and of the property lookup."""
@@ -695,13 +720,13 @@ def test_grouped_aggregate_fused_polars_node_key_named_like_the_source_column(
     result = _records(
         _graph(engine, nodes, edges, node_key="s").gfql(Q_COUNT_STAR, engine=engine))
 
-    assert calls == [True]
     assert result == oracle
+    _require_fused_service(engine, calls, "node key/source-column collision")
 
 
 @pytest.mark.parametrize("engine", ["polars", "polars-gpu"])
 def test_grouped_aggregate_fused_polars_empty_match_returns_no_groups(
-    engine: str, monkeypatch: pytest.MonkeyPatch
+    engine: _PolarsEngine, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """An empty match produces no GROUPS (unlike a bare ``count(*)``, which openCypher counts
     as 0 over no rows -- that shape is served by a different fast path)."""
@@ -711,8 +736,8 @@ def test_grouped_aggregate_fused_polars_empty_match_returns_no_groups(
     calls = _probe_fused(monkeypatch)
     result = _records(_graph(engine, nodes, edges).gfql(Q_COUNT_STAR, engine=engine))
 
-    assert calls == [True]
     assert result == oracle == (["city", "n"], [])
+    _require_fused_service(engine, calls, "empty match")
 
 
 def _null_group_key_data() -> Tuple[pd.DataFrame, pd.DataFrame]:
@@ -729,7 +754,7 @@ def _null_group_key_data() -> Tuple[pd.DataFrame, pd.DataFrame]:
     ("MATCH (p)-[{rel:'L'}]->(c) RETURN c.city AS city, count(*) AS n ORDER BY city DESC", None),
 ])
 def test_grouped_aggregate_fused_polars_places_nulls_the_opencypher_way(
-    engine: str, query: str, expected_first_city: Optional[str],
+    engine: _PolarsEngine, query: str, expected_first_city: Optional[str],
     monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """openCypher orders NULL as the LARGEST value: last on ASC, first on DESC. polars
@@ -741,14 +766,14 @@ def test_grouped_aggregate_fused_polars_places_nulls_the_opencypher_way(
     calls = _probe_fused(monkeypatch)
     result = _records(_graph(engine, nodes, edges).gfql(query, engine=engine))
 
-    assert calls == [True]
     assert result == oracle
     assert result[1][0]["city"] == expected_first_city
+    _require_fused_service(engine, calls, "null group-key ordering")
 
 
 @pytest.mark.parametrize("engine", ["polars", "polars-gpu"])
 def test_grouped_aggregate_fused_polars_null_aggregate_value_ordering(
-    engine: str, monkeypatch: pytest.MonkeyPatch
+    engine: _PolarsEngine, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Same null-largest rule on the AGGREGATE column, where the null comes from averaging an
     all-null group -- and with LIMIT, so getting it wrong returns a different ROW."""
@@ -760,8 +785,8 @@ def test_grouped_aggregate_fused_polars_null_aggregate_value_ordering(
     calls = _probe_fused(monkeypatch)
     result = _records(_graph(engine, nodes, edges).gfql(query, engine=engine))
 
-    assert calls == [True]
     assert result == oracle
+    _require_fused_service(engine, calls, "null aggregate ordering")
 
 
 # ------------------------------------------------------- the benchmark shapes themselves
@@ -802,7 +827,7 @@ def _gb_shaped_graph() -> Tuple[pd.DataFrame, pd.DataFrame]:
 @pytest.mark.parametrize("engine", ["polars", "polars-gpu"])
 @pytest.mark.parametrize("label,query", _GB_SHAPES, ids=[s[0] for s in _GB_SHAPES])
 def test_grouped_aggregate_fused_polars_serves_the_graph_benchmark_shapes(
-    engine: str, label: str, query: str, monkeypatch: pytest.MonkeyPatch
+    engine: _PolarsEngine, label: str, query: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """STRUCTURAL LOCK-IN for the three benchmark cells this lane exists to move: q1, q3 and
     q4 must be SERVED (not merely fast) and must answer what pandas answers."""
@@ -812,8 +837,8 @@ def test_grouped_aggregate_fused_polars_serves_the_graph_benchmark_shapes(
     calls = _probe_fused(monkeypatch)
     result = _records(_graph(engine, nodes, edges).gfql(query, engine=engine))
 
-    assert calls == [True], f"{label}: the benchmark shape must be served by the fused lane"
     assert result == oracle
+    _require_fused_service(engine, calls, label)
 
 
 @pytest.mark.parametrize("engine", ["polars", "polars-gpu"])
@@ -877,3 +902,149 @@ def test_grouped_aggregate_fused_polars_emits_semi_join_only_without_property_jo
     assert semi_calls[0] == expected_semis, (
         f"{label}: expected {expected_semis} domain semi-join(s) in the fused plan, "
         f"saw {semi_calls[0]}")
+
+
+@pytest.mark.parametrize("engine", ["pandas", "polars", "polars-gpu", "cudf"])
+def test_grouped_aggregate_projection_narrows_filters_on_every_engine(
+    engine: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The grouped-aggregate path declares its plan's columns (ids + referenced
+    props), so the filters return narrow frames on EVERY engine -- decoy columns
+    must never reach the plan -- with values identical to the eager twin."""
+    from graphistry.compute import gfql_fast_paths as fp
+
+    nodes, edges = _base_data()
+    nodes = nodes.assign(decoy_n="x")
+    edges = edges.assign(decoy_e=1.5)
+    query = ("MATCH (p {kind:'P'})-[{rel:'L'}]->(c {kind:'C'}) "
+             "RETURN c.city AS city, count(*) AS n ORDER BY city ASC")
+
+    with monkeypatch.context() as eager_ctx:
+        _force_eager(eager_ctx)
+        oracle = _records(_graph(engine, nodes, edges).gfql(query, engine=engine))
+
+    widths: Dict[str, List[str]] = {}
+    real_nf = fp._connected_join_cached_node_filter
+    real_ef = fp._connected_join_cached_edge_filter
+
+    def spy_nf(*args: Any, **kw: Any) -> Any:
+        out = real_nf(*args, **kw)
+        widths.setdefault("nodes", list(out.columns))
+        return out
+
+    def spy_ef(*args: Any, **kw: Any) -> Any:
+        out = real_ef(*args, **kw)
+        widths.setdefault("edges", list(out.columns))
+        return out
+
+    monkeypatch.setattr(fp, "_connected_join_cached_node_filter", spy_nf)
+    monkeypatch.setattr(fp, "_connected_join_cached_edge_filter", spy_ef)
+    _force_narrowing(monkeypatch)
+    result = _records(_graph(engine, nodes, edges).gfql(query, engine=engine))
+
+    assert result == oracle
+    assert "decoy_n" not in widths["nodes"] and "decoy_e" not in widths["edges"]
+    assert widths["edges"] == ["s", "d"]
+    assert widths["nodes"] == ["id"]  # start alias references no props in this query
+
+
+@pytest.mark.parametrize("engine", ["pandas", "polars", "polars-gpu", "cudf"])
+def test_grouped_aggregate_projection_small_frame_keeps_columns_and_value(
+    engine: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Negative twin of the width pin: under the DEFAULT threshold these frames
+    are small, so polars skips narrowing and the filters carry the decoy columns
+    through. That is the contract (AT LEAST the projected columns) and it must
+    not change the answer; the eager arms narrow regardless."""
+    from graphistry.compute import gfql_fast_paths as fp
+
+    nodes, edges = _base_data()
+    nodes = nodes.assign(decoy_n="x")
+    edges = edges.assign(decoy_e=1.5)
+    query = ("MATCH (p {kind:'P'})-[{rel:'L'}]->(c {kind:'C'}) "
+             "RETURN c.city AS city, count(*) AS n ORDER BY city ASC")
+
+    with monkeypatch.context() as eager_ctx:
+        _force_eager(eager_ctx)
+        oracle = _records(_graph(engine, nodes, edges).gfql(query, engine=engine))
+
+    widths: Dict[str, List[str]] = {}
+    real_ef = fp._connected_join_cached_edge_filter
+
+    def spy_ef(*args: Any, **kw: Any) -> Any:
+        out = real_ef(*args, **kw)
+        widths.setdefault("edges", list(out.columns))
+        return out
+
+    monkeypatch.setattr(fp, "_connected_join_cached_edge_filter", spy_ef)
+    assert _records(_graph(engine, nodes, edges).gfql(query, engine=engine)) == oracle
+    assert set(widths["edges"]) >= {"s", "d"}
+    if engine.startswith("polars"):
+        assert "decoy_e" in widths["edges"]  # gate skipped narrowing
+    else:
+        assert widths["edges"] == ["s", "d"]  # no gate off the polars lazy path
+
+
+@pytest.mark.parametrize("engine", ["pandas", "polars", "polars-gpu", "cudf"])
+def test_grouped_aggregate_projection_keeps_missing_prop_decline(
+    engine: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A referenced prop MISSING from the node frame must still decline to the
+    generic path with the same answer -- projection may not turn the decline into
+    a select error."""
+    nodes, edges = _base_data()
+    nodes = nodes.drop(columns=["city"])
+    query = ("MATCH (p {kind:'P'})-[{rel:'L'}]->(c {kind:'C'}) "
+             "RETURN c.city AS city, count(*) AS n ORDER BY city ASC")
+    with monkeypatch.context() as eager_ctx:
+        _force_eager(eager_ctx)
+        try:
+            oracle: Any = _records(_graph(engine, nodes, edges).gfql(query, engine=engine))
+        except Exception as exc:  # noqa: BLE001
+            oracle = type(exc)
+    try:
+        result: Any = _records(_graph(engine, nodes, edges).gfql(query, engine=engine))
+    except Exception as exc:  # noqa: BLE001
+        result = type(exc)
+    assert result == oracle
+
+
+@pytest.mark.parametrize("engine", ["pandas", "polars", "polars-gpu", "cudf"])
+@pytest.mark.parametrize("label,query", _SERVED_SHAPES, ids=[s[0] for s in _SERVED_SHAPES])
+def test_grouped_aggregate_projection_differential_all_shapes_all_engines(
+    engine: str, label: str, query: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """CROSS-PLATFORM value differential for the projection change: every served
+    shape, on every engine, with decoy columns present, must answer exactly what
+    the projection-free eager twin answers on the SAME engine."""
+    nodes, edges = _base_data()
+    nodes = nodes.assign(decoy_n="x")
+    edges = edges.assign(decoy_e=1.5)
+
+    with monkeypatch.context() as eager_ctx:
+        _force_eager(eager_ctx)
+        oracle = _records(_graph(engine, nodes, edges).gfql(query, engine=engine))
+
+    result = _records(_graph(engine, nodes, edges).gfql(query, engine=engine))
+    assert result == oracle, f"{label}: projection changed the answer on {engine}"
+
+
+def test_low_cardinality_count_plan_declines_on_the_gpu_target() -> None:
+    """The value_counts formulation lowers to an ``unnest`` node cudf-polars cannot execute,
+    so on the GPU target the fused lane keeps the group_by formulation; on CPU the
+    value_counts plan is still taken for the same input."""
+    pl = _require_polars()
+    from graphistry.compute.gfql.lazy import ExecutionTarget, target_mode
+    work = pl.LazyFrame({"id": [1, 2, 3], "city": ["LA", "NY", "LA"]})
+    kwargs = dict(
+        node_col="id", group_keys=["city"], agg_specs=[("n", "count", None)],
+        needed_by_alias={"c": [("city", "city")]},
+        frames_by_alias={"c": pl.DataFrame({"id": [1, 2, 3], "city": ["LA", "NY", "LA"]})},
+        edge_rows=3,
+    )
+    with target_mode(ExecutionTarget.CPU):
+        cpu_plan = gfql_fast_paths_module._low_cardinality_pure_count_plan(work, **kwargs)
+    with target_mode(ExecutionTarget.GPU):
+        gpu_plan = gfql_fast_paths_module._low_cardinality_pure_count_plan(work, **kwargs)
+    assert cpu_plan is not None and "UNNEST" in cpu_plan.explain()
+    assert gpu_plan is None

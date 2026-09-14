@@ -185,3 +185,36 @@ class TestTemporalComparisons:
         result_pandas = predicate(s_pandas)
         result_cudf = predicate(s_cudf).to_pandas()
         pd.testing.assert_series_equal(result_pandas, result_cudf)
+
+@pytest.mark.parametrize("engine", ["pandas", "cudf"])
+def test_date_time_comparison_is_engine_identical(engine: str) -> None:
+    """Date/time comparisons must agree across engines and cudf versions.
+
+    ``Series.dt.date`` / ``.dt.time`` do not exist on cudf 26.02, so the predicate
+    day-truncates instead -- one formulation available on every engine and every
+    version, which is why there is no capability branch and no minimum-cudf
+    assumption to encode in the types. This pins that the substitute is an
+    EQUIVALENCE, not merely something that does not raise: the same comparisons,
+    including the boundary equalities where date-vs-datetime64 semantics could
+    diverge, must give identical answers on each engine.
+    """
+    from graphistry.compute.predicates.comparison import EQ, GT
+    from graphistry.compute.ast_temporal import DateValue, TimeValue
+
+    if engine == "cudf":
+        cudf = pytest.importorskip("cudf")
+        make = cudf.Series
+    else:
+        make = pd.Series
+
+    stamps = ["2026-01-01 03:00:00", "2026-01-05 09:30:00", "2026-01-10 21:45:00"]
+    s = make(pd.to_datetime(stamps))
+
+    def as_list(mask: object) -> list:
+        return [bool(x) for x in (mask.to_pandas() if hasattr(mask, "to_pandas") else mask)]
+
+    assert as_list(GT(DateValue(value="2026-01-03"))(s)) == [False, True, True]
+    assert as_list(GT(TimeValue(value="08:00:00"))(s)) == [False, True, True]
+    # boundary equality: where .dt.date (object) and floor('D') (datetime64) could differ
+    assert as_list(EQ(DateValue(value="2026-01-05"))(s)) == [False, True, False]
+    assert as_list(EQ(TimeValue(value="09:30:00"))(s)) == [False, True, False]

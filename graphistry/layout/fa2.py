@@ -1,6 +1,6 @@
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
-from graphistry.Engine import Engine, EngineAbstract, df_concat, df_cons, resolve_engine
+from graphistry.Engine import Engine, EngineAbstract, df_concat, df_cons, resolve_input_engine
 from graphistry.Plottable import Plottable
 from graphistry.layout.circle import circle_layout
 # Approximate Graphistry server settings
@@ -64,17 +64,17 @@ def fa2_layout(
     """
     Applies FA2 layout for connected nodes and circle layout for singleton (edgeless) nodes
 
-    Allows optional parameterization of the circle layout, e.g., sort keys
+    Allows optional parameterization of the circle layout, e.g., ring and point spacing
 
-    :param g: The graph object with nodes and edges, in a format compatible with Graphistry's Plottable object.
-    :type g: graphistry.Plottable.Plottable
-    :param fa2_params: Optional parameters for customizing the Force-Atlas 2 (FA2) layout, passed through to `fa2_layout`.
+    :param self: The graph object with nodes and edges, in a format compatible with Graphistry's Plottable object.
+    :type self: graphistry.Plottable.Plottable
+    :param fa2_params: Optional parameters for the underlying force-directed layout, forwarded as `params=` to `layout_cugraph('force_atlas2', ...)` on GPU or `layout_igraph('fr', ...)` on CPU.
     :type fa2_params: Optional[Dict[str, Any]]
-    :param circle_layout_params: Optional parameters for customizing the circle layout, passed through to `general_circle_layout`. Can include:
-        - `by`: Column name(s) for sorting nodes (default: 'degree').
-        - `ascending`: Boolean(s) to control sorting order.
+    :param circle_layout_params: Optional parameters for customizing the circle layout, passed through to :func:`graphistry.layout.circle.circle_layout`. Can include:
+        - `partition_by`: Node column(s) selecting one circle per partition.
         - `ring_spacing`: Spacing between rings in the circle layout.
         - `point_spacing`: Spacing between points in each ring.
+        - `sort_by` / `ascending`: accepted, but currently have no effect on positions (see `circle_layout`).
     :type circle_layout_params: Optional[Dict[str, Any]]
 
     :param singleton_layout: Optional custom layout function for singleton nodes (default: circle_layout).
@@ -95,7 +95,7 @@ def fa2_layout(
     if isinstance(engine, str):
         engine = EngineAbstract(engine)
 
-    engine_concrete = resolve_engine(engine, g)
+    engine_concrete = resolve_input_engine(engine, g)
 
     concat = df_concat(engine_concrete)
 

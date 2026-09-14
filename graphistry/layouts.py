@@ -99,8 +99,12 @@ class LayoutsMixin(Plottable):
                 raise ValueError
 
         triples = SugiyamaLayout.arrange(g2._edges, topological_coordinates = True, source_column = g2._source, target_column = g2._destination, include_levels = True, root = root)
-        g2._nodes[level_col] = [triples[id][2] for id in g2._nodes[g2._node]]
-        g2._nodes[y_col] = [triples[id][1] * height for id in g2._nodes[g2._node]]
+        # One assign, one copy: writing through g2._nodes mutates the CALLER's
+        # bound frame (materialize_nodes returns self when nodes exist).
+        g2 = g2.nodes(g2._nodes.assign(**{
+            level_col: [triples[id][2] for id in g2._nodes[g2._node]],
+            y_col: [triples[id][1] * height for id in g2._nodes[g2._node]],
+        }))
         
         if (g2._nodes is None) or (len(g2._nodes) == 0):
             return g2
@@ -112,7 +116,9 @@ class LayoutsMixin(Plottable):
                 by = level_sort_values_by,
                 ascending = level_sort_values_by_ascending))
 
-        g2._nodes[x_col] = [triples[id][0] * width for id in g2._nodes[g2._node]]
+        g2 = g2.nodes(g2._nodes.assign(**{
+            x_col: [triples[id][0] * width for id in g2._nodes[g2._node]],
+        }))
 
         if rotate is not None:
             g2 = cast(LayoutsMixin, g2).rotate(rotate)
@@ -166,8 +172,10 @@ class LayoutsMixin(Plottable):
         comps_map = {u: i for i, u in enumerate(comps.values())}
         component_ids = [comps_map[comps[gg.get_vertex_from_data(id).component]] for id in g2._nodes[g2._node]]
         component_sizes = [len(list(gg.get_vertex_from_data(id).component.vertices())) for id in g2._nodes[g2._node]]
-        g2._nodes['component_id'] = component_ids
-        g2._nodes['component_size'] = component_sizes
+        g2 = g2.nodes(g2._nodes.assign(
+            component_id=component_ids,
+            component_size=component_sizes,
+        ))
         g2 = g2.nodes(g2._nodes.sort_values(
             by = "component_id",
             ascending = True))

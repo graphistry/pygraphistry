@@ -3,7 +3,7 @@
 from functools import lru_cache
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Set, Tuple, Union
 
-from graphistry.compute.exceptions import ErrorCode, GFQLTypeError
+from graphistry.compute.exceptions import ErrorCode, GFQLSyntaxError, GFQLTypeError
 from graphistry.compute.gfql.call.support import (
     EDGE_COLUMN_SCHEMA_EFFECTS,
     NODE_COLUMN_SCHEMA_EFFECTS,
@@ -339,19 +339,101 @@ def _unwind_requires_node_cols(params: Dict[str, object]) -> List[str]:
     return _expr_required_cols(params)
 
 
-def _group_by_requires_node_cols(params: Dict[str, object]) -> List[str]:
+def _agg_source_required_cols(expr: str, available_cols: Optional[Set[str]] = None) -> List[str]:
+    """An existing column is read as that column, as both executors do."""
+    if available_cols is not None:
+        if expr in available_cols:
+            return [expr]
+        parsed = _where_rows_expr_parse(expr)
+        if parsed is None:
+            if _where_rows_expr_parser_fn() is None:
+                raise GFQLTypeError(
+                    ErrorCode.E201, "Aggregation expression validation requires the parser backend",
+                    field="group_by.aggregations", value=expr,
+                    suggestion="Install the expression parser dependencies or use an existing column",
+                )
+            raise GFQLSyntaxError(
+                ErrorCode.E107, "Aggregation source is neither a visible column nor a valid expression",
+                field="group_by.aggregations", value=expr,
+                suggestion="Use an existing column name or a valid row expression",
+            )
+        from graphistry.compute.gfql.expr_parser import (
+            Identifier, ListComprehension, PropertyAccessExpr, QuantifierExpr,
+            iter_expr_children,
+        )
+
+        node, _capability_checker, _collect_identifiers = parsed
+        required: Set[str] = set()
+
+        def resolve_columns(current: "ExprNode", bound: Set[str]) -> None:
+            if isinstance(current, (ListComprehension, QuantifierExpr)):
+                resolve_columns(current.source, bound)
+                for child in iter_expr_children(current)[1:]:
+                    resolve_columns(child, bound | {current.var})
+                return
+            if isinstance(current, PropertyAccessExpr) and isinstance(current.value, Identifier):
+                if current.value.name in bound:
+                    return
+                full_name = f"{current.value.name}.{current.property}"
+                if full_name in available_cols:
+                    required.add(full_name)
+                    return
+            if isinstance(current, Identifier):
+                if current.name not in bound:
+                    required.add(current.name)
+                return
+            for child in iter_expr_children(current):
+                resolve_columns(child, bound)
+
+        resolve_columns(node, set())
+        return sorted(required)
+    return _where_rows_expr_required_cols(expr)
+
+
+def _group_by_requires_node_cols(
+    params: Dict[str, object], available_cols: Optional[Set[str]] = None
+) -> List[str]:
     out: List[str] = []
     keys = params.get("keys")
     if isinstance(keys, list):
         out.extend([k for k in keys if isinstance(k, str)])
     aggregations = params.get("aggregations")
+    if isinstance(aggregations, list) and not aggregations:
+        from graphistry.compute.gfql.agg_types import validate_aggregation_output
+
+        prefixes = params.get("key_prefixes")
+        has_prefix_keys = isinstance(prefixes, list) and any(
+            isinstance(prefix, str) and (
+                available_cols is None or any(col.startswith(prefix) for col in available_cols)
+            ) for prefix in prefixes
+        )
+        validate_aggregation_output(bool(out) or has_prefix_keys, False)
     if isinstance(aggregations, list):
         for item in aggregations:
             if not isinstance(item, (list, tuple)) or len(item) != 3:
                 continue
             expr = item[2]
             if isinstance(expr, str) and expr != "*":
-                out.extend(_where_rows_expr_required_cols(expr))
+                out.extend(_agg_source_required_cols(expr, available_cols))
+                if available_cols is not None and expr not in available_cols:
+                    from graphistry.compute.gfql.agg_types import (
+                        GFQL_NUMERIC_ONLY_AGGREGATIONS, raise_non_numeric_aggregation,
+                    )
+                    from graphistry.compute.gfql.expr_parser import Literal, ListLiteral, MapLiteral
+
+                    func = str(item[1]).lower()
+                    if func in GFQL_NUMERIC_ONLY_AGGREGATIONS:
+                        parsed = _where_rows_expr_parse(expr)
+                        node = parsed[0] if parsed is not None else None
+                        literal_type = None
+                        if isinstance(node, Literal) and isinstance(node.value, str):
+                            literal_type = "string"
+                        elif isinstance(node, ListLiteral):
+                            literal_type = "list"
+                        elif isinstance(node, MapLiteral):
+                            literal_type = "map"
+                        if literal_type is not None:
+                            raise_non_numeric_aggregation(func, expr, literal_type, str(item[0]))
     return out
 
 
@@ -491,7 +573,7 @@ SAFELIST_V1: Dict[str, Dict[str, Any]] = {
         {'keys', 'aggregations', 'key_prefixes'},
         required_params={'keys', 'aggregations'},
         param_validators={
-            'keys': is_non_empty_list_of_strings,
+            'keys': is_list_of_strings,
             'aggregations': is_list_of_agg_specs,
             'key_prefixes': lambda v: v is None or is_list_of_strings(v),
         },
@@ -499,6 +581,18 @@ SAFELIST_V1: Dict[str, Dict[str, Any]] = {
         schema_effects=_schema_effects(
             adds_node_cols=_group_by_added_node_cols,
             requires_node_cols=_group_by_requires_node_cols,
+        ),
+    ),
+
+    'fill_empty_row': _safelist_entry(
+        {'row'},
+        required_params={'row'},
+        param_validators={
+            'row': lambda v: isinstance(v, dict) and all(isinstance(k, str) for k in v),
+        },
+        description='Replace an EMPTY active row table with the single given row (ungrouped-aggregate identity, #1939)',
+        schema_effects=_schema_effects(
+            adds_node_cols=lambda p: list(p.get('row') or {}),
         ),
     ),
 

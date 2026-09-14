@@ -2,6 +2,7 @@ from dataclasses import dataclass
 from typing import Tuple
 from graphistry.compute.ast import ASTEdge
 from graphistry.compute.typing import DataFrameT, DomainT
+from graphistry.compute.gfql.identifiers import WALK_FROM_COL, WALK_TO_COL
 from .df_utils import concat_frames, series_values, domain_union
 
 
@@ -33,7 +34,7 @@ class EdgeSemantics:
             return domain_union(series_values(edges_df[src_col]), series_values(edges_df[dst_col]))
         return series_values(edges_df[dst_col] if self.is_reverse else edges_df[src_col])
 
-    def orient_edges(self, edges_df: DataFrameT, src_col: str, dst_col: str, *, from_col: str = "__from__", to_col: str = "__to__", dedupe: bool = False) -> DataFrameT:
+    def orient_edges(self, edges_df: DataFrameT, src_col: str, dst_col: str, *, from_col: str = WALK_FROM_COL, to_col: str = WALK_TO_COL, dedupe: bool = False) -> DataFrameT:
         if self.is_undirected:
             fwd = edges_df.rename(columns={src_col: from_col, dst_col: to_col})
             rev = edges_df.rename(columns={dst_col: from_col, src_col: to_col})

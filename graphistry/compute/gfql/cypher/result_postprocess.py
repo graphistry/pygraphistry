@@ -8,6 +8,8 @@ import pandas as pd
 from graphistry.Plottable import Plottable
 from graphistry.compute.typing import DataFrameT, SeriesT
 from graphistry.Engine import is_polars_df
+from graphistry.compute.gfql.cypher.projection_columns import alias_field_sources
+from graphistry.compute.gfql.identifiers import shadow_restore_column
 from graphistry.compute.gfql.series_str_compat import is_non_textual_scalar_dtype
 
 from .lowering import ResultProjectionColumn, ResultProjectionPlan
@@ -21,6 +23,7 @@ from graphistry.compute.gfql.row.entity_props import (
     append_property_segments,
     edge_property_columns,
     format_edge_entity_text,
+    label_flag_columns,
     node_property_columns,
 )
 from graphistry.compute.gfql.row.pipeline import _RowPipelineAdapter
@@ -67,18 +70,12 @@ def entity_projection_meta_entry(
 
 
 def _node_label_text(df: DataFrameT, alias_col: str) -> SeriesT:
-    label_cols = [
-        col
-        for col in df.columns
-        if str(col).startswith("label__")
-        and str(col).split("label__", 1)[1] not in {"<NA>", "None", "nan"}
-    ]
+    label_cols = label_flag_columns(df.columns)
     if label_cols:
         labels = _empty_text(df, alias_col)
-        for col in label_cols:
+        for col, label_name in label_cols:
             mask = cast(SeriesT, cast(SeriesT, df[col]) == True)  # noqa: E712
-            label = ":" + str(col).split("label__", 1)[1]
-            labels = cast(SeriesT, labels + _const_text(df, alias_col, label).where(mask, ""))
+            labels = cast(SeriesT, labels + _const_text(df, alias_col, ":" + label_name).where(mask, ""))
         return labels
     if "type" in df.columns:
         type_series = cast(SeriesT, df["type"])
@@ -118,12 +115,7 @@ def _format_edge_entities(df: DataFrameT, projection: ResultProjectionPlan) -> S
 
 
 def _label_flag_columns(df: DataFrameT) -> list[str]:
-    return [
-        str(col)
-        for col in df.columns
-        if str(col).startswith("label__")
-        and str(col).split("label__", 1)[1] not in {"<NA>", "None", "nan"}
-    ]
+    return [col for col, _ in label_flag_columns(df.columns)]
 
 
 def _flat_entity_field_names(
@@ -273,24 +265,20 @@ def _projection_alias_rows(
     *,
     alias: str,
 ) -> Optional[DataFrameT]:
-    prefix = f"{alias}."
-    alias_columns = [column for column in rows_df.columns if str(column).startswith(prefix)]
-    if alias_columns:
-        alias_rows = cast(
-            DataFrameT,
-            rows_df[alias_columns].rename(columns={column: str(column)[len(prefix):] for column in alias_columns}),
-        )
-        if alias in rows_df.columns and alias not in alias_rows.columns:
-            alias_rows = cast(DataFrameT, alias_rows.assign(**{alias: rows_df[alias]}))
-        if alias in alias_rows.columns:
-            return alias_rows
-    if alias in rows_df.columns:
+    field_sources = alias_field_sources(rows_df.columns, alias)
+    if field_sources is None:
+        return None
+    if all(field == source for field, source in field_sources.items()):
         return rows_df
-    return None
+    source_fields = list(field_sources.values())
+    return rows_df[source_fields].rename(
+        columns={source: field for field, source in field_sources.items()}
+    )
 
 
 def apply_result_projection(
-    result: Plottable, projection: ResultProjectionPlan, *, structured: bool = True
+    result: Plottable, projection: ResultProjectionPlan, *, structured: bool = True,
+    source_node_id: Optional[str] = None,
 ) -> Plottable:
     """Project Cypher RETURN columns onto ``result._nodes``.
 
@@ -307,7 +295,9 @@ def apply_result_projection(
     rows_df = result._nodes
     if is_polars_df(rows_df):
         from graphistry.compute.gfql.lazy.engine.polars.projection import apply_result_projection_polars
-        return apply_result_projection_polars(result, projection, structured=structured)
+        return apply_result_projection_polars(
+            result, projection, structured=structured, source_node_id=source_node_id,
+        )
     return _apply_result_projection_pandas(result, projection, structured=structured)
 
 
@@ -380,7 +370,12 @@ def _apply_result_projection_pandas(
             output_columns.append(column.output_name)
             if column.kind == "property":
                 property_rows_df = alias_rows_df
-                if (
+                self_shadow_col = shadow_restore_column(projection.alias)
+                if column.source_name == projection.alias and self_shadow_col in rows_df.columns:
+                    # 'alias.alias': the plain column is the marker; rows() re-keyed the user values
+                    column = replace(column, source_name=self_shadow_col)
+                    property_rows_df = rows_df
+                elif (
                     column.source_name is not None
                     and column.source_name not in alias_rows_df.columns
                     and column.source_name in rows_df.columns

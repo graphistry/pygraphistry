@@ -121,10 +121,10 @@ def maybe_filter_dict_from_json(d: Dict, key: str) -> Optional[Dict]:
 
 
 def _filter_dict_to_json(filter_dict: Dict[str, Any]) -> Dict[str, Any]:
+    # Keep None values: dropping an entry widens the filter to match-everything.
     return {
         k: v.to_json() if isinstance(v, ASTPredicate) else v
         for k, v in filter_dict.items()
-        if v is not None
     }
 
 
