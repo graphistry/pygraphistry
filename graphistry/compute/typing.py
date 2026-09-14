@@ -108,6 +108,9 @@ class ArrayLike(Protocol):
     def __radd__(self, other: Any) -> "ArrayLike":
         ...
 
+    def __mul__(self, other: Any) -> "ArrayLike":
+        ...
+
     def __sub__(self, other: Any) -> "ArrayLike":
         ...
 
@@ -165,7 +168,16 @@ class ArrayNamespace(Protocol):
     def arange(self, *args: Any, **kwargs: Any) -> ArrayLike:
         ...
 
-    def searchsorted(self, a: ArrayLike, v: ArrayLike) -> ArrayLike:
+    def searchsorted(self, a: ArrayLike, v: ArrayLike, side: str = ...) -> ArrayLike:
+        ...
+
+    def minimum(self, a: Any, b: Any) -> ArrayLike:  # hygiene-ok: explicit-any -- ufunc accepts array|scalar operands (numpy/cupy)
+        ...
+
+    def repeat(self, a: ArrayLike, repeats: Any) -> ArrayLike:  # hygiene-ok: explicit-any -- int or int array repeats (numpy/cupy)
+        ...
+
+    def lexsort(self, keys: Any) -> ArrayLike:  # hygiene-ok: explicit-any -- sequence of key arrays (numpy/cupy)
         ...
 
     def where(self, condition: ArrayLike, x: Any, y: Any) -> ArrayLike:

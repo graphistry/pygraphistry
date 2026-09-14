@@ -204,3 +204,75 @@ def test_indexed_hop_rows_match_canonical_with_and_without_endpoint_drops(name, 
     assert served_pd["pid"].tolist() == [1]
     # the endpoint filter never drops an id here, so the semi-join is skipped
     assert calls == []
+
+
+def _frame_path_expand(state, step, **kwargs):
+    """The single-collect polars plan the array path replaces (kept as the oracle)."""
+    import polars as pl
+    from graphistry.compute.gfql.lazy import collect
+    po = kwargs["path_order_col"]
+    joined = (
+        state.lazy().with_row_index(po)
+        .join(step.lazy(), left_on=kwargs["current_col"], right_on=kwargs["from_col"], how="inner")
+        .sort([po, *kwargs["tiebreak_cols"]])
+        .drop(kwargs["current_col"])
+        .rename({kwargs["to_col"]: kwargs["current_col"]})
+    )
+    if isinstance(kwargs["alias"], str):
+        joined = joined.with_columns(pl.col(kwargs["current_col"]).alias(kwargs["alias"]))
+    drop_after = [kwargs["from_col"], po, *kwargs["tiebreak_cols"]]
+    return collect(joined.drop([c for c in drop_after if c in joined.collect_schema().names()]))
+
+
+@pytest.mark.parametrize("seed", range(12))
+@pytest.mark.parametrize("alias", ["tail", None])
+def test_polars_array_expand_join_matches_frame_plan(seed, alias, monkeypatch):
+    pl = pytest.importorskip("polars")
+    from graphistry.compute.dataframe.join import path_ordered_expand_join, _path_ordered_expand_join_arrays
+    from graphistry.compute.gfql import lazy
+    rng = np.random.default_rng(seed)
+    n_state, n_step = int(rng.integers(0, 40)), int(rng.integers(0, 60))
+    key_space = int(rng.integers(1, 12))
+    state = pl.DataFrame({
+        "seed": rng.integers(0, 100, n_state),
+        "cur": rng.integers(0, key_space, n_state),
+        "hop1": rng.integers(0, 5, n_state),
+    })
+    step = pl.DataFrame({
+        "from": rng.integers(0, key_space, n_step),
+        "to": rng.integers(100, 200, n_step),
+        "edge_ord": rng.permutation(n_step),
+        "orient": rng.integers(0, 2, n_step),
+        "payload": [f"p{i}" for i in range(n_step)],
+    })
+    kwargs = dict(current_col="cur", from_col="from", to_col="to", path_order_col="po",
+                  tiebreak_cols=("orient", "edge_ord"), alias=alias, engine=Engine.POLARS)
+    expected = _frame_path_expand(state, step, **kwargs)
+    via_arrays = _path_ordered_expand_join_arrays(
+        state, step, **{k: v for k, v in kwargs.items() if k != "path_order_col"},
+    )
+    assert via_arrays is not None
+    assert via_arrays.columns == expected.columns
+    assert via_arrays.schema == expected.schema
+    assert via_arrays.rows() == expected.rows()
+    calls = []
+    original = lazy.collect
+    monkeypatch.setattr(lazy, "collect", lambda frame: calls.append(frame) or original(frame))
+    served = path_ordered_expand_join(state, step, **kwargs)
+    assert served.rows() == expected.rows() and served.columns == expected.columns
+    assert calls == []
+
+
+def test_polars_array_expand_join_defers_on_nulls_floats_lazy_and_no_tiebreaks():
+    pl = pytest.importorskip("polars")
+    from graphistry.compute.dataframe.join import _path_ordered_expand_join_arrays
+    kwargs = dict(current_col="cur", from_col="from", to_col="to", tiebreak_cols=("ord",), alias=None, engine=Engine.POLARS)
+    state = pl.DataFrame({"cur": [1, 2]})
+    step = pl.DataFrame({"from": [1, 2], "to": [3, 4], "ord": [0, 1]})
+    assert _path_ordered_expand_join_arrays(state, step, **kwargs) is not None
+    assert _path_ordered_expand_join_arrays(pl.DataFrame({"cur": [1, None]}), step, **kwargs) is None
+    assert _path_ordered_expand_join_arrays(state, step.with_columns(pl.col("from").cast(pl.Float64)), **kwargs) is None
+    assert _path_ordered_expand_join_arrays(state, step.with_columns(pl.col("ord").cast(pl.Float64)), **kwargs) is None
+    assert _path_ordered_expand_join_arrays(state.lazy(), step, **kwargs) is None
+    assert _path_ordered_expand_join_arrays(state, step, **{**kwargs, "tiebreak_cols": ()}) is None
+    assert _path_ordered_expand_join_arrays(state, step, **{**kwargs, "engine": Engine.PANDAS}) is None

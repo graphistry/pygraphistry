@@ -64,6 +64,14 @@ def ids_to_array(ids: DataFrameT, col: str, engine: Engine) -> ArrayLike:
 
 
 
+def unique_with_counts(xp: ArrayNamespace, values: ArrayLike) -> Tuple[ArrayLike, ArrayLike]:
+    """Sorted distinct values of a 1-D array and how often each occurs."""
+    return cast(
+        Tuple[ArrayLike, ArrayLike],
+        xp.unique(values, return_counts=True),  # type: ignore[call-arg]
+    )
+
+
 def take_rows(df: DataFrameT, positions: ArrayLike, engine: Engine) -> DataFrameT:
     """Positionally gather rows of ``df`` by an integer array ``positions``.
 

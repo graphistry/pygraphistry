@@ -313,7 +313,9 @@ def _estimate_inner_join_rows_arrays(
     the frame path: engines disagree on null-key matching (pandas merges NaN with
     NaN, polars does not), so that contract stays where it is.
     """
-    from graphistry.compute.gfql.index.engine_arrays import array_namespace, col_to_array
+    from graphistry.compute.gfql.index.engine_arrays import (
+        array_namespace, col_to_array, unique_with_counts,
+    )
 
     if engine in POLARS_ENGINES:
         import polars as pl
@@ -341,8 +343,8 @@ def _estimate_inner_join_rows_arrays(
     else:
         return None
     xp, _ = array_namespace(engine)
-    left_keys, left_counts = xp.unique(col_to_array(left, left_on, engine), return_counts=True)
-    right_keys, right_counts = xp.unique(col_to_array(right, right_on, engine), return_counts=True)
+    left_keys, left_counts = unique_with_counts(xp, col_to_array(left, left_on, engine))
+    right_keys, right_counts = unique_with_counts(xp, col_to_array(right, right_on, engine))
     positions = xp.minimum(xp.searchsorted(left_keys, right_keys), left_keys.shape[0] - 1)
     matched = left_keys[positions] == right_keys
     products = left_counts[positions[matched]].astype("int64") * right_counts[matched].astype("int64")
@@ -397,6 +399,66 @@ def estimate_inner_join_rows(
     return int((counts[left_n] * counts[right_n]).sum())
 
 
+def _path_ordered_expand_join_arrays(
+    state: DataFrameT,
+    step: DataFrameT,
+    *,
+    current_col: str,
+    from_col: str,
+    to_col: str,
+    tiebreak_cols: Sequence[str],
+    alias: Optional[str],
+    engine: Engine,
+) -> Optional[DataFrameT]:
+    """Exact ``path_ordered_expand_join`` for eager polars over null-free integer keys.
+
+    A join+sort plan costs ~1ms on a small frontier; the same (path, tiebreak...)
+    order is a searchsorted range per state row over the step rows pre-sorted by
+    (key, tiebreak...), then two row gathers. Declines (None) to the frame path on
+    lazy inputs, nulls, non-integer keys/tiebreaks, or no tiebreak columns (the
+    frame path's intra-key order is then the engine's own, not reproduced here).
+    """
+    if engine != Engine.POLARS or not tiebreak_cols:
+        return None
+    import polars as pl
+
+    from graphistry.compute.gfql.index.engine_arrays import (
+        array_namespace, col_to_array, take_rows,
+    )
+
+    if not (isinstance(state, pl.DataFrame) and isinstance(step, pl.DataFrame)):
+        return None
+    for frame, col in ((state, current_col), (step, from_col), *((step, col) for col in tiebreak_cols)):
+        series = frame.get_column(col)
+        if not series.dtype.is_integer() or series.null_count():
+            return None
+    xp, _ = array_namespace(engine)
+    current = col_to_array(state, current_col, engine)
+    keys = col_to_array(step, from_col, engine)
+    # lexsort: the LAST key is primary, so pass (tiebreaks reversed..., keys) for a
+    # (key, tiebreak_0, tiebreak_1, ...) order.
+    tiebreaks = [col_to_array(step, col, engine) for col in tiebreak_cols]
+    step_order = xp.lexsort(tuple([*reversed(tiebreaks), keys]))
+    sorted_keys = keys[step_order]
+    lo = xp.searchsorted(sorted_keys, current, side="left")
+    hi = xp.searchsorted(sorted_keys, current, side="right")
+    counts = hi - lo
+    total = int(counts.sum())
+    left_idx = xp.repeat(xp.arange(current.shape[0]), counts)
+    starts = xp.cumsum(counts) - counts
+    right_idx = step_order[xp.repeat(lo - starts, counts) + xp.arange(total)]
+    left_part = take_rows(state, left_idx, engine).drop(current_col)  # type: ignore[operator]
+    right_part = (
+        take_rows(step, right_idx, engine)
+        .drop([from_col, *tiebreak_cols])  # type: ignore[operator]
+        .rename({to_col: current_col})
+    )
+    out = pl.concat([left_part, right_part], how="horizontal")
+    if isinstance(alias, str):
+        out = out.with_columns(pl.col(current_col).alias(alias))
+    return cast(DataFrameT, out)
+
+
 def path_ordered_expand_join(
     state: DataFrameT,
     step: DataFrameT,
@@ -418,6 +480,12 @@ def path_ordered_expand_join(
     under that name.
     """
     drop_after = [from_col, path_order_col, *tiebreak_cols]
+    array_expand = _path_ordered_expand_join_arrays(
+        state, step, current_col=current_col, from_col=from_col, to_col=to_col,
+        tiebreak_cols=tiebreak_cols, alias=alias, engine=engine,
+    )
+    if array_expand is not None:
+        return array_expand
     if engine in POLARS_ENGINES:
         import polars as pl
 
