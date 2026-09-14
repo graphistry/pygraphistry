@@ -39,6 +39,13 @@ def test_installed_polars_branch_matches_the_predicate():
     assert membership._installed_polars_implodes() is imploded_rhs_supported(pl.__version__)
 
 
+def _deprecations(caught):
+    """polars raises its ``is_in`` deprecation from Rust: under a ``-W error`` filter it is PRINTED,
+    not raised (verified against a mutant), so only record-and-assert can observe it.
+    ``CategoricalRemappingWarning`` (local categoricals) is a perf hint, not part of the contract."""
+    return [str(w.message) for w in caught if issubclass(w.category, DeprecationWarning)]
+
+
 # --- set semantics + no warning on the INSTALLED polars, every dtype/shape ------------------
 
 def _scenarios():
@@ -58,14 +65,13 @@ def _scenarios():
 def test_is_in_ids_is_set_membership_and_never_warns(label, vals, ids, dtype, expected):
     df = pl.DataFrame({"x": pl.Series(vals, dtype=dtype)})
     id_series = pl.Series("id", ids, dtype=dtype)
-    with warnings.catch_warnings():
-        warnings.simplefilter("error", DeprecationWarning)
-        # CategoricalRemappingWarning (local categoricals) is a perf hint, not a contract breach
-        warnings.filterwarnings("ignore", category=pl.exceptions.CategoricalRemappingWarning)
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
         got = df.select(is_in_ids(pl.col("x"), id_series).alias("m")).get_column("m").to_list()
-        oracle = df.select(pl.col("x").is_in(id_series.to_list()).alias("m")).get_column("m").to_list()
+    oracle = df.select(pl.col("x").is_in(id_series.to_list()).alias("m")).get_column("m").to_list()
     assert got == expected, label
     assert got == oracle, label
+    assert _deprecations(caught) == [], label
 
 
 def test_is_in_ids_keeps_callers_fill_null_contract():
@@ -93,14 +99,20 @@ _EDGES = pd.DataFrame({"s": [0, 1, 7, 8, 9], "d": [1, 5, 2, 6, 9]})
 _CLOSED = {(0, 1)}
 
 
+def _ids(values, id_dtype) -> "pl.Series":
+    """Int64 literals re-typed as the id dtype under test (Categorical only casts from strings)."""
+    e = pl.Series(list(values), dtype=pl.Int64)
+    return e.cast(pl.Utf8).cast(id_dtype) if id_dtype in (pl.Utf8, pl.Categorical) else e.cast(id_dtype)
+
+
 def _bind(nodes: pd.DataFrame, edges: pd.DataFrame, id_dtype):
-    n_pl = pl.from_pandas(nodes).with_columns(pl.col("id").cast(id_dtype))
-    e_pl = pl.from_pandas(edges).with_columns(pl.col("s").cast(id_dtype), pl.col("d").cast(id_dtype))
+    n_pl = pl.from_pandas(nodes).with_columns(_ids(nodes["id"], id_dtype).alias("id"))
+    e_pl = pl.from_pandas(edges).with_columns(_ids(edges["s"], id_dtype).alias("s"), _ids(edges["d"], id_dtype).alias("d"))
     return graphistry.nodes(n_pl, "id").edges(e_pl, "s", "d")
 
 
-def _as(ids, id_dtype):
-    return set(pl.Series(list(ids), dtype=pl.Int64).cast(id_dtype).to_list())
+def _pairs(pairs, id_dtype):
+    return {tuple(_ids(p, id_dtype).to_list()) for p in pairs}
 
 
 @pytest.mark.parametrize("direction", ["forward", "reverse", "undirected"])
@@ -109,11 +121,11 @@ def test_polars_hop_endpoint_gate_runs_on_the_installed_polars(direction, id_dty
     """Unseeded hop through ``_keep_edges_with_both_endpoints_resolvable``: only the closed edge
     survives, in every direction, for int / string / categorical ids (hand oracle)."""
     g = _bind(_NODES, _EDGES, id_dtype)
-    with warnings.catch_warnings():
-        warnings.simplefilter("error", DeprecationWarning)
-        warnings.filterwarnings("ignore", category=pl.exceptions.CategoricalRemappingWarning)
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
         out = g.hop(direction=direction, engine="polars")
-    assert edge_pair_set(out) == {tuple(pl.Series(list(p), dtype=pl.Int64).cast(id_dtype).to_list()) for p in _CLOSED}
+    assert edge_pair_set(out) == _pairs(_CLOSED, id_dtype)
+    assert _deprecations(caught) == []
 
 
 @pytest.mark.parametrize("id_dtype", [pl.Int64, pl.Utf8], ids=["int", "str"])
@@ -123,9 +135,9 @@ def test_polars_seeded_hop_with_a_target_wavefront_gate(id_dtype):
     nodes = pd.DataFrame({"id": [0, 1, 2, 3]})
     edges = pd.DataFrame({"s": [0, 1, 2, 3], "d": [1, 2, 3, 4]})  # 3->4 dangles
     g = _bind(nodes, edges, id_dtype)
-    seed = pl.DataFrame({"id": pl.Series([0], dtype=pl.Int64).cast(id_dtype)})
+    seed = pl.DataFrame({"id": _ids([0], id_dtype)})
     out = g.hop(nodes=seed, hops=2, direction="forward", engine="polars")
-    assert edge_pair_set(out) == {tuple(pl.Series(list(p), dtype=pl.Int64).cast(id_dtype).to_list()) for p in {(0, 1), (1, 2)}}
+    assert edge_pair_set(out) == _pairs({(0, 1), (1, 2)}, id_dtype)
 
 
 def test_polars_hop_empty_node_table_over_edges_keeps_nothing():
