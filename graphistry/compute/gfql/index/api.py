@@ -821,7 +821,35 @@ def gfql_index_all(g: Plottable,
     except GfqlIndexUnsupportedError:
         pass  # non-unique node ids -> skip the node_id accelerator (adjacency still built)
     g = gfql_index_col_stats(g, col_stats_by_type=col_stats_by_type, engine=engine)
-    return gfql_index_categories(g, engine=engine)
+    g = gfql_index_categories(g, engine=engine)
+    return gfql_index_endpoint_rows(g, engine=engine)
+
+
+def gfql_index_endpoint_rows(g: Plottable,
+                             engine: EngineAbstractType = EngineAbstract.AUTO) -> Plottable:
+    """Resolve each edge endpoint to its node row once -- EAGER, and only when it is sound.
+
+    Needs a node id index to resolve through, and every endpoint id to exist in it;
+    without either this is a no-op and traversal resolves endpoints the way it did
+    before. Like the other indexes here it is a declared SETUP step.
+    """
+    from .build import build_endpoint_rows_fact
+
+    engine_concrete = resolve_engine(engine, g)
+    nodes, edges = g._nodes, g._edges
+    node_id, src, dst = g._node, g._source, g._destination
+    if nodes is None or edges is None or node_id is None or src is None or dst is None:
+        return g
+    registry = get_registry(g)
+    node_index = registry.get_valid(NODE_ID, nodes, (str(node_id),), engine_concrete)
+    if not isinstance(node_index, NodeIdIndex):
+        return g
+    fact = build_endpoint_rows_fact(
+        edges, nodes, str(src), str(dst), node_index, engine_concrete,
+    )
+    if fact is None:
+        return g
+    return _attach(g, registry.with_endpoint_rows(fact))
 
 
 # ---- planner entry ---------------------------------------------------------

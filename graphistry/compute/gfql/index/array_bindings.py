@@ -287,6 +287,9 @@ def try_array_path_bag(
     current_ids = node_id_values[seed_rows]
     policy = get_index_policy(base_graph)
     n_edges = int(edges.shape[0])
+    endpoint_rows_fact = registry.get_endpoint_rows_valid(
+        src, dst, node_id, edges, nodes, engine,
+    )
     estimated_rows = int(current_ids.shape[0])
 
     for edge_position in range(1, len(ops), 2):
@@ -310,17 +313,29 @@ def try_array_path_bag(
         from_ids = (dst_values if reverse else src_values)[kept]
         to_ids = (src_values if reverse else dst_values)[kept]
 
-        endpoint_ids = xp.unique(to_ids)
-        endpoint_rows = xp.sort(lookup_node_rows(node_index, endpoint_ids, xp))
+        to_rows: Optional[ArrayLike]
+        if endpoint_rows_fact is not None:
+            # Endpoint node rows were resolved at build time; gather, do not search.
+            to_rows = (endpoint_rows_fact.src_rows if reverse else endpoint_rows_fact.dst_rows)[kept]
+            endpoint_rows = xp.unique(to_rows)
+        else:
+            endpoint_ids = xp.unique(to_ids)
+            endpoint_rows = xp.sort(lookup_node_rows(node_index, endpoint_ids, xp))
+            to_rows = None
         surviving = _filtered_positions(nodes, endpoint_rows, next_op.filter_dict, engine, xp, base_graph, "nodes")
         if surviving is None:
             return None
         if int(surviving.shape[0]) != int(endpoint_rows.shape[0]):
-            keep = xp.isin(to_ids, node_id_values[surviving])
+            if to_rows is not None:
+                keep = xp.isin(to_rows, surviving)
+                to_rows = to_rows[keep]
+            else:
+                keep = xp.isin(to_ids, node_id_values[surviving])
             kept, from_ids, to_ids = kept[keep], from_ids[keep], to_ids[keep]
 
         order = xp.lexsort((kept, from_ids))
         from_sorted, edge_sorted, to_sorted = from_ids[order], kept[order], to_ids[order]
+        rows_sorted = None if to_rows is None else to_rows[order]
         low = xp.searchsorted(from_sorted, current_ids, side="left")
         high = xp.searchsorted(from_sorted, current_ids, side="right")
         counts = high - low
@@ -334,9 +349,13 @@ def try_array_path_bag(
         node_rows = {alias: rows[left] for alias, rows in node_rows.items()}
         edge_rows = {alias: rows[left] for alias, rows in edge_rows.items()}
         current_ids = to_sorted[picked]
-        current_rows = _aligned_node_rows(node_index, current_ids, xp)
-        if current_rows is None:
-            return None
+        if rows_sorted is not None:
+            current_rows: ArrayLike = rows_sorted[picked]
+        else:
+            resolved = _aligned_node_rows(node_index, current_ids, xp)
+            if resolved is None:
+                return None
+            current_rows = resolved
         if isinstance(next_op._name, str):
             node_rows[next_op._name] = current_rows
         if isinstance(edge_op._name, str):
