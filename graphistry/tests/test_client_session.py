@@ -11,9 +11,13 @@ import pandas as pd
 from unittest import mock
 
 
-def _fake_jwt(exp=None) -> str:
+def _fake_jwt(exp=None, user_id=None) -> str:
     header = base64.urlsafe_b64encode(b'{"alg":"none"}').rstrip(b"=").decode()
-    payload = {} if exp is None else {"exp": exp}
+    payload = {}
+    if exp is not None:
+        payload["exp"] = exp
+    if user_id is not None:
+        payload["user_id"] = user_id
     body = base64.urlsafe_b64encode(json.dumps(payload).encode()).rstrip(b"=").decode()
     return f"{header}.{body}.sig"
 
@@ -55,6 +59,32 @@ class TestVerifiedOrgTokenCache:
         session = ClientSession()
         assert session.get_verified_token("never-switched") is None
         assert session.is_org_verified("tok", "never-switched") is False
+
+    def test_same_user_guard_matches_on_user_id_claim(self):
+        session = ClientSession()
+        cached = _fake_jwt(exp=time.time() + 3600, user_id=42)
+        session.mark_org_verified(cached, "org-a")
+
+        same_user = _fake_jwt(exp=time.time() + 1800, user_id=42)
+        other_user = _fake_jwt(exp=time.time() + 1800, user_id=43)
+
+        assert session.get_verified_token("org-a", same_user_as=same_user) == cached
+        assert session.get_verified_token("org-a", same_user_as=other_user) is None
+        # user_id is compared as a string so int/str encodings of the same id agree.
+        assert session.get_verified_token("org-a", same_user_as=_fake_jwt(exp=time.time() + 1800, user_id="42")) == cached
+
+    def test_same_user_guard_rejects_tokens_without_user_claim(self):
+        session = ClientSession()
+        claimless_cached = _fake_jwt(exp=time.time() + 3600)
+        session.mark_org_verified(claimless_cached, "org-a")
+        assert session.get_verified_token("org-a", same_user_as=_fake_jwt(user_id=42)) is None
+
+        session.mark_org_verified("opaque-pkey-token", "org-b")
+        assert session.get_verified_token("org-b", same_user_as="another-opaque-token") is None
+        assert session.get_verified_token("org-b", same_user_as=_fake_jwt(user_id=42)) is None
+
+        # The guard is opt-in: unguarded lookups keep their previous behavior.
+        assert session.get_verified_token("org-a") == claimless_cached
 
 
 class TestClientSession:
