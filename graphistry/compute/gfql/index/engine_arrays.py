@@ -66,7 +66,7 @@ def ids_to_array(ids: DataFrameT, col: str, engine: Engine) -> ArrayLike:
 
 def unique_with_counts(xp: ArrayNamespace, values: ArrayLike) -> Tuple[ArrayLike, ArrayLike]:
     """Sorted distinct values of a 1-D array and how often each occurs."""
-    return cast(
+    return cast(  # hygiene-ok: explicit-cast -- ArrayNamespace.unique has one declared arity; return_counts is the numpy/cupy two-array form
         Tuple[ArrayLike, ArrayLike],
         xp.unique(values, return_counts=True),  # type: ignore[call-arg]
     )

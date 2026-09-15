@@ -456,7 +456,9 @@ def _path_ordered_expand_join_arrays(
     out = pl.concat([left_part, right_part], how="horizontal")
     if isinstance(alias, str):
         out = out.with_columns(pl.col(current_col).alias(alias))
-    return cast(DataFrameT, out)
+    return cast(  # hygiene-ok: explicit-cast -- DataFrameT narrowing on the polars branch, module-wide idiom
+        DataFrameT, out,
+    )
 
 
 def path_ordered_expand_join(

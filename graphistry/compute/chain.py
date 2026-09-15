@@ -557,7 +557,7 @@ def combine_steps(
 def select_attach_prop_columns(
     middle: Sequence[ASTObject],
     calls: Sequence[ASTObject],
-    node_columns: Any,
+    node_columns: Sequence[str],
     node_id: Optional[str],
 ) -> Optional[Dict[str, List[str]]]:
     """Projection pushdown for a bare ``rows()`` immediately followed by ``select``.
@@ -840,7 +840,7 @@ def _handle_boundary_calls(
             attach_prop_columns = prev_params.get("attach_prop_columns")
             if attach_prop_columns is None and suffix_base_graph._nodes is not None:
                 attach_prop_columns = select_attach_prop_columns(
-                    middle, suffix, suffix_base_graph._nodes.columns, suffix_base_graph._node,
+                    middle, suffix, list(suffix_base_graph._nodes.columns), suffix_base_graph._node,
                 )
             suffix = [rows_fn(
                 binding_ops=serialize_binding_ops(middle),

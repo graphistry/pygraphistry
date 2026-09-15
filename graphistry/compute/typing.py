@@ -108,7 +108,7 @@ class ArrayLike(Protocol):
     def __radd__(self, other: Any) -> "ArrayLike":
         ...
 
-    def __mul__(self, other: Any) -> "ArrayLike":
+    def __mul__(self, other: Any) -> "ArrayLike":  # hygiene-ok: explicit-any -- ufunc accepts array|scalar operands (numpy/cupy)
         ...
 
     def __sub__(self, other: Any) -> "ArrayLike":

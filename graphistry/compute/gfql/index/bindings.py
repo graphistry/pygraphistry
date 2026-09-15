@@ -14,7 +14,7 @@ from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple, Union, c
 
 from graphistry.Engine import Engine, df_concat
 from graphistry.Plottable import Plottable
-from graphistry.compute.typing import DataFrameT
+from graphistry.compute.typing import ArrayLike, ArrayNamespace, DataFrameT
 from graphistry.compute.gfql.identifiers import WALK_CURRENT_COL
 
 from .api import (
@@ -174,7 +174,10 @@ def _with_marker(frame: DataFrameT, name: Optional[str], engine: Engine) -> Data
 
 
 def _take_filtered_rows(
-    frame: DataFrameT, positions: Any, filter_dict: Optional[dict], engine: Engine,
+    frame: DataFrameT,
+    positions: ArrayLike,
+    filter_dict: Optional[dict],  # hygiene-ok: bare-generic -- the filter dict `_filter_frame` takes, passed through unchanged
+    engine: Engine,
 ) -> DataFrameT:
     """``_filter_frame(take_rows(frame, positions))`` with the predicate evaluated first.
 
@@ -199,13 +202,17 @@ def _take_filtered_rows(
     return take_rows(frame, col_to_array(kept, _ROW_POS, engine), engine)
 
 
-def _covers_ids(frame: DataFrameT, column: str, ids: Any, engine: Engine, xp: Any) -> bool:
+def _covers_ids(
+    frame: DataFrameT, column: str, ids: ArrayLike, engine: Engine, xp: ArrayNamespace,
+) -> bool:
     """Whether ``frame[column]`` (a gather by ``ids``) still holds EVERY id in ``ids``."""
     found = xp.unique(col_to_array(frame, column, engine))
     return int(found.shape[0]) == int(ids.shape[0])
 
 
-def _with_positions(frame: DataFrameT, name: str, positions: Any, engine: Engine) -> DataFrameT:
+def _with_positions(
+    frame: DataFrameT, name: str, positions: ArrayLike, engine: Engine,
+) -> DataFrameT:
     if engine == Engine.POLARS:
         import numpy as np
         import polars as pl
@@ -218,17 +225,10 @@ def _with_positions(frame: DataFrameT, name: str, positions: Any, engine: Engine
 
 
 def _frame_with_positions(
-    frame: DataFrameT, positions: Any, engine: Engine,
+    frame: DataFrameT, positions: ArrayLike, engine: Engine,
 ) -> DataFrameT:
-    if engine == Engine.POLARS:
-        import numpy as np
-        import polars as pl
-
-        return cast(
-            DataFrameT,
-            frame.with_columns(pl.Series(_EDGE_ORD, np.asarray(positions))),  # type: ignore[operator]
-        )
-    return cast(DataFrameT, frame.assign(**{_EDGE_ORD: positions}))
+    """Tag gathered edge rows with their source row positions, the traversal tiebreak."""
+    return _with_positions(frame, _EDGE_ORD, positions, engine)
 
 
 def _orient_edges(

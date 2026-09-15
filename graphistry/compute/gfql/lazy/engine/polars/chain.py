@@ -550,7 +550,7 @@ def _run_calls_polars(g_cur, calls, start_nodes, base_graph, middle):
         attach_prop_columns = prev_params.get("attach_prop_columns")
         if attach_prop_columns is None and base_graph._nodes is not None:
             attach_prop_columns = select_attach_prop_columns(
-                middle, calls, base_graph._nodes.columns, base_graph._node,
+                middle, calls, list(base_graph._nodes.columns), base_graph._node,
             )
         calls = [rows_fn(
             binding_ops=serialize_binding_ops(middle),
