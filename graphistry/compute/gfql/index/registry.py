@@ -11,7 +11,7 @@ answer).
 from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
-from typing import Any, Dict, Literal, Optional, Tuple, Union, cast
+from typing import Any, Dict, Literal, Mapping, Optional, Tuple, Union, cast
 
 from graphistry.Engine import Engine
 from graphistry.compute.typing import DataFrameT
@@ -107,6 +107,30 @@ class NodePropIndex:
 
 ColStatsRole = Literal["nodes", "edges"]
 
+
+@dataclass(frozen=True)
+class CategoryIndex:
+    """Low-cardinality column -> per-row integer code, for scalar-equality predicates.
+
+    A label or edge-type predicate (``{label__Person: True}``, ``{type: "KNOWS"}``)
+    is answered on gathered candidate rows by comparing their codes to the code of
+    the wanted value, which is one array gather instead of a frame filter. Built at
+    the same load-time point as the other indexes, and reported the same way.
+
+    ``codes`` is aligned with the frame's rows. ``value_codes`` maps each distinct
+    value to its code; a value absent from the mapping matches no row. Columns with
+    nulls are not indexed, so a code always denotes a real value.
+    """
+    role: ColStatsRole
+    column: str
+    codes: ArrayLike
+    value_codes: Mapping[object, int]
+    backend: IndexBackend
+    engine: Engine
+    fingerprint: FrameFingerprint = field(compare=False, default=(-1, (), ""))
+    source_ref: Optional[DataFrameT] = field(compare=False, default=None)
+    n_rows: int = 0
+
 #: The value side of a type partition: the groupby key that the single scalar
 #: equality of a typed pattern names -- a relationship type or label name
 #: (``str``), a numeric type code (``int``), or a ``label__X`` flag (``bool``).
@@ -192,6 +216,8 @@ class GfqlIndexRegistry:
     col_stats: Dict[Tuple[str, str, Optional[str], Optional[PartitionValue]], ColStatsFact] = field(default_factory=dict)
     # Degree facts keyed by (src, dst, type_column, type_value); see DegreeFact.
     degrees: Dict[Tuple[str, str, Optional[str], Optional[PartitionValue]], DegreeFact] = field(default_factory=dict)
+    # Category indexes keyed by (role, column); see CategoryIndex.
+    categories: Dict[Tuple[ColStatsRole, str], "CategoryIndex"] = field(default_factory=dict)
 
     def with_index(self, kind: IndexKind, index: Union[AdjacencyIndex, NodeIdIndex]) -> "GfqlIndexRegistry":
         new = dict(self.indexes)
@@ -256,6 +282,34 @@ class GfqlIndexRegistry:
 
     def without_col_stats(self) -> "GfqlIndexRegistry":
         return replace(self, col_stats={})
+
+    def with_category(self, index: "CategoryIndex") -> "GfqlIndexRegistry":
+        categories = dict(self.categories)
+        categories[(index.role, index.column)] = index
+        return replace(self, categories=categories)
+
+    def get_category_valid(
+        self, role: ColStatsRole, column: str, df: Optional[DataFrameT], engine: Engine
+    ) -> Optional["CategoryIndex"]:
+        """The category index for (role, column) while it still matches the live frame.
+
+        Same identity + fingerprint contract as the other indexes: a stale hit here
+        would answer a predicate against codes for a frame that no longer exists.
+        """
+        index = self.categories.get((role, column))
+        if index is None or df is None or index.engine != engine:
+            return None
+        if index.source_ref is not None and index.source_ref is not df:
+            return None
+        if index.fingerprint != frame_fingerprint(df, (column,), engine):
+            return None
+        return index
+
+    def category_cols(self, role: ColStatsRole) -> Tuple[str, ...]:
+        return tuple(sorted(column for indexed_role, column in self.categories if indexed_role == role))
+
+    def without_categories(self) -> "GfqlIndexRegistry":
+        return replace(self, categories={})
 
     def node_prop_cols(self) -> Tuple[str, ...]:
         return tuple(sorted(self.node_props.keys()))

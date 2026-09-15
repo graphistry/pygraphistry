@@ -765,6 +765,40 @@ def gfql_index_col_stats(g: Plottable,
     return _attach(g, registry)
 
 
+def gfql_index_categories(g: Plottable,
+                          node_columns: Optional[Sequence[str]] = None,
+                          edge_columns: Optional[Sequence[str]] = None,
+                          engine: EngineAbstractType = EngineAbstract.AUTO) -> Plottable:
+    """Category indexes for the low-cardinality columns predicates test -- EAGER.
+
+    A label or edge-type predicate is a scalar equality on a column with a handful of
+    distinct values; coding those columns once at build time turns the predicate into a
+    code compare on the candidate rows. Default target is every eligible column, since
+    eligibility is itself narrow (no nulls, at most 64 distinct values, Boolean/integer/
+    string). Declines are silent and cost only a canonical filter, never an answer.
+
+    Like the other indexes here this is a declared SETUP step, not lazy per-query work, so
+    a measurement harness discloses it the same way it discloses the adjacency build.
+    """
+    from .build import build_category_index
+
+    engine_concrete = resolve_engine(engine, g)
+    registry = get_registry(g)
+    targets: List[Tuple[ColStatsRole, Optional[DataFrameT], Optional[Sequence[str]]]] = [
+        ("nodes", g._nodes, node_columns),
+        ("edges", g._edges, edge_columns),
+    ]
+    for role, frame, requested in targets:
+        if frame is None:
+            continue
+        columns = list(requested) if requested is not None else [str(column) for column in frame.columns]
+        for column in columns:
+            index = build_category_index(frame, column, role, engine_concrete)
+            if index is not None:
+                registry = registry.with_category(index)
+    return _attach(g, registry)
+
+
 def gfql_index_all(g: Plottable,
                    col_stats_by_type: bool = False,
                    engine: EngineAbstractType = EngineAbstract.AUTO) -> Plottable:
@@ -786,7 +820,8 @@ def gfql_index_all(g: Plottable,
         g = create_index(g, NODE_ID, engine=engine)
     except GfqlIndexUnsupportedError:
         pass  # non-unique node ids -> skip the node_id accelerator (adjacency still built)
-    return gfql_index_col_stats(g, col_stats_by_type=col_stats_by_type, engine=engine)
+    g = gfql_index_col_stats(g, col_stats_by_type=col_stats_by_type, engine=engine)
+    return gfql_index_categories(g, engine=engine)
 
 
 # ---- planner entry ---------------------------------------------------------
