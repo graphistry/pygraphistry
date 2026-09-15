@@ -584,8 +584,7 @@ def _try_indexed_connected_bindings_state(
         next_nodes = _take_filtered_rows(nodes, node_rows, next_op.filter_dict, engine)
         next_alias_frame = _with_marker(next_nodes, next_op._name, engine)
         if not _covers_ids(next_nodes, node_id, endpoint_ids, engine, xp):
-            # The endpoint filter dropped ids, so narrow the edges to the survivors;
-            # when every endpoint id is still present the semi-join is the identity.
+            # Every surviving endpoint id still present makes this semi-join the identity.
             oriented = semijoin_by_column(
                 oriented, next_nodes, left_on=_TO, right_on=node_id, engine=engine,
             )

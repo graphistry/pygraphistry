@@ -435,8 +435,7 @@ def _path_ordered_expand_join_arrays(
     xp, _ = array_namespace(engine)
     current = col_to_array(state, current_col, engine)
     keys = col_to_array(step, from_col, engine)
-    # lexsort: the LAST key is primary, so pass (tiebreaks reversed..., keys) for a
-    # (key, tiebreak_0, tiebreak_1, ...) order.
+    # lexsort takes its PRIMARY key last, so this orders by (key, tiebreak_0, tiebreak_1, ...).
     tiebreaks = [col_to_array(step, col, engine) for col in tiebreak_cols]
     step_order = xp.lexsort(tuple([*reversed(tiebreaks), keys]))
     sorted_keys = keys[step_order]
