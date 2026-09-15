@@ -21,7 +21,6 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 - SSO: the blocking `sso_login()` poll loop no longer spins without sleeping or timing out when IPython is not installed; the notebook countdown is display-only and can't skip the per-iteration wait (follow-up to #1721).
 - `switch_org()`: the cached-token swap-in fast path is now bound to the Hub `user_id` claim, so a token cached for one user is never reinstated after `login()`/`api_token()` switched to another; opaque tokens never qualify (follow-up to #1721).
-- `refresh()` no longer carries an org's verified-switch grant onto the reissued token: the server resets the active org on every reissue, so the carried grant let `plot()` skip the required `/switch/` call and silently upload to the default org while `session.org_name` still showed the requested one. Once the token actually rotates, the stale cache entry for that org is dropped first so `switch_org()`'s same-user fast path can't swap the superseded pre-refresh token back in as active either (follow-up to #1721).
 - GFQL: explicit `polars-gpu` row aggregation collects the aggregate plan on GPU; unsupported aggregation plans raise a structured operation decline (#2075).
 - GFQL: reject malformed aggregation sources during validation while preserving literal column names and valid expressions (#2076).
 * GFQL Polars: property returns from multiple aliases gather existing columns directly around the endpoint joins, avoiding expression-plan overhead.

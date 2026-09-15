@@ -156,18 +156,6 @@ class ClientSession:
             return
         self._verified_org_tokens[org_name] = (token, _jwt_exp(token))
 
-    def forget_verified_org(self, org_name: str) -> None:
-        """Drop any cached verification for org_name.
-
-        Callers that just rotated the active token (e.g. refresh()) must call
-        this for the current org before re-checking verification: the server
-        resets the active org on every token reissue, so a cache entry from
-        before the rotation is stale, and get_verified_token()'s same_user_as
-        guard would otherwise happily swap the old (superseded) token back in
-        as active since it still belongs to the same user.
-        """
-        self._verified_org_tokens.pop(org_name, None)
-
     def get_verified_token(self, org_name: str, same_user_as: Optional[str] = None) -> Optional[str]:
         """Return a still-unexpired token previously verified for org_name, if any.
 
