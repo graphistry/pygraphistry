@@ -817,6 +817,18 @@ def chain_polars(self: Plottable, ops, start_nodes: Optional[Any] = None) -> Plo
     from graphistry.compute.gfql.index.handoff import (
         IndexedBindingsHandoff, attach_handoff,
     )
+    from .chain_specializations.bindings_select import try_bindings_select_polars
+
+    projected = try_bindings_select_polars(self, middle, suffix, start_nodes)
+    if projected is not None:
+        from .chain_specializations.bindings_select import rewrap_projected_polars
+        from graphistry.compute.gfql.exec_context import clear_row_exec_context
+        g_cur = rewrap_projected_polars(self, middle, projected)
+        rest = list(suffix[2:])
+        if rest:
+            return _run_calls_polars(g_cur, rest, start_nodes, base_graph=self, middle=middle)
+        # The twin of `_run_calls_polars`' own tail: row plumbing never escapes a result.
+        return clear_row_exec_context(g_cur)
 
     indexed_state, indexed_attempted = _try_indexed_middle_polars(self, middle, suffix, start_nodes)
     if indexed_state is not None:
