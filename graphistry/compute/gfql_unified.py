@@ -519,7 +519,7 @@ def _apply_connected_optional_match(
         else:
             seed_frame = cast(DataFrameT, df_to_engine(
                 seed_src.dropna().drop_duplicates().rename(columns={joined_col: node_col}), concrete_engine))
-        if is_polars_df(base_nodes) and is_polars_df(seed_frame):
+        if is_polars_df(base_nodes) and is_polars_df(seed_frame):  # pragma: no cover - unreachable (polars routes elsewhere)
             import polars as pl
             from graphistry.compute.gfql.lazy.engine.polars.dtypes import is_lazy
             from graphistry.compute.gfql.lazy.engine.polars.membership import is_in_ids

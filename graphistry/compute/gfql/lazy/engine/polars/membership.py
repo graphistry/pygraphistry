@@ -23,7 +23,7 @@ from __future__ import annotations
 from functools import lru_cache
 from typing import TYPE_CHECKING
 
-from packaging.version import Version
+from packaging.version import InvalidVersion, Version
 
 from graphistry.compute.gfql.cache_registry import register_process_singleton
 
@@ -34,8 +34,14 @@ IMPLODED_RHS_FLOOR = Version("1.28.0")
 
 
 def imploded_rhs_supported(polars_version: str) -> bool:
-    """True when ``is_in(ids.implode())`` is the correct, warning-free spelling."""
-    return Version(polars_version) >= IMPLODED_RHS_FLOOR
+    """True when ``is_in(ids.implode())`` is the correct, warning-free spelling.
+
+    An unparseable version falls back to the bare-Series RHS, which is CORRECT on every
+    release 1.21..1.35 and merely warns from 1.28 -- the safe side of the branch."""
+    try:
+        return Version(polars_version) >= IMPLODED_RHS_FLOOR
+    except InvalidVersion:
+        return False
 
 
 @lru_cache(maxsize=1)
@@ -55,7 +61,7 @@ def id_set(ids: "pl.Series") -> "pl.Series":
     against several columns."""
     if _installed_polars_implodes():
         return ids.implode()
-    return ids
+    return ids  # pragma: no cover - only a polars < 1.28 lane reaches this; no CI lane has one
 
 
 def is_in_ids(expr: "pl.Expr", ids: "pl.Series") -> "pl.Expr":

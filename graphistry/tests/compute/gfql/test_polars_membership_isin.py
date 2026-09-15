@@ -29,6 +29,9 @@ from graphistry.compute.gfql.lazy.engine.polars.membership import (  # noqa: E40
 @pytest.mark.parametrize("version,expected", [
     ("1.21.0", False), ("1.27.1", False), ("1.28.0rc1", False),
     ("1.28.0", True), ("1.28.1", True), ("1.29.0", True), ("1.35.2", True), ("2.0.0", True),
+    ("1.31.0+cu12", True), ("1.30.0.dev0", True), ("1.28.0.dev0", False),
+    # unparseable -> the bare RHS, which is correct on every release (it only warns from 1.28)
+    ("not-a-version", False), ("", False),
 ])
 def test_imploded_rhs_supported_switches_exactly_at_1_28_0(version, expected):
     assert imploded_rhs_supported(version) is expected
