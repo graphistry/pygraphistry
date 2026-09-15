@@ -9,7 +9,11 @@ Oracles are the python-list form ``expr.is_in(ids.to_list())`` (never warned, ne
 any 1.21..1.35 release in the #2082 per-release sweep) and hand-written literals.
 Engine agreement is not used as evidence.
 """
+import ast
+import functools
+import pathlib
 import warnings
+from typing import List
 
 import pandas as pd
 import pytest
@@ -47,19 +51,19 @@ def test_installed_polars_branch_matches_the_predicate():
     assert membership._installed_polars_implodes() is imploded_rhs_supported(pl.__version__)
 
 
-@pytest.mark.parametrize("implodes,expected_list", [(False, False), (True, True)])
-def test_id_set_spells_both_arms_whatever_polars_is_installed(monkeypatch, implodes, expected_list):
+@pytest.mark.parametrize("implodes", [False, True], ids=["sub-1.28-bare", "1.28+-imploded"])
+def test_id_set_spells_both_arms_whatever_polars_is_installed(monkeypatch, implodes):
     """The < 1.28 arm is what #2082 turns on, and no CI lane installs a polars that old: without
     this pin, collapsing id_set to a single spelling stays green everywhere and silently brings
     the RAPIDS 25.02 ComputeError back."""
     monkeypatch.setattr(membership, "_installed_polars_implodes", lambda: implodes)
     ids = pl.Series("id", [1, 2], dtype=pl.Int64)
     rhs = membership.id_set(ids)
-    assert isinstance(rhs.dtype, pl.List) is expected_list
-    if expected_list:
+    assert isinstance(rhs.dtype, pl.List) is implodes
+    if implodes:
         assert rhs.len() == 1 and rhs.to_list() == [[1, 2]]
     else:
-        assert rhs.equals(ids)
+        assert rhs is ids
 
 
 def _deprecations(caught):
@@ -187,3 +191,126 @@ def test_endpoint_gate_kernel_directly_on_string_and_categorical_ids(id_dtype):
             kept = _keep_edges_with_both_endpoints_resolvable(edges, "s", "d", id_dtype, ids)
         assert set(zip(kept["s"].to_list(), kept["d"].to_list())) == _pairs(expected, id_dtype)
         assert _deprecations(caught) == []
+
+
+# --- the routing itself, as a static lock ---------------------------------------------------
+#
+# The value-level pins above protect the helper, not the call sites. A future
+# ``pl.col(x).is_in(ids.implode())`` written directly is correct and warning-free on every CI
+# polars (>= 1.29) and raises ComputeError on the polars 1.21 that RAPIDS 25.02 pins, so no
+# value test in any lane can catch it. This scan does.
+#
+# It follows a name bound by a plain, annotated or walrus assignment in the same module -- the
+# spelling the reported site itself used (``universe = resolvable_ids.implode()`` then
+# ``.is_in(universe)``) -- and walks the bound value, so an imploded set wrapped in another call
+# (``.cast``, ``.alias``) still binds the name. That over-approximates, which fails loudly rather
+# than silently. Binding through a tuple unpack, an attribute, or a helper's return value needs
+# real dataflow and is NOT caught, nor is a bare-Series RHS: undecidable statically, and it only
+# warns rather than failing.
+#
+# The lock lives in this polars-gated module, so it runs in the polars lane rather than every
+# lane -- that lane fires on any python/gfql/core/infra change, which is where such a site
+# could appear.
+
+REPO_ROOT = pathlib.Path(__file__).resolve().parents[4]
+ROUTING_HELPER = REPO_ROOT / "graphistry" / "compute" / "gfql" / "lazy" / "engine" / "polars" / "membership.py"
+
+
+def _implode_call(node: ast.AST) -> bool:
+    return (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "implode")
+
+
+def _imploded_is_in_linenos(tree: ast.AST) -> List[int]:
+    """Lines in ``tree`` spelling ``<expr>.is_in(<imploded>)``, by argument or keyword, where
+    ``<imploded>`` is either a direct ``....implode()`` or a name assigned one in the module."""
+    aliases = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Assign):
+            targets = node.targets
+        elif isinstance(node, (ast.AnnAssign, ast.NamedExpr)):  # `u: pl.Series = ...`, `(u := ...)`
+            targets = [node.target]
+        else:
+            continue
+        if node.value is not None and any(_implode_call(i) for i in ast.walk(node.value)):
+            aliases |= {t.id for t in targets if isinstance(t, ast.Name)}
+    out = []
+    for node in ast.walk(tree):
+        if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+                and node.func.attr == "is_in"):
+            continue
+        for arg in [*node.args, *(kw.value for kw in node.keywords)]:
+            if any(_implode_call(inner) or (isinstance(inner, ast.Name) and inner.id in aliases)
+                   for inner in ast.walk(arg)):
+                out.append(node.lineno)
+                break
+    return out
+
+
+@functools.lru_cache(maxsize=1)
+def _scan_for_imploded_is_in():
+    """(offending ``path:line`` strings, paths actually parsed) over shipped graphistry code."""
+    hits, scanned = [], []
+    for path in sorted((REPO_ROOT / "graphistry").rglob("*.py")):
+        # relative parts, so a checkout under a directory named "tests" cannot silently
+        # disable the whole scan
+        if "tests" in path.relative_to(REPO_ROOT).parts or path == ROUTING_HELPER:
+            continue
+        scanned.append(path)
+        try:  # bytes, not read_text: source is UTF-8 by PEP 3120 whatever the locale is
+            tree = ast.parse(path.read_bytes(), str(path))
+        except SyntaxError as e:  # pragma: no cover - would mean the tree stopped parsing
+            raise AssertionError(f"{path} does not parse under this python: {e}") from e
+        hits += [f"{path.relative_to(REPO_ROOT)}:{line}" for line in _imploded_is_in_linenos(tree)]
+    return tuple(hits), tuple(scanned)
+
+
+def test_no_module_spells_an_imploded_is_in_outside_the_helper():
+    hits, _ = _scan_for_imploded_is_in()
+    assert hits == (), (
+        "these sites spell is_in(...implode()) directly, which raises ComputeError on the "
+        "polars 1.21 that RAPIDS 25.02 pins; route them through "
+        f"graphistry.compute.gfql.lazy.engine.polars.membership.is_in_ids instead: {hits}"
+    )
+
+
+def test_the_routing_lock_scans_the_engine_and_exempts_a_file_that_exists():
+    """A lock that silently scans nothing passes forever. Pin its inputs, as the lane-completeness
+    and cache-registry locks pin theirs."""
+    _, scanned = _scan_for_imploded_is_in()
+    assert ROUTING_HELPER.is_file(), f"the exempt helper moved: {ROUTING_HELPER}"
+    engine = REPO_ROOT / "graphistry" / "compute" / "gfql" / "lazy" / "engine" / "polars"
+    # gfql_unified.py is routed too and lives OUTSIDE the engine subtree: without it, narrowing
+    # the walk back to graphistry/compute/gfql would keep every other pin green.
+    for must in (engine / "hop_eager.py", engine / "pattern_apply.py",
+                 engine / "chain_specializations" / "hotpaths.py",
+                 REPO_ROOT / "graphistry" / "compute" / "gfql_unified.py"):
+        assert must in scanned, f"the routed module {must} was not scanned"
+    assert ROUTING_HELPER in set((REPO_ROOT / "graphistry").rglob("*.py")), (
+        "the helper must sit inside the walked tree, skipped by policy rather than by absence")
+    assert ROUTING_HELPER not in scanned, "the exempt helper must be skipped, not parsed"
+    # a floor far below the ~350 shipped modules, so ordinary tree growth never re-tunes it
+    assert len(scanned) > 100, f"only {len(scanned)} files scanned; the walk is not reaching the tree"
+
+
+@pytest.mark.parametrize("src,caught", [
+    ("pl.col('a').is_in(ids.implode())", True),
+    ("df.filter(pl.col('a').is_in(pl.lit(s).implode()))", True),
+    ("col.is_in(\n    ids.implode(),\n)", True),
+    ("col.is_in(other=ids.implode())", True),
+    ("universe = ids.implode()\ncol.is_in(universe)", True),
+    ("u: pl.Series = ids.implode()\ncol.is_in(u)", True),
+    ("x = (u := ids.implode())\ncol.is_in(u)", True),
+    ("pl.col('a').is_in(ids)", False),
+    ("universe = id_set(ids)\ncol.is_in(universe)", False),
+    ("u: pl.Series = id_set(ids)\ncol.is_in(u)", False),
+    ("u = ids.implode().alias(a)\ncol.is_in(u)", True),
+    ("u = ids.implode()\ncol.is_in([1])", False),
+    ("x: int\nu = ids.implode()\ncol.is_in(u)", True),  # a valueless annotation must not abort the harvest
+    ("pl.col('a').is_in([1, 2])", False),
+    ("is_in_ids(pl.col('a'), ids)", False),
+    ("df.with_columns(ids.implode()).filter(pl.col('a').is_in([1]))", False),
+])
+def test_the_routing_lock_detects_the_shape_it_guards(src, caught):
+    """The matcher itself, against the spellings it must and must not flag."""
+    assert bool(_imploded_is_in_linenos(ast.parse(src))) is caught
