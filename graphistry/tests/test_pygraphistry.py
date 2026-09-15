@@ -116,6 +116,69 @@ def test_refresh_switches_when_org_changes(mock_refresh):
     mock_switch.assert_called_once_with("new-org")
 
 
+@patch("graphistry.pygraphistry.ArrowUploader.refresh")
+def test_refresh_rotated_token_does_not_skip_switch(mock_refresh):
+    """The server resets the active org on every reissue (that's what refresh()
+    calling switch_org() guards against -- see test_refresh_switches_org). A
+    rotated token must not be waved through by a stale cache entry either:
+    regression test for the token cached under the old, pre-refresh token
+    getting reinstated instead of the switch actually running."""
+    mock_arrow = unittest.mock.MagicMock()
+    mock_arrow.token = "tok-new"
+    mock_refresh.return_value = mock_arrow
+
+    client = graphistry.client()
+    client.session.org_name = "acme"
+    client.api_token("tok-old")
+    client.session.mark_org_verified("tok-old", "acme")
+
+    with patch("graphistry.pygraphistry.switch_org_request") as mock_request:
+        result = client.refresh()
+
+    mock_request.assert_called_once()
+    assert result == "tok-new"
+    assert client.api_token() == "tok-new"
+
+
+def test_refresh_rotated_token_hits_real_switch_endpoint():
+    """HTTP-level version of test_refresh_rotated_token_does_not_skip_switch:
+    only requests.post is mocked, so ArrowUploader.refresh() and the real
+    switch_org_request() run unmocked. Confirms the actual outgoing /switch/
+    POST carries the new (rotated) token as Bearer auth, not the stale
+    pre-refresh one, and that a non-OK-shaped /switch/ body would have
+    surfaced as OrgSwitchError rather than being silently accepted."""
+    client = graphistry.client()
+    client.session.org_name = "acme"
+    client.api_token("tok-old")
+    client.session.mark_org_verified("tok-old", "acme")
+
+    def fake_post(url, **kwargs):
+        response = unittest.mock.MagicMock()
+        response.status_code = 200
+        if url.endswith("/api/v2/auth/token/refresh"):
+            response.json.return_value = {"token": "tok-new"}
+        elif url.endswith("/api/v2/o/acme/switch/"):
+            # Real server behavior for a token that was just rotated: it must
+            # be presented as Bearer auth for the switch to succeed.
+            auth = kwargs.get("headers", {}).get("Authorization")
+            assert auth == "Bearer tok-new", f"switch request used wrong token: {auth}"
+            response.json.return_value = {"status": "OK", "data": {}}
+        else:
+            raise AssertionError(f"unexpected POST to {url}")
+        return response
+
+    with patch("requests.post", side_effect=fake_post) as mock_post:
+        result = client.refresh()
+
+    assert result == "tok-new"
+    assert client.api_token() == "tok-new"
+    urls_called = [c.args[0] for c in mock_post.call_args_list]
+    assert any(u.endswith("/api/v2/o/acme/switch/") for u in urls_called), (
+        "refresh() must trigger a real org switch for the rotated token, not reuse a stale cache entry"
+    )
+    assert client.session.is_org_verified("tok-new", "acme")
+
+
 def test_maybe_switch_org_cached_pair_skips():
     client = graphistry.client()
     client.api_token("tok123")

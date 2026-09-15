@@ -431,23 +431,23 @@ class GraphistryClient(AuthManagerProtocol):
             logger.debug("JWT refresh via token")
             if using_self_token:
                 self.session._is_authenticated = False
+            prior_token = self.api_token() if using_self_token else token
             token = (
                 ArrowUploader(
                     client_session=self.session,
                     server_base_path=self.protocol()
-                    + "://"                 
+                    + "://"
                     + self.server(),
                     certificate_validation=self.certificate_validation(),
                 )
-                .refresh(self.api_token() if using_self_token else token)
+                .refresh(prior_token)
                 .token
             )
             self.api_token(token)
             self.session._is_authenticated = True
             refreshed_org = self.session.org_name
-            if token and refreshed_org and self.session.get_verified_token(refreshed_org):
-                # Refresh reissues under the same org context; carry the grant to the new token.
-                self.session.mark_org_verified(token, refreshed_org)
+            if refreshed_org and token != prior_token:
+                self.session.forget_verified_org(refreshed_org)
             self._maybe_switch_org(refreshed_org)
             return self.api_token()
         except Exception as e:
