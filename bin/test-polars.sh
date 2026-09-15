@@ -166,6 +166,8 @@ POLARS_TEST_FILES=(
     # and the polars params only run here
     graphistry/tests/compute/gfql/test_duration_month_division_1937.py
     graphistry/tests/compute/gfql/index/test_indexed_bindings.py
+    graphistry/tests/compute/gfql/index/test_indexed_bindings_hop_overhead.py
+    graphistry/tests/compute/gfql/test_rows_select_projection_pushdown.py
     graphistry/tests/compute/gfql/test_reentry_caller_graph_immutability.py
     graphistry/tests/compute/gfql/test_rewrite_param_discard.py
     # #1804 rows(alias_prefilters=...) native honouring: the polars params (and the typed

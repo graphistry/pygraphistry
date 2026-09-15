@@ -446,7 +446,7 @@ def _semi_apply_mark_added_node_cols(params: Dict[str, object]) -> Set[str]:
 
 SAFELIST_V1: Dict[str, Dict[str, Any]] = {
     'rows': _safelist_entry(
-        {'table', 'source', 'alias_endpoints', 'binding_ops', 'alias_prefilters', 'attach_prop_aliases'},
+        {'table', 'source', 'alias_endpoints', 'binding_ops', 'alias_prefilters', 'attach_prop_aliases', 'attach_prop_columns'},
         param_validators={
             'table': lambda v: v in ['nodes', 'edges'],
             'source': is_string_or_none,
@@ -454,6 +454,10 @@ SAFELIST_V1: Dict[str, Dict[str, Any]] = {
             'binding_ops': is_list_of_dicts,
             'alias_prefilters': is_alias_prefilters,
             'attach_prop_aliases': lambda v: isinstance(v, list) and all(isinstance(x, str) for x in v),
+            'attach_prop_columns': lambda v: isinstance(v, dict) and all(
+                isinstance(k, str) and isinstance(cols, list) and all(isinstance(c, str) for c in cols)
+                for k, cols in v.items()
+            ),
         },
         description='Set active row table from nodes/edges, optionally filtered by source alias',
         schema_effects=_schema_effects(

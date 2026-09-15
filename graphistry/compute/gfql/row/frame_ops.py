@@ -35,6 +35,7 @@ if TYPE_CHECKING:
             binding_ops: List[Dict[str, JSONVal]],
             alias_prefilters: Optional[AliasPrefilters] = None,
             attach_prop_aliases: Optional[List[str]] = None,
+            attach_prop_columns: Optional[Dict[str, List[str]]] = None,
         ) -> "Plottable": ...
         def _gfql_bindings_row_table(self, alias_endpoints: Any) -> "Plottable": ...
 
@@ -259,12 +260,14 @@ def rows(
     binding_ops: Optional[List[Dict[str, JSONVal]]] = None,
     alias_prefilters: Optional[AliasPrefilters] = None,
     attach_prop_aliases: Optional[List[str]] = None,
+    attach_prop_columns: Optional[Dict[str, List[str]]] = None,
 ) -> "Plottable":
     if binding_ops is not None:
         return ctx._gfql_binding_ops_row_table(
             binding_ops,
             alias_prefilters=alias_prefilters,
             attach_prop_aliases=attach_prop_aliases,
+            attach_prop_columns=attach_prop_columns,
         )
     if alias_endpoints is not None:
         return cast("Plottable", ctx._gfql_bindings_row_table(alias_endpoints))
