@@ -206,6 +206,32 @@ class DegreeFact:
 
 
 @dataclass(frozen=True)
+class EndpointRowsFact:
+    """Node ROW POSITION of each edge's endpoints, aligned with the edge frame.
+
+    A traversal reaches an endpoint as an id and then needs that node's row to read
+    its properties, which is a search of the whole node key array once per hop.
+    Resolving both endpoints once at build time turns every one of those into a
+    gather. Declines to build when any endpoint id is missing from the node index,
+    so a row here always denotes a real node.
+
+    Validity spans BOTH frames: the rows are edge values resolved through the node
+    index, so editing either frame invalidates the fact.
+    """
+    src_col: str
+    dst_col: str
+    node_col: str
+    src_rows: ArrayLike
+    dst_rows: ArrayLike
+    backend: IndexBackend
+    engine: Engine
+    edges_fingerprint: FrameFingerprint = field(compare=False, default=(-1, (), ""))
+    nodes_fingerprint: FrameFingerprint = field(compare=False, default=(-1, (), ""))
+    edges_ref: Optional[DataFrameT] = field(compare=False, default=None)
+    nodes_ref: Optional[DataFrameT] = field(compare=False, default=None)
+
+
+@dataclass(frozen=True)
 class GfqlIndexRegistry:
     """Immutable kind -> index map. ``with_index`` / ``without`` return copies."""
     indexes: Dict[IndexKind, Union[AdjacencyIndex, NodeIdIndex]] = field(default_factory=dict)
@@ -218,6 +244,8 @@ class GfqlIndexRegistry:
     degrees: Dict[Tuple[str, str, Optional[str], Optional[PartitionValue]], DegreeFact] = field(default_factory=dict)
     # Category indexes keyed by (role, column); see CategoryIndex.
     categories: Dict[Tuple[ColStatsRole, str], "CategoryIndex"] = field(default_factory=dict)
+    # Endpoint row positions keyed by (src, dst, node id); see EndpointRowsFact.
+    endpoint_rows: Dict[Tuple[str, str, str], "EndpointRowsFact"] = field(default_factory=dict)
 
     def with_index(self, kind: IndexKind, index: Union[AdjacencyIndex, NodeIdIndex]) -> "GfqlIndexRegistry":
         new = dict(self.indexes)
@@ -310,6 +338,37 @@ class GfqlIndexRegistry:
 
     def without_categories(self) -> "GfqlIndexRegistry":
         return replace(self, categories={})
+
+    def with_endpoint_rows(self, fact: "EndpointRowsFact") -> "GfqlIndexRegistry":
+        facts = dict(self.endpoint_rows)
+        facts[(fact.src_col, fact.dst_col, fact.node_col)] = fact
+        return replace(self, endpoint_rows=facts)
+
+    def get_endpoint_rows_valid(
+        self, src_col: str, dst_col: str, node_col: str,
+        edges: Optional[DataFrameT], nodes: Optional[DataFrameT], engine: Engine,
+    ) -> Optional["EndpointRowsFact"]:
+        """The endpoint-row fact while it still matches BOTH live frames.
+
+        A stale hit would point at rows of a node frame that no longer exists, so
+        both identities and both fingerprints are checked, never one.
+        """
+        fact = self.endpoint_rows.get((src_col, dst_col, node_col))
+        if fact is None or edges is None or nodes is None or fact.engine != engine:
+            return None
+        if fact.edges_ref is not None and fact.edges_ref is not edges:
+            return None
+        if fact.nodes_ref is not None and fact.nodes_ref is not nodes:
+            return None
+        edge_cols = tuple(sorted({src_col, dst_col}))
+        if fact.edges_fingerprint != frame_fingerprint(edges, edge_cols, engine):
+            return None
+        if fact.nodes_fingerprint != frame_fingerprint(nodes, (node_col,), engine):
+            return None
+        return fact
+
+    def without_endpoint_rows(self) -> "GfqlIndexRegistry":
+        return replace(self, endpoint_rows={})
 
     def node_prop_cols(self) -> Tuple[str, ...]:
         return tuple(sorted(self.node_props.keys()))

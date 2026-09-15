@@ -12,8 +12,8 @@ from graphistry.Engine import Engine
 from graphistry.compute.typing import DataFrameT, SeriesT
 from .engine_arrays import array_namespace, col_to_array
 from .registry import (
-    AdjacencyIndex, CategoryIndex, ColStatsFact, ColStatsRole, DegreeFact, NodeIdIndex,
-    NodePropIndex, PartitionValue, frame_fingerprint,
+    AdjacencyIndex, CategoryIndex, ColStatsFact, ColStatsRole, DegreeFact, EndpointRowsFact,
+    NodeIdIndex, NodePropIndex, PartitionValue, frame_fingerprint,
 )
 from .types import AdjacencyIndexKind, ArrayLike, ArrayNamespace
 
@@ -498,4 +498,52 @@ def build_category_index(
         role=role, column=column, codes=codes, value_codes=value_codes,
         backend=backend, engine=engine, n_rows=int(series.len()),
         fingerprint=frame_fingerprint(frame, (column,), engine), source_ref=frame,
+    )
+
+
+def build_endpoint_rows_fact(
+    edges: DataFrameT,
+    nodes: DataFrameT,
+    src_col: str,
+    dst_col: str,
+    node_index: NodeIdIndex,
+    engine: Engine,
+) -> Optional[EndpointRowsFact]:
+    """Node row position of each edge endpoint, or None when any endpoint is unresolvable.
+
+    Resolves both endpoint columns through the node id index once, so a traversal that
+    has an edge row already has its endpoints' node rows. Declines when an endpoint id
+    is absent from the index or either column carries nulls, because a row that denotes
+    no node would be worse than the search it replaces.
+    """
+    xp, backend = array_namespace(engine)
+    keys = node_index.keys_sorted
+    total_keys = int(keys.shape[0])
+    if total_keys == 0:
+        return None
+    resolved = []
+    for column in (src_col, dst_col):
+        try:
+            values = col_to_array(edges, column, engine)
+        except (AttributeError, KeyError, TypeError, ValueError):
+            return None
+        if str(getattr(values.dtype, "kind", "")) not in ("i", "u"):
+            return None
+        probe = values
+        probe_keys = keys
+        if probe.dtype != probe_keys.dtype:
+            common = xp.promote_types(probe.dtype, probe_keys.dtype)  # promote, never narrow
+            probe = probe.astype(common)
+            probe_keys = probe_keys.astype(common)
+        position = xp.searchsorted(probe_keys, probe)
+        clipped = xp.minimum(position, total_keys - 1)
+        if int(xp.count_nonzero(probe_keys[clipped] == probe)) != int(probe.shape[0]):
+            return None  # an endpoint with no node row: decline rather than point at one
+        resolved.append(node_index.row_positions[clipped])
+    return EndpointRowsFact(
+        src_col=src_col, dst_col=dst_col, node_col=node_index.key_col,
+        src_rows=resolved[0], dst_rows=resolved[1], backend=backend, engine=engine,
+        edges_fingerprint=frame_fingerprint(edges, tuple(sorted({src_col, dst_col})), engine),
+        nodes_fingerprint=frame_fingerprint(nodes, (node_index.key_col,), engine),
+        edges_ref=edges, nodes_ref=nodes,
     )

@@ -175,3 +175,65 @@ def test_registry_can_drop_categories():
     registry = get_registry(g)
     assert registry.category_cols("nodes")
     assert registry.without_categories().category_cols("nodes") == ()
+
+
+def _endpoint_fact(g):
+    return get_registry(g).get_endpoint_rows_valid(
+        str(g._source), str(g._destination), str(g._node), g._edges, g._nodes, Engine.POLARS,
+    )
+
+
+def test_endpoint_rows_resolve_every_edge_endpoint():
+    g = _graph()
+    fact = _endpoint_fact(g)
+    assert fact is not None
+    ids = g._nodes.get_column("id").to_numpy()
+    assert list(ids[fact.src_rows]) == list(g._edges.get_column("s").to_numpy())
+    assert list(ids[fact.dst_rows]) == list(g._edges.get_column("d").to_numpy())
+
+
+def test_endpoint_rows_decline_when_an_endpoint_has_no_node():
+    nodes = pl.DataFrame({"id": [1, 2], "kind": ["a", "b"]})
+    edges = pl.DataFrame({"s": [1, 9], "d": [2, 2]})
+    g = graphistry.nodes(nodes, "id").edges(edges, "s", "d").gfql_index_all(engine="polars")
+    assert _endpoint_fact(g) is None
+
+
+def test_endpoint_rows_go_stale_with_either_frame():
+    g = _graph()
+    registry = get_registry(g)
+    src, dst, node = str(g._source), str(g._destination), str(g._node)
+    assert registry.get_endpoint_rows_valid(src, dst, node, g._edges, g._nodes, Engine.POLARS) is not None
+    # A clone of either frame is a different binding, and a reshape fails the fingerprint.
+    assert registry.get_endpoint_rows_valid(src, dst, node, g._edges.clone(), g._nodes, Engine.POLARS) is None
+    assert registry.get_endpoint_rows_valid(src, dst, node, g._edges, g._nodes.clone(), Engine.POLARS) is None
+    assert registry.get_endpoint_rows_valid(src, dst, node, g._edges, None, Engine.POLARS) is None
+    assert registry.without_endpoint_rows().endpoint_rows == {}
+
+
+@pytest.mark.parametrize("seed_filter,edge_match,end_filter", [
+    ({"id": 1, "label__Person": True}, {"type": "HAS_CREATOR"}, {"label__Message": True}),
+    ({"id": 1}, {"type": "HAS_CREATOR"}, {"kind": "msg"}),
+    ({"id": 1}, {}, {}),
+    ({"id": 1}, {"type": "HAS_CREATOR"}, {"kind": "ghost"}),
+])
+def test_results_match_with_and_without_the_endpoint_rows_fact(
+    seed_filter, edge_match, end_filter, monkeypatch,
+):
+    """The fact is an accelerator: dropping it must not change a single row."""
+    import graphistry.compute.gfql.index.registry as registry_mod
+    ops = [
+        n(seed_filter, name="a"), e_forward(edge_match or None, name="e"),
+        n(end_filter or None, name="b"), rows(),
+        select([("aid", "a"), ("bid", "b"), ("bkind", "b.kind")]),
+    ]
+    g = _graph()
+    with_fact = g.gfql(ops, engine="polars", index_policy="force")._nodes
+    monkeypatch.setattr(
+        registry_mod.GfqlIndexRegistry, "get_endpoint_rows_valid",
+        lambda *a, **k: None,
+    )
+    without_fact = g.gfql(ops, engine="polars", index_policy="force")._nodes
+    assert with_fact.columns == without_fact.columns
+    assert with_fact.schema == without_fact.schema
+    assert with_fact.rows() == without_fact.rows()
