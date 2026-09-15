@@ -19,6 +19,7 @@ import json
 import math
 import os
 import re
+import subprocess
 import typing
 
 #: A decoded JSON document.
@@ -266,6 +267,14 @@ class State:
         policy = _obj(payload.get('policy'), 'policy')
         max_age = policy.get('max_age_days')
         self.max_age_days = max_age if isinstance(max_age, int) and not isinstance(max_age, bool) else 0
+        drift = policy.get('max_compute_commit_drift')
+        self.max_compute_commit_drift = (
+            drift if isinstance(drift, int) and not isinstance(drift, bool) else None)
+        waivers = policy.get('drift_waivers')
+        self.drift_waivers: typing.Dict[str, str] = {
+            run_id: reason for run_id, reason in (waivers.items() if isinstance(waivers, dict) else [])
+            if isinstance(reason, str) and reason}
+        self.drift_by_run: typing.Dict[str, typing.Optional[int]] = {}
         self.cells = _obj(payload.get('cells'), 'cells')
         self.runs = _obj(payload.get('runs'), 'runs')
 
@@ -285,6 +294,15 @@ class State:
     def run(self, run_id: str) -> typing.Optional[JSONObject]:
         raw = self.runs.get(run_id)
         return raw if isinstance(raw, dict) else None
+
+    def drift(self, run_id: str) -> typing.Optional[int]:
+        """Compute-commit drift of a run, computed once per build; None when unknowable."""
+        if run_id not in self.drift_by_run:
+            run = self.run(run_id)
+            commit = run.get('pygraphistry_commit') if run is not None else None
+            self.drift_by_run[run_id] = (
+                compute_commit_drift(commit) if isinstance(commit, str) else None)
+        return self.drift_by_run[run_id]
 
     def age_days(self, run_id: str) -> typing.Optional[int]:
         run = self.run(run_id)
@@ -335,6 +353,13 @@ def check_reference(state: State, key: str, docname: str, lineno: int,
             state.fail('{}:{}: {!r} was measured {} days ago; policy.max_age_days is {}. '
                        'Re-measure in pyg-bench and republish.'.format(
                            docname, lineno, key, age, state.max_age_days))
+        limit = state.max_compute_commit_drift
+        waived = run_id in state.drift_waivers
+        drift = state.drift(run_id) if limit is not None and not waived else None
+        if drift is not None and drift > limit:
+            state.fail('{}:{}: {!r} was measured {} graphistry/compute commits ago; '
+                       'policy.max_compute_commit_drift is {}. Re-measure in pyg-bench '
+                       'and republish.'.format(docname, lineno, key, drift, limit))
 
     quotable = cell['board_quotable'] is True
     if diagnostic and quotable:
@@ -370,6 +395,67 @@ def audit_pages(state: State) -> None:
         if needs_disclosure and docname not in state.disclosed:
             state.fail('{}: prints a number that carries a disclosure but has no '
                        '".. bench-disclosures::" block'.format(docname))
+
+
+#: Repository root: ``docs/source/_data`` is three levels below it.
+REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(DATA_DIR)))
+COMPUTE_PATH = 'graphistry/compute'
+
+
+def compute_commit_drift(measured_commit: str, repo_root: str = REPO_ROOT) -> typing.Optional[int]:
+    """Commits touching ``graphistry/compute`` between a measurement and this checkout.
+
+    ``None`` when git or the measured commit is unavailable (a shallow clone), in which
+    case the caller must not treat the number as fresh either way.
+    """
+    if not re.match(r'^[0-9a-f]{7,40}$', measured_commit):
+        return None
+    try:
+        completed = subprocess.run(
+            ['git', 'rev-list', '--count', '{}..HEAD'.format(measured_commit), '--', COMPUTE_PATH],
+            cwd=repo_root, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, check=False)
+    except OSError:
+        return None
+    if completed.returncode != 0:
+        return None
+    text = completed.stdout.decode().strip()
+    return int(text) if text.isdigit() else None
+
+
+def tally(state: 'State', prefix: str, left: str, right: str,
+          docname: str, lineno: int) -> typing.Optional[typing.Tuple[int, int]]:
+    """How many of ``<prefix>.<q>.<left>`` beat ``<prefix>.<q>.<right>`` (lower is faster).
+
+    Every cell the tally reads is registered as a reference, so the page owes the run's
+    provenance exactly as if it had printed the numbers. Ties are not wins. Returns None
+    (and records the problem) when no quotable pair exists.
+    """
+    wins = 0
+    total = 0
+    for key in sorted(state.cells):
+        head, _, engine = key.rpartition('.')
+        if engine != left or not head.startswith(prefix + '.'):
+            continue
+        right_key = '{}.{}'.format(head, right)
+        left_cell = check_reference(state, key, docname, lineno, diagnostic=False)
+        right_cell = check_reference(state, right_key, docname, lineno, diagnostic=False)
+        if left_cell is None or right_cell is None:
+            continue
+        if left_cell.get('unit') != 'ms' or right_cell.get('unit') != 'ms':
+            continue
+        total += 1
+        if float(left_cell['value']) < float(right_cell['value']):
+            wins += 1
+    if total == 0:
+        state.fail('{}:{}: bench-tally {}|{}|{} matched no quotable cell pair'.format(
+            docname, lineno, prefix, left, right))
+        return None
+    return wins, total
+
+
+def format_tally(wins: int, total: int) -> str:
+    return '{} of {}'.format(wins, total)
+
 
 
 def load_state(today: typing.Optional[datetime.date] = None) -> State:
