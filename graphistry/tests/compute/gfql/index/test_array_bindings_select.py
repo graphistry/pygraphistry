@@ -12,23 +12,11 @@ import pytest
 
 import graphistry
 from graphistry.compute.ast import e_forward, e_reverse, n, order_by, rows, select
+from graphistry.tests.compute.gfql.routes.switch import routes_off
 
 pl = pytest.importorskip("polars")
 
-SPECIALIZATION = "graphistry.compute.gfql.lazy.engine.polars.chain_specializations.bindings_select"
-
-
-@pytest.fixture
-def no_specialization(monkeypatch):
-    """Disable the array path so the same query runs through the canonical route."""
-    import graphistry.compute.gfql.lazy.engine.polars.chain as polars_chain
-    import importlib
-    module = importlib.import_module(SPECIALIZATION)
-    monkeypatch.setattr(module, "try_bindings_select_polars", lambda *a, **k: None)
-    monkeypatch.setattr(
-        polars_chain, "_try_indexed_middle_polars", polars_chain._try_indexed_middle_polars,
-    )
-    return module
+ROUTE = "polars-bindings-select"
 
 
 NODES = pd.DataFrame({
@@ -56,19 +44,19 @@ def _graph(nodes=NODES, edges=EDGES, index=True):
 def _both(g, ops, monkeypatch, **kwargs):
     """(served, canonical) frames for the same query.
 
+    Disabling goes through the repo's own route switch, which patches the symbol the chain
+    actually calls; patching the defining module would leave the chain's import bound and
+    silently compare the fast path against itself.
+
     ``index_policy="force"`` by default: these corpus graphs sit far below the cost
     gate, so under the default policy BOTH routes decline and the comparison would
     prove nothing. ``test_matches_canonical_under_every_index_policy`` covers the
     gated policies explicitly.
     """
-    import importlib
-    module = importlib.import_module(SPECIALIZATION)
     kwargs.setdefault("index_policy", "force")
     served = g.gfql(ops, engine="polars", **kwargs)
-    original = module.try_bindings_select_polars
-    monkeypatch.setattr(module, "try_bindings_select_polars", lambda *a, **k: None)
-    canonical = g.gfql(ops, engine="polars", **kwargs)
-    monkeypatch.setattr(module, "try_bindings_select_polars", original)
+    with routes_off([ROUTE]):
+        canonical = g.gfql(ops, engine="polars", **kwargs)
     return served._nodes, canonical._nodes
 
 
@@ -198,19 +186,15 @@ def test_declines_and_matches_without_indexes(monkeypatch):
     _assert_identical(served, canonical)
 
 
+@pytest.mark.route_engaged("polars-bindings-select", "indexed-kernel")
 def test_served_path_records_the_same_index_trace(monkeypatch):
     from graphistry.compute.gfql.index.api import index_trace
     ops = [*MIDDLES["one_hop_reverse"], rows(), select([("who", "p.name"), ("mid", "m.id")])]
     g = _graph()
-    import importlib
-    module = importlib.import_module(SPECIALIZATION)
     with index_trace() as served_trace:
-        g.gfql(ops, engine="polars")
-    original = module.try_bindings_select_polars
-    monkeypatch.setattr(module, "try_bindings_select_polars", lambda *a, **k: None)
-    with index_trace() as canonical_trace:
-        g.gfql(ops, engine="polars")
-    monkeypatch.setattr(module, "try_bindings_select_polars", original)
+        g.gfql(ops, engine="polars", index_policy="force")
+    with routes_off([ROUTE]), index_trace() as canonical_trace:
+        g.gfql(ops, engine="polars", index_policy="force")
 
     def decisions(trace):
         return [
@@ -260,19 +244,21 @@ def test_fuzz_matches_canonical(seed, monkeypatch):
     _assert_identical(served, canonical)
 
 
+@pytest.mark.route_engaged("polars-bindings-select", "indexed-kernel")
 def test_the_corpus_actually_takes_the_fast_path(monkeypatch):
     """A differential corpus that silently stopped serving would pass while proving nothing."""
-    import importlib
-    module = importlib.import_module(SPECIALIZATION)
+    import graphistry.compute.gfql.lazy.engine.polars.chain as polars_chain
     calls = {"served": 0, "declined": 0}
-    original = module.try_bindings_select_polars
+    original = polars_chain.try_bindings_select_polars
 
     def counting(*args, **kwargs):
         out = original(*args, **kwargs)
         calls["served" if out is not None else "declined"] += 1
         return out
 
-    monkeypatch.setattr(module, "try_bindings_select_polars", counting)
+    # The chain's own symbol, which is what the route switch patches — patching the
+    # defining module would leave this import bound and count nothing.
+    monkeypatch.setattr(polars_chain, "try_bindings_select_polars", counting)
     g = _graph()
     for middle in MIDDLES.values():
         aliases = {op._name for op in middle}

@@ -2,7 +2,7 @@
 from contextlib import contextmanager
 from typing import Iterable, Iterator, List, Tuple
 
-ROUTES = ("polars-point-rows", "point-rows", "native-fast", "polars-single-node", "polars-seeded", "polars-plain", "index-hop", "indexed-kernel", "cypher-fast")
+ROUTES = ("polars-point-rows", "point-rows", "native-fast", "polars-single-node", "polars-seeded", "polars-plain", "index-hop", "indexed-kernel", "polars-bindings-select", "cypher-fast")
 
 
 def _none(*a, **k):
@@ -34,6 +34,10 @@ def _targets(routes: Iterable[str]) -> List[Tuple[object, str]]:
         out.append((pchain, "polars_plain_single_hop_admits"))
     if "index-hop" in routes:
         out += [(index_pkg, "maybe_index_hop"), (index_api, "maybe_index_hop")]
+    if "indexed-kernel" in routes or "polars-bindings-select" in routes:
+        # The array specialization is a second implementation of the same indexed kernel,
+        # so switching that kernel off must switch this off too.
+        out.append((pchain, "try_bindings_select_polars"))
     if "indexed-kernel" in routes:
         out.append((bindings, "_try_indexed_connected_bindings_state"))
     if "cypher-fast" in routes:
