@@ -61,7 +61,7 @@ def id_set(ids: "pl.Series") -> "pl.Series":
     against several columns."""
     if _installed_polars_implodes():
         return ids.implode()
-    return ids  # pragma: no cover - only a polars < 1.28 lane reaches this; no CI lane has one
+    return ids
 
 
 def is_in_ids(expr: "pl.Expr", ids: "pl.Series") -> "pl.Expr":

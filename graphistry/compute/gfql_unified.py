@@ -483,7 +483,13 @@ def _apply_connected_optional_match(
         shared_node_aliases: Sequence[str],
         joined_rows: DataFrameT,
     ) -> Optional[DataFrameT]:
-        """Seed optional-arm materialization when the first node is already bound."""
+        """Seed optional-arm materialization when the first node is already bound.
+
+        Both polars arms below are dead while the caller routes polars engines to
+        ``_optional_arm_membership_chain`` -- they are kept because a routing change would
+        otherwise reach the pandas ``.isin`` with polars frames. The no-cover pragma on the
+        second one expires with that split.
+        """
         if not binding_ops:
             return None
         first_op = binding_ops[0]

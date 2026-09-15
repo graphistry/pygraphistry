@@ -30,16 +30,36 @@ from graphistry.compute.gfql.lazy.engine.polars.membership import (  # noqa: E40
     ("1.21.0", False), ("1.27.1", False), ("1.28.0rc1", False),
     ("1.28.0", True), ("1.28.1", True), ("1.29.0", True), ("1.35.2", True), ("2.0.0", True),
     ("1.31.0+cu12", True), ("1.30.0.dev0", True), ("1.28.0.dev0", False),
-    # unparseable -> the bare RHS, which is correct on every release (it only warns from 1.28)
-    ("not-a-version", False), ("", False),
 ])
 def test_imploded_rhs_supported_switches_exactly_at_1_28_0(version, expected):
     assert imploded_rhs_supported(version) is expected
     assert str(IMPLODED_RHS_FLOOR) == "1.28.0"
 
 
+@pytest.mark.parametrize("version", ["not-a-version", "", "1.2.3.4.dev-nope"])
+def test_imploded_rhs_supported_falls_back_to_the_bare_rhs_on_an_unparseable_version(version):
+    """The bare RHS is correct on every release and only warns from 1.28; the imploded one is a
+    hard ComputeError below it. So an unreadable version takes the bare side."""
+    assert imploded_rhs_supported(version) is False
+
+
 def test_installed_polars_branch_matches_the_predicate():
     assert membership._installed_polars_implodes() is imploded_rhs_supported(pl.__version__)
+
+
+@pytest.mark.parametrize("implodes,expected_list", [(False, False), (True, True)])
+def test_id_set_spells_both_arms_whatever_polars_is_installed(monkeypatch, implodes, expected_list):
+    """The < 1.28 arm is what #2082 turns on, and no CI lane installs a polars that old: without
+    this pin, collapsing id_set to a single spelling stays green everywhere and silently brings
+    the RAPIDS 25.02 ComputeError back."""
+    monkeypatch.setattr(membership, "_installed_polars_implodes", lambda: implodes)
+    ids = pl.Series("id", [1, 2], dtype=pl.Int64)
+    rhs = membership.id_set(ids)
+    assert isinstance(rhs.dtype, pl.List) is expected_list
+    if expected_list:
+        assert rhs.len() == 1 and rhs.to_list() == [[1, 2]]
+    else:
+        assert rhs.equals(ids)
 
 
 def _deprecations(caught):
