@@ -232,6 +232,22 @@ class EndpointRowsFact:
 
 
 @dataclass(frozen=True)
+class TemporalTextFact:
+    """Whether a String column holds Cypher temporal-constructor text, per column.
+
+    The projection guard that asks this question scans the projected rows every time.
+    A projection that copies a column verbatim inherits the column's own answer, so
+    resolving it once at build time turns the guard into a lookup. Only ever used to
+    DECLINE a fast path, so a missing fact costs a scan, never an answer.
+    """
+    role: ColStatsRole
+    verdicts: Mapping[str, bool]
+    engine: Engine
+    fingerprint: FrameFingerprint = field(compare=False, default=(-1, (), ""))
+    source_ref: Optional[DataFrameT] = field(compare=False, default=None)
+
+
+@dataclass(frozen=True)
 class GfqlIndexRegistry:
     """Immutable kind -> index map. ``with_index`` / ``without`` return copies."""
     indexes: Dict[IndexKind, Union[AdjacencyIndex, NodeIdIndex]] = field(default_factory=dict)
@@ -246,6 +262,8 @@ class GfqlIndexRegistry:
     categories: Dict[Tuple[ColStatsRole, str], "CategoryIndex"] = field(default_factory=dict)
     # Endpoint row positions keyed by (src, dst, node id); see EndpointRowsFact.
     endpoint_rows: Dict[Tuple[str, str, str], "EndpointRowsFact"] = field(default_factory=dict)
+    # Temporal-constructor-text verdicts keyed by role; see TemporalTextFact.
+    temporal_text: Dict[ColStatsRole, "TemporalTextFact"] = field(default_factory=dict)
 
     def with_index(self, kind: IndexKind, index: Union[AdjacencyIndex, NodeIdIndex]) -> "GfqlIndexRegistry":
         new = dict(self.indexes)
@@ -369,6 +387,26 @@ class GfqlIndexRegistry:
 
     def without_endpoint_rows(self) -> "GfqlIndexRegistry":
         return replace(self, endpoint_rows={})
+
+    def with_temporal_text(self, fact: "TemporalTextFact") -> "GfqlIndexRegistry":
+        facts = dict(self.temporal_text)
+        facts[fact.role] = fact
+        return replace(self, temporal_text=facts)
+
+    def get_temporal_text_valid(
+        self, role: ColStatsRole, df: Optional[DataFrameT], engine: Engine
+    ) -> Optional["TemporalTextFact"]:
+        fact = self.temporal_text.get(role)
+        if fact is None or df is None or fact.engine != engine:
+            return None
+        if fact.source_ref is not None and fact.source_ref is not df:
+            return None
+        if fact.fingerprint != frame_fingerprint(df, tuple(sorted(fact.verdicts)), engine):
+            return None
+        return fact
+
+    def without_temporal_text(self) -> "GfqlIndexRegistry":
+        return replace(self, temporal_text={})
 
     def node_prop_cols(self) -> Tuple[str, ...]:
         return tuple(sorted(self.node_props.keys()))

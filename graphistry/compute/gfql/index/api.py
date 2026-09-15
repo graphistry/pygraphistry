@@ -822,7 +822,32 @@ def gfql_index_all(g: Plottable,
         pass  # non-unique node ids -> skip the node_id accelerator (adjacency still built)
     g = gfql_index_col_stats(g, col_stats_by_type=col_stats_by_type, engine=engine)
     g = gfql_index_categories(g, engine=engine)
-    return gfql_index_endpoint_rows(g, engine=engine)
+    g = gfql_index_endpoint_rows(g, engine=engine)
+    return gfql_index_temporal_text(g, engine=engine)
+
+
+def gfql_index_temporal_text(g: Plottable,
+                             engine: EngineAbstractType = EngineAbstract.AUTO) -> Plottable:
+    """Resolve, per String column, whether it holds temporal-constructor text -- EAGER.
+
+    The projection guard asks this of every projected result; a projection that copies a
+    column verbatim inherits the column's own answer, so resolving it once here answers
+    it for every later query. Used only to DECLINE, so a missing fact costs a scan.
+    """
+    from .build import build_temporal_text_fact
+
+    engine_concrete = resolve_engine(engine, g)
+    registry = get_registry(g)
+    text_targets: List[Tuple[ColStatsRole, Optional[DataFrameT]]] = [
+        ("nodes", g._nodes), ("edges", g._edges),
+    ]
+    for role, frame in text_targets:
+        if frame is None:
+            continue
+        fact = build_temporal_text_fact(frame, role, engine_concrete)
+        if fact is not None:
+            registry = registry.with_temporal_text(fact)
+    return _attach(g, registry)
 
 
 def gfql_index_endpoint_rows(g: Plottable,

@@ -13,7 +13,7 @@ from graphistry.compute.typing import DataFrameT, SeriesT
 from .engine_arrays import array_namespace, col_to_array
 from .registry import (
     AdjacencyIndex, CategoryIndex, ColStatsFact, ColStatsRole, DegreeFact, EndpointRowsFact,
-    NodeIdIndex, NodePropIndex, PartitionValue, frame_fingerprint,
+    NodeIdIndex, NodePropIndex, PartitionValue, TemporalTextFact, frame_fingerprint,
 )
 from .types import AdjacencyIndexKind, ArrayLike, ArrayNamespace
 
@@ -546,4 +546,43 @@ def build_endpoint_rows_fact(
         edges_fingerprint=frame_fingerprint(edges, tuple(sorted({src_col, dst_col})), engine),
         nodes_fingerprint=frame_fingerprint(nodes, (node_index.key_col,), engine),
         edges_ref=edges, nodes_ref=nodes,
+    )
+
+
+def build_temporal_text_fact(
+    frame: DataFrameT,
+    role: ColStatsRole,
+    engine: Engine,
+) -> Optional[TemporalTextFact]:
+    """Per String column, whether it holds Cypher temporal-constructor text.
+
+    One scan per column at build time answers what the projection guard otherwise asks
+    of every projected result. A frame with no String columns yields an empty verdict
+    map, which is still a useful fact: it says no projection of it can leak that text.
+    """
+    if engine != Engine.POLARS:
+        return None
+    import polars as pl
+
+    from graphistry.compute.gfql.temporal.constructors import TEMPORAL_CALL_EXPR_RE
+
+    try:
+        schema = frame.schema  # type: ignore[union-attr]
+    except (AttributeError, TypeError):
+        return None
+    columns = [str(name) for name, dtype in schema.items() if dtype == pl.String]
+    pattern = r"^\s*" + TEMPORAL_CALL_EXPR_RE.pattern
+    verdicts = {}
+    if columns:
+        try:
+            row = frame.select(  # type: ignore[operator]
+                [pl.col(column).str.contains(pattern).any().alias(column) for column in columns]
+            ).row(0)
+        except Exception:
+            return None
+        verdicts = {column: bool(value) for column, value in zip(columns, row)}
+    return TemporalTextFact(
+        role=role, verdicts=verdicts, engine=engine,
+        fingerprint=frame_fingerprint(frame, tuple(sorted(verdicts)), engine),
+        source_ref=frame,
     )

@@ -237,3 +237,66 @@ def test_results_match_with_and_without_the_endpoint_rows_fact(
     assert with_fact.columns == without_fact.columns
     assert with_fact.schema == without_fact.schema
     assert with_fact.rows() == without_fact.rows()
+
+
+def test_temporal_text_verdicts_match_a_direct_scan():
+    frame = pl.DataFrame({
+        "plain": ["hello", "a (paren) here", "no"],
+        "constructor": ["date({year: 1984})", "x", "y"],
+        "number": [1, 2, 3],
+    })
+    g = graphistry.nodes(frame.with_columns(pl.Series("id", [1, 2, 3])), "id").edges(
+        pl.DataFrame({"s": [1], "d": [2]}), "s", "d",
+    ).gfql_index_all(engine="polars")
+    fact = get_registry(g).get_temporal_text_valid("nodes", g._nodes, Engine.POLARS)
+    assert fact is not None
+    assert fact.verdicts["plain"] is False
+    assert fact.verdicts["constructor"] is True
+    assert "number" not in fact.verdicts  # not a String column
+
+
+def test_temporal_text_fact_goes_stale_with_the_frame():
+    g = _graph()
+    registry = get_registry(g)
+    assert registry.get_temporal_text_valid("nodes", g._nodes, Engine.POLARS) is not None
+    assert registry.get_temporal_text_valid("nodes", g._nodes.clone(), Engine.POLARS) is None
+    assert registry.get_temporal_text_valid("nodes", None, Engine.POLARS) is None
+    assert registry.without_temporal_text().temporal_text == {}
+
+
+def test_projection_of_constructor_text_declines_to_the_canonical_route():
+    """A column holding constructor text must not reach the caller raw."""
+    nodes = pd.DataFrame({
+        "id": [1, 2, 3],
+        "label__Person": [True, None, None],
+        "label__Message": [None, True, True],
+        "kind": ["person", "msg", "msg"],
+        "flag": [1, 0, 1],
+        "name": ["a", "b", "c"],
+        "when": ["date({year: 1984})", "date({year: 1985})", "plain"],
+    })
+    edges = pd.DataFrame({"s": [2, 3], "d": [1, 1], "type": ["HAS_CREATOR"] * 2, "w": [1, 2]})
+    g = _graph(nodes=nodes, edges=edges)
+    ops = [
+        n({"id": 1}, name="a"), e_forward({"type": "HAS_CREATOR"}, name="e"),
+        n({}, name="b"), rows(), select([("w", "b.when")]),
+    ]
+    import graphistry.compute.gfql.lazy.engine.polars.chain as polars_chain
+    assert polars_chain.try_bindings_select_polars(g, ops[:3], ops[3:], None) is None
+    # The same query still answers, through the canonical route.
+    served = g.gfql(ops, engine="polars", index_policy="force")
+    with routes_off([ROUTE]):
+        canonical = g.gfql(ops, engine="polars", index_policy="force")
+    assert served._nodes.rows() == canonical._nodes.rows()
+
+
+def test_string_literal_that_is_constructor_text_also_declines():
+    g = _graph()
+    ops = [
+        n({"id": 1}, name="a"), e_forward({"type": "HAS_CREATOR"}, name="e"),
+        n({}, name="b"), rows(), select([("lit", "date({year: 1984})"), ("bid", "b")]),
+    ]
+    import graphistry.compute.gfql.lazy.engine.polars.chain as polars_chain
+    # A bare string item is an expression, not a literal, so this declines on the plan;
+    # the point is that neither route can emit raw constructor text.
+    assert polars_chain.try_bindings_select_polars(g, ops[:3], ops[3:], None) is None
