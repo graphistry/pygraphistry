@@ -19,6 +19,7 @@ from graphistry.compute.endpoint_utils import drop_null_endpoint_edges
 from graphistry.Plottable import Plottable
 from graphistry.compute.ast import ASTObject, ASTNode, ASTEdge
 from .chain_specializations.admission import polars_plain_single_hop_admits, polars_single_node_admits
+from .chain_specializations.bindings_select import try_bindings_select_polars
 from .chain_specializations.point_rows import _try_point_rows_polars
 from .chain_specializations.hotpaths import _plain_seeded_index_hop_polars, _plain_single_hop_polars, _single_node_polars, _try_seeded_chain_polars
 
@@ -817,8 +818,6 @@ def chain_polars(self: Plottable, ops, start_nodes: Optional[Any] = None) -> Plo
     from graphistry.compute.gfql.index.handoff import (
         IndexedBindingsHandoff, attach_handoff,
     )
-    from .chain_specializations.bindings_select import try_bindings_select_polars
-
     projected = try_bindings_select_polars(self, middle, suffix, start_nodes)
     if projected is not None:
         from .chain_specializations.bindings_select import rewrap_projected_polars
