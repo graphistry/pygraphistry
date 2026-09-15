@@ -12,8 +12,8 @@ from graphistry.Engine import Engine
 from graphistry.compute.typing import DataFrameT, SeriesT
 from .engine_arrays import array_namespace, col_to_array
 from .registry import (
-    AdjacencyIndex, ColStatsFact, ColStatsRole, DegreeFact, NodeIdIndex, NodePropIndex,
-    PartitionValue, frame_fingerprint,
+    AdjacencyIndex, CategoryIndex, ColStatsFact, ColStatsRole, DegreeFact, NodeIdIndex,
+    NodePropIndex, PartitionValue, frame_fingerprint,
 )
 from .types import AdjacencyIndexKind, ArrayLike, ArrayNamespace
 
@@ -444,4 +444,58 @@ def build_degree_fact(
         backend=backend, engine=engine, self_loops=int((src == dst).sum()),
         type_column=type_column, type_value=type_value,
         fingerprint=frame_fingerprint(edges, cols, engine), source_ref=edges,
+    )
+
+
+#: Above this many distinct values a column is not a category: the code map stops
+#: paying for itself and the predicate is better served by the canonical filter.
+_MAX_CATEGORY_VALUES = 64
+
+
+def build_category_index(
+    frame: DataFrameT,
+    column: str,
+    role: ColStatsRole,
+    engine: Engine,
+) -> Optional[CategoryIndex]:
+    """Per-row integer codes for a low-cardinality column, or None when unindexable.
+
+    Serves scalar-equality predicates (``{label__Person: True}``, ``{type: "KNOWS"}``)
+    by comparing gathered codes instead of filtering a frame. Declines anything whose
+    equality a code compare would not answer exactly: nulls (a code would claim a
+    value where the canonical filter yields no match), high cardinality, and dtypes
+    outside Boolean, integer and string. Polars only for now; the other engines keep
+    the canonical filter, which is the same answer.
+    """
+    if engine != Engine.POLARS:
+        return None
+    import polars as pl
+
+    if column not in frame.columns:
+        return None
+    try:
+        series = frame.get_column(column)  # type: ignore[operator]
+    except (AttributeError, KeyError, TypeError, ValueError):
+        return None
+    dtype = series.dtype
+    if not (dtype == pl.Boolean or dtype.is_integer() or dtype in (pl.String, pl.Categorical)):
+        return None
+    _, backend = array_namespace(engine)
+    distinct = series.unique()
+    if distinct.len() > _MAX_CATEGORY_VALUES:
+        return None
+    values = sorted(value for value in distinct.to_list() if value is not None)
+    # A reserved null code is never handed out for a queried value, so nulls match nothing.
+    null_code = len(values)
+    value_codes: dict = {value: code for code, value in enumerate(values)}
+    mapping = pl.DataFrame(
+        {column: pl.Series(values, dtype=dtype), "__gfql_code__": list(range(len(values)))}
+    )
+    joined = frame.select([column]).join(mapping, on=column, how="left")  # type: ignore[operator]
+    code_series = joined.get_column("__gfql_code__").fill_null(null_code)
+    codes = code_series.to_numpy().astype("uint16" if null_code > 254 else "uint8")
+    return CategoryIndex(
+        role=role, column=column, codes=codes, value_codes=value_codes,
+        backend=backend, engine=engine, n_rows=int(series.len()),
+        fingerprint=frame_fingerprint(frame, (column,), engine), source_ref=frame,
     )

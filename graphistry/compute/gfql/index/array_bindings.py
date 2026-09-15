@@ -31,7 +31,7 @@ from .api import get_index_policy, get_registry
 from .cost import cost_gate_frac
 from .engine_arrays import array_namespace, col_to_array, take_rows
 from .lookup import lookup_degree, lookup_edge_rows, lookup_node_rows
-from .registry import AdjacencyIndex, NodeIdIndex, NODE_ID
+from .registry import AdjacencyIndex, ColStatsRole, NodeIdIndex, NODE_ID
 
 
 @dataclass(frozen=True)
@@ -64,12 +64,58 @@ def _aligned_node_rows(
     return index.row_positions[clipped]
 
 
+def _code_for(value_codes: Mapping[object, int], expected: object) -> Optional[int]:
+    """The code for ``expected``, matching on TYPE as well as value.
+
+    ``True == 1`` in Python, so a plain dict lookup would let a boolean predicate match an
+    integer column's code and vice versa; the canonical filter does not conflate them.
+    """
+    for value, code in value_codes.items():
+        if type(value) is type(expected) and value == expected:
+            return code
+    return None
+
+
+def _positions_via_category_index(
+    base_graph: Plottable,
+    role: "ColStatsRole",
+    frame: DataFrameT,
+    positions: ArrayLike,
+    filter_dict: Mapping[str, object],
+    engine: Engine,
+    xp: ArrayNamespace,
+) -> Optional[ArrayLike]:
+    """Surviving ``positions`` from coded columns, or None when any predicate is not covered.
+
+    Every predicate column must carry a live category index and the wanted value must be
+    one the column actually holds; a value the column never holds matches nothing, which
+    is answered here rather than deferred. Anything else returns None and the canonical
+    filter answers, so the coverage of this path never changes a result.
+    """
+    registry = get_registry(base_graph)
+    mask = None
+    for column, expected in filter_dict.items():
+        index = registry.get_category_valid(role, str(column), frame, engine)
+        if index is None:
+            return None
+        code = _code_for(index.value_codes, expected)
+        if code is None:
+            return positions[:0]
+        column_mask = index.codes[positions] == code
+        mask = column_mask if mask is None else (mask & column_mask)
+    if mask is None:
+        return positions
+    return positions[mask]
+
+
 def _filtered_positions(
     frame: DataFrameT,
     positions: ArrayLike,
     filter_dict: Optional[dict],  # hygiene-ok: bare-generic -- the filter dict `_filter_frame` takes, passed through unchanged
     engine: Engine,
     xp: ArrayNamespace,
+    base_graph: Optional[Plottable] = None,
+    role: "ColStatsRole" = "nodes",
 ) -> Optional[ArrayLike]:
     """``positions`` whose rows satisfy ``filter_dict``, via the unchanged filter.
 
@@ -86,6 +132,12 @@ def _filtered_positions(
     marker = frame_bindings._ROW_POS
     if marker in columns:
         return None
+    if engine == Engine.POLARS and base_graph is not None:
+        coded = _positions_via_category_index(
+            base_graph, role, frame, positions, filter_dict, engine, xp,
+        )
+        if coded is not None:
+            return coded
     narrow = frame.select(list(filter_dict))  # type: ignore[operator]
     narrow = take_rows(narrow, positions, engine)
     narrow = frame_bindings._with_positions(narrow, marker, positions, engine)
@@ -120,7 +172,7 @@ def _seed_rows(
         )
         if rows is None:
             return None  # a full seed scan belongs to the canonical path
-    return _filtered_positions(nodes, rows, dict(first_filter), engine, xp)
+    return _filtered_positions(nodes, rows, dict(first_filter), engine, xp, base_graph, "nodes")
 
 
 def _admits(base_graph: Plottable, ops: Sequence["ASTObject"], engine: Engine) -> bool:
@@ -252,7 +304,7 @@ def try_array_path_bag(
                 return None
 
         candidates = xp.unique(lookup_edge_rows(hop_indexes[0], frontier, xp)[0])
-        kept = _filtered_positions(edges, candidates, edge_op.edge_match, engine, xp)
+        kept = _filtered_positions(edges, candidates, edge_op.edge_match, engine, xp, base_graph, "edges")
         if kept is None:
             return None
         from_ids = (dst_values if reverse else src_values)[kept]
@@ -260,7 +312,7 @@ def try_array_path_bag(
 
         endpoint_ids = xp.unique(to_ids)
         endpoint_rows = xp.sort(lookup_node_rows(node_index, endpoint_ids, xp))
-        surviving = _filtered_positions(nodes, endpoint_rows, next_op.filter_dict, engine, xp)
+        surviving = _filtered_positions(nodes, endpoint_rows, next_op.filter_dict, engine, xp, base_graph, "nodes")
         if surviving is None:
             return None
         if int(surviving.shape[0]) != int(endpoint_rows.shape[0]):
