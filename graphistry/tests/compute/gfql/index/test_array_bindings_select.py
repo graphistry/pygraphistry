@@ -379,3 +379,52 @@ def test_mismatched_id_dtypes_decline_rather_than_promote():
            rows(), select([("mid", "m.id"), ("nm", "m.name")])]
     served, canonical = _both(g, ops, expect_served=False)
     _assert_identical(served, canonical)
+
+
+def test_a_seed_on_a_property_index_takes_the_same_route_and_agrees():
+    """Seeding on a column that is NOT the graph's id goes through the property index.
+
+    That is a second seed seam with its own branch, and every other case here seeds on the
+    id column, so without this the branch is never executed by any test. The multi-seed
+    shape is deliberate: a single-seed case would not distinguish the two branches.
+    """
+    nodes = pl.DataFrame({
+        "nid": [1, 2, 3, 4, 5],
+        "k": [5, 6, 6, 7, 8],
+        "name": list("abcde"),
+    })
+    edges = pl.DataFrame({"s": [3, 4, 5], "d": [2, 2, 1]})
+    g = (graphistry.nodes(nodes, "nid").edges(edges, "s", "d")
+         .gfql_index_all(engine="polars").gfql_index_node_props(["k"], engine="polars"))
+    ops = [n({"k": 6}, name="p"), e_reverse({}, name="r"), n({}, name="m"),
+           rows(), select([("mid", "m.nid"), ("nm", "m.name")])]
+    served, canonical = _both(g, ops)
+    _assert_identical(served, canonical)
+    assert sorted(canonical.rows()) == [(3, "c"), (4, "d")], "the case went vacuous"
+
+
+def test_the_property_index_seed_seam_is_the_one_that_runs():
+    """Pin the seam itself, so the case above cannot start passing through the id branch."""
+    import graphistry.compute.gfql.index.bindings as frame_bindings
+
+    nodes = pl.DataFrame({"nid": [1, 2, 3], "k": [5, 6, 6], "name": list("abc")})
+    edges = pl.DataFrame({"s": [2, 3], "d": [1, 1]})
+    g = (graphistry.nodes(nodes, "nid").edges(edges, "s", "d")
+         .gfql_index_all(engine="polars").gfql_index_node_props(["k"], engine="polars"))
+    seen = {"n": 0}
+    original = frame_bindings._seed_rows_via_property_index
+
+    def counting(*args, **kwargs):
+        seen["n"] += 1
+        return original(*args, **kwargs)
+
+    frame_bindings._seed_rows_via_property_index = counting
+    try:
+        ops = [n({"k": 5}, name="p"), e_reverse({}, name="r"), n({}, name="m"),
+               rows(), select([("mid", "m.nid")])]
+        with routes_off(["polars-point-rows", "point-rows"]):
+            out = g.gfql(ops, engine="polars", index_policy="force")
+    finally:
+        frame_bindings._seed_rows_via_property_index = original
+    assert seen["n"], "the property-index seed seam was not the one that ran"
+    assert sorted(out._nodes.rows()) == [(2,), (3,)]
