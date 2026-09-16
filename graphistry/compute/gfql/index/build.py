@@ -12,8 +12,8 @@ from graphistry.Engine import Engine
 from graphistry.compute.typing import DataFrameT, SeriesT
 from .engine_arrays import array_namespace, col_to_array
 from .registry import (
-    AdjacencyIndex, ColStatsFact, ColStatsRole, DegreeFact, NodeIdIndex, NodePropIndex,
-    PartitionValue, frame_fingerprint,
+    AdjacencyIndex, CategoryIndex, ColStatsFact, ColStatsRole, DegreeFact, EndpointRowsFact,
+    NodeIdIndex, NodePropIndex, PartitionValue, TemporalTextFact, frame_fingerprint,
 )
 from .types import AdjacencyIndexKind, ArrayLike, ArrayNamespace
 
@@ -444,4 +444,145 @@ def build_degree_fact(
         backend=backend, engine=engine, self_loops=int((src == dst).sum()),
         type_column=type_column, type_value=type_value,
         fingerprint=frame_fingerprint(edges, cols, engine), source_ref=edges,
+    )
+
+
+#: Above this many distinct values a column is not a category: the code map stops
+#: paying for itself and the predicate is better served by the canonical filter.
+_MAX_CATEGORY_VALUES = 64
+
+
+def build_category_index(
+    frame: DataFrameT,
+    column: str,
+    role: ColStatsRole,
+    engine: Engine,
+) -> Optional[CategoryIndex]:
+    """Per-row integer codes for a low-cardinality column, or None when unindexable.
+
+    Serves scalar-equality predicates (``{label__Person: True}``, ``{type: "KNOWS"}``)
+    by comparing gathered codes instead of filtering a frame. Declines anything whose
+    equality a code compare would not answer exactly: nulls (a code would claim a
+    value where the canonical filter yields no match), high cardinality, and dtypes
+    outside Boolean, integer and string. Polars only for now; the other engines keep
+    the canonical filter, which is the same answer.
+    """
+    if engine != Engine.POLARS:
+        return None
+    import polars as pl
+
+    if column not in frame.columns:
+        return None
+    try:
+        series = frame.get_column(column)  # type: ignore[operator]
+    except (AttributeError, KeyError, TypeError, ValueError):
+        return None
+    dtype = series.dtype
+    if not (dtype == pl.Boolean or dtype.is_integer() or dtype in (pl.String, pl.Categorical)):
+        return None
+    _, backend = array_namespace(engine)
+    distinct = series.unique()
+    if distinct.len() > _MAX_CATEGORY_VALUES:
+        return None
+    values = sorted(value for value in distinct.to_list() if value is not None)
+    # A reserved null code is never handed out for a queried value, so nulls match nothing.
+    null_code = len(values)
+    value_codes: dict = {value: code for code, value in enumerate(values)}
+    mapping = pl.DataFrame(
+        {column: pl.Series(values, dtype=dtype), "__gfql_code__": list(range(len(values)))}
+    )
+    joined = frame.select([column]).join(mapping, on=column, how="left")  # type: ignore[operator]
+    code_series = joined.get_column("__gfql_code__").fill_null(null_code)
+    codes = code_series.to_numpy().astype("uint16" if null_code > 254 else "uint8")
+    return CategoryIndex(
+        role=role, column=column, codes=codes, value_codes=value_codes,
+        backend=backend, engine=engine, n_rows=int(series.len()),
+        fingerprint=frame_fingerprint(frame, (column,), engine), source_ref=frame,
+    )
+
+
+def build_endpoint_rows_fact(
+    edges: DataFrameT,
+    nodes: DataFrameT,
+    src_col: str,
+    dst_col: str,
+    node_index: NodeIdIndex,
+    engine: Engine,
+) -> Optional[EndpointRowsFact]:
+    """Node row position of each edge endpoint, or None when any endpoint is unresolvable.
+
+    Resolves both endpoint columns through the node id index once, so a traversal that
+    has an edge row already has its endpoints' node rows. Declines when an endpoint id
+    is absent from the index or either column carries nulls, because a row that denotes
+    no node would be worse than the search it replaces.
+    """
+    xp, backend = array_namespace(engine)
+    keys = node_index.keys_sorted
+    total_keys = int(keys.shape[0])
+    if total_keys == 0:
+        return None
+    resolved = []
+    for column in (src_col, dst_col):
+        try:
+            values = col_to_array(edges, column, engine)
+        except (AttributeError, KeyError, TypeError, ValueError):
+            return None
+        if str(getattr(values.dtype, "kind", "")) not in ("i", "u"):
+            return None
+        probe = values
+        probe_keys = keys
+        if probe.dtype != probe_keys.dtype:
+            common = xp.promote_types(probe.dtype, probe_keys.dtype)  # promote, never narrow
+            probe = probe.astype(common)
+            probe_keys = probe_keys.astype(common)
+        position = xp.searchsorted(probe_keys, probe)
+        clipped = xp.minimum(position, total_keys - 1)
+        if int(xp.count_nonzero(probe_keys[clipped] == probe)) != int(probe.shape[0]):
+            return None  # an endpoint with no node row: decline rather than point at one
+        resolved.append(node_index.row_positions[clipped])
+    return EndpointRowsFact(
+        src_col=src_col, dst_col=dst_col, node_col=node_index.key_col,
+        src_rows=resolved[0], dst_rows=resolved[1], backend=backend, engine=engine,
+        edges_fingerprint=frame_fingerprint(edges, tuple(sorted({src_col, dst_col})), engine),
+        nodes_fingerprint=frame_fingerprint(nodes, (node_index.key_col,), engine),
+        edges_ref=edges, nodes_ref=nodes,
+    )
+
+
+def build_temporal_text_fact(
+    frame: DataFrameT,
+    role: ColStatsRole,
+    engine: Engine,
+) -> Optional[TemporalTextFact]:
+    """Per String column, whether it holds Cypher temporal-constructor text.
+
+    One scan per column at build time answers what the projection guard otherwise asks
+    of every projected result. A frame with no String columns yields an empty verdict
+    map, which is still a useful fact: it says no projection of it can leak that text.
+    """
+    if engine != Engine.POLARS:
+        return None
+    import polars as pl
+
+    from graphistry.compute.gfql.temporal.constructors import TEMPORAL_CALL_EXPR_RE
+
+    try:
+        schema = frame.schema  # type: ignore[union-attr]
+    except (AttributeError, TypeError):
+        return None
+    columns = [str(name) for name, dtype in schema.items() if dtype == pl.String]
+    pattern = r"^\s*" + TEMPORAL_CALL_EXPR_RE.pattern
+    verdicts = {}
+    if columns:
+        try:
+            row = frame.select(  # type: ignore[operator]
+                [pl.col(column).str.contains(pattern).any().alias(column) for column in columns]
+            ).row(0)
+        except Exception:
+            return None
+        verdicts = {column: bool(value) for column, value in zip(columns, row)}
+    return TemporalTextFact(
+        role=role, verdicts=verdicts, engine=engine,
+        fingerprint=frame_fingerprint(frame, tuple(sorted(verdicts)), engine),
+        source_ref=frame,
     )

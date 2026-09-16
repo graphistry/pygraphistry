@@ -11,7 +11,7 @@ answer).
 from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
-from typing import Any, Dict, Literal, Optional, Tuple, Union, cast
+from typing import Any, Dict, Literal, Mapping, Optional, Tuple, Union, cast
 
 from graphistry.Engine import Engine
 from graphistry.compute.typing import DataFrameT
@@ -107,6 +107,30 @@ class NodePropIndex:
 
 ColStatsRole = Literal["nodes", "edges"]
 
+
+@dataclass(frozen=True)
+class CategoryIndex:
+    """Low-cardinality column -> per-row integer code, for scalar-equality predicates.
+
+    A label or edge-type predicate (``{label__Person: True}``, ``{type: "KNOWS"}``)
+    is answered on gathered candidate rows by comparing their codes to the code of
+    the wanted value, which is one array gather instead of a frame filter. Built at
+    the same load-time point as the other indexes, and reported the same way.
+
+    ``codes`` is aligned with the frame's rows. ``value_codes`` maps each distinct
+    value to its code; a value absent from the mapping matches no row. Columns with
+    nulls are not indexed, so a code always denotes a real value.
+    """
+    role: ColStatsRole
+    column: str
+    codes: ArrayLike
+    value_codes: Mapping[object, int]
+    backend: IndexBackend
+    engine: Engine
+    fingerprint: FrameFingerprint = field(compare=False, default=(-1, (), ""))
+    source_ref: Optional[DataFrameT] = field(compare=False, default=None)
+    n_rows: int = 0
+
 #: The value side of a type partition: the groupby key that the single scalar
 #: equality of a typed pattern names -- a relationship type or label name
 #: (``str``), a numeric type code (``int``), or a ``label__X`` flag (``bool``).
@@ -182,6 +206,48 @@ class DegreeFact:
 
 
 @dataclass(frozen=True)
+class EndpointRowsFact:
+    """Node ROW POSITION of each edge's endpoints, aligned with the edge frame.
+
+    A traversal reaches an endpoint as an id and then needs that node's row to read
+    its properties, which is a search of the whole node key array once per hop.
+    Resolving both endpoints once at build time turns every one of those into a
+    gather. Declines to build when any endpoint id is missing from the node index,
+    so a row here always denotes a real node.
+
+    Validity spans BOTH frames: the rows are edge values resolved through the node
+    index, so editing either frame invalidates the fact.
+    """
+    src_col: str
+    dst_col: str
+    node_col: str
+    src_rows: ArrayLike
+    dst_rows: ArrayLike
+    backend: IndexBackend
+    engine: Engine
+    edges_fingerprint: FrameFingerprint = field(compare=False, default=(-1, (), ""))
+    nodes_fingerprint: FrameFingerprint = field(compare=False, default=(-1, (), ""))
+    edges_ref: Optional[DataFrameT] = field(compare=False, default=None)
+    nodes_ref: Optional[DataFrameT] = field(compare=False, default=None)
+
+
+@dataclass(frozen=True)
+class TemporalTextFact:
+    """Whether a String column holds Cypher temporal-constructor text, per column.
+
+    The projection guard that asks this question scans the projected rows every time.
+    A projection that copies a column verbatim inherits the column's own answer, so
+    resolving it once at build time turns the guard into a lookup. Only ever used to
+    DECLINE a fast path, so a missing fact costs a scan, never an answer.
+    """
+    role: ColStatsRole
+    verdicts: Mapping[str, bool]
+    engine: Engine
+    fingerprint: FrameFingerprint = field(compare=False, default=(-1, (), ""))
+    source_ref: Optional[DataFrameT] = field(compare=False, default=None)
+
+
+@dataclass(frozen=True)
 class GfqlIndexRegistry:
     """Immutable kind -> index map. ``with_index`` / ``without`` return copies."""
     indexes: Dict[IndexKind, Union[AdjacencyIndex, NodeIdIndex]] = field(default_factory=dict)
@@ -192,6 +258,12 @@ class GfqlIndexRegistry:
     col_stats: Dict[Tuple[str, str, Optional[str], Optional[PartitionValue]], ColStatsFact] = field(default_factory=dict)
     # Degree facts keyed by (src, dst, type_column, type_value); see DegreeFact.
     degrees: Dict[Tuple[str, str, Optional[str], Optional[PartitionValue]], DegreeFact] = field(default_factory=dict)
+    # Category indexes keyed by (role, column); see CategoryIndex.
+    categories: Dict[Tuple[ColStatsRole, str], "CategoryIndex"] = field(default_factory=dict)
+    # Endpoint row positions keyed by (src, dst, node id); see EndpointRowsFact.
+    endpoint_rows: Dict[Tuple[str, str, str], "EndpointRowsFact"] = field(default_factory=dict)
+    # Temporal-constructor-text verdicts keyed by role; see TemporalTextFact.
+    temporal_text: Dict[ColStatsRole, "TemporalTextFact"] = field(default_factory=dict)
 
     def with_index(self, kind: IndexKind, index: Union[AdjacencyIndex, NodeIdIndex]) -> "GfqlIndexRegistry":
         new = dict(self.indexes)
@@ -256,6 +328,85 @@ class GfqlIndexRegistry:
 
     def without_col_stats(self) -> "GfqlIndexRegistry":
         return replace(self, col_stats={})
+
+    def with_category(self, index: "CategoryIndex") -> "GfqlIndexRegistry":
+        categories = dict(self.categories)
+        categories[(index.role, index.column)] = index
+        return replace(self, categories=categories)
+
+    def get_category_valid(
+        self, role: ColStatsRole, column: str, df: Optional[DataFrameT], engine: Engine
+    ) -> Optional["CategoryIndex"]:
+        """The category index for (role, column) while it still matches the live frame.
+
+        Same identity + fingerprint contract as the other indexes: a stale hit here
+        would answer a predicate against codes for a frame that no longer exists.
+        """
+        index = self.categories.get((role, column))
+        if index is None or df is None or index.engine != engine:
+            return None
+        if index.source_ref is not None and index.source_ref is not df:
+            return None
+        if index.fingerprint != frame_fingerprint(df, (column,), engine):
+            return None
+        return index
+
+    def category_cols(self, role: ColStatsRole) -> Tuple[str, ...]:
+        return tuple(sorted(column for indexed_role, column in self.categories if indexed_role == role))
+
+    def without_categories(self) -> "GfqlIndexRegistry":
+        return replace(self, categories={})
+
+    def with_endpoint_rows(self, fact: "EndpointRowsFact") -> "GfqlIndexRegistry":
+        facts = dict(self.endpoint_rows)
+        facts[(fact.src_col, fact.dst_col, fact.node_col)] = fact
+        return replace(self, endpoint_rows=facts)
+
+    def get_endpoint_rows_valid(
+        self, src_col: str, dst_col: str, node_col: str,
+        edges: Optional[DataFrameT], nodes: Optional[DataFrameT], engine: Engine,
+    ) -> Optional["EndpointRowsFact"]:
+        """The endpoint-row fact while it still matches BOTH live frames.
+
+        A stale hit would point at rows of a node frame that no longer exists, so
+        both identities and both fingerprints are checked, never one.
+        """
+        fact = self.endpoint_rows.get((src_col, dst_col, node_col))
+        if fact is None or edges is None or nodes is None or fact.engine != engine:
+            return None
+        if fact.edges_ref is not None and fact.edges_ref is not edges:
+            return None
+        if fact.nodes_ref is not None and fact.nodes_ref is not nodes:
+            return None
+        edge_cols = tuple(sorted({src_col, dst_col}))
+        if fact.edges_fingerprint != frame_fingerprint(edges, edge_cols, engine):
+            return None
+        if fact.nodes_fingerprint != frame_fingerprint(nodes, (node_col,), engine):
+            return None
+        return fact
+
+    def without_endpoint_rows(self) -> "GfqlIndexRegistry":
+        return replace(self, endpoint_rows={})
+
+    def with_temporal_text(self, fact: "TemporalTextFact") -> "GfqlIndexRegistry":
+        facts = dict(self.temporal_text)
+        facts[fact.role] = fact
+        return replace(self, temporal_text=facts)
+
+    def get_temporal_text_valid(
+        self, role: ColStatsRole, df: Optional[DataFrameT], engine: Engine
+    ) -> Optional["TemporalTextFact"]:
+        fact = self.temporal_text.get(role)
+        if fact is None or df is None or fact.engine != engine:
+            return None
+        if fact.source_ref is not None and fact.source_ref is not df:
+            return None
+        if fact.fingerprint != frame_fingerprint(df, tuple(sorted(fact.verdicts)), engine):
+            return None
+        return fact
+
+    def without_temporal_text(self) -> "GfqlIndexRegistry":
+        return replace(self, temporal_text={})
 
     def node_prop_cols(self) -> Tuple[str, ...]:
         return tuple(sorted(self.node_props.keys()))
