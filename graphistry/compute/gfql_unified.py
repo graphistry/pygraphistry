@@ -2856,5 +2856,5 @@ def _chain_dispatch(
             inputs.include_paths,
         )
     # Validation state applies only to the fresh list-input Chain; execution revalidates mutable operations.
-    chain_input = chain_obj if _ast_validated else chain_obj.chain
+    chain_input = chain_obj.gfql_validated() if _ast_validated else chain_obj.chain
     return chain_impl(g, chain_input, engine, policy=policy, context=context, start_nodes=start_nodes)
