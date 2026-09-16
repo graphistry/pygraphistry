@@ -300,6 +300,70 @@ def test_the_corpus_actually_takes_the_fast_path(monkeypatch):
     assert calls["served"] > 0
 
 
+@pytest.mark.parametrize("row_call_name,serves", [
+    ("bare", True),
+    ("table_nodes", True),
+    ("binding_ops_explicit", True),
+    ("table_edges", False),
+    ("source", False),
+    ("alias_endpoints", False),
+    ("alias_prefilters", False),
+    ("attach_prop_columns", False),
+    ("attach_prop_aliases", False),
+])
+def test_every_rows_parameter_is_decided_by_the_allow_list(row_call_name, serves):
+    """The admission is an allow-list, so EVERY rows() parameter gets a side of the boundary.
+
+    Rejecting known-bad parameters fails open -- the first one nobody thought of is answered
+    against its own meaning. This sweep is the reason the check is written the other way
+    round, and it is the test that fails if a new parameter is added without a decision.
+    """
+    from graphistry.compute.chain import serialize_binding_ops
+
+    middle = [n({"id": 1}, name="a"), e_forward({}, name="e1"), n({}, name="b")]
+    calls = {
+        "bare": rows(),
+        "table_nodes": rows(table="nodes"),
+        "binding_ops_explicit": rows(binding_ops=serialize_binding_ops(middle)),
+        "table_edges": rows(table="edges"),
+        "source": rows(source="a"),
+        "alias_endpoints": rows(alias_endpoints={"e1": "a"}),
+        "alias_prefilters": rows(alias_prefilters={"a": []}),
+        "attach_prop_columns": rows(attach_prop_columns={"a": ["name"]}),
+        "attach_prop_aliases": rows(attach_prop_aliases=["a"]),
+    }
+    ops = [*middle, calls[row_call_name], select([("x", "a.name"), ("y", "b.name")])]
+    g = _graph()
+    served_error = canonical_error = None
+    import graphistry.compute.gfql.lazy.engine.polars.chain as polars_chain
+    seen = {"n": 0}
+    specialization = polars_chain.try_bindings_select_polars
+
+    def counting(*args, **kwargs):
+        result = specialization(*args, **kwargs)
+        seen["n"] += result is not None
+        return result
+
+    polars_chain.try_bindings_select_polars = counting
+    try:
+        with routes_off(["polars-point-rows", "point-rows"]):
+            try:
+                served = g.gfql(ops, engine="polars", index_policy="force")._nodes
+            except Exception as error:  # a decline may surface the canonical route's own error
+                served, served_error = None, type(error)
+    finally:
+        polars_chain.try_bindings_select_polars = specialization
+    assert bool(seen["n"]) == serves
+    with routes_off(["polars-point-rows", "point-rows", ROUTE]):
+        try:
+            canonical = g.gfql(ops, engine="polars", index_policy="force")._nodes
+        except Exception as error:
+            canonical, canonical_error = None, type(error)
+    assert served_error == canonical_error
+    if served_error is None:
+        _assert_identical(served, canonical)
+
+
 def test_rows_parameters_the_route_cannot_honor_decline_to_the_canonical_route():
     """An unrecognized ``rows()`` parameter must decline, not be silently ignored.
 
