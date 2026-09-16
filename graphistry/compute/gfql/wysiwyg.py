@@ -84,7 +84,9 @@ def render_float_pandas(s: SeriesT, precision: int = DEFAULT_FLOAT_PRECISION) ->
     return pd.Series(out, index=s.index, dtype=object)
 
 
-def render_float_cudf(s: SeriesT, precision: int = DEFAULT_FLOAT_PRECISION) -> SeriesT:
+def render_float_cudf(  # pragma: no cover - cuDF-only; the changed-line-coverage gate has no cuDF lane (validated on dgx)
+    s: SeriesT, precision: int = DEFAULT_FLOAT_PRECISION
+) -> SeriesT:
     """Inspector render of a cuDF float column, GPU-resident throughout.
 
     Scales by ``10**precision`` AFTER rounding, renders the integer, and re-inserts the
