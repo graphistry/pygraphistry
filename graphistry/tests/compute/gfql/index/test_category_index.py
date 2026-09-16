@@ -406,14 +406,82 @@ def test_a_wide_column_declines_without_paying_the_exact_distinct_pass():
         pl.Series.unique = original
 
 
+@pytest.mark.parametrize("dtype", ["String", "Categorical", "Int64", "UInt8"])
 @pytest.mark.parametrize("distinct", [63, 64, 65, 200])
-def test_the_cardinality_cap_is_decided_exactly_at_its_own_boundary(distinct):
-    """The sketch may not move the cap: 64 indexes, 65 does not, on both sides."""
-    frame = pl.DataFrame({"c": [f"v{value % distinct}" for value in range(4000)]})
-    index = _codes(frame, "c")
+def test_the_cardinality_cap_is_decided_exactly_at_its_own_boundary(dtype, distinct):
+    """The sketch may not move the cap, on ANY admitted dtype: 64 indexes, 65 does not.
+
+    The sketch that rules out clearly-over-cap columns is approximate, so the cap is
+    checked per dtype rather than on strings alone: a sketch that read differently on
+    integers would silently cost those indexes.
+    """
+    builders = {
+        "String": lambda: pl.Series([f"v{value % distinct}" for value in range(4000)], dtype=pl.String),
+        "Categorical": lambda: pl.Series([f"v{value % distinct}" for value in range(4000)], dtype=pl.Categorical),
+        "Int64": lambda: pl.Series([value % distinct for value in range(4000)], dtype=pl.Int64),
+        "UInt8": lambda: pl.Series([value % distinct for value in range(4000)], dtype=pl.UInt8),
+    }
+    if dtype == "UInt8" and distinct > 255:
+        pytest.skip("UInt8 cannot hold that many distinct values")
+    index = _codes(pl.DataFrame({"c": builders[dtype]()}), "c")
     assert (index is not None) == (distinct <= 64)
     if index is not None:
         assert len(index.value_codes) == distinct
+
+
+@engagement_pin
+def test_an_all_null_column_declines_rather_than_coding_a_value_it_has_not_got():
+    """An all-null column has no value to take a type from, so it cannot answer at all.
+
+    It still BUILDS -- every row carries the reserved null code -- and the temptation is to
+    read an empty value map as "matches nothing", which is the right answer here by accident
+    and the wrong one as a rule. The lookup declines and the canonical filter decides.
+    """
+    frame = pl.DataFrame({"c": pl.Series([None, None, None], dtype=pl.String)})
+    index = _codes(frame, "c")
+    assert index is not None and dict(index.value_codes) == {}
+    assert set(index.codes) == {0}, "every row should carry the reserved null code"
+
+    nodes = pl.DataFrame({
+        "id": [1, 2, 3, 4],
+        "allnull": pl.Series([None] * 4, dtype=pl.String),
+        "name": list("abcd"),
+    })
+    edges = pl.DataFrame({"s": [2, 3, 4], "d": [1, 1, 1]})
+    g = graphistry.nodes(nodes, "id").edges(edges, "s", "d").gfql_index_all(engine="polars")
+    ops = [n({"id": 1}, name="a"), e_reverse({}, name="e"), n({"allnull": "x"}, name="b"),
+           rows(), select([("bid", "b")])]
+    served, canonical = _both(g, ops)
+    assert served.rows() == canonical.rows() == []
+
+
+def test_the_new_facts_report_stale_and_engine_mismatch_like_every_other_index():
+    """A fact that reports itself usable after its frame was rebound would be worse than absent."""
+    from graphistry.compute.gfql.index.api import show_indexes
+
+    g = _graph()
+    fresh = show_indexes(g, engine="polars")
+    new_kinds = fresh[fresh["kind"].isin(["category", "endpoint_rows", "temporal_text"])]
+    assert not new_kinds.empty and new_kinds["valid"].all() and new_kinds["usable"].all()
+
+    # Rebinding the NODES frame must stale the node-role facts and the endpoint fact, which
+    # spans both frames; the edge-role facts are untouched and must stay valid.
+    rebound = show_indexes(g.nodes(g._nodes.clone(), "id"), engine="polars")
+    node_role = rebound[rebound["name"].str.startswith(("category:nodes", "temporal_text:nodes"))]
+    assert not node_role.empty and not node_role["valid"].any()
+    assert not rebound[rebound["kind"] == "endpoint_rows"]["valid"].any()
+    edge_role = rebound[rebound["name"].str.startswith(("category:edges", "temporal_text:edges"))]
+    assert not edge_role.empty and edge_role["valid"].all()
+
+    # An engine the index was not built for is a decline, with the shared wording.
+    mismatched = show_indexes(g, engine="pandas")
+    assert not mismatched["usable"].any()
+    for _, row in mismatched[mismatched["kind"].isin(
+        ["category", "endpoint_rows", "temporal_text"]
+    )].iterrows():
+        assert row["reason"] == (
+            f"resident {row['kind']} index engine=polars, requested engine=pandas -> scan"
+        )
 
 
 def test_endpoint_rows_are_polars_only():
