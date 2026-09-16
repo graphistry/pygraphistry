@@ -93,16 +93,24 @@ def render_float_cudf(s: SeriesT, precision: int = DEFAULT_FLOAT_PRECISION) -> S
     """
     import cudf
 
+    inf = float("inf")
+    # Infinities must never reach the int64 casts: they silently produce int64-max digits
+    # and a doubled sign ('--922337203685477.5808'), which would then MATCH a search.
+    infinite = (s == inf) | (s == -inf)
+    safe = s.where(~infinite, 0.0)
+
     scale = 10 ** precision
-    rounded = s.round(precision)
+    rounded = safe.round(precision)
     scaled = (rounded * scale).round().astype("int64")
     digits = scaled.abs().astype(str).str.pad(precision + 1, side="left", fillchar="0")
-    sign = cudf.Series(["-"] * len(s), index=s.index).where(s < 0, "")
+    sign = cudf.Series(["-"] * len(s), index=s.index).where(safe < 0, "")
     fractional_txt = sign + digits.str.slice(0, -precision) + "." + digits.str.slice(-precision)
 
-    whole_txt = s.astype("int64").astype(str)
-    is_whole = (s % 1 == 0) & s.notna()
+    whole_txt = safe.astype("int64").astype(str)
+    is_whole = (safe % 1 == 0) & safe.notna()
     out = fractional_txt.where(~is_whole, whole_txt)
+    out = out.where(~(infinite & (s > 0)), "Infinity")
+    out = out.where(~(infinite & (s < 0)), "-Infinity")
     # nulls and the sentinel show nothing in the inspector, so they must not match
     return out.where(s.notna() & (s != INSPECTOR_INT32_SENTINEL), None)
 
@@ -118,20 +126,31 @@ def float_render_expr_polars(
     """
     import polars as pl
 
+    # polars NaN is a VALUE, not null, and neither NaN nor an infinity survives a cast to
+    # Int64 -- it raises InvalidOperationError regardless of the when/then guard, so the
+    # non-finite values must be replaced BEFORE any cast, not branched around after.
+    is_nan = col.is_nan().fill_null(False)
+    is_inf = col.is_infinite().fill_null(False)
+    safe = pl.when(col.is_null() | is_nan | is_inf).then(pl.lit(0.0)).otherwise(col)
+
     scale = 10 ** precision
-    rounded = col.round(precision)
+    rounded = safe.round(precision)
     scaled = (rounded * scale).round().cast(pl.Int64)
     digits = scaled.abs().cast(pl.String).str.pad_start(precision + 1, "0")
-    sign = pl.when(col < 0).then(pl.lit("-")).otherwise(pl.lit(""))
+    sign = pl.when(safe < 0).then(pl.lit("-")).otherwise(pl.lit(""))
     whole_digits = digits.str.slice(0, digits.str.len_chars() - precision)
     frac_digits = digits.str.slice(-precision)
     fractional_txt = sign + whole_digits + pl.lit(".") + frac_digits
 
-    whole_txt = col.cast(pl.Int64).cast(pl.String)
+    whole_txt = safe.cast(pl.Int64).cast(pl.String)
     return (
-        pl.when(col.is_null() | (col == INSPECTOR_INT32_SENTINEL))
+        pl.when(col.is_null() | is_nan | (col == INSPECTOR_INT32_SENTINEL))
         .then(pl.lit(None, dtype=pl.String))
-        .when(col % 1 == 0)
+        .when(is_inf & (col > 0))
+        .then(pl.lit("Infinity"))
+        .when(is_inf)
+        .then(pl.lit("-Infinity"))
+        .when(safe % 1 == 0)
         .then(whole_txt)
         .otherwise(fractional_txt)
     )

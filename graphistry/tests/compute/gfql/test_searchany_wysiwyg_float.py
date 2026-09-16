@@ -52,6 +52,71 @@ def test_render_skips_what_the_inspector_shows_as_nothing():
     assert render_float_pandas(s).tolist() == [None, None, "1.5000"]
 
 
+def test_polars_render_skips_what_the_inspector_shows_as_nothing():
+    """The polars arm of the same contract as ``test_render_skips_...``.
+
+    Pinned separately because the polars renderer is a different expression with its own
+    null/sentinel branch: a mutation that dropped the sentinel check there passed every
+    other test in this file and in the conformance matrix.
+    """
+    pl = pytest.importorskip("polars")
+    from graphistry.compute.gfql.wysiwyg import float_render_expr_polars
+
+    df = pl.DataFrame({"x": pl.Series(
+        [float("nan"), float(INSPECTOR_INT32_SENTINEL), 1.5, None], dtype=pl.Float64)})
+    got = (df.select(float_render_expr_polars(pl.col("x"), pl.Float64).alias("o"))
+           .to_series().to_list())
+    assert got[0] is None, f"NaN must render nothing, got {got[0]!r}"
+    assert got[1] is None, f"the Int32 sentinel must render nothing, got {got[1]!r}"
+    assert got[2] == "1.5000"
+    assert got[3] is None, f"null must render nothing, got {got[3]!r}"
+
+    inf_df = pl.DataFrame({"x": pl.Series([float("inf"), float("-inf")], dtype=pl.Float64)})
+    inf_got = (inf_df.select(float_render_expr_polars(pl.col("x"), pl.Float64).alias("o"))
+               .to_series().to_list())
+    assert inf_got == ["Infinity", "-Infinity"], inf_got
+
+
+def test_polars_search_never_matches_the_sentinel_end_to_end():
+    """The user-visible half of the pin: the sentinel's digits must not find its row."""
+    pl = pytest.importorskip("polars")
+    import graphistry
+    from graphistry.compute.ast import n
+
+    nodes = pl.DataFrame({
+        "id": [0, 1],
+        "f": pl.Series([float(INSPECTOR_INT32_SENTINEL), 1.5], dtype=pl.Float64),
+    })
+    edges = pl.DataFrame({"s": [0], "d": [1]})
+    g = graphistry.nodes(nodes, "id").edges(edges, "s", "d")
+    from graphistry.compute.ast import search_any as search_any_op
+
+    out = g.gfql([n(name="a"), search_any_op(alias="a", out_col="__hit__", term="2147483647")],
+                 engine="polars")._nodes
+    hits = out.to_pandas().sort_values("id")["__hit__"].tolist()
+    assert hits == [False, False], f"sentinel matched: {hits}"
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_non_finite_floats_render_without_crashing_or_inventing_digits(engine):
+    """NaN and the infinities are where the integer-cast renders go wrong.
+
+    polars RAISED on NaN (it is a value there, not null, and the cast fails whatever the
+    when/then guard says) and cuDF silently emitted int64-max digits with a doubled sign
+    for the infinities ('--922337203685477.5808'), which a digit search would then MATCH.
+    Both are pinned here on every kernel engine.
+    """
+    df = _frame(pd.DataFrame({"f": [float("nan"), float("inf"), float("-inf"), 1.5]}), engine)
+    # must not raise, and the infinities must not turn into digits
+    assert _mask(df, "922337") == [False, False, False, False]
+    assert _mask(df, "1.5000") == [False, False, False, True]
+
+
+def test_non_finite_render_matches_the_inspector_naming():
+    s = pd.Series([float("nan"), float("inf"), float("-inf")], dtype="float64")
+    assert render_float_pandas(s).tolist() == [None, "Infinity", "-Infinity"]
+
+
 def test_render_precision_is_a_parameter():
     s = pd.Series([1.23456789], dtype="float64")
     assert render_float_pandas(s, 2).tolist() == ["1.23"]
