@@ -311,7 +311,9 @@ def _estimate_inner_join_rows_arrays(
     Frame group-by/join plans cost ~1ms each on small frontiers; the same
     sum-of-products is a unique/searchsorted over the key arrays. Nulls defer to
     the frame path: engines disagree on null-key matching (pandas merges NaN with
-    NaN, polars does not), so that contract stays where it is.
+    NaN, polars does not), so that contract stays where it is. Key arrays of
+    different dtypes also defer, because the compare that would join them promotes
+    to float64 and aliases ids past 2**53.
     """
     from graphistry.compute.gfql.index.engine_arrays import (
         array_namespace, as_eager_polars_frame, col_to_array, unique_with_counts,
@@ -333,8 +335,14 @@ def _estimate_inner_join_rows_arrays(
     else:
         return None
     xp, _ = array_namespace(engine)
-    left_keys, left_counts = unique_with_counts(xp, col_to_array(left, left_on, engine))
-    right_keys, right_counts = unique_with_counts(xp, col_to_array(right, right_on, engine))
+    left_values = col_to_array(left, left_on, engine)
+    right_values = col_to_array(right, right_on, engine)
+    if left_values.dtype != right_values.dtype:
+        return None  # a promoted compare is float64, which aliases ids past 2**53
+    if int(left_values.shape[0]) == 0 or int(right_values.shape[0]) == 0:
+        return 0
+    left_keys, left_counts = unique_with_counts(xp, left_values)
+    right_keys, right_counts = unique_with_counts(xp, right_values)
     positions = xp.minimum(xp.searchsorted(left_keys, right_keys), left_keys.shape[0] - 1)
     matched = left_keys[positions] == right_keys
     products = left_counts[positions[matched]].astype("int64") * right_counts[matched].astype("int64")
@@ -410,9 +418,11 @@ def _plan_path_ordered_expand_arrays(
     """Exact ``path_ordered_expand_join`` for eager polars over null-free integer keys.
 
     A join+sort plan costs ~1ms on a small frontier; the same (path, tiebreak...)
-    order is a searchsorted range per state row over the step rows pre-sorted by
+    order is a searchsorted range per state row over the step rows sorted by
     (key, tiebreak...), then two row gathers. The range widths sum to the row count
-    ``estimate_inner_join_rows`` returns, so the plan reports it without a second pass.
+    ``estimate_inner_join_rows`` returns, so the plan reports it without a second pass,
+    and the (key, tiebreak...) sort happens only when the plan is materialized -- a
+    caller that cost-gates and rejects must not pay for an ordering it discards.
     Declines (None) to the frame path on lazy inputs, nulls, non-integer
     keys/tiebreaks, or no tiebreak columns (the frame path's intra-key order is then
     the engine's own, not reproduced here).
@@ -437,15 +447,18 @@ def _plan_path_ordered_expand_arrays(
     xp, _ = array_namespace(engine)
     current = col_to_array(state_frame, current_col, engine)
     keys = col_to_array(step_frame, from_col, engine)
-    # lexsort takes its PRIMARY key last, so this orders by (key, tiebreak_0, tiebreak_1, ...).
-    tiebreaks = [col_to_array(step_frame, col, engine) for col in tiebreak_cols]
-    step_order = xp.lexsort(tuple([*reversed(tiebreaks), keys]))
-    sorted_keys = keys[step_order]
+    if current.dtype != keys.dtype:
+        return None  # a promoted compare is float64, which aliases ids past 2**53
+    # Counting needs key order only; the (key, tiebreak...) sort is deferred to expand().
+    sorted_keys = xp.sort(keys)
     lo = xp.searchsorted(sorted_keys, current, side="left")
     counts = xp.searchsorted(sorted_keys, current, side="right") - lo
     total = int(counts.sum())
 
     def expand() -> DataFrameT:
+        # lexsort takes its PRIMARY key last, so this orders by (key, tiebreak_0, ...).
+        tiebreaks = [col_to_array(step_frame, col, engine) for col in tiebreak_cols]
+        step_order = xp.lexsort(tuple([*reversed(tiebreaks), keys]))
         left_idx = xp.repeat(xp.arange(current.shape[0]), counts)
         starts = xp.cumsum(counts) - counts
         right_idx = step_order[xp.repeat(lo - starts, counts) + xp.arange(total)]

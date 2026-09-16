@@ -176,15 +176,35 @@ def _chain_graph(engine: Engine):
     return g.gfql_index_all(engine=engine)
 
 
+@pytest.mark.route_engaged("indexed-kernel")
 @pytest.mark.parametrize("name,engine", _engines())
-@pytest.mark.parametrize("dst_filter", [{"label__Person": True}, {"label__Person": True, "name": "a"}, {}])
-def test_indexed_hop_rows_match_canonical_with_and_without_endpoint_drops(name, engine, dst_filter, monkeypatch):
+@pytest.mark.parametrize("seed_id,dst_filter,expect_pids,expect_semijoin", [
+    (2, {"label__Person": True}, [1], False),        # every endpoint survives: skip is the identity
+    (2, {"label__Person": True, "name": "a"}, [1], False),
+    (2, {}, [1], False),
+    (4, {}, [1, 5], False),                          # node 4 reaches two creators, both kept
+    (4, {"id": 1}, [1], True),                       # ... and dropping one makes the semi-join RUN
+])
+def test_indexed_hop_rows_match_canonical_with_and_without_endpoint_drops(
+    name, engine, seed_id, dst_filter, expect_pids, expect_semijoin, monkeypatch,
+):
+    """The kernel's answer equals a real oracle, on both sides of the endpoint-drop branch.
+
+    Three things this has to do to mean anything, none of which it did before: run with the
+    sibling routes off, since `polars-seeded` otherwise answers BOTH legs and the comparison
+    says nothing about the kernel; assert the kernel actually served; and include a case where
+    the endpoint filter really drops an id, so the semi-join skip is exercised on both sides
+    rather than only where it happens to be the identity.
+    """
     if name == "cudf":
         pytest.importorskip("cudf")
     from graphistry.compute.ast import n, e_forward, rows, select, order_by
+    from graphistry.tests.compute.gfql.routes.switch import routes_off
+    import graphistry.compute.gfql.index.bindings as bindings_module
+
     g = _chain_graph(engine)
     ops = [
-        n({"id": 2, "label__Message": True}, name="m"),
+        n({"id": seed_id, "label__Message": True}, name="m"),
         e_forward({"type": "HAS_CREATOR"}),
         n(dst_filter or None, name="p"),
         rows(),
@@ -192,18 +212,31 @@ def test_indexed_hop_rows_match_canonical_with_and_without_endpoint_drops(name, 
         order_by([("pid", "asc")]),
     ]
     calls = []
-    original = B.semijoin_by_column
-    monkeypatch.setattr(B, "semijoin_by_column", lambda *a, **k: calls.append(1) or original(*a, **k))
-    served = g.gfql(ops, engine=engine, index_policy="use")
-    monkeypatch.setattr(B, "semijoin_by_column", original)
-    canonical = g.gfql(ops, engine=engine, index_policy="off")
+    served_by_kernel = {"n": 0}
+    original_semijoin = B.semijoin_by_column
+    original_kernel = bindings_module._try_indexed_connected_bindings_state
+
+    def counting_kernel(*args, **kwargs):
+        result = original_kernel(*args, **kwargs)
+        served_by_kernel["n"] += result is not None
+        return result
+
+    monkeypatch.setattr(B, "semijoin_by_column", lambda *a, **k: calls.append(1) or original_semijoin(*a, **k))
+    monkeypatch.setattr(bindings_module, "_try_indexed_connected_bindings_state", counting_kernel)
+    with routes_off(["polars-point-rows", "point-rows", "polars-seeded", "native-fast", "cypher-fast"]):
+        served = g.gfql(ops, engine=engine, index_policy="force")
+    monkeypatch.setattr(B, "semijoin_by_column", original_semijoin)
+    monkeypatch.setattr(bindings_module, "_try_indexed_connected_bindings_state", original_kernel)
+    assert served_by_kernel["n"], "the indexed kernel never served; this case proves nothing"
+
+    with routes_off(["polars-point-rows", "point-rows", "polars-seeded", "native-fast",
+                     "cypher-fast", "indexed-kernel", "index-hop"]):
+        canonical = g.gfql(ops, engine=engine, index_policy="off")
     served_pd = _to_pandas(served._nodes, engine).reset_index(drop=True)
     canonical_pd = _to_pandas(canonical._nodes, engine).reset_index(drop=True)
     pd.testing.assert_frame_equal(served_pd, canonical_pd, check_dtype=False)
-    # message 2 -> creator 1 (Person) and 6 (Person via HAS_CREATOR? no: 2->6 is LIKES) => only 1
-    assert served_pd["pid"].tolist() == [1]
-    # the endpoint filter never drops an id here, so the semi-join is skipped
-    assert calls == []
+    assert served_pd["pid"].tolist() == expect_pids, "the oracle moved; the case no longer means what it says"
+    assert bool(calls) == expect_semijoin
 
 
 def _frame_path_expand(state, step, **kwargs):
@@ -331,3 +364,120 @@ def test_expand_plan_falls_back_to_the_estimator_when_the_array_path_declines():
     expected = estimate_inner_join_rows(state, step, left_on="cur", right_on="from", engine=Engine.POLARS)
     assert plan.rows == expected == 5
     assert int(plan.expand().shape[0]) == expected
+
+
+@pytest.mark.parametrize("left_dtype,right_dtype", [
+    ("Int64", "UInt64"), ("UInt64", "Int64"), ("Int32", "Int64"), ("Int64", "Int32"),
+])
+def test_mixed_key_dtypes_decline_rather_than_promoting(left_dtype, right_dtype):
+    """Keys of different dtypes defer, because the compare that joins them promotes.
+
+    These helpers are public, so the guard belongs here rather than relying on a
+    caller's own schema check. The magnitude that makes the promotion lossy is the
+    next test's job; this one pins that a mismatch alone is enough to decline.
+    """
+    pl = pytest.importorskip("polars")
+    from graphistry.compute.dataframe.join import (
+        _estimate_inner_join_rows_arrays, _path_ordered_expand_join_arrays,
+        estimate_inner_join_rows, path_ordered_expand_join,
+    )
+
+    ids = [1, 2]
+    left = pl.DataFrame({"k": pl.Series(ids, dtype=getattr(pl, left_dtype))})
+    right = pl.DataFrame({"k": pl.Series(ids, dtype=getattr(pl, right_dtype))})
+    assert _estimate_inner_join_rows_arrays(
+        left, right, left_on="k", right_on="k", engine=Engine.POLARS,
+    ) is None
+    assert estimate_inner_join_rows(left, right, left_on="k", right_on="k", engine=Engine.POLARS) == 2
+
+    state = left.rename({"k": "cur"})
+    step = right.rename({"k": "from"}).with_columns(
+        pl.Series("to", [7, 8], dtype=pl.Int64), pl.Series("ord", [0, 1], dtype=pl.Int64),
+    )
+    kwargs = dict(current_col="cur", from_col="from", to_col="to",
+                  tiebreak_cols=("ord",), alias=None, engine=Engine.POLARS)
+    assert _path_ordered_expand_join_arrays(state, step, **kwargs) is None
+    served = path_ordered_expand_join(state, step, path_order_col="po", **kwargs)
+    assert sorted(served.rows()) == [(7,), (8,)], "the frame path must still answer exactly"
+
+
+def test_an_int64_uint64_pair_would_alias_ids_past_the_float_mantissa():
+    """Why the mismatch guard exists: the promoted compare cannot tell these ids apart.
+
+    Without the guard the array expansion emitted four rows where the frame path emits
+    two, because float64 collapses 2**60+1 and 2**60+2 onto the same value.
+    """
+    pl = pytest.importorskip("polars")
+    from graphistry.compute.dataframe.join import (
+        _path_ordered_expand_join_arrays, path_ordered_expand_join,
+    )
+
+    base = 2 ** 60
+    assert float(base + 1) == float(base + 2), "the premise: float64 aliases these ids"
+    state = pl.DataFrame({"cur": pl.Series([base + 1, base + 2], dtype=pl.Int64)})
+    step = pl.DataFrame({
+        "from": pl.Series([base + 1, base + 2], dtype=pl.UInt64),
+        "to": pl.Series([7, 8], dtype=pl.Int64),
+        "ord": pl.Series([0, 1], dtype=pl.Int64),
+    })
+    kwargs = dict(current_col="cur", from_col="from", to_col="to",
+                  tiebreak_cols=("ord",), alias=None, engine=Engine.POLARS)
+    assert _path_ordered_expand_join_arrays(state, step, **kwargs) is None
+    assert sorted(path_ordered_expand_join(state, step, path_order_col="po", **kwargs).rows()) == [(7,), (8,)]
+
+
+@pytest.mark.parametrize("left_rows,right_rows", [(0, 3), (3, 0), (0, 0)])
+def test_the_array_estimate_handles_empty_frames_without_raising(left_rows, right_rows):
+    """The helper is public, so it cannot rely on its caller's ``len == 0`` guard.
+
+    Without its own guard an empty left frame indexes ``left_keys[-1]`` of a zero-length
+    array and raises IndexError instead of answering zero.
+    """
+    pl = pytest.importorskip("polars")
+    from graphistry.compute.dataframe.join import (
+        _estimate_inner_join_rows_arrays, estimate_inner_join_rows,
+    )
+
+    left = pl.DataFrame({"k": pl.Series(list(range(left_rows)), dtype=pl.Int64)})
+    right = pl.DataFrame({"k": pl.Series(list(range(right_rows)), dtype=pl.Int64)})
+    assert _estimate_inner_join_rows_arrays(
+        left, right, left_on="k", right_on="k", engine=Engine.POLARS,
+    ) == 0
+    assert estimate_inner_join_rows(left, right, left_on="k", right_on="k", engine=Engine.POLARS) == 0
+
+
+def test_a_rejected_hop_does_not_pay_for_an_ordering_it_discards():
+    """Costing a hop must not sort the step rows; only materializing it may.
+
+    The cost gate exists to reject a hop before paying for it, so building the plan
+    must not do the (key, tiebreak...) sort. Pinned by counting the sort itself: a plan
+    that is never expanded performs no lexsort, and expanding it performs exactly one.
+    """
+    pl = pytest.importorskip("polars")
+    from graphistry.compute.dataframe.join import plan_path_ordered_expand_join
+
+    rng = np.random.default_rng(7)
+    state = pl.DataFrame({"cur": rng.integers(0, 50, 200)})
+    step = pl.DataFrame({
+        "from": rng.integers(0, 50, 400), "to": rng.integers(0, 1000, 400),
+        "orient": rng.integers(0, 2, 400), "edge_ord": rng.permutation(400),
+    })
+    kwargs = dict(current_col="cur", from_col="from", to_col="to", path_order_col="po",
+                  tiebreak_cols=("orient", "edge_ord"), alias=None, engine=Engine.POLARS)
+    calls = {"n": 0}
+    original = np.lexsort
+
+    def counting(*args, **kwargs_):
+        calls["n"] += 1
+        return original(*args, **kwargs_)
+
+    np.lexsort = counting
+    try:
+        plan = plan_path_ordered_expand_join(state, step, **kwargs)
+        assert plan.rows > 0
+        assert calls["n"] == 0, "costing the hop sorted rows the caller may never want"
+        expanded = plan.expand()
+        assert calls["n"] == 1
+    finally:
+        np.lexsort = original
+    assert int(expanded.shape[0]) == plan.rows
