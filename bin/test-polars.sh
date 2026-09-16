@@ -169,6 +169,7 @@ POLARS_TEST_FILES=(
     graphistry/tests/compute/gfql/index/test_indexed_bindings_hop_overhead.py
     graphistry/tests/compute/gfql/index/test_array_bindings_select.py
     graphistry/tests/compute/gfql/index/test_category_index.py
+    graphistry/tests/compute/gfql/index/test_point_rows_indexed_edge_filter.py
     graphistry/tests/compute/gfql/test_rows_select_projection_pushdown.py
     graphistry/tests/compute/gfql/test_reentry_caller_graph_immutability.py
     graphistry/tests/compute/gfql/test_rewrite_param_discard.py
