@@ -481,3 +481,76 @@ def test_a_rejected_hop_does_not_pay_for_an_ordering_it_discards():
     finally:
         np.lexsort = original
     assert int(expanded.shape[0]) == plan.rows
+
+
+def test_resolving_a_polars_frame_does_not_attempt_the_pyspark_import():
+    """A failed import re-walks sys.path on EVERY call, so order of checks is load-bearing.
+
+    `from pyspark.sql import DataFrame` raising ImportError is not cached, so when it sat
+    ahead of the polars check every polars frame paid a full path walk. Pinned structurally
+    rather than by a timing threshold: the import is simply not attempted.
+    """
+    import builtins
+    pl = pytest.importorskip("polars")
+    from graphistry.Engine import EngineAbstract, resolve_engine
+
+    attempts = []
+    original = builtins.__import__
+
+    def watching(name, *args, **kwargs):
+        if name.startswith("pyspark"):
+            attempts.append(name)
+        return original(name, *args, **kwargs)
+
+    builtins.__import__ = watching
+    try:
+        assert resolve_engine(EngineAbstract.AUTO, pl.DataFrame({"a": [1, 2, 3]})) == Engine.POLARS
+    finally:
+        builtins.__import__ = original
+    assert attempts == [], f"resolving a polars frame attempted {attempts}"
+
+
+def test_the_temporal_scan_skips_columns_that_cannot_hold_a_constructor():
+    """A constructor always contains "(", so a column without one cannot match the regex.
+
+    A frame whose columns hold no parenthesis must not reach the regex at all. Pinned
+    structurally rather than by a timing threshold.
+    """
+    pl = pytest.importorskip("polars")
+    from graphistry.compute.gfql.lazy.engine.polars import projection
+
+    constructor = pl.DataFrame({
+        "plain_a": ["alpha", "beta"],
+        "plain_b": ["gamma", "delta"],
+        "has_constructor": ["datetime('2020-01-01')", "nope"],
+    })
+    assert projection._columns_have_temporal_constructor_text(
+        constructor, list(constructor.columns),
+    ) is True
+    # A parenthesis that is not a temporal constructor still reaches the regex and is rejected.
+    other_call = constructor.with_columns(pl.Series("has_constructor", ["candidate('x')", "nope"]))
+    assert projection._columns_have_temporal_constructor_text(
+        other_call, list(other_call.columns),
+    ) is False
+    # And a frame with no parenthesis anywhere short-circuits BEFORE the regex. Asserting the
+    # verdict alone would not show that: the prefilter is a pure optimization and the verdicts
+    # are the same either way. So the regex is replaced with one that matches everything --
+    # reaching it now means True, and only a short-circuit can still answer False.
+    plain = constructor.drop("has_constructor")
+    assert projection._columns_have_temporal_constructor_text(plain, list(plain.columns)) is False
+
+    import re
+
+    from graphistry.compute.gfql.temporal import constructors
+
+    original = constructors.TEMPORAL_CALL_EXPR_RE
+    constructors.TEMPORAL_CALL_EXPR_RE = re.compile(".*")
+    try:
+        assert projection._columns_have_temporal_constructor_text(
+            plain, list(plain.columns),
+        ) is False, "the regex ran on columns that cannot hold a constructor"
+        assert projection._columns_have_temporal_constructor_text(
+            constructor, list(constructor.columns),
+        ) is True, "the match-everything regex proves the scan still runs where it should"
+    finally:
+        constructors.TEMPORAL_CALL_EXPR_RE = original
