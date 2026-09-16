@@ -94,8 +94,7 @@ def render_float_cudf(s: SeriesT, precision: int = DEFAULT_FLOAT_PRECISION) -> S
     import cudf
 
     inf = float("inf")
-    # Infinities must never reach the int64 casts: they silently produce int64-max digits
-    # and a doubled sign ('--922337203685477.5808'), which would then MATCH a search.
+    # infinities reaching the int64 cast come out as int64-max digits with a doubled sign
     infinite = (s == inf) | (s == -inf)
     safe = s.where(~infinite, 0.0)
 
@@ -126,9 +125,7 @@ def float_render_expr_polars(
     """
     import polars as pl
 
-    # polars NaN is a VALUE, not null, and neither NaN nor an infinity survives a cast to
-    # Int64 -- it raises InvalidOperationError regardless of the when/then guard, so the
-    # non-finite values must be replaced BEFORE any cast, not branched around after.
+    # polars NaN is a VALUE not null, and the Int64 cast runs whatever the when/then says
     is_nan = col.is_nan().fill_null(False)
     is_inf = col.is_infinite().fill_null(False)
     safe = pl.when(col.is_null() | is_nan | is_inf).then(pl.lit(0.0)).otherwise(col)
