@@ -64,16 +64,25 @@ def _aligned_node_rows(
     return index.row_positions[clipped]
 
 
-def _code_for(value_codes: Mapping[object, int], expected: object) -> Optional[int]:
-    """The code for ``expected``, matching on TYPE as well as value.
+#: ``_code_for`` verdict: only the canonical filter can answer this predicate.
+_DECLINE = object()
 
-    ``True == 1`` in Python, so a plain dict lookup would let a boolean predicate match an
-    integer column's code and vice versa; the canonical filter does not conflate them.
+
+def _code_for(value_codes: Mapping[object, int], expected: object) -> object:
+    """The code for ``expected``, ``None`` when the column holds no such value, or
+    ``_DECLINE`` when only the canonical filter can answer.
+
+    A code compare is exact equality within one Python type. When ``expected`` is a
+    different type from the column's values -- an integer column probed with ``True``, a
+    boolean column probed with ``1`` -- the engine's own coercion decides the answer, so
+    this declines instead of guessing. An all-null column carries no value to take a type
+    from and declines for the same reason.
     """
-    for value, code in value_codes.items():
-        if type(value) is type(expected) and value == expected:
-            return code
-    return None
+    for value in value_codes:
+        if type(value) is not type(expected):
+            return _DECLINE
+        return value_codes.get(expected)
+    return _DECLINE
 
 
 def _positions_via_category_index(
@@ -87,10 +96,11 @@ def _positions_via_category_index(
 ) -> Optional[ArrayLike]:
     """Surviving ``positions`` from coded columns, or None when any predicate is not covered.
 
-    Every predicate column must carry a live category index and the wanted value must be
-    one the column actually holds; a value the column never holds matches nothing, which
-    is answered here rather than deferred. Anything else returns None and the canonical
-    filter answers, so the coverage of this path never changes a result.
+    Every predicate column must carry a live category index, and the wanted value must be
+    the same Python type as the values the column holds. A value of that type the column
+    never holds matches nothing, which is answered here rather than deferred; a value of a
+    different type is the engine's coercion question and returns None. Anything else also
+    returns None and the canonical filter answers, so this path never changes a result.
     """
     registry = get_registry(base_graph)
     mask = None
@@ -99,6 +109,8 @@ def _positions_via_category_index(
         if index is None:
             return None
         code = _code_for(index.value_codes, expected)
+        if code is _DECLINE:
+            return None
         if code is None:
             return positions[:0]
         column_mask = index.codes[positions] == code

@@ -11,7 +11,7 @@ import pytest
 
 import graphistry
 from graphistry.Engine import Engine
-from graphistry.compute.ast import e_forward, n, rows, select
+from graphistry.compute.ast import e_forward, e_reverse, n, rows, select
 from graphistry.compute.gfql.index.api import get_registry
 from graphistry.compute.gfql.index.build import build_category_index
 from graphistry.tests.compute.gfql.routes.switch import routes_off
@@ -103,27 +103,64 @@ def _graph(nodes=NODES, edges=EDGES):
     return g.gfql_index_all(engine="polars")
 
 
-def _both(g, ops, **kwargs):
+def _both(g, ops, expect_served=True, **kwargs):
+    """(served, canonical) frames, having PROVEN the served leg actually took the path.
+
+    A differential case whose fast path silently stopped serving compares the canonical
+    route against itself and passes while proving nothing, so engagement is asserted here
+    rather than assumed. ``expect_served=False`` is for cases that must decline.
+    """
+    import graphistry.compute.gfql.index.array_bindings as array_bindings
+    import graphistry.compute.gfql.lazy.engine.polars.chain as polars_chain
+
     kwargs.setdefault("index_policy", "force")
-    served = g.gfql(ops, engine="polars", **kwargs)
-    with routes_off([ROUTE]):
-        canonical = g.gfql(ops, engine="polars", **kwargs)
+    seen = {"specialization": 0, "category": 0}
+    specialization = polars_chain.try_bindings_select_polars
+    category = array_bindings._positions_via_category_index
+
+    def counting_specialization(*args, **kwargs_):
+        result = specialization(*args, **kwargs_)
+        seen["specialization"] += result is not None
+        return result
+
+    def counting_category(*args, **kwargs_):
+        result = category(*args, **kwargs_)
+        seen["category"] += result is not None
+        return result
+
+    polars_chain.try_bindings_select_polars = counting_specialization
+    array_bindings._positions_via_category_index = counting_category
+    try:
+        # point-rows admits some of these shapes first; this file is about the array route.
+        with routes_off(["polars-point-rows", "point-rows"]):
+            served = g.gfql(ops, engine="polars", **kwargs)
+    finally:
+        polars_chain.try_bindings_select_polars = specialization
+        array_bindings._positions_via_category_index = category
+    if expect_served:
+        assert seen["specialization"], "the array route never served; this case proves nothing"
+        assert seen["category"], "the category index never answered; this case proves nothing"
+    with routes_off(["polars-point-rows", "point-rows", ROUTE, "indexed-kernel", "index-hop"]):
+        canonical = g.gfql(ops, engine="polars", **{**kwargs, "index_policy": "off"})
     return served._nodes, canonical._nodes
 
 
-@pytest.mark.parametrize("seed_filter,edge_match,end_filter", [
-    ({"id": 1, "label__Person": True}, {"type": "HAS_CREATOR"}, {"label__Message": True}),
-    ({"id": 1}, {"type": "HAS_CREATOR"}, {"kind": "msg"}),
-    ({"id": 1}, {}, {}),
-    ({"id": 1}, {"type": "NOPE"}, {}),                       # value the column never holds
-    ({"id": 1}, {"type": "HAS_CREATOR"}, {"kind": "ghost"}),  # endpoint value never held
-    ({"id": 1}, {"type": "HAS_CREATOR"}, {"flag": 1}),        # integer category
-    ({"id": 1}, {"type": "HAS_CREATOR"}, {"label__Person": True}),  # all-null-for-these rows
+# Node 1 has no OUTGOING edge, so these walk in reverse. A corpus that traverses the empty
+# direction compares nothing to nothing, which is why `expect_rows` is asserted per case.
+@pytest.mark.parametrize("seed_filter,edge_match,end_filter,expect_rows", [
+    ({"id": 1, "label__Person": True}, {"type": "HAS_CREATOR"}, {"label__Message": True}, 3),
+    ({"id": 1}, {"type": "HAS_CREATOR"}, {"kind": "msg"}, 3),
+    ({"id": 1}, {}, {}, 3),
+    ({"id": 1}, {"type": "NOPE"}, {}, 0),                        # value the column never holds
+    ({"id": 1}, {"type": "HAS_CREATOR"}, {"kind": "ghost"}, 0),   # endpoint value never held
+    ({"id": 1}, {"type": "HAS_CREATOR"}, {"flag": 0}, 2),         # integer category
+    ({"id": 1}, {"type": "HAS_CREATOR"}, {"label__Message": True}, 3),
+    ({"id": 1}, {"type": "HAS_CREATOR"}, {"label__Person": True}, 0),  # all-null for these rows
 ])
-def test_indexed_predicates_match_the_canonical_filter(seed_filter, edge_match, end_filter):
+def test_indexed_predicates_match_the_canonical_filter(seed_filter, edge_match, end_filter, expect_rows):
     ops = [
         n(seed_filter, name="a"),
-        e_forward(edge_match or None, name="e"),
+        e_reverse(edge_match or None, name="e"),
         n(end_filter or None, name="b"),
         rows(),
         select([("aid", "a"), ("bid", "b"), ("bkind", "b.kind")]),
@@ -132,17 +169,47 @@ def test_indexed_predicates_match_the_canonical_filter(seed_filter, edge_match, 
     assert served.columns == canonical.columns
     assert served.schema == canonical.schema
     assert served.rows() == canonical.rows()
+    assert canonical.height == expect_rows, "the oracle moved; the case no longer means what it says"
 
 
-def test_boolean_predicate_never_matches_an_integer_column_code():
-    """``True == 1`` in Python; the canonical filter does not conflate them, nor may we."""
-    nodes = NODES.assign(flag=[1, 0, 1, 0, 1, 0])
+@pytest.mark.parametrize("end_filter,expect_rows", [
+    ({"flag": True}, 1),            # integer column, boolean scalar: polars coerces, True == 1
+    ({"flag": 1.0}, 1),             # integer column, float scalar
+    ({"flag": False}, 2),           # integer column, boolean scalar, the zero side
+    ({"label__Message": 1}, 3),     # boolean column, integer scalar
+    ({"label__Message": 1.0}, 3),   # boolean column, float scalar
+    ({"flag": 1}, 1),               # same type: the code compare answers it
+    ({"label__Message": True}, 3),  # same type: the code compare answers it
+])
+def test_a_cross_type_scalar_answers_exactly_as_the_canonical_filter(end_filter, expect_rows):
+    """A code compare is equality within one type; coercion belongs to the engine.
+
+    ``True == 1`` in Python AND in a polars filter, so a code compare that found no
+    same-type key must DECLINE, not report "matches nothing". Reporting nothing is a
+    silent wrong answer, and these are the shapes that produce it.
+    """
     ops = [
-        n({"id": 1}, name="a"), e_forward({"type": "HAS_CREATOR"}, name="e"),
-        n({"flag": True}, name="b"), rows(), select([("bid", "b")]),
+        n({"id": 1}, name="a"), e_reverse({"type": "HAS_CREATOR"}, name="e"),
+        n(end_filter, name="b"), rows(), select([("bid", "b")]),
     ]
-    served, canonical = _both(_graph(nodes=nodes), ops)
+    served, canonical = _both(_graph(), ops)
     assert served.rows() == canonical.rows()
+    assert canonical.height == expect_rows, "the oracle moved; the case no longer means what it says"
+
+
+def test_a_cross_type_scalar_declines_rather_than_guessing():
+    """The decline is the mechanism, so pin it directly and not only through the answer."""
+    from graphistry.compute.gfql.index.array_bindings import _DECLINE, _code_for
+
+    integer_column = {0: 0, 1: 1}
+    boolean_column = {False: 0, True: 1}
+    assert _code_for(integer_column, 1) == 1
+    assert _code_for(integer_column, 7) is None           # that type, absent value: matches nothing
+    assert _code_for(integer_column, True) is _DECLINE    # bool against an integer column
+    assert _code_for(integer_column, 1.0) is _DECLINE     # float against an integer column
+    assert _code_for(boolean_column, True) == 1
+    assert _code_for(boolean_column, 1) is _DECLINE       # int against a boolean column
+    assert _code_for({}, 1) is _DECLINE                   # all-null column: no type to compare
 
 
 def test_null_rows_are_never_matched_by_a_scalar_predicate():
