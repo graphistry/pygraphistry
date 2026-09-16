@@ -14,8 +14,8 @@ if TYPE_CHECKING:
 
 
 def auto_search_columns(schema: "Mapping[str, pl.DataType]", pool_cols: Sequence[str], term: str) -> List[str]:
-    """The pandas kernel's dtype auto-gate: string columns always, int columns iff the
-    term is a numeric literal; float/date/bool/nested never (see search_any_polars)."""
+    """The pandas kernel's dtype auto-gate: string columns always, int AND float columns
+    iff the term is a numeric literal; date/bool/nested never (see search_any_polars)."""
     import polars as pl
     from graphistry.compute.gfql.search_any import is_numeric_term
     numeric_ok = is_numeric_term(term)
@@ -25,7 +25,8 @@ def auto_search_columns(schema: "Mapping[str, pl.DataType]", pool_cols: Sequence
         if dt == pl.String:
             chosen.append(real)
         elif numeric_ok and dt in (pl.Int8, pl.Int16, pl.Int32, pl.Int64,
-                                   pl.UInt8, pl.UInt16, pl.UInt32, pl.UInt64):
+                                   pl.UInt8, pl.UInt16, pl.UInt32, pl.UInt64,
+                                   pl.Float32, pl.Float64):
             chosen.append(real)
     return chosen
 
@@ -44,14 +45,14 @@ def search_match_expr(schema: "Mapping[str, pl.DataType]", chosen: Sequence[str]
     # Explicit columns= reaches beyond the auto gate: only dtypes whose canonical
     # toString provably matches the pandas kernel are searched natively — ints render
     # identically; Boolean is canonicalized below (polars 'true' vs pandas 'True' was
-    # a SILENT divergence under caseSensitive — wave-2 W2-3). Float DECLINES like the
-    # polars toString lowering (row_pipeline.py): repr diverges in the exponent
-    # regime (pandas str(1e16)='1e+16' vs Rust-formatter '1e16' — wave-3 W3-1).
-    # Temporal/categorical/nested likewise decline honestly.
+    # a SILENT divergence under caseSensitive — wave-2 W2-3). Float no longer relies on
+    # repr: it is RENDERED as the inspector displays it (wysiwyg.py), which also removes
+    # the old exponent-regime divergence. Temporal/categorical/nested decline honestly.
     _stringify_ok = {
         pl.String, pl.Boolean,
         pl.Int8, pl.Int16, pl.Int32, pl.Int64,
         pl.UInt8, pl.UInt16, pl.UInt32, pl.UInt64,
+        pl.Float32, pl.Float64,
     }
     if any(schema[real] not in _stringify_ok for real in chosen):
         return None
@@ -60,6 +61,11 @@ def search_match_expr(schema: "Mapping[str, pl.DataType]", chosen: Sequence[str]
         dt = schema[real]
         if dt == pl.String:
             base = pl.col(real)
+        elif dt in (pl.Float32, pl.Float64):
+            # WYSIWYG render, native so the GPU lane takes the same path and a device
+            # cannot change the answer (#1695). Null/sentinel render null -> never match.
+            from graphistry.compute.gfql.wysiwyg import float_render_expr_polars
+            base = float_render_expr_polars(pl.col(real), dt)
         elif dt == pl.Boolean:
             # null cells must STAY null (never match) — bare when/otherwise would
             # send null conditions to the 'False' branch
