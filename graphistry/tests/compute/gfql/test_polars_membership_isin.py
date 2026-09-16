@@ -74,6 +74,32 @@ def _deprecations(caught):
             if issubclass(w.category, DeprecationWarning) and "is_in" in str(w.message)]
 
 
+def test_the_version_gate_is_load_bearing_on_the_installed_polars(monkeypatch):
+    """Force the WRONG arm and watch what happens, which is the only check that proves the gate
+    earns its keep rather than being cosmetic.
+
+    Below 1.28 the imploded RHS must RAISE -- that is #2082 itself, and it is why the gate
+    exists. From 1.28 both spellings are legal, so the forced arm must agree with the routed one
+    value for value. Version-agnostic on purpose: on a RAPIDS 25.02 box (polars 1.21) it takes
+    the first branch, in CI it takes the second, and neither lane skips."""
+    df = pl.DataFrame({"x": pl.Series([1, 2, 9, None], dtype=pl.Int64)})
+    ids = pl.Series("id", [1, 2, 3], dtype=pl.Int64)
+    routed = df.select(is_in_ids(pl.col("x"), ids).alias("m")).get_column("m").to_list()
+
+    monkeypatch.setattr(membership, "_installed_polars_implodes", lambda: True)
+
+    def forced():
+        return df.select(is_in_ids(pl.col("x"), ids).alias("m")).get_column("m").to_list()
+
+    if imploded_rhs_supported(pl.__version__):
+        with warnings.catch_warnings(record=True):
+            warnings.simplefilter("always")
+            assert forced() == routed
+    else:
+        with pytest.raises(pl.exceptions.ComputeError, match="is_in"):
+            forced()
+
+
 # --- set semantics + no warning on the INSTALLED polars, every dtype/shape ------------------
 
 def _scenarios():
