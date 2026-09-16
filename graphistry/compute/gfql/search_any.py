@@ -5,7 +5,7 @@ auto-gated OUT. Floats are rendered the way the inspector renders them rather th
 ``astype(str)`` (see ``wysiwyg.py``): fixed ``precision`` decimals for fractional values,
 ``String(v)`` for whole ones, and nothing at all for NaN or the Int32 sentinel. pandas
 reproduces that exactly; polars/cuDF differ only where the (precision+1)-th decimal is
-exactly 5, which is pinned as a known cross-engine divergence (#1695). Per-column matching
+exactly 5, which is pinned as a known cross-engine divergence. Per-column matching
 delegates to the parity-hardened ``Contains`` predicate, so every pandas/cuDF
 quirk and honest decline gate carries over; cuDF regex obeys the same decline
 rules as ``=~``."""

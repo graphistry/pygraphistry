@@ -320,8 +320,8 @@ def test_1695_searchany_float_half_boundary_renders_differently_per_engine():
 
     The inspector uses ``sprintf('%.4f')``, i.e. JS ``toFixed``, which rounds half-AWAY
     from zero on the exact decimal expansion of the double. Python's formatter reproduces
-    that, so pandas matches the UI. polars and cuDF have no vectorized equivalent -- their
-    ``round`` is half-to-EVEN on the binary value -- so a value whose 5th decimal is exactly
+    that, so pandas matches the UI. polars and cuDF have no column-wide equivalent, and their
+    ``round`` is half-to-EVEN on the binary value, so a value whose 5th decimal is exactly
     5 can render one unit lower there. Measured on 26,008 realistic column values against a
     JS reference: pandas 100%, cuDF 99.996%, polars 99.931% (#1695).
 

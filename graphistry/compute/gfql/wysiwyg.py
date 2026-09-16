@@ -1,5 +1,5 @@
 """Render values the way the viz inspector renders them, so ``searchAny`` matches what the
-user can actually SEE (#1695).
+user can actually SEE.
 
 Ground truth, read from the shipping formatters (``apps/core/viz/src/formatters/``):
 
@@ -13,7 +13,7 @@ Ground truth, read from the shipping formatters (``apps/core/viz/src/formatters/
 ``toFixed`` rounds half-AWAY-from-zero on the exact decimal expansion of the double. Python's
 formatter reproduces that on 99.84% of values, the residual being exact half-boundaries, which
 need a magnitude above ~1e13 to occur at all, so pandas renders exactly. polars and cuDF have
-no vectorized equivalent -- their ``round`` is half-to-EVEN on the binary value -- so they
+no column-wide equivalent -- their ``round`` is half-to-EVEN on the binary value -- so they
 scale, render as an integer and re-insert the decimal point, which agrees with the inspector
 on 99.93%+ of realistic column values.
 
@@ -25,7 +25,9 @@ because a device must never change an answer.
 """
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
+
+from graphistry.compute.typing import SeriesT
 
 if TYPE_CHECKING:
     import polars as pl
@@ -55,7 +57,7 @@ def js_string_of_whole_float(v: float) -> str:
     return repr(v)  # shortest round-trip; matches JS's exponential form (e.g. '1e+21')
 
 
-def render_float_pandas(s: Any, precision: int = DEFAULT_FLOAT_PRECISION) -> Any:
+def render_float_pandas(s: SeriesT, precision: int = DEFAULT_FLOAT_PRECISION) -> SeriesT:
     """Inspector-exact render of a pandas float column, as an object Series of str/None.
 
     None marks "the inspector shows nothing here", which must never match: nulls and the
@@ -82,7 +84,7 @@ def render_float_pandas(s: Any, precision: int = DEFAULT_FLOAT_PRECISION) -> Any
     return pd.Series(out, index=s.index, dtype=object)
 
 
-def render_float_cudf(s: Any, precision: int = DEFAULT_FLOAT_PRECISION) -> Any:
+def render_float_cudf(s: SeriesT, precision: int = DEFAULT_FLOAT_PRECISION) -> SeriesT:
     """Inspector render of a cuDF float column, GPU-resident throughout.
 
     Scales by ``10**precision`` AFTER rounding, renders the integer, and re-inserts the
