@@ -7,12 +7,14 @@ index cannot answer falls back to gather-then-filter, which stays the oracle: ev
 here is checked against that route and must agree exactly.
 """
 import pandas as pd
-import polars as pl
 import pytest
 
 import graphistry
 from graphistry.compute.ast import e_forward, n, rows, select
 from graphistry.tests.compute.gfql.routes.switch import routes_off
+
+# Module scope, so the lane without polars SKIPS this file instead of failing to import it.
+pl = pytest.importorskip("polars")
 
 pytestmark = pytest.mark.route_engaged("polars-point-rows", "point-rows")
 
