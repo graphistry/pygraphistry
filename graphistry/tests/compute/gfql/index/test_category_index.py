@@ -441,3 +441,50 @@ def test_show_indexes_accounts_for_every_array_carrying_structure():
     per_row_arrays = report[report["kind"].isin(["category", "endpoint_rows"])]
     assert (per_row_arrays["nbytes"] > 0).all(), "a per-row array reported as costing nothing"
     assert report["valid"].all() and report["usable"].all()
+
+
+@pytest.mark.parametrize("dtype,indexable", [
+    (pl.String, True),
+    (pl.Categorical, True),
+    (pl.Enum(["x", "y", "z"]), False),
+])
+def test_string_like_dtypes_code_or_decline_as_declared(dtype, indexable):
+    """Categorical is admitted alongside String; Enum is not, and must decline cleanly.
+
+    The build joins on a mapping frame it constructs itself, which for Categorical is the
+    string-cache-sensitive case, so the codes are checked against the rows they came from
+    rather than assumed.
+    """
+    values = ["x", "y", "x", "z"]
+    frame = pl.DataFrame({"c": pl.Series(values, dtype=dtype)})
+    index = _codes(frame, "c")
+    assert (index is not None) == indexable
+    if index is None:
+        return
+    assert set(index.value_codes) == set(values)
+    for row, value in enumerate(values):
+        assert index.codes[row] == index.value_codes[value]
+
+
+@engagement_pin
+@pytest.mark.parametrize("end_filter,expect_rows", [
+    ({"kind": "msg"}, 2),
+    ({"kind": "other"}, 1),
+    ({"kind": "ghost"}, 0),  # a value the column never holds
+])
+def test_a_categorical_predicate_matches_the_canonical_filter(end_filter, expect_rows):
+    """End to end on a Categorical column, which no other case here exercises."""
+    nodes = pl.DataFrame({
+        "id": [1, 2, 3, 4],
+        "kind": pl.Series(["seed", "msg", "msg", "other"], dtype=pl.Categorical),
+        "name": list("abcd"),
+    })
+    edges = pl.DataFrame({"s": [2, 3, 4], "d": [1, 1, 1]})
+    g = graphistry.nodes(nodes, "id").edges(edges, "s", "d").gfql_index_all(engine="polars")
+    ops = [n({"id": 1}, name="a"), e_reverse({}, name="e"), n(end_filter, name="b"),
+           rows(), select([("bid", "b"), ("bname", "b.name")])]
+    served, canonical = _both(g, ops)
+    assert served.columns == canonical.columns
+    assert served.schema == canonical.schema
+    assert served.rows() == canonical.rows()
+    assert canonical.height == expect_rows, "the oracle moved; the case no longer means what it says"
