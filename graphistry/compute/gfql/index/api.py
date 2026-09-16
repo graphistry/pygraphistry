@@ -26,7 +26,7 @@ from .policy import IndexPolicy, validate_index_policy
 from .types import (
     AdjacencyIndexKind, EdgeIndexDirection, HopDirection, IndexKind,
     ColStatsOutcomeName, FastPathName, IndexDecisionCode, IndexTrace, IndexTraceStep,
-    TraceEngine,
+    TraceEngine, SidecarFactKind,
 )
 
 # Private Plottable attachment keys. Keep access behind helpers.
@@ -447,6 +447,62 @@ def drop_index(
     return _attach(g, registry.without(kind))
 
 
+def _sidecar_fact_rows(
+    g: Plottable, registry: GfqlIndexRegistry, query_engine: Engine
+) -> List[Dict[str, object]]:
+    """``show_indexes`` rows for the build-time facts that are not in ``registry.kinds()``.
+
+    Category codes and endpoint rows are per-row arrays, so leaving them out understates
+    the memory signal by exactly the structures that scale with the data.
+    """
+    from .registry import index_nbytes
+
+    frames = {"nodes": g._nodes, "edges": g._edges}
+    rows: List[Dict[str, object]] = []
+
+    def row(name: str, kind: SidecarFactKind, key_col: str, engine: Engine, backend: str,
+            n_keys: int, n_rows: int, nbytes: int, valid: bool) -> Dict[str, object]:
+        reasons = []
+        if engine != query_engine:
+            reasons.append(_engine_mismatch_text(kind, engine.value, query_engine))
+        if not valid:
+            reasons.append("stale fingerprint (frames rebound since build) -> rebuild")
+        return {
+            "name": name, "kind": kind, "key_col": key_col, "engine": engine.value,
+            "backend": backend, "n_keys": n_keys, "n_rows": n_rows, "nbytes": nbytes,
+            "valid": valid, "query_engine": query_engine.value,
+            "usable": not reasons, "reason": ("; ".join(reasons) or None),
+        }
+
+    for role, column in sorted(registry.categories):
+        index = registry.categories[(role, column)]
+        valid = registry.get_category_valid(role, column, frames.get(role), index.engine) is not None
+        rows.append(row(
+            f"category:{role}.{column}", "category", column, index.engine, index.backend,
+            len(index.value_codes), index.n_rows, index_nbytes(index), valid,
+        ))
+    for key in sorted(registry.endpoint_rows):
+        endpoints = registry.endpoint_rows[key]
+        valid = registry.get_endpoint_rows_valid(
+            endpoints.src_col, endpoints.dst_col, endpoints.node_col,
+            g._edges, g._nodes, endpoints.engine,
+        ) is not None
+        rows.append(row(
+            f"endpoint_rows:{endpoints.src_col},{endpoints.dst_col}->{endpoints.node_col}",
+            "endpoint_rows", f"{endpoints.src_col},{endpoints.dst_col}",
+            endpoints.engine, endpoints.backend,
+            0, int(endpoints.src_rows.shape[0]), index_nbytes(endpoints), valid,
+        ))
+    for role in sorted(registry.temporal_text):
+        verdicts = registry.temporal_text[role]
+        valid = registry.get_temporal_text_valid(role, frames.get(role), verdicts.engine) is not None
+        rows.append(row(
+            f"temporal_text:{role}", "temporal_text", "", verdicts.engine, "numpy",
+            len(verdicts.verdicts), 0, 0, valid,
+        ))
+    return rows
+
+
 def show_indexes(
     g: Plottable, engine: EngineAbstractType = EngineAbstract.AUTO
 ) -> pd.DataFrame:
@@ -517,6 +573,7 @@ def show_indexes(
             "usable": usable,
             "reason": reason,
         })
+    rows.extend(_sidecar_fact_rows(g, registry, query_engine))
     cols = [
         "name", "kind", "key_col", "engine", "backend", "n_keys", "n_rows", "nbytes",
         "valid", "query_engine", "usable", "reason",

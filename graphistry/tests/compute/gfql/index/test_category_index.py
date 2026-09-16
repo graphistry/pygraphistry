@@ -20,6 +20,12 @@ pl = pytest.importorskip("polars")
 
 ROUTE = "polars-bindings-select"
 
+#: The end-to-end cases assert the array route and the category lookup SERVE, so they
+#: are engagement pins: with that route off both legs run the canonical filter and the
+#: comparison proves nothing. The build/registry unit tests below do not need the route
+#: and keep running, which is why the mark is applied per test rather than per module.
+engagement_pin = pytest.mark.route_engaged("polars-bindings-select", "indexed-kernel")
+
 
 def _codes(frame, column):
     return build_category_index(frame, column, "nodes", Engine.POLARS)
@@ -157,6 +163,7 @@ def _both(g, ops, expect_served=True, **kwargs):
     ({"id": 1}, {"type": "HAS_CREATOR"}, {"label__Message": True}, 3),
     ({"id": 1}, {"type": "HAS_CREATOR"}, {"label__Person": True}, 0),  # all-null for these rows
 ])
+@engagement_pin
 def test_indexed_predicates_match_the_canonical_filter(seed_filter, edge_match, end_filter, expect_rows):
     ops = [
         n(seed_filter, name="a"),
@@ -181,6 +188,7 @@ def test_indexed_predicates_match_the_canonical_filter(seed_filter, edge_match, 
     ({"flag": 1}, 1),               # same type: the code compare answers it
     ({"label__Message": True}, 3),  # same type: the code compare answers it
 ])
+@engagement_pin
 def test_a_cross_type_scalar_answers_exactly_as_the_canonical_filter(end_filter, expect_rows):
     """A code compare is equality within one type; coercion belongs to the engine.
 
@@ -367,3 +375,69 @@ def test_string_literal_that_is_constructor_text_also_declines():
     # A bare string item is an expression, not a literal, so this declines on the plan;
     # the point is that neither route can emit raw constructor text.
     assert polars_chain.try_bindings_select_polars(g, ops[:3], ops[3:], None) is None
+
+
+def test_a_wide_column_declines_without_paying_the_exact_distinct_pass():
+    """A column the cap will clearly reject is ruled out without an exact distinct pass.
+
+    Eligible columns are the minority of a wide frame, so deciding the clear rejections
+    by sketch is what keeps the build from scaling with columns nobody queries. The
+    exact pass still decides every column near the cap.
+    """
+    import polars as pl
+
+    calls = {"exact": 0}
+    original = pl.Series.unique
+
+    def counting_unique(self, *args, **kwargs):
+        calls["exact"] += 1
+        return original(self, *args, **kwargs)
+
+    wide = pl.DataFrame({"c": [f"v{value}" for value in range(5000)]})
+    pl.Series.unique = counting_unique
+    try:
+        assert _codes(wide, "c") is None
+        assert calls["exact"] == 0, "a clearly-over-cap column paid the exact distinct pass"
+        calls["exact"] = 0
+        narrow = pl.DataFrame({"c": [f"v{value % 64}" for value in range(5000)]})
+        assert _codes(narrow, "c") is not None
+        assert calls["exact"] == 1, "an eligible column must still be decided exactly"
+    finally:
+        pl.Series.unique = original
+
+
+@pytest.mark.parametrize("distinct", [63, 64, 65, 200])
+def test_the_cardinality_cap_is_decided_exactly_at_its_own_boundary(distinct):
+    """The sketch may not move the cap: 64 indexes, 65 does not, on both sides."""
+    frame = pl.DataFrame({"c": [f"v{value % distinct}" for value in range(4000)]})
+    index = _codes(frame, "c")
+    assert (index is not None) == (distinct <= 64)
+    if index is not None:
+        assert len(index.value_codes) == distinct
+
+
+def test_endpoint_rows_are_polars_only():
+    """The only consumer is the polars array path, so other engines must not pay for it."""
+    from graphistry.compute.gfql.index.build import build_endpoint_rows_fact
+    from graphistry.compute.gfql.index.registry import NODE_ID
+
+    g = _graph()
+    node_index = get_registry(g).get(NODE_ID)
+    assert node_index is not None
+    for engine in (Engine.PANDAS, Engine.CUDF):
+        assert build_endpoint_rows_fact(
+            g._edges, g._nodes, str(g._source), str(g._destination), node_index, engine,
+        ) is None
+
+
+def test_show_indexes_accounts_for_every_array_carrying_structure():
+    """An index invisible to the memory signal is memory nobody can see they are paying."""
+    from graphistry.compute.gfql.index.api import show_indexes
+
+    g = _graph()
+    report = show_indexes(g, engine="polars")
+    kinds = set(report["kind"])
+    assert {"category", "endpoint_rows", "temporal_text"} <= kinds
+    per_row_arrays = report[report["kind"].isin(["category", "endpoint_rows"])]
+    assert (per_row_arrays["nbytes"] > 0).all(), "a per-row array reported as costing nothing"
+    assert report["valid"].all() and report["usable"].all()

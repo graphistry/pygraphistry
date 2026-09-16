@@ -118,8 +118,11 @@ class CategoryIndex:
     the same load-time point as the other indexes, and reported the same way.
 
     ``codes`` is aligned with the frame's rows. ``value_codes`` maps each distinct
-    value to its code; a value absent from the mapping matches no row. Columns with
-    nulls are not indexed, so a code always denotes a real value.
+    non-null value to its code. Nulls ARE indexed, under a reserved code that is never
+    handed out for a queried value, so a null row matches no scalar predicate -- which
+    is what the canonical filter does. A value absent from the mapping matches no row,
+    but only when it is the same Python type as the column's values; a cross-type
+    scalar is the engine's coercion question and the lookup declines.
     """
     role: ColStatsRole
     column: str
@@ -532,10 +535,17 @@ class GfqlIndexRegistry:
         return idx
 
 
-def index_nbytes(idx: Union[AdjacencyIndex, NodeIdIndex, "NodePropIndex"]) -> int:
-    """Approximate resident memory of an index's sidecar arrays (bytes)."""
+def index_nbytes(
+    idx: Union[AdjacencyIndex, NodeIdIndex, "NodePropIndex", "CategoryIndex", "EndpointRowsFact"],
+) -> int:
+    """Approximate resident memory of an index's sidecar arrays (bytes).
+
+    Every array-carrying structure must be listed here: what this misses is what the
+    pay-as-you-go memory signal under-reports.
+    """
     total = 0
-    for attr in ("keys_sorted", "group_offsets", "row_positions", "other_values"):
+    for attr in ("keys_sorted", "group_offsets", "row_positions", "other_values",
+                 "codes", "src_rows", "dst_rows"):
         arr = getattr(idx, attr, None)
         if arr is not None:
             total += int(getattr(arr, "nbytes", 0))

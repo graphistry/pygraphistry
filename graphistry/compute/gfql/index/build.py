@@ -450,6 +450,8 @@ def build_degree_fact(
 #: Above this many distinct values a column is not a category: the code map stops
 #: paying for itself and the predicate is better served by the canonical filter.
 _MAX_CATEGORY_VALUES = 64
+#: The sketch may only decline this far above the cap, so its error never moves the cap.
+_CATEGORY_SKETCH_MARGIN = 4
 
 
 def build_category_index(
@@ -461,11 +463,11 @@ def build_category_index(
     """Per-row integer codes for a low-cardinality column, or None when unindexable.
 
     Serves scalar-equality predicates (``{label__Person: True}``, ``{type: "KNOWS"}``)
-    by comparing gathered codes instead of filtering a frame. Declines anything whose
-    equality a code compare would not answer exactly: nulls (a code would claim a
-    value where the canonical filter yields no match), high cardinality, and dtypes
-    outside Boolean, integer and string. Polars only for now; the other engines keep
-    the canonical filter, which is the same answer.
+    by comparing gathered codes instead of filtering a frame. Nulls ARE coded, under a
+    reserved code never handed out for a queried value, which is what makes the
+    null-heavy ``label__*`` columns indexable at all. Declines high cardinality and any
+    dtype outside Boolean, integer and string. Polars only for now; the other engines
+    keep the canonical filter, which is the same answer.
     """
     if engine != Engine.POLARS:
         return None
@@ -481,6 +483,12 @@ def build_category_index(
     if not (dtype == pl.Boolean or dtype.is_integer() or dtype in (pl.String, pl.Categorical)):
         return None
     _, backend = array_namespace(engine)
+    # Everything near the cap is still decided by the exact pass below.
+    try:
+        if int(series.approx_n_unique()) > _CATEGORY_SKETCH_MARGIN * _MAX_CATEGORY_VALUES:
+            return None
+    except (AttributeError, TypeError, ValueError):
+        pass
     distinct = series.unique()
     if distinct.len() > _MAX_CATEGORY_VALUES:
         return None
@@ -514,8 +522,11 @@ def build_endpoint_rows_fact(
     Resolves both endpoint columns through the node id index once, so a traversal that
     has an edge row already has its endpoints' node rows. Declines when an endpoint id
     is absent from the index or either column carries nulls, because a row that denotes
-    no node would be worse than the search it replaces.
+    no node would be worse than the search it replaces. Polars only, matching its only
+    consumer: building it for an engine that cannot read it is pure cost.
     """
+    if engine != Engine.POLARS:
+        return None
     xp, backend = array_namespace(engine)
     keys = node_index.keys_sorted
     total_keys = int(keys.shape[0])
