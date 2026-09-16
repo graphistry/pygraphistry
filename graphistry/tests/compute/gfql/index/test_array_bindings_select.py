@@ -41,7 +41,7 @@ def _graph(nodes=NODES, edges=EDGES, index=True):
     return g.gfql_index_all(engine="polars") if index else g
 
 
-def _both(g, ops, monkeypatch, **kwargs):
+def _both(g, ops, monkeypatch=None, expect_served=True, **kwargs):
     """(served, canonical) frames for the same query.
 
     Disabling goes through the repo's own route switch, which patches the symbol the chain
@@ -54,8 +54,26 @@ def _both(g, ops, monkeypatch, **kwargs):
     gated policies explicitly.
     """
     kwargs.setdefault("index_policy", "force")
-    served = g.gfql(ops, engine="polars", **kwargs)
-    with routes_off([ROUTE]):
+    import graphistry.compute.gfql.lazy.engine.polars.chain as polars_chain
+    seen = {"n": 0}
+    specialization = polars_chain.try_bindings_select_polars
+
+    def counting(*args, **kwargs_):
+        result = specialization(*args, **kwargs_)
+        seen["n"] += result is not None
+        return result
+
+    polars_chain.try_bindings_select_polars = counting
+    try:
+        # `point-rows` admits several of these shapes first; with it on, both legs would run
+        # THAT route and the comparison would say nothing about the code under test.
+        with routes_off(["polars-point-rows", "point-rows"]):
+            served = g.gfql(ops, engine="polars", **kwargs)
+    finally:
+        polars_chain.try_bindings_select_polars = specialization
+    if expect_served:
+        assert seen["n"], "the array route never served; this case proves nothing"
+    with routes_off(["polars-point-rows", "point-rows", ROUTE]):
         canonical = g.gfql(ops, engine="polars", **kwargs)
     return served._nodes, canonical._nodes
 
@@ -145,17 +163,25 @@ def test_matches_canonical_with_edge_payload_and_ordering(middle_name, monkeypat
     _assert_identical(served, canonical)
 
 
-@pytest.mark.parametrize("kwargs", [{"index_policy": "use"}, {"index_policy": "force"}, {"index_policy": "off"}])
-def test_matches_canonical_under_every_index_policy(kwargs, monkeypatch):
+@pytest.mark.parametrize("policy,serves", [("use", False), ("force", True), ("off", False)])
+def test_matches_canonical_under_every_index_policy(policy, serves, monkeypatch):
+    """Each policy answers identically, and each one's SERVING side is stated, not assumed.
+
+    ``off`` must decline by definition. ``use`` declines here too, because this graph is
+    small enough that the cost gate refuses it -- which is the honest reading, and pinning it
+    is what would catch the gate silently opening or closing.
+    """
     ops = [*MIDDLES["one_hop_reverse"], rows(), select([("who", "p.name"), ("mid", "m.id")])]
-    served, canonical = _both(_graph(), ops, monkeypatch, **kwargs)
+    served, canonical = _both(
+        _graph(), ops, monkeypatch, expect_served=serves, index_policy=policy,
+    )
     _assert_identical(served, canonical)
 
 
 def test_declines_and_matches_on_duplicate_node_ids(monkeypatch):
     nodes = pd.concat([NODES, NODES.iloc[[1]]], ignore_index=True)
     ops = [*MIDDLES["one_hop_reverse"], rows(), select([("who", "p.name"), ("mid", "m.id")])]
-    served, canonical = _both(_graph(nodes=nodes), ops, monkeypatch)
+    served, canonical = _both(_graph(nodes=nodes), ops, monkeypatch, expect_served=False)
     _assert_identical(served, canonical)
 
 
@@ -168,7 +194,7 @@ def test_declines_and_matches_on_string_ids(monkeypatch):
         n({"label__Message": True}, name="m"),
     ]
     ops = [*middle, rows(), select([("who", "p.name"), ("mid", "m.id")])]
-    served, canonical = _both(_graph(nodes=nodes, edges=edges), ops, monkeypatch)
+    served, canonical = _both(_graph(nodes=nodes, edges=edges), ops, monkeypatch, expect_served=False)
     _assert_identical(served, canonical)
 
 
@@ -176,13 +202,13 @@ def test_declines_and_matches_with_null_edge_endpoints(monkeypatch):
     edges = EDGES.copy()
     edges.loc[0, "d"] = None
     ops = [*MIDDLES["one_hop_reverse"], rows(), select([("who", "p.name"), ("mid", "m.id")])]
-    served, canonical = _both(_graph(edges=edges), ops, monkeypatch)
+    served, canonical = _both(_graph(edges=edges), ops, monkeypatch, expect_served=False)
     _assert_identical(served, canonical)
 
 
 def test_declines_and_matches_without_indexes(monkeypatch):
     ops = [*MIDDLES["one_hop_reverse"], rows(), select([("who", "p.name"), ("mid", "m.id")])]
-    served, canonical = _both(_graph(index=False), ops, monkeypatch)
+    served, canonical = _both(_graph(index=False), ops, monkeypatch, expect_served=False)
     _assert_identical(served, canonical)
 
 
@@ -266,3 +292,42 @@ def test_the_corpus_actually_takes_the_fast_path(monkeypatch):
             g.gfql([*middle, rows(), select([("who", "p.name"), ("mid", "m.id")])],
                    engine="polars", index_policy="force")
     assert calls["served"] > 0
+
+
+def test_rows_parameters_the_route_cannot_honor_decline_to_the_canonical_route():
+    """An unrecognized ``rows()`` parameter must decline, not be silently ignored.
+
+    ``attach_prop_columns`` and ``attach_prop_aliases`` restrict what the row table carries.
+    The canonical polars route refuses them outright (parity-or-error, no silent fallback),
+    so a fast path that answers anyway has changed the contract, not just the speed. The
+    admission is an allow-list for exactly this reason: a parameter added later declines
+    until someone teaches this route what it means.
+    """
+    middle = [n({"id": 1}, name="a"), e_forward({}, name="e1"), n({}, name="b")]
+    projection = select([("x", "a.name"), ("y", "b.name")])
+    g = _graph()
+    for row_call in (rows(attach_prop_columns={"a": ["name"]}), rows(attach_prop_aliases=["a"])):
+        ops = [*middle, row_call, projection]
+        with pytest.raises(NotImplementedError):
+            g.gfql(ops, engine="polars", index_policy="force")
+        with routes_off([ROUTE]):
+            with pytest.raises(NotImplementedError):
+                g.gfql(ops, engine="polars", index_policy="force")
+    # the same shape without the parameter still serves, so the decline is not blanket
+    served, canonical = _both(g, [*middle, rows(), projection])
+    _assert_identical(served, canonical)
+
+
+def test_duplicate_projection_names_raise_the_canonical_error():
+    """A duplicate output name is a GFQL error, not a raw engine error leaking through."""
+    from graphistry.compute.exceptions import GFQLTypeError
+
+    ops = [n({"id": 1}, name="a"), e_forward({}, name="e1"), n({}, name="b"),
+           rows(), select([("x", "a.name"), ("x", "b.name")])]
+    g = _graph()
+    with pytest.raises(GFQLTypeError) as served_error:
+        g.gfql(ops, engine="polars", index_policy="force")
+    with routes_off([ROUTE]):
+        with pytest.raises(GFQLTypeError) as canonical_error:
+            g.gfql(ops, engine="polars", index_policy="force")
+    assert served_error.value.code == canonical_error.value.code

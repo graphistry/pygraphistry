@@ -44,6 +44,7 @@ def _projection_items(
     }
     nodes, edges = set(map(str, node_columns)), set(map(str, edge_columns))
     plan: List[ProjectionItem] = []
+    seen: set = set()
     for item in items:
         expression: object
         if isinstance(item, str):
@@ -52,6 +53,9 @@ def _projection_items(
             name, expression = str(item[0]), item[1]
         else:
             return None
+        if name in seen:
+            return None  # duplicate output names are the canonical route's error to raise
+        seen.add(name)
         if not isinstance(expression, str):
             plan.append((name, "literal", None, expression))
             continue
@@ -81,9 +85,10 @@ def _admits_suffix(
     rows_call, projection = suffix[0], suffix[1]
     if not isinstance(rows_call, ASTCall) or rows_call.function != "rows":
         return None
-    if rows_call.params.get("source") is not None or rows_call.params.get("alias_endpoints") is not None:
+    # Allow-list, so a rows() parameter added later declines instead of being ignored.
+    if set(rows_call.params) - {"table", "binding_ops"}:
         return None
-    if rows_call.params.get("alias_prefilters") or rows_call.params.get("table", "nodes") != "nodes":
+    if rows_call.params.get("table", "nodes") != "nodes":
         return None
     binding_ops = rows_call.params.get("binding_ops")
     if not (
