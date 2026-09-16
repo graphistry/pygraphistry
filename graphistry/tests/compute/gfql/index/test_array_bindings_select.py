@@ -331,3 +331,45 @@ def test_duplicate_projection_names_raise_the_canonical_error():
         with pytest.raises(GFQLTypeError) as canonical_error:
             g.gfql(ops, engine="polars", index_policy="force")
     assert served_error.value.code == canonical_error.value.code
+
+
+def test_large_unsigned_ids_are_served_exactly():
+    """Ids above 2^53 survive the id->row probe, which a float promotion would alias.
+
+    numpy promotes (int64, uint64) to float64, and float64 cannot tell 2^53+1 from
+    2^53+2. The probe only promotes when the two sides differ, so uniform UInt64 ids
+    must be compared as integers and land on the right rows.
+    """
+    base = 2 ** 53
+    ids = [base + 1, base + 2, base + 3, base + 4]
+    nodes = pl.DataFrame({"id": pl.Series(ids, dtype=pl.UInt64), "name": list("abcd")})
+    edges = pl.DataFrame({
+        "s": pl.Series(ids[1:], dtype=pl.UInt64),
+        "d": pl.Series([ids[0]] * 3, dtype=pl.UInt64),
+    })
+    g = graphistry.nodes(nodes, "id").edges(edges, "s", "d").gfql_index_all(engine="polars")
+    ops = [n({"id": ids[0]}, name="p"), e_reverse({}, name="r"), n({}, name="m"),
+           rows(), select([("mid", "m.id"), ("nm", "m.name")])]
+    served, canonical = _both(g, ops)
+    _assert_identical(served, canonical)
+    assert sorted(canonical.rows()) == [(ids[1], "b"), (ids[2], "c"), (ids[3], "d")]
+
+
+def test_mismatched_id_dtypes_decline_rather_than_promote():
+    """UInt64 node ids against Int64 endpoints would promote to float64; decline instead.
+
+    This is the negative side of the case above, and it is the guard that makes the
+    promotion seam unreachable from the public surface rather than merely unlikely.
+    """
+    base = 2 ** 53
+    ids = [base + 1, base + 2, base + 3, base + 4]
+    nodes = pl.DataFrame({"id": pl.Series(ids, dtype=pl.UInt64), "name": list("abcd")})
+    edges = pl.DataFrame({
+        "s": pl.Series(ids[1:], dtype=pl.Int64),
+        "d": pl.Series([ids[0]] * 3, dtype=pl.Int64),
+    })
+    g = graphistry.nodes(nodes, "id").edges(edges, "s", "d").gfql_index_all(engine="polars")
+    ops = [n({"id": ids[0]}, name="p"), e_reverse({}, name="r"), n({}, name="m"),
+           rows(), select([("mid", "m.id"), ("nm", "m.name")])]
+    served, canonical = _both(g, ops, expect_served=False)
+    _assert_identical(served, canonical)
