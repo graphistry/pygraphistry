@@ -25,8 +25,7 @@ from .api import (
     with_index_policy,
 )
 from graphistry.compute.dataframe.join import (
-    estimate_inner_join_rows,
-    path_ordered_expand_join,
+    plan_path_ordered_expand_join,
     semijoin_by_column,
 )
 
@@ -589,12 +588,7 @@ def _try_indexed_connected_bindings_state(
                 oriented, next_nodes, left_on=_TO, right_on=node_id, engine=engine,
             )
 
-        estimated_rows = estimate_inner_join_rows(
-            state, oriented, left_on=_CURRENT, right_on=_FROM, engine=engine,
-        )
-        if policy != "force" and estimated_rows > 0 and estimated_rows >= n_edges:
-            return None
-        state = path_ordered_expand_join(
+        expansion = plan_path_ordered_expand_join(
             state,
             oriented,
             current_col=_CURRENT,
@@ -605,6 +599,10 @@ def _try_indexed_connected_bindings_state(
             alias=next_op._name,
             engine=engine,
         )
+        estimated_rows = expansion.rows
+        if policy != "force" and estimated_rows > 0 and estimated_rows >= n_edges:
+            return None
+        state = expansion.expand()
         if isinstance(next_op._name, str):
             alias_frames[next_op._name] = next_alias_frame
 

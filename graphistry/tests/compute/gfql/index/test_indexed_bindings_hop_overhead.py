@@ -276,3 +276,58 @@ def test_polars_array_expand_join_defers_on_nulls_floats_lazy_and_no_tiebreaks()
     assert _path_ordered_expand_join_arrays(state.lazy(), step, **kwargs) is None
     assert _path_ordered_expand_join_arrays(state, step, **{**kwargs, "tiebreak_cols": ()}) is None
     assert _path_ordered_expand_join_arrays(state, step, **{**kwargs, "engine": Engine.PANDAS}) is None
+
+
+@pytest.mark.parametrize("seed", range(12))
+def test_expand_plan_rows_is_the_estimate_without_a_second_pass(seed, monkeypatch):
+    """``plan.rows`` equals ``estimate_inner_join_rows`` and, on the array path, costs nothing extra.
+
+    The searchsorted range widths the expansion already computes sum to the join's row
+    count, so a cost gate reads them instead of paying a group-by pass. Both halves are
+    pinned: the number, and that the estimator is never called to produce it.
+    """
+    pl = pytest.importorskip("polars")
+    from graphistry.compute.dataframe import join as join_module
+
+    rng = np.random.default_rng(seed)
+    n_state, n_step = int(rng.integers(0, 40)), int(rng.integers(0, 60))
+    key_space = int(rng.integers(1, 12))
+    state = pl.DataFrame({"cur": rng.integers(0, key_space, n_state)})
+    step = pl.DataFrame({
+        "from": rng.integers(0, key_space, n_step),
+        "to": rng.integers(100, 200, n_step),
+        "edge_ord": rng.permutation(n_step),
+        "orient": rng.integers(0, 2, n_step),
+    })
+    kwargs = dict(current_col="cur", from_col="from", to_col="to", path_order_col="po",
+                  tiebreak_cols=("orient", "edge_ord"), alias=None, engine=Engine.POLARS)
+    expected = join_module.estimate_inner_join_rows(
+        state, step, left_on="cur", right_on="from", engine=Engine.POLARS,
+    )
+    estimator_calls = []
+    monkeypatch.setattr(
+        join_module, "estimate_inner_join_rows",
+        lambda *a, **k: estimator_calls.append(a) or 0,
+    )
+    plan = join_module.plan_path_ordered_expand_join(state, step, **kwargs)
+    assert plan.rows == expected
+    assert estimator_calls == []
+    assert int(plan.expand().shape[0]) == expected
+
+
+def test_expand_plan_falls_back_to_the_estimator_when_the_array_path_declines():
+    """A shape the array path declines still gets a costed plan, via the frame estimator."""
+    pl = pytest.importorskip("polars")
+    from graphistry.compute.dataframe.join import (
+        estimate_inner_join_rows, plan_path_ordered_expand_join,
+    )
+
+    state = pl.DataFrame({"cur": [1, 2, 2]})
+    step = pl.DataFrame({"from": [1, 2, 2], "to": [7, 8, 9], "ord": [0, 1, 2]})
+    kwargs = dict(current_col="cur", from_col="from", to_col="to", path_order_col="po",
+                  alias=None, engine=Engine.POLARS)
+    # No tiebreak columns is exactly the case the array path declines.
+    plan = plan_path_ordered_expand_join(state, step, tiebreak_cols=(), **kwargs)
+    expected = estimate_inner_join_rows(state, step, left_on="cur", right_on="from", engine=Engine.POLARS)
+    assert plan.rows == expected == 5
+    assert int(plan.expand().shape[0]) == expected

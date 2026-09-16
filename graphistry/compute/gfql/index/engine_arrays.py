@@ -12,7 +12,10 @@ Bulk operations stay vectorized; bounded CPU gathers can reuse row slices.
 """
 from __future__ import annotations
 
-from typing import Any, Tuple, cast
+from typing import TYPE_CHECKING, Any, Optional, Tuple, cast
+
+if TYPE_CHECKING:
+    import polars as pl
 
 from graphistry.Engine import Engine
 from graphistry.compute.typing import DataFrameT
@@ -52,6 +55,24 @@ def col_to_array(df: DataFrameT, col: str, engine: Engine) -> ArrayLike:
     else:
         values = series.to_numpy()
     return cast(ArrayLike, values)
+
+
+def as_eager_polars_frame(df: DataFrameT) -> Optional["pl.DataFrame"]:
+    """``df`` as a statically typed eager polars frame, or None when it is not one.
+
+    Array fast paths admit only eager polars; narrowing once here is what lets the
+    callers keep real polars types instead of per-call ignores.
+    """
+    import polars as pl
+
+    return df if isinstance(df, pl.DataFrame) else None
+
+
+def take_rows_polars(df: "pl.DataFrame", positions: ArrayLike) -> "pl.DataFrame":
+    """``take_rows`` for an already-narrowed eager polars frame; order follows ``positions``."""
+    import numpy as np
+
+    return df[np.asarray(positions)]
 
 
 def ids_to_array(ids: DataFrameT, col: str, engine: Engine) -> ArrayLike:
