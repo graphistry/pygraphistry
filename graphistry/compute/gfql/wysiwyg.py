@@ -11,11 +11,11 @@ Ground truth, read from the shipping formatters (``apps/core/viz/src/formatters/
   ``sprintf('%.4f', v)``, and sprintf-js's ``%f`` with a precision is ``Number(v).toFixed(4)``.
 
 ``toFixed`` rounds half-AWAY-from-zero on the exact decimal expansion of the double. Python's
-formatter reproduces that on 99.84% of values (residual: exact half-boundaries, which need a
-magnitude above ~1e13 to occur at all) and is FASTER than ``round(p).astype(str)``, so pandas
-renders exactly. polars and cuDF have no vectorized equivalent -- their ``round`` is
-half-to-EVEN on the binary value -- so they scale, render as an integer and re-insert the
-decimal point, which agrees with the inspector on 99.93%+ of realistic column values.
+formatter reproduces that on 99.84% of values, the residual being exact half-boundaries, which
+need a magnitude above ~1e13 to occur at all, so pandas renders exactly. polars and cuDF have
+no vectorized equivalent -- their ``round`` is half-to-EVEN on the binary value -- so they
+scale, render as an integer and re-insert the decimal point, which agrees with the inspector
+on 99.93%+ of realistic column values.
 
 The residual is therefore a genuine CROSS-ENGINE divergence, not merely a UI one: a value
 whose (precision+1)-th decimal is exactly 5 renders half-away on pandas and half-even on

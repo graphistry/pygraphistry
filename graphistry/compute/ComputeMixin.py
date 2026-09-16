@@ -527,7 +527,7 @@ class ComputeMixin(Plottable):
             return self.nodes(out_df)
 
     def search_nodes(self, term, columns=None, case_sensitive=False, regex=False,
-                     float_precision=DEFAULT_FLOAT_PRECISION):
+                     float_precision: int = DEFAULT_FLOAT_PRECISION):
         """Keep nodes where ANY column matches ``term`` (viz-filter L2 inspector
         semantics: OR across columns; case-insensitive substring default; regex
         opt-in; string columns always, integer AND FLOAT columns iff the term is a
@@ -566,7 +566,7 @@ class ComputeMixin(Plottable):
         return self.nodes(df[mask])
 
     def search_edges(self, term, columns=None, case_sensitive=False, regex=False,
-                     float_precision=DEFAULT_FLOAT_PRECISION):
+                     float_precision: int = DEFAULT_FLOAT_PRECISION):
         """Keep edges where ANY column matches ``term`` — see :meth:`search_nodes`."""
         from graphistry.compute.gfql.search_any import search_any_mask
         from graphistry.compute.exceptions import ErrorCode, GFQLValidationError

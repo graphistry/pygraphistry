@@ -322,8 +322,11 @@ def test_1695_searchany_float_half_boundary_renders_differently_per_engine():
     from zero on the exact decimal expansion of the double. Python's formatter reproduces
     that, so pandas matches the UI. polars and cuDF have no vectorized equivalent -- their
     ``round`` is half-to-EVEN on the binary value -- so a value whose 5th decimal is exactly
-    5 renders one unit lower there. Measured on 26,008 realistic column values: pandas
-    100%, cuDF 99.996%, polars 99.931% agreement with the UI (#1695).
+    5 can render one unit lower there. Measured on 26,008 realistic column values against a
+    JS reference: pandas 100%, cuDF 99.996%, polars 99.931% (#1695).
+
+    polars is additionally VERSION-dependent at this boundary -- 1.21 agrees with pandas,
+    1.35 does not -- so the polars arm accepts either and fails only on a malformed render.
 
     The consequence for a user is narrow and worth stating: typing the string the UI shows
     finds the row on pandas, and misses it on polars/cuDF, for that value class only.
@@ -339,9 +342,11 @@ def test_1695_searchany_float_half_boundary_renders_differently_per_engine():
         got = (pl.DataFrame({"x": pl.Series([0.12345], dtype=pl.Float64)})
                .select(float_render_expr_polars(pl.col("x"), pl.Float64).alias("o"))
                .to_series().to_list())
-        assert got == ["0.1234"], (
-            f"polars half-boundary render moved to {got} -- if it now matches pandas "
-            "('0.1235'), this divergence is FIXED: delete the pin and tighten the docs")
+        # WHICH side polars lands on is polars-VERSION-dependent, discovered by this pin
+        # failing on the RAPIDS 25.02 lane: polars 1.21 agrees with pandas here ('0.1235')
+        # while 1.35 does not ('0.1234'). Both are accepted; anything else is a real
+        # regression in the render (wrong width, dropped padding, exponent leaking in).
+        assert got in (["0.1235"], ["0.1234"]), f"polars float render is malformed: {got}"
 
 
 def test_1695_searchany_float_ordinary_values_agree_across_engines():

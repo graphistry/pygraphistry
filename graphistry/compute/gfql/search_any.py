@@ -132,9 +132,7 @@ def search_any_mask(
         s = df[c]
         m: SeriesT
         if _is_float_dtype(s.dtype):
-            # WYSIWYG: match what the inspector DISPLAYS, not repr() — see wysiwyg.py.
-            # The renderer emits null where the inspector shows nothing (NaN, sentinel),
-            # and Contains(na=False) already refuses to match a null.
+            # renders null where the inspector displays nothing, which must never match
             from graphistry.compute.gfql.wysiwyg import render_float_cudf, render_float_pandas
             rendered = (render_float_cudf(s, float_precision)
                         if "cudf" in type(s).__module__

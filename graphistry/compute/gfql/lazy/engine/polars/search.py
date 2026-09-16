@@ -62,8 +62,7 @@ def search_match_expr(schema: "Mapping[str, pl.DataType]", chosen: Sequence[str]
         if dt == pl.String:
             base = pl.col(real)
         elif dt in (pl.Float32, pl.Float64):
-            # WYSIWYG render, native so the GPU lane takes the same path and a device
-            # cannot change the answer (#1695). Null/sentinel render null -> never match.
+            # native on purpose: a device must not change the answer
             from graphistry.compute.gfql.wysiwyg import float_render_expr_polars
             base = float_render_expr_polars(pl.col(real), dt)
         elif dt == pl.Boolean:
