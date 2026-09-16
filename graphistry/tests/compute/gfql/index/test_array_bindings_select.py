@@ -18,6 +18,12 @@ pl = pytest.importorskip("polars")
 
 ROUTE = "polars-bindings-select"
 
+#: Every case here asserts the array route SERVES, so the whole file is an engagement
+#: pin: in a lane where that route is off both legs run the canonical path and the
+#: comparison proves nothing. It still runs in the point-rows-off lane, which is where
+#: it gains cases rather than losing them.
+pytestmark = pytest.mark.route_engaged("polars-bindings-select", "indexed-kernel")
+
 
 NODES = pd.DataFrame({
     "id": [1, 2, 3, 4, 5, 6, 7],
