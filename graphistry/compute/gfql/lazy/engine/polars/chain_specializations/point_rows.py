@@ -59,11 +59,8 @@ def _gathered_edges_matching(
 ) -> "Optional[pl.DataFrame]":
     """The seed's incident edges that satisfy ``edge_match``, gathering only survivors.
 
-    The candidates are row positions, so an edge predicate the category index can answer
-    narrows them BEFORE any frame exists -- one gather of the surviving rows instead of a
-    gather of every candidate followed by a frame filter. Declines to that original shape
-    whenever the index cannot answer the predicate, which keeps the canonical filter the
-    authority on 3-valued and dtype behaviour.
+    Candidates are row positions, so a predicate the category index can answer narrows them
+    before any frame exists; anything it cannot answer falls back to gather-then-filter.
     """
     import polars as pl
 

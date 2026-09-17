@@ -430,12 +430,7 @@ def _index_edge_positions(
     adj: "AdjacencyIndex", ids: Union["SeriesT", Sequence[Any]],
     xp: ArrayNamespace, preserve_input_order: bool = False,
 ) -> Optional[ArrayLike]:
-    """Edge ROW POSITIONS incident to ``ids``, before any frame is built.
-
-    Separated from ``_index_edge_rows`` so a caller that can narrow the candidates
-    (an indexed edge predicate) gathers only the survivors instead of materializing
-    every candidate and filtering the frame afterwards.
-    """
+    """Edge ROW POSITIONS incident to ``ids``, before any frame is built."""
     from graphistry.compute.gfql.index.lookup import lookup_edge_rows
     arr = _ids_to_key_array(ids, adj.keys_sorted, xp)
     if arr is None:
