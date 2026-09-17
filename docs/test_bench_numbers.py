@@ -513,3 +513,27 @@ def test_every_vendored_run_is_within_drift_policy_or_waived():
         if drift is not None and drift > limit and run_id not in state.drift_waivers:
             over.append((run_id, drift))
     assert not over, f"runs past max_compute_commit_drift={limit} without a waiver: {over}"
+
+
+def test_every_bench_provenance_names_a_published_run(payload):
+    """THE REPUBLICATION PIN: ``bench-provenance`` names run ids as literal text, so a
+    republished board silently orphans them. Six were stale at once when GraphBench moved to
+    the shipped tree, and the only thing that caught it was a full docs build in CI."""
+    import glob
+    import os
+    import re
+    runs = set(payload['runs'])
+    source = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'source')
+    stale = []
+    for pattern in ('**/*.rst', '**/*.md'):
+        for path in glob.glob(os.path.join(source, pattern), recursive=True):
+            with open(path, encoding='utf-8') as handle:
+                for number, line in enumerate(handle, 1):
+                    match = re.search(r'\.\.\s+bench-provenance::\s*(.+)', line)
+                    if not match:
+                        continue
+                    for run_id in match.group(1).split():
+                        if run_id not in runs:
+                            stale.append('{}:{}: {}'.format(
+                                os.path.relpath(path, source), number, run_id))
+    assert stale == [], 'bench-provenance names runs absent from the artifact: {}'.format(stale)

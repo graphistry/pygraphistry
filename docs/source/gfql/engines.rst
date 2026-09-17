@@ -335,7 +335,7 @@ Provenance
 
 The query comparisons above use these datasets and measurement profiles.
 
-.. bench-provenance:: graphbench-q1q9-20k-master-d20c6ae1a-20260914 graphbench-q1q9-100k-master-d20c6ae1a-20260914
+.. bench-provenance:: graphbench-q1q9-20k-master-f283a305e-20260917 graphbench-q1q9-100k-master-f283a305e-20260917
 
 See also
 --------
