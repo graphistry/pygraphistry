@@ -825,6 +825,46 @@ jobs:
         source pygraphistry/bin/activate
         ./bin/typecheck.sh
 
+  python-pyright:
+    name: python-pyright (py3.12)
+    needs: [changes, generate-lockfiles]
+    # One python version on purpose: the rules this gate ratchets are decided by the
+    # source alone, so all seven matrix cells would produce byte-identical output.
+    if: ${{ (needs.changes.outputs.python == 'true' || needs.changes.outputs.ai == 'true' || needs.changes.outputs.infra == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule') && !(needs.changes.outputs.docs_only_latest == 'true' && (github.event_name == 'push' || github.event_name == 'pull_request')) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+
+    steps:
+    - name: Checkout repo
+      uses: actions/checkout@v4
+      with:
+        lfs: true
+        persist-credentials: false
+
+    - name: Download lockfiles
+      uses: actions/download-artifact@v4
+      with:
+        name: lockfiles
+        path: requirements
+
+    - name: Set up Python 3.12
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.12"
+
+    - name: Install dependencies
+      run: |
+        python -m venv pygraphistry
+        source pygraphistry/bin/activate
+        python -m pip install --upgrade pip uv
+        uv pip install --require-hashes -r requirements/test-py3.12.lock
+        uv pip install -e . --no-deps
+
+    - name: Pyright ratchet
+      run: |
+        source pygraphistry/bin/activate
+        ./bin/ci_pyright_guard.py
+
   cypher-frontend-strict-typing:
     name: cypher-frontend-strict-typing (py3.12)
     needs: [changes, generate-lockfiles]
