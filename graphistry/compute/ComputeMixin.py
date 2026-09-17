@@ -12,6 +12,7 @@ from .chain_let import chain_let as chain_let_base
 from .gfql_unified import gfql as gfql_base
 from .gfql_validate import gfql_validate as gfql_validate_base
 from .gfql.strictness import StrictInput
+from .gfql.wysiwyg import DEFAULT_FLOAT_PRECISION
 from .chain_remote import (
     chain_remote as chain_remote_base,
     chain_remote_shape as chain_remote_shape_base
@@ -525,14 +526,24 @@ class ComputeMixin(Plottable):
             out_df = safe_merge(g2_base._nodes, levels_df, on=g2_base._node, how='left')
             return self.nodes(out_df)
 
-    def search_nodes(self, term, columns=None, case_sensitive=False, regex=False):
+    def search_nodes(self, term, columns=None, case_sensitive=False, regex=False,
+                     float_precision: int = DEFAULT_FLOAT_PRECISION):
         """Keep nodes where ANY column matches ``term`` (viz-filter L2 inspector
         semantics: OR across columns; case-insensitive substring default; regex
-        opt-in; string columns always, integer columns iff the term is a numeric
-        literal — floats/dates via explicit ``columns=`` on pandas ONLY: cuDF
-        declines them, its float/temporal stringification diverges from pandas).
-        pandas/cuDF native; polars frames raise NotImplementedError (use the
-        cypher ``search_any`` op).
+        opt-in; string columns always, integer AND FLOAT columns iff the term is a
+        numeric literal; dates decline).
+
+        Floats match what the viz inspector DISPLAYS, not ``repr``: fractional values
+        render to ``float_precision`` decimals (so ``0.1+0.2`` is found by ``"0.3"``,
+        never by ``"0.30000000000000004"``), whole values render without a trailing
+        ``.0``, and NaN plus the Int32 sentinel 2147483647 render nothing and never
+        match. A value whose ``float_precision+1``-th decimal is exactly 5 renders one
+        unit lower on cuDF than on pandas -- only pandas can reproduce the inspector's
+        half-away rounding; see ``gfql/wysiwyg.py`` and the pin in
+        ``test_known_cross_engine_divergences.py``.
+
+        pandas/cuDF native; polars frames raise NotImplementedError (use the cypher
+        ``search_any`` op).
         """
         from graphistry.compute.gfql.search_any import search_any_mask
         from graphistry.compute.exceptions import ErrorCode, GFQLValidationError
@@ -544,7 +555,8 @@ class ComputeMixin(Plottable):
                 "search_nodes is not yet native on polars frames; use the cypher "
                 "search_any op or engine='pandas'")
         mask = search_any_mask(
-            df, term, case_sensitive=case_sensitive, regex=regex, columns=columns)
+            df, term, case_sensitive=case_sensitive, regex=regex, columns=columns,
+            float_precision=float_precision)
         if mask is None:
             raise GFQLValidationError(
                 ErrorCode.E108,
@@ -553,7 +565,8 @@ class ComputeMixin(Plottable):
                 suggestion="List only columns present on the nodes table.")
         return self.nodes(df[mask])
 
-    def search_edges(self, term, columns=None, case_sensitive=False, regex=False):
+    def search_edges(self, term, columns=None, case_sensitive=False, regex=False,
+                     float_precision: int = DEFAULT_FLOAT_PRECISION):
         """Keep edges where ANY column matches ``term`` — see :meth:`search_nodes`."""
         from graphistry.compute.gfql.search_any import search_any_mask
         from graphistry.compute.exceptions import ErrorCode, GFQLValidationError
@@ -565,7 +578,8 @@ class ComputeMixin(Plottable):
                 "search_edges is not yet native on polars frames; use the cypher "
                 "search_any op or engine='pandas'")
         mask = search_any_mask(
-            df, term, case_sensitive=case_sensitive, regex=regex, columns=columns)
+            df, term, case_sensitive=case_sensitive, regex=regex, columns=columns,
+            float_precision=float_precision)
         if mask is None:
             raise GFQLValidationError(
                 ErrorCode.E108,
