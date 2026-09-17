@@ -59,8 +59,19 @@ class Chain(ASTSerializable):
     ) -> None:
         self.chain = chain
         self.where = normalize_where_entries(where or [])
+        self._constructor_validated: bool = validate
+        self._gfql_validated_in_call: bool = False
         if validate:
             self.validate(collect_all=False)
+
+    def gfql_validated(self) -> "Chain":
+        """Mark a Chain that `gfql` built and is executing in the same call."""
+        self._gfql_validated_in_call = self._constructor_validated
+        return self
+
+    @staticmethod
+    def ops_were_validated_in_this_call(ops: Union[List[ASTObject], "Chain"]) -> bool:
+        return isinstance(ops, Chain) and ops._gfql_validated_in_call
 
     def validate(self, collect_all: bool = False) -> Optional[List['GFQLValidationError']]:
         from graphistry.compute.exceptions import ErrorCode, GFQLTypeError, GFQLValidationError
@@ -1041,7 +1052,8 @@ def _chain_with_strictness(
         # (Dependency guards for polars / cudf_polars are above, pre-coercion.)
         if validate_schema:
             # Construct a fresh validator: the constructor validates children once.
-            Chain(ops if not isinstance(ops, Chain) else ops.chain)
+            if not Chain.ops_were_validated_in_this_call(ops):
+                Chain(ops if not isinstance(ops, Chain) else ops.chain)
             validate_graph_shape(self, ops, collect_all=False)  # pandas gets this via validate_chain_schema (#1889)
         from graphistry.compute.gfql.lazy.engine.polars.chain import chain_polars
         from graphistry.compute.gfql.lazy import target_mode, ExecutionTarget
@@ -1106,10 +1118,11 @@ def _chain_impl(
     if isinstance(engine, str):
         engine = EngineAbstract(engine)
 
+    validated_in_call = Chain.ops_were_validated_in_this_call(ops)
     if isinstance(ops, Chain):
         ops = ops.chain
 
-    if validate_schema:
+    if validate_schema and not validated_in_call:
         # Revalidate mutable operations on every execution, including reused Chains.
         Chain(ops)
 
