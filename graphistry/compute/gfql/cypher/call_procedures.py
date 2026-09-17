@@ -39,14 +39,16 @@ from graphistry.plugins.cugraph import (
     node_compute_algs_to_attr,
 )
 from graphistry.plugins.igraph import compute_algs as _IGRAPH_COMPUTE_ALGS
+from graphistry.compute.algorithms.registry import STD_COMPUTE_ALGS as _STD_COMPUTE_ALGS
 
 
 _ROW_KIND = Literal["degree", "node", "edge", "graph_only", "node_or_graph"]
-_BACKEND = Literal["degree", "cugraph", "igraph", "networkx"]
+_BACKEND = Literal["degree", "cugraph", "igraph", "networkx", "std"]
 
 _DEGREE_OUTPUTS: Tuple[str, ...] = ("nodeId", "degree", "degree_in", "degree_out")
 _CUGRAPH_RESERVED_KEYS = frozenset({"out_col", "params", "kind", "directed", "G"})
 _IGRAPH_RESERVED_KEYS = frozenset({"out_col", "directed", "use_vids", "params"})
+_STD_RESERVED_KEYS = frozenset({"out_col", "params"})
 
 
 @dataclass(frozen=True)
@@ -137,7 +139,7 @@ def _resolve_procedure_definition(call: CallClause) -> _ProcedureDefinition:
 
     is_write = parts[-1] == "write"
     backend_name = parts[1]
-    if backend_name not in {"igraph", "cugraph", "nx"}:
+    if backend_name not in {"igraph", "cugraph", "nx", "std"}:
         raise _unsupported_call(
             "Unsupported Cypher CALL procedure in the local compiler",
             call=call,
@@ -152,6 +154,23 @@ def _resolve_procedure_definition(call: CallClause) -> _ProcedureDefinition:
             value=call.procedure,
         )
     algorithm = algorithm_parts[0]
+
+    if backend_name == "std":
+        # std selects built-in engine-agnostic kernels without optional dependencies.
+        if algorithm not in _STD_COMPUTE_ALGS:
+            raise _unsupported_call(
+                "Unsupported graphistry.std.* procedure in the local compiler",
+                call=call,
+                value=call.procedure,
+            )
+        return _ProcedureDefinition(
+            procedure=call.procedure,
+            backend="std",
+            algorithm=algorithm,
+            call_function="compute_std",
+            result_kind="graph" if is_write else "rows",
+            row_kind="node_or_graph",
+        )
 
     if backend_name == "igraph":
         if algorithm not in _IGRAPH_COMPUTE_ALGS:
@@ -331,6 +350,13 @@ def _normalized_value_columns(
         if len(value_cols) > 1:
             _raise_multi_column_out_col(call_params["out_col"])
         value_cols[0] = cast(str, call_params["out_col"])
+    if definition.backend == "std" and definition.algorithm == "pagerank":
+        params = call_params.get("params")
+        converged_col = (
+            params.get("converged_col") if isinstance(params, Mapping) else None
+        )
+        if isinstance(converged_col, str):
+            value_cols.append(converged_col)
     return tuple(value_cols)
 
 
@@ -367,6 +393,13 @@ def _source_value_columns(definition: _ProcedureDefinition) -> Tuple[str, ...]:
     if definition.backend == "igraph":
         assert definition.algorithm is not None
         return (definition.algorithm,)
+
+    if definition.backend == "std":
+        # Registry output names differ from algorithm names for WCC and SSSP.
+        assert definition.algorithm is not None
+        from graphistry.compute.algorithms.registry import output_column
+
+        return (output_column(definition.algorithm),)
 
     if definition.backend == "networkx":
         return networkx_source_value_columns(definition.algorithm)
@@ -463,6 +496,8 @@ def _normalize_call_params(
     raw_options = _parse_call_options(definition, call, params=params)
     if definition.backend == "igraph":
         reserved_keys = _IGRAPH_RESERVED_KEYS
+    elif definition.backend == "std":
+        reserved_keys = _STD_RESERVED_KEYS
     elif definition.backend == "networkx":
         reserved_keys = _NETWORKX_RESERVED_KEYS
     else:
@@ -670,6 +705,13 @@ def _execute_backend_call(base_graph: Plottable, compiled_call: CompiledCypherPr
                 suggestion="Install python-igraph or use graphistry.cugraph.* procedures.",
                 exc=exc,
             )
+
+    if compiled_call.call_function == "compute_std":
+        from graphistry.compute.algorithms.compute import compute_std
+
+        return compute_std(
+            _materialized_graph(base_graph), **dict(compiled_call.call_params)
+        )
 
     if compiled_call.call_function == "compute_cugraph":
         try:

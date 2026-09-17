@@ -144,6 +144,12 @@ def _execute_validated_call(g: Plottable, function: str, validated_params: Dict[
         from graphistry.compute.gfql.lazy.engine.polars import degrees as _pl_degrees
         return getattr(_pl_degrees, function + "_polars")(g, engine=engine.value, **validated_params)
 
+    if function == "compute_std":
+        if engine in (Engine.POLARS, Engine.POLARS_GPU):
+            g = _bridge_graph_for_offengine_call(g, function, engine)
+        from graphistry.compute.algorithms.compute import compute_std
+        return compute_std(g, **validated_params)
+
     if not hasattr(g, function):
         raise AttributeError(
             f"Plottable has no method '{function}'. "

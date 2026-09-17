@@ -67,6 +67,7 @@ See also:
    predicates/quick
    datetime_filtering
    builtin_calls
+   standard_algorithms
    policy
    strict_mode
    schema

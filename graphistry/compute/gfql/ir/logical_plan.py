@@ -187,7 +187,7 @@ class ProcedureOutputColumn:
 @dataclass(frozen=True)
 class ProcedureCall(LogicalPlan):
     procedure: str = ""
-    backend: Literal["degree", "cugraph", "igraph", "networkx"] = "degree"
+    backend: Literal["degree", "cugraph", "igraph", "networkx", "std"] = "degree"
     algorithm: Optional[str] = None
     call_function: Optional[str] = None
     result_kind: Literal["rows", "graph"] = "rows"
