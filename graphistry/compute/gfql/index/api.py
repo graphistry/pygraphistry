@@ -26,7 +26,7 @@ from .policy import IndexPolicy, validate_index_policy
 from .types import (
     AdjacencyIndexKind, EdgeIndexDirection, HopDirection, IndexKind,
     ColStatsOutcomeName, FastPathName, IndexDecisionCode, IndexTrace, IndexTraceStep,
-    TraceEngine,
+    TraceEngine, SidecarFactKind,
 )
 
 # Private Plottable attachment keys. Keep access behind helpers.
@@ -447,6 +447,62 @@ def drop_index(
     return _attach(g, registry.without(kind))
 
 
+def _sidecar_fact_rows(
+    g: Plottable, registry: GfqlIndexRegistry, query_engine: Engine
+) -> List[Dict[str, object]]:
+    """``show_indexes`` rows for the build-time facts that are not in ``registry.kinds()``.
+
+    Category codes and endpoint rows are per-row arrays, so leaving them out understates
+    the memory signal by exactly the structures that scale with the data.
+    """
+    from .registry import index_nbytes
+
+    frames = {"nodes": g._nodes, "edges": g._edges}
+    rows: List[Dict[str, object]] = []
+
+    def row(name: str, kind: SidecarFactKind, key_col: str, engine: Engine, backend: str,
+            n_keys: int, n_rows: int, nbytes: int, valid: bool) -> Dict[str, object]:
+        reasons = []
+        if engine != query_engine:
+            reasons.append(_engine_mismatch_text(kind, engine.value, query_engine))
+        if not valid:
+            reasons.append("stale fingerprint (frames rebound since build) -> rebuild")
+        return {
+            "name": name, "kind": kind, "key_col": key_col, "engine": engine.value,
+            "backend": backend, "n_keys": n_keys, "n_rows": n_rows, "nbytes": nbytes,
+            "valid": valid, "query_engine": query_engine.value,
+            "usable": not reasons, "reason": ("; ".join(reasons) or None),
+        }
+
+    for role, column in sorted(registry.categories):
+        index = registry.categories[(role, column)]
+        valid = registry.get_category_valid(role, column, frames.get(role), index.engine) is not None
+        rows.append(row(
+            f"category:{role}.{column}", "category", column, index.engine, index.backend,
+            len(index.value_codes), index.n_rows, index_nbytes(index), valid,
+        ))
+    for key in sorted(registry.endpoint_rows):
+        endpoints = registry.endpoint_rows[key]
+        valid = registry.get_endpoint_rows_valid(
+            endpoints.src_col, endpoints.dst_col, endpoints.node_col,
+            g._edges, g._nodes, endpoints.engine,
+        ) is not None
+        rows.append(row(
+            f"endpoint_rows:{endpoints.src_col},{endpoints.dst_col}->{endpoints.node_col}",
+            "endpoint_rows", f"{endpoints.src_col},{endpoints.dst_col}",
+            endpoints.engine, endpoints.backend,
+            0, int(endpoints.src_rows.shape[0]), index_nbytes(endpoints), valid,
+        ))
+    for role in sorted(registry.temporal_text):
+        verdicts = registry.temporal_text[role]
+        valid = registry.get_temporal_text_valid(role, frames.get(role), verdicts.engine) is not None
+        rows.append(row(
+            f"temporal_text:{role}", "temporal_text", "", verdicts.engine, "numpy",
+            len(verdicts.verdicts), 0, 0, valid,
+        ))
+    return rows
+
+
 def show_indexes(
     g: Plottable, engine: EngineAbstractType = EngineAbstract.AUTO
 ) -> pd.DataFrame:
@@ -517,6 +573,7 @@ def show_indexes(
             "usable": usable,
             "reason": reason,
         })
+    rows.extend(_sidecar_fact_rows(g, registry, query_engine))
     cols = [
         "name", "kind", "key_col", "engine", "backend", "n_keys", "n_rows", "nbytes",
         "valid", "query_engine", "usable", "reason",
@@ -765,6 +822,37 @@ def gfql_index_col_stats(g: Plottable,
     return _attach(g, registry)
 
 
+def gfql_index_categories(g: Plottable,
+                          node_columns: Optional[Sequence[str]] = None,
+                          edge_columns: Optional[Sequence[str]] = None,
+                          engine: EngineAbstractType = EngineAbstract.AUTO) -> Plottable:
+    """Category indexes for the low-cardinality columns predicates test -- EAGER.
+
+    Default target is every eligible column; ``build_category_index`` defines eligible,
+    and nulls do NOT disqualify a column. Declines cost only a canonical filter.
+
+    Like the other indexes here this is a declared SETUP step, not lazy per-query work, so
+    a measurement harness discloses it the same way it discloses the adjacency build.
+    """
+    from .build import build_category_index
+
+    engine_concrete = resolve_engine(engine, g)
+    registry = get_registry(g)
+    targets: List[Tuple[ColStatsRole, Optional[DataFrameT], Optional[Sequence[str]]]] = [
+        ("nodes", g._nodes, node_columns),
+        ("edges", g._edges, edge_columns),
+    ]
+    for role, frame, requested in targets:
+        if frame is None:
+            continue
+        columns = list(requested) if requested is not None else [str(column) for column in frame.columns]
+        for column in columns:
+            index = build_category_index(frame, column, role, engine_concrete)
+            if index is not None:
+                registry = registry.with_category(index)
+    return _attach(g, registry)
+
+
 def gfql_index_all(g: Plottable,
                    col_stats_by_type: bool = False,
                    engine: EngineAbstractType = EngineAbstract.AUTO) -> Plottable:
@@ -786,7 +874,61 @@ def gfql_index_all(g: Plottable,
         g = create_index(g, NODE_ID, engine=engine)
     except GfqlIndexUnsupportedError:
         pass  # non-unique node ids -> skip the node_id accelerator (adjacency still built)
-    return gfql_index_col_stats(g, col_stats_by_type=col_stats_by_type, engine=engine)
+    g = gfql_index_col_stats(g, col_stats_by_type=col_stats_by_type, engine=engine)
+    g = gfql_index_categories(g, engine=engine)
+    g = gfql_index_endpoint_rows(g, engine=engine)
+    return gfql_index_temporal_text(g, engine=engine)
+
+
+def gfql_index_temporal_text(g: Plottable,
+                             engine: EngineAbstractType = EngineAbstract.AUTO) -> Plottable:
+    """Resolve, per String column, whether it holds temporal-constructor text -- EAGER.
+
+    The projection guard asks this of every projected result; a projection that copies a
+    column verbatim inherits the column's own answer, so resolving it once here answers
+    it for every later query. Used only to DECLINE, so a missing fact costs a scan.
+    """
+    from .build import build_temporal_text_fact
+
+    engine_concrete = resolve_engine(engine, g)
+    registry = get_registry(g)
+    text_targets: List[Tuple[ColStatsRole, Optional[DataFrameT]]] = [
+        ("nodes", g._nodes), ("edges", g._edges),
+    ]
+    for role, frame in text_targets:
+        if frame is None:
+            continue
+        fact = build_temporal_text_fact(frame, role, engine_concrete)
+        if fact is not None:
+            registry = registry.with_temporal_text(fact)
+    return _attach(g, registry)
+
+
+def gfql_index_endpoint_rows(g: Plottable,
+                             engine: EngineAbstractType = EngineAbstract.AUTO) -> Plottable:
+    """Resolve each edge endpoint to its node row once -- EAGER, and only when it is sound.
+
+    Needs a node id index to resolve through, and every endpoint id to exist in it;
+    without either this is a no-op and traversal resolves endpoints the way it did
+    before. Like the other indexes here it is a declared SETUP step.
+    """
+    from .build import build_endpoint_rows_fact
+
+    engine_concrete = resolve_engine(engine, g)
+    nodes, edges = g._nodes, g._edges
+    node_id, src, dst = g._node, g._source, g._destination
+    if nodes is None or edges is None or node_id is None or src is None or dst is None:
+        return g
+    registry = get_registry(g)
+    node_index = registry.get_valid(NODE_ID, nodes, (str(node_id),), engine_concrete)
+    if not isinstance(node_index, NodeIdIndex):
+        return g
+    fact = build_endpoint_rows_fact(
+        edges, nodes, str(src), str(dst), node_index, engine_concrete,
+    )
+    if fact is None:
+        return g
+    return _attach(g, registry.with_endpoint_rows(fact))
 
 
 # ---- planner entry ---------------------------------------------------------

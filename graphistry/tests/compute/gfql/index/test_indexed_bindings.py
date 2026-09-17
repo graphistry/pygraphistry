@@ -588,17 +588,29 @@ def _prop_graph(engine: str, columns: Sequence[str] = ("public",)) -> Any:
 def _seed_filter_widths(
     g: Any, query: Any, engine: str, monkeypatch: pytest.MonkeyPatch
 ) -> Tuple[Any, List[Dict[str, Any]], List[int]]:
-    """Run traced, recording how many rows each helper filter had to look at."""
+    """Run traced, recording how many rows each helper filter had to look at.
+
+    Both filter seams are recorded: the frame filter, and the array path's positional
+    filter which answers the same predicate from index codes. A probe that watched only
+    one of them would report "no filtering happened" when the other one did it.
+    """
+    import graphistry.compute.gfql.index.array_bindings as array_bindings
     import graphistry.compute.gfql.index.bindings as indexed_bindings
 
     widths: List[int] = []
     original = indexed_bindings._filter_frame
+    original_positions = array_bindings._filtered_positions
 
     def record(frame: Any, *args: Any, **kwargs: Any) -> Any:
         widths.append(int(frame.shape[0]))
         return original(frame, *args, **kwargs)
 
+    def record_positions(frame: Any, positions: Any, *args: Any, **kwargs: Any) -> Any:
+        widths.append(int(positions.shape[0]))
+        return original_positions(frame, positions, *args, **kwargs)
+
     monkeypatch.setattr(indexed_bindings, "_filter_frame", record)
+    monkeypatch.setattr(array_bindings, "_filtered_positions", record_positions)
     actual, steps = _trace_run(g, query, engine)
     return actual, steps, widths
 

@@ -306,3 +306,12 @@ def apply_result_projection_polars(
         "use engine='pandas' or engine='cudf' for this query "
         "(no silent fallback; parity-or-error by design)"
     )
+
+
+def _has_temporal_constructor_text_value(value: str) -> bool:
+    """Whether one string is Cypher temporal-constructor text (the scalar form of the scan)."""
+    import re
+
+    from graphistry.compute.gfql.temporal.constructors import TEMPORAL_CALL_EXPR_RE
+
+    return re.match(r"^\s*" + TEMPORAL_CALL_EXPR_RE.pattern, value) is not None

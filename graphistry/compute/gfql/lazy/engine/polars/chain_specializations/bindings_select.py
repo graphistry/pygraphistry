@@ -13,7 +13,7 @@ route, which stays the oracle for this lane's differential tests.
 """
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, List, Optional, Sequence
+from typing import TYPE_CHECKING, List, Optional, Sequence, Tuple, cast
 
 if TYPE_CHECKING:
     import polars as pl
@@ -129,6 +129,41 @@ def rewrap_projected_polars(
     return out
 
 
+def _projection_can_leak_temporal_text(
+    g: Plottable, plan: Sequence[ProjectionItem], engine: Engine,
+) -> bool:
+    """Whether this projection could emit temporal-constructor text.
+
+    Every projected column is a verbatim copy of a source column, so the build-time
+    verdict for that column answers it without scanning the result. Without a verdict
+    for a frame this returns True, which declines to the canonical route rather than
+    guessing. A String literal is checked directly, since it has no source column.
+    """
+    from graphistry.compute.gfql.index.api import get_registry
+    from graphistry.compute.gfql.index.registry import ColStatsRole
+    from graphistry.compute.gfql.lazy.engine.polars.projection import (
+        _has_temporal_constructor_text_value,
+    )
+
+    registry = get_registry(g)
+    roles: List[Tuple[ColStatsRole, Optional[DataFrameT]]] = [
+        ("nodes", g._nodes), ("edges", g._edges),
+    ]
+    facts = {role: registry.get_temporal_text_valid(role, frame, engine) for role, frame in roles}
+    for _, kind, _, value in plan:
+        if kind == "literal":
+            if isinstance(value, str) and _has_temporal_constructor_text_value(value):
+                return True
+            continue
+        fact = facts["edges" if kind == "edge_column" else "nodes"]
+        if fact is None:
+            return True  # no verdict: decline rather than guess
+        column = str(g._node) if kind == "node_id" else str(value)
+        if fact.verdicts.get(column, False):
+            return True
+    return False
+
+
 def try_bindings_select_polars(
     g: Plottable,
     middle: Sequence[ASTObject],
@@ -137,9 +172,6 @@ def try_bindings_select_polars(
 ) -> "Optional[pl.DataFrame]":
     """The projected table for a seeded fixed-hop pattern, or None to decline."""
     from graphistry.compute.gfql.lazy import ExecutionTarget, active_target
-    from graphistry.compute.gfql.lazy.engine.polars.row_pipeline import (
-        _select_emits_temporal_constructor_text,
-    )
 
     if start_nodes is not None or active_target() == ExecutionTarget.GPU:
         return None
@@ -165,9 +197,9 @@ def try_bindings_select_polars(
     for _, kind, alias, _ in plan:
         if kind != "literal" and ("edge" if kind == "edge_column" else "node", alias) not in bound:
             return None
-    out = project_array_path_bag(bag, nodes, edges, str(g._node), plan)
-    if _select_emits_temporal_constructor_text(out):
+    if _projection_can_leak_temporal_text(g, plan, Engine.POLARS):
         return None  # raw constructor text belongs to the canonical decline (NIE)
+    out = project_array_path_bag(bag, nodes, edges, str(g._node), plan)
     first = middle[0]
     seed_scan = not (
         isinstance(first, ASTNode)
