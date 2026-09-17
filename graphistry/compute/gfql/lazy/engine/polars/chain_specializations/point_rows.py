@@ -2,10 +2,12 @@
 from typing import TYPE_CHECKING, Dict, List, Optional, Sequence
 
 if TYPE_CHECKING:
+    from graphistry.compute.gfql.index.registry import AdjacencyIndex
     import polars as pl
 
 from graphistry.Plottable import Plottable
-from graphistry.compute.typing import DataFrameT
+from graphistry.Engine import Engine
+from graphistry.compute.typing import ArrayNamespace, DataFrameT, FilterDict, SeriesT
 from graphistry.compute.gfql.identifiers import is_bare_identifier
 from graphistry.compute.ast import ASTCall, ASTEdge, ASTNode, ASTObject
 from graphistry.compute.chain_fast_paths import (
@@ -45,6 +47,43 @@ def polars_point_rows_admits(ops: Sequence[ASTObject]) -> Optional[int]:
         if not isinstance(projection, ASTCall) or projection.function != "select" or set(projection.params) != {"items"}:
             return None
     return boundary
+
+
+def _gathered_edges_matching(
+    g: Plottable,
+    adj: "AdjacencyIndex",
+    seed_ids: SeriesT,
+    xp: ArrayNamespace,
+    engine: Engine,
+    edges: "pl.DataFrame",
+    edge_match: Optional[FilterDict],
+) -> "Optional[pl.DataFrame]":
+    """The seed's incident edges that satisfy ``edge_match``, gathering only survivors.
+
+    Candidates are row positions, so a predicate the category index can answer narrows them
+    before any frame exists; anything it cannot answer falls back to gather-then-filter.
+    """
+    import polars as pl
+
+    from graphistry.compute.chain_fast_paths import _index_edge_positions
+    from graphistry.compute.gfql.index.array_bindings import _positions_via_category_index
+    from graphistry.compute.gfql.lazy.engine.polars.predicates import filter_by_dict_polars
+
+    if edge_match:
+        positions = _index_edge_positions(adj, seed_ids, xp, preserve_input_order=True)
+        if positions is not None:
+            narrowed = _positions_via_category_index(
+                g, "edges", edges, positions, edge_match, engine, xp,
+            )
+            if narrowed is not None:
+                from graphistry.compute.gfql.index.engine_arrays import take_rows
+
+                gathered = take_rows(edges, narrowed, engine)
+                return gathered if isinstance(gathered, pl.DataFrame) else None
+    gathered_edges = _index_edge_rows(adj, seed_ids, xp, engine, edges, preserve_input_order=True)
+    if not isinstance(gathered_edges, pl.DataFrame):
+        return None
+    return filter_by_dict_polars(gathered_edges, edge_match)
 
 
 def _joined_projection(
@@ -171,10 +210,12 @@ def _try_point_rows_polars(g: Plottable, ops: List[ASTObject], start_nodes: Opti
         ctx = _resident_seed_indexes(g, nodes, edges, node, src, dst, edge.direction)
         if ctx is None:
             return None
-        gathered_edges = _index_edge_rows(ctx[1], seed.get_column(node), xp, engine, edges, preserve_input_order=True)
-        if not isinstance(gathered_edges, pl.DataFrame):
+        matching = _gathered_edges_matching(
+            g, ctx[1], seed.get_column(node), xp, engine, edges, edge.edge_match,
+        )
+        if matching is None:
             return None
-        kept_edges = filter_by_dict_polars(gathered_edges, edge.edge_match)
+        kept_edges = matching
         from_col, to_col = (src, dst) if edge.direction == "forward" else (dst, src)
         tail = _index_node_rows(nid, kept_edges.get_column(to_col), xp, engine, nodes, preserve_input_order=True)
         if tail is None:
