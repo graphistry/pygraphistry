@@ -538,7 +538,7 @@ def build_endpoint_rows_fact(
             values = col_to_array(edges, column, engine)
         except (AttributeError, KeyError, TypeError, ValueError):
             return None
-        if str(getattr(values.dtype, "kind", "")) not in ("i", "u"):
+        if str(values.dtype.kind) not in ("i", "u"):  # numpy/cupy arrays always carry dtype.kind
             return None
         probe = values
         probe_keys = keys
