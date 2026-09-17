@@ -168,6 +168,61 @@ Do **not** raise a cap with `--update-baseline` to make a new finding go away.
 Lowering caps after fixing debt is the intended use; commit the code change and
 the baseline update together.
 
+### Pyright Ratchet
+
+The `python-pyright` CI job (py3.12 only) runs `bin/ci_pyright_guard.py`, which
+invokes `bin/pyright.sh` and holds the result to a per-file count ratchet against
+`bin/ci_pyright_baseline.json`. It catches what ruff and mypy do not: locals that
+are only bound on some paths, names that resolve nowhere, statements with no effect.
+
+Both the tool and the interpreter matter, so the tool is pinned. `bin/pyright.sh`
+prefers an installed `pyright` only when it is the pinned version, and otherwise
+fetches that exact version through `uvx` or `npx`. Bump `PYRIGHT_VERSION` and
+regenerate the baseline in the same commit.
+
+**Only five rules gate**, and the bar for admission is narrow: the rule must be
+decided by the source file's own control flow, names and syntax, with no type
+consulted.
+
+| Rule | Decided by |
+|---|---|
+| `reportPossiblyUnboundVariable` | control flow within the function |
+| `reportUndefinedVariable` | name resolution within the module |
+| `reportUnsupportedDunderAll` | name resolution within the module |
+| `reportUnusedExpression` | syntax |
+| `reportSelfClsParameterName` | syntax |
+
+Every other pyright rule reads third-party stubs, so its verdict moves with the
+interpreter and with whichever optional dependencies are installed.
+`reportAttributeAccessIssue` ranges from 146 to 810 findings on one unchanged tree
+across five environments. Such a rule would fail for a developer who has cudf
+installed, pass in CI, and drift on every pandas release, so it is reported but
+never gated. `--report` prints both groups.
+
+```bash
+./bin/ci_pyright_guard.py                  # what CI runs
+./bin/ci_pyright_guard.py --report         # gated and ungated totals, always exit 0
+./bin/ci_pyright_guard.py --list reportPossiblyUnboundVariable
+./bin/ci_pyright_guard.py --strict         # show files that improved; time to retighten
+./bin/pyright.sh graphistry/compute        # the raw tool, narrowed
+```
+
+When pyright is wrong about a line, suppress it there with its own directive:
+
+```python
+return edge_map  # pyright: ignore[reportPossiblyUnboundVariable] -- bound by the loop above
+```
+
+Do **not** raise a cap with `--update-baseline` to make a new finding go away.
+Lowering caps after fixing debt is the intended use; commit the code change and
+the baseline update together.
+
+One entry dominates the baseline: `graphistry/compute/gfql/cypher/projection_planning.py`
+holds 195 of the 273 grandfathered findings because it builds its namespace with
+`globals().update(vars(_lowering))`. It already carries `# mypy: ignore-errors` and
+`# ruff: noqa: F821` for the same reason. The count is left visible rather than
+excluded, so that fixing the module shows up as slack under `--strict`.
+
 ### Comment Density Guard
 
 `bin/lint.sh` (the same `python-lint-types` matrix lane as the type-hygiene
