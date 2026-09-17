@@ -1,5 +1,5 @@
 {
-  "_note": "Per-file line-coverage floors for the native POLARS engine (profile gfql-polars, bin/test-polars.sh). COMPLETE list required (audit fails un-baselined target files). Floors set conservatively (~8% below dgx-measured; measured: chain 94.3 row_pipeline 87.9 predicates 91 projection 73.2 hop 95.1 hop_eager 98.3 degrees 90.7 dtypes 100 lazy/__init__ 98.6). pattern_apply 75.4 (2026-07-05, module split from row_pipeline). search 87.0 (2026-07-05, L2). varlen_rows 100.0 (2026-07-27, module split from row_pipeline). Raise as coverage grows. membership 100.0 (2026-09-15, dgx polars lane; both id_set arms pinned, the sub-1.28 one by a monkeypatched test).",
+  "_note": "Per-file line-coverage floors for the native POLARS engine (profile gfql-polars, bin/test-polars.sh). COMPLETE list required (audit fails un-baselined target files). Floors set conservatively (~8% below dgx-measured; measured: chain 94.3 row_pipeline 87.9 predicates 91 projection 73.2 hop 95.1 hop_eager 98.3 degrees 90.7 dtypes 100 lazy/__init__ 98.6). pattern_apply 75.4 (2026-07-05, module split from row_pipeline). search 87.0 (2026-07-05, L2). varlen_rows 100.0 (2026-07-27, module split from row_pipeline). Raise as coverage grows. membership 100.0 (2026-09-15, dgx polars lane; both id_set arms pinned, the sub-1.28 one by a monkeypatched test). bindings_select 85.0 (2026-09-15, new array-bindings projection specialization; CI-measured 92.71).",
   "files": {
     "graphistry/compute/gfql/lazy/__init__.py": 90.0,
     "graphistry/compute/gfql/lazy/engine/__init__.py": 90.0,
@@ -7,6 +7,7 @@
     "graphistry/compute/gfql/lazy/engine/polars/chain.py": 86.0,
     "graphistry/compute/gfql/lazy/engine/polars/chain_specializations/__init__.py": 100.0,
     "graphistry/compute/gfql/lazy/engine/polars/chain_specializations/admission.py": 95.0,
+    "graphistry/compute/gfql/lazy/engine/polars/chain_specializations/bindings_select.py": 85.0,
     "graphistry/compute/gfql/lazy/engine/polars/chain_specializations/hotpaths.py": 95.0,
     "graphistry/compute/gfql/lazy/engine/polars/chain_specializations/point_rows.py": 93.0,
     "graphistry/compute/gfql/lazy/engine/polars/degrees.py": 82.0,

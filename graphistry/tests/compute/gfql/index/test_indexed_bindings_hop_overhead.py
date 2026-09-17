@@ -223,14 +223,17 @@ def test_indexed_hop_rows_match_canonical_with_and_without_endpoint_drops(
 
     monkeypatch.setattr(B, "semijoin_by_column", lambda *a, **k: calls.append(1) or original_semijoin(*a, **k))
     monkeypatch.setattr(bindings_module, "_try_indexed_connected_bindings_state", counting_kernel)
-    with routes_off(["polars-point-rows", "point-rows", "polars-seeded", "native-fast", "cypher-fast"]):
+    # `polars-bindings-select` is a SECOND implementation of this kernel and answers first;
+    # it has its own differential suite, and this case is about the frame kernel.
+    with routes_off(["polars-point-rows", "point-rows", "polars-seeded", "native-fast",
+                     "cypher-fast", "polars-bindings-select"]):
         served = g.gfql(ops, engine=engine, index_policy="force")
     monkeypatch.setattr(B, "semijoin_by_column", original_semijoin)
     monkeypatch.setattr(bindings_module, "_try_indexed_connected_bindings_state", original_kernel)
     assert served_by_kernel["n"], "the indexed kernel never served; this case proves nothing"
 
     with routes_off(["polars-point-rows", "point-rows", "polars-seeded", "native-fast",
-                     "cypher-fast", "indexed-kernel", "index-hop"]):
+                     "cypher-fast", "polars-bindings-select", "indexed-kernel", "index-hop"]):
         canonical = g.gfql(ops, engine=engine, index_policy="off")
     served_pd = _to_pandas(served._nodes, engine).reset_index(drop=True)
     canonical_pd = _to_pandas(canonical._nodes, engine).reset_index(drop=True)
