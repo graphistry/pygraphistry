@@ -61,8 +61,8 @@ class Chain(ASTSerializable):
         self.where = normalize_where_entries(where or [])
         #: Whether THIS constructor validated these ops. Only a caller that also knows the
         #: ops cannot have changed since may skip re-validating; see `gfql_validated`.
-        self._constructor_validated = validate
-        self._gfql_validated_in_call = False
+        self._constructor_validated: bool = validate
+        self._gfql_validated_in_call: bool = False
         if validate:
             self.validate(collect_all=False)
 
@@ -76,6 +76,16 @@ class Chain(ASTSerializable):
         """
         self._gfql_validated_in_call = self._constructor_validated
         return self
+
+    @staticmethod
+    def ops_were_validated_in_this_call(ops: Union[List[ASTObject], "Chain"]) -> bool:
+        """Whether ``ops`` is a Chain this same call built and validated.
+
+        A typed check on a known type, not an attribute probe: `chain` accepts either a
+        list or a Chain, and only the latter can carry the mark. Anything else -- a list,
+        or a Chain the caller built earlier -- answers False and is re-validated.
+        """
+        return isinstance(ops, Chain) and ops._gfql_validated_in_call
 
     def validate(self, collect_all: bool = False) -> Optional[List['GFQLValidationError']]:
         from graphistry.compute.exceptions import ErrorCode, GFQLTypeError, GFQLValidationError
@@ -1002,7 +1012,7 @@ def _chain_with_strictness(
             # Construct a fresh validator: the constructor validates children once. Skipped
             # only when `gfql` built this Chain in this same call, where re-validating cannot
             # observe a change -- every other caller may have mutated its ops since.
-            if not getattr(ops, "_gfql_validated_in_call", False):
+            if not Chain.ops_were_validated_in_this_call(ops):
                 Chain(ops if not isinstance(ops, Chain) else ops.chain)
             validate_graph_shape(self, ops, collect_all=False)  # pandas gets this via validate_chain_schema (#1889)
         from graphistry.compute.gfql.lazy.engine.polars.chain import chain_polars
@@ -1068,7 +1078,7 @@ def _chain_impl(
     if isinstance(engine, str):
         engine = EngineAbstract(engine)
 
-    validated_in_call = getattr(ops, "_gfql_validated_in_call", False)
+    validated_in_call = Chain.ops_were_validated_in_this_call(ops)
     if isinstance(ops, Chain):
         ops = ops.chain
 

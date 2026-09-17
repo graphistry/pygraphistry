@@ -1,11 +1,15 @@
-"""`gfql` validates its ops once, and every other caller still re-validates.
+"""Validation is not skipped for any caller who could have changed their ops.
 
-The execution path builds a throwaway `Chain` purely to re-validate the ops, which is
-what catches a caller that mutated a Chain after constructing it. When `gfql` built the
-Chain itself in the same call, nothing can have changed in between, so that pass is
-redundant — for every caller, including one that passed a plain list and never reused
-anything. Skipping it there must not weaken the check anywhere else, so both sides are
-pinned here.
+The execution path re-validates the ops on every run, which is what catches a caller that
+built a `Chain`, mutated it, and then executed it. `gfql` builds the Chain itself and runs
+it in the same call, so nothing can change in between and that pass is redundant there.
+
+These tests are written on the BEHAVIOUR boundary -- what a caller observes -- not on how
+the skip is implemented. The boundary is "could these ops have changed since they were
+validated?", and both sides of it are covered: a caller who could (must still raise) and a
+caller who could not (must still get the right answer). Whether validation ran once or
+twice is an implementation detail and is asserted nowhere below, except in the one test
+that exists to prove the optimization is live at all.
 """
 import pandas as pd
 import pytest
@@ -23,40 +27,18 @@ def g():
             .edges(pd.DataFrame({"s": [1, 2], "d": [2, 3]}), "s", "d"))
 
 
-def _validation_passes(monkeypatch):
-    """Count Chain constructions that actually validate."""
-    seen = {"n": 0}
-    original = Chain.__init__
-
-    def counting(self, chain, where=None, validate=True):
-        seen["n"] += bool(validate)
-        return original(self, chain, where, validate)
-
-    monkeypatch.setattr(Chain, "__init__", counting)
-    return seen
+MALFORMED = [
+    ([n({"id": object()})], "type-mismatch"),
+    (["not-an-op"], "invalid-chain-type"),
+    ([n(), e_forward(hops=-1), n()], "invalid-hops-value"),
+]
 
 
-def test_gfql_validates_its_ops_once(g, monkeypatch):
-    """A plain list through gfql must be validated once, not twice."""
-    seen = _validation_passes(monkeypatch)
-    g.gfql([n(), e_forward(), n()])
-    assert seen["n"] == 1, f"ops were validated {seen['n']} times"
-
-
-def test_chain_called_directly_still_validates(g, monkeypatch):
-    """`chain` has no such guarantee about its caller, so it keeps re-validating."""
-    seen = _validation_passes(monkeypatch)
-    g.chain([n(), e_forward(), n()])
-    assert seen["n"] >= 1
-
+# --- the side that COULD have changed: validation must still fire ---
 
 @pytest.mark.parametrize("entry", ["chain", "gfql"])
-def test_a_chain_mutated_after_construction_is_still_caught(g, entry):
-    """The case the re-validation exists for. Skipping it on the gfql path must not lose it.
-
-    A Chain validates at construction; a caller can then mutate its ops and execute it. That
-    is a different caller from the one gfql serves, and it must still raise.
-    """
+def test_a_chain_mutated_after_construction_still_raises(g, entry):
+    """The reason the re-validation exists. Both entry points must still catch it."""
     ops = Chain([n(), e_forward(), n()])
     ops.chain[1].hops = -5
     with pytest.raises(GFQLTypeError) as error:
@@ -64,21 +46,77 @@ def test_a_chain_mutated_after_construction_is_still_caught(g, entry):
     assert error.value.code == "invalid-hops-value"
 
 
-def test_only_a_constructor_validated_chain_can_be_marked():
-    """The mark means "this constructor validated these ops"; it cannot be forged onto one
-    that was built with validation off."""
-    assert Chain([n()])._gfql_validated_in_call is False, "the mark is never set by construction"
-    assert Chain([n()]).gfql_validated()._gfql_validated_in_call is True
-    assert Chain([n()], validate=False).gfql_validated()._gfql_validated_in_call is False
+@pytest.mark.parametrize("entry", ["chain", "gfql"])
+@pytest.mark.parametrize("ops,code", MALFORMED)
+def test_malformed_ops_raise_the_same_code_through_both_entry_points(g, entry, ops, code):
+    """A caller passing bad ops gets the same diagnosis however they enter."""
+    with pytest.raises(GFQLTypeError) as error:
+        getattr(g, entry)(ops)
+    assert error.value.code == code
 
 
-@pytest.mark.parametrize("ops,code", [
-    ([n({"id": object()})], "type-mismatch"),
-    (["not-an-op"], "invalid-chain-type"),
-    ([n(), e_forward(hops=-1), n()], "invalid-hops-value"),
-])
-def test_malformed_queries_still_raise_the_same_code_through_gfql(g, ops, code):
-    """The pass being skipped is redundant, not load-bearing: the errors are unchanged."""
+def test_a_chain_reused_across_calls_is_revalidated_every_time(g):
+    """Reuse is the case a once-only memo would break: validate, run, mutate, run again."""
+    ops = Chain([n(), e_forward(), n()])
+    g.gfql(ops)                      # first run is fine
+    ops.chain[1].hops = -5           # the caller mutates between runs
     with pytest.raises(GFQLTypeError) as error:
         g.gfql(ops)
-    assert error.value.code == code
+    assert error.value.code == "invalid-hops-value"
+
+
+def test_a_list_reused_across_calls_is_revalidated_every_time(g):
+    """Same, entering with a plain list, which is the common `gfql` shape."""
+    ops = [n(), e_forward(), n()]
+    g.gfql(ops)
+    ops[1].hops = -5
+    with pytest.raises(GFQLTypeError) as error:
+        g.gfql(ops)
+    assert error.value.code == "invalid-hops-value"
+
+
+# --- the side that COULD NOT have changed: the answer is unchanged ---
+
+@pytest.mark.parametrize("entry", ["chain", "gfql"])
+def test_well_formed_ops_return_the_same_result_through_both_entry_points(g, entry):
+    """Skipping a redundant pass must not change what comes back."""
+    ops = [n({"id": 1}), e_forward(), n()]
+    out = getattr(g, entry)(ops)
+    assert sorted(out._nodes["id"].tolist()) == [1, 2]
+    assert sorted(out._edges["s"].tolist()) == [1]
+
+
+def test_gfql_and_chain_agree_on_the_same_ops(g):
+    """The two entry points differ in whether the pass is skipped; not in the answer."""
+    ops = [n({"id": 1}), e_forward(), n()]
+    assert g.gfql(list(ops))._nodes.equals(g.chain(list(ops))._nodes)
+
+
+# --- the one implementation pin, which exists to prove the optimization is live ---
+
+def test_gfql_does_not_validate_the_same_ops_twice(g, monkeypatch):
+    """Without this the suite above would pass with the optimization removed entirely.
+
+    Deliberately an implementation assertion, and the only one here: it is the engagement
+    pin, not a behaviour test.
+    """
+    seen = {"validating": 0}
+    original = Chain.__init__
+
+    def counting(self, chain, where=None, validate=True):
+        seen["validating"] += bool(validate)
+        return original(self, chain, where, validate)
+
+    monkeypatch.setattr(Chain, "__init__", counting)
+    g.gfql([n(), e_forward(), n()])
+    assert seen["validating"] == 1, f"ops were validated {seen['validating']} times"
+
+
+def test_the_marker_is_a_typed_check_not_an_attribute_probe():
+    """`chain` takes a list or a Chain; only a Chain this call built can carry the mark."""
+    assert Chain.ops_were_validated_in_this_call([n()]) is False
+    assert Chain.ops_were_validated_in_this_call(Chain([n()])) is False
+    assert Chain.ops_were_validated_in_this_call(Chain([n()]).gfql_validated()) is True
+    assert Chain.ops_were_validated_in_this_call(
+        Chain([n()], validate=False).gfql_validated()
+    ) is False, "an unvalidated Chain must never be markable"
