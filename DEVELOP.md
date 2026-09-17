@@ -170,34 +170,26 @@ the baseline update together.
 
 ### Pyright Ratchet
 
-The `python-pyright` CI job (py3.12 only) runs `bin/ci_pyright_guard.py`, which
-invokes `bin/pyright.sh` and holds the result to a per-file count ratchet against
-`bin/ci_pyright_baseline.json`. It catches what ruff and mypy do not: locals that
-are only bound on some paths, names that resolve nowhere, statements with no effect.
+The `python-pyright` CI job (py3.12) runs `bin/ci_pyright_guard.py`, which invokes `bin/pyright.sh`
+and holds the result to a per-file count ratchet against `bin/ci_pyright_baseline.json`. It catches
+what ruff and mypy do not: locals bound on only some paths, names that resolve nowhere, statements
+with no effect.
 
-Both the tool and the interpreter matter, so the tool is pinned. `bin/pyright.sh`
-prefers an installed `pyright` only when it is the pinned version, and otherwise
-fetches that exact version through `uvx` or `npx`. Bump `PYRIGHT_VERSION` and
-regenerate the baseline in the same commit.
+**Five rules gate**, and the bar is narrow: the rule must be decided by the source file's own control
+flow, names and syntax, with no type consulted — `reportPossiblyUnboundVariable`,
+`reportUndefinedVariable`, `reportUnsupportedDunderAll`, `reportUnusedExpression`,
+`reportSelfClsParameterName`. Every other pyright rule reads third-party stubs and so moves with the
+interpreter and the installed optional dependencies (`reportAttributeAccessIssue` ranges from 146 to
+810 findings on one unchanged tree). Those are reported by `--report` but never gated.
 
-**Only five rules gate**, and the bar for admission is narrow: the rule must be
-decided by the source file's own control flow, names and syntax, with no type
-consulted.
+Two things beyond rule counts also fail the gate: a file pyright cannot **parse** (reported with no
+rule, and otherwise indistinguishable from an improvement), and a **collapse in scope** — the baseline
+records how many files it was built over, so widening a `pyrightconfig.json` exclude cannot quietly
+disable the gate.
 
-| Rule | Decided by |
-|---|---|
-| `reportPossiblyUnboundVariable` | control flow within the function |
-| `reportUndefinedVariable` | name resolution within the module |
-| `reportUnsupportedDunderAll` | name resolution within the module |
-| `reportUnusedExpression` | syntax |
-| `reportSelfClsParameterName` | syntax |
-
-Every other pyright rule reads third-party stubs, so its verdict moves with the
-interpreter and with whichever optional dependencies are installed.
-`reportAttributeAccessIssue` ranges from 146 to 810 findings on one unchanged tree
-across five environments. Such a rule would fail for a developer who has cudf
-installed, pass in CI, and drift on every pandas release, so it is reported but
-never gated. `--report` prints both groups.
+The tool is pinned because the baseline is only meaningful against one version. `bin/pyright.sh` uses
+an installed `pyright` only when it matches, else fetches the pin via `uvx`/`npx`. Bump
+`PYRIGHT_VERSION` and regenerate the baseline in the same commit.
 
 ```bash
 ./bin/ci_pyright_guard.py                  # what CI runs
@@ -207,29 +199,16 @@ never gated. `--report` prints both groups.
 ./bin/pyright.sh graphistry/compute        # the raw tool, narrowed
 ```
 
-When pyright is wrong about a line, suppress it there with its own directive:
+When pyright is wrong about a line, suppress it there and say why:
 
 ```python
 return edge_map  # pyright: ignore[reportPossiblyUnboundVariable] -- bound by the loop above
 ```
 
-Do **not** raise a cap with `--update-baseline` to make a new finding go away.
-Lowering caps after fixing debt is the intended use; commit the code change and
-the baseline update together.
-
-Two things beyond the rule counts also gate. A file pyright cannot **parse** is reported with no
-rule at all, and would otherwise read as an improvement (fewer findings), so unparseable files are
-counted under `<unparseable>` and must stay at zero. And because scope lives in
-`pyrightconfig.json` — a different file from the baseline — the baseline records how many files
-pyright saw when it was written; a run that sees materially fewer fails as a collapsed gate rather
-than passing as a cleaner tree. Widening an `exclude` is therefore loud, not silent. If a scope
-change is intended, rerun `--update-baseline` so the delta shows up in review.
-
-One entry dominates the baseline: `graphistry/compute/gfql/cypher/projection_planning.py`
-holds 195 of the 273 grandfathered findings because it builds its namespace with
-`globals().update(vars(_lowering))`. It already carries `# mypy: ignore-errors` and
-`# ruff: noqa: F821` for the same reason. The count is left visible rather than
-excluded, so that fixing the module shows up as slack under `--strict`.
+Do **not** raise a cap with `--update-baseline` to make a new finding go away; lowering caps after
+fixing debt is the intended use. `graphistry/compute/gfql/cypher/projection_planning.py` holds 195 of
+the 273 grandfathered findings because it builds its namespace with `globals().update(vars(...))`; it
+is baselined rather than excluded so that fixing it shows up as slack under `--strict`.
 
 ### Comment Density Guard
 
