@@ -59,23 +59,19 @@ class Chain(ASTSerializable):
     ) -> None:
         self.chain = chain
         self.where = normalize_where_entries(where or [])
-        #: Whether THIS constructor validated these ops. Only a caller that also knows the
-        #: ops cannot have changed since may skip re-validating; see `gfql_validated`.
-        self._constructor_validated = validate
-        self._gfql_validated_in_call = False
+        self._constructor_validated: bool = validate
+        self._gfql_validated_in_call: bool = False
         if validate:
             self.validate(collect_all=False)
 
     def gfql_validated(self) -> "Chain":
-        """Mark that this Chain was built AND executed within one call, so its ops cannot
-        have changed since the constructor validated them.
-
-        Set only by the `gfql` entry point on a Chain it just built from the caller's ops.
-        A Chain the caller built earlier never carries it, because that caller could have
-        mutated the ops in between and the execution-time re-validation is what catches it.
-        """
+        """Mark a Chain that `gfql` built and is executing in the same call."""
         self._gfql_validated_in_call = self._constructor_validated
         return self
+
+    @staticmethod
+    def ops_were_validated_in_this_call(ops: Union[List[ASTObject], "Chain"]) -> bool:
+        return isinstance(ops, Chain) and ops._gfql_validated_in_call
 
     def validate(self, collect_all: bool = False) -> Optional[List['GFQLValidationError']]:
         from graphistry.compute.exceptions import ErrorCode, GFQLTypeError, GFQLValidationError
@@ -1055,10 +1051,8 @@ def _chain_with_strictness(
         # POLARS_GPU = the same lazy engine with the GPU execution target.
         # (Dependency guards for polars / cudf_polars are above, pre-coercion.)
         if validate_schema:
-            # Construct a fresh validator: the constructor validates children once. Skipped
-            # only when `gfql` built this Chain in this same call, where re-validating cannot
-            # observe a change -- every other caller may have mutated its ops since.
-            if not getattr(ops, "_gfql_validated_in_call", False):
+            # Construct a fresh validator: the constructor validates children once.
+            if not Chain.ops_were_validated_in_this_call(ops):
                 Chain(ops if not isinstance(ops, Chain) else ops.chain)
             validate_graph_shape(self, ops, collect_all=False)  # pandas gets this via validate_chain_schema (#1889)
         from graphistry.compute.gfql.lazy.engine.polars.chain import chain_polars
@@ -1124,14 +1118,12 @@ def _chain_impl(
     if isinstance(engine, str):
         engine = EngineAbstract(engine)
 
-    validated_in_call = getattr(ops, "_gfql_validated_in_call", False)
+    validated_in_call = Chain.ops_were_validated_in_this_call(ops)
     if isinstance(ops, Chain):
         ops = ops.chain
 
     if validate_schema and not validated_in_call:
-        # Revalidate mutable operations on every execution, including reused Chains. Skipped
-        # only when `gfql` built this Chain in this same call, where nothing could have
-        # mutated the ops since its constructor validated them.
+        # Revalidate mutable operations on every execution, including reused Chains.
         Chain(ops)
 
     from graphistry.compute.ast import ASTCall

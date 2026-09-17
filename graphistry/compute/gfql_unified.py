@@ -314,9 +314,10 @@ def _semi_join_prune_arm_rows_to_base_keys(
     """Arm rows restricted to join-key values already present in the accumulated result."""
     if is_polars_df(joined):
         import polars as pl
+        from graphistry.compute.gfql.lazy.engine.polars.membership import is_in_ids
         if len(join_cols) == 1:
             # polars-stub gap: ``is_polars_df`` cannot narrow the eager-or-lazy union.
-            return opt_rows_df.filter(pl.col(join_cols[0]).is_in(joined[join_cols[0]]))  # type: ignore[index,arg-type]
+            return opt_rows_df.filter(is_in_ids(pl.col(join_cols[0]), joined[join_cols[0]]))  # type: ignore[index,arg-type]
         return opt_rows_df.join(joined.select(join_cols).unique(), on=join_cols, how="inner")
     if len(join_cols) == 1:
         return opt_rows_df[opt_rows_df[join_cols[0]].isin(joined[join_cols[0]])]
@@ -482,7 +483,13 @@ def _apply_connected_optional_match(
         shared_node_aliases: Sequence[str],
         joined_rows: DataFrameT,
     ) -> Optional[DataFrameT]:
-        """Seed optional-arm materialization when the first node is already bound."""
+        """Seed optional-arm materialization when the first node is already bound.
+
+        Both polars arms below are dead while the caller routes polars engines to
+        ``_optional_arm_membership_chain`` -- they are kept because a routing change would
+        otherwise reach the pandas ``.isin`` with polars frames. The no-cover pragma on the
+        second one expires with that split.
+        """
         if not binding_ops:
             return None
         first_op = binding_ops[0]
@@ -518,12 +525,17 @@ def _apply_connected_optional_match(
         else:
             seed_frame = cast(DataFrameT, df_to_engine(
                 seed_src.dropna().drop_duplicates().rename(columns={joined_col: node_col}), concrete_engine))
+        if is_polars_df(base_nodes) and is_polars_df(seed_frame):  # pragma: no cover - unreachable (polars routes elsewhere)
+            import polars as pl
+            from graphistry.compute.gfql.lazy.engine.polars.dtypes import is_lazy
+            from graphistry.compute.gfql.lazy.engine.polars.membership import is_in_ids
+            seed_eager = seed_frame.collect() if is_lazy(seed_frame) else seed_frame
+            return cast(DataFrameT, base_nodes.filter(
+                is_in_ids(pl.col(node_col), seed_eager.get_column(node_col))))
         # Declared, not cast: selecting one column off a frame is a Series on every engine, so
         # the annotation states that directly instead of re-asserting it at the call site.
         seed_ids: SeriesT = seed_frame[node_col]
         node_ids: SeriesT = base_nodes[node_col]
-        if is_polars_df(base_nodes):
-            return cast(DataFrameT, base_nodes.filter(node_ids.is_in(seed_ids)))
         return cast(DataFrameT, base_nodes[node_ids.isin(seed_ids)].copy())
 
     # Run base chain to get binding rows.

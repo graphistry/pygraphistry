@@ -21,8 +21,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 * GFQL: `test_gfql_latency_contract.py` pins the low-latency contract for basic Cypher shapes on a wide 300k-node, 30-object-column table across pandas, polars and cuDF: a seeded typed hop with projections or a whole-entity return must be served by a fast path and cost at most 12x the plain frame ops for the same lookup (an id mask plus one join), measured interleaved; the node-only seeded lookup with projections is a recorded gap (strict xfail) so closing it flips the pin.
 
+### Added
+
+- GFQL `searchAny` / `search_nodes` / `search_edges` now search **float** columns when the term is numeric, matching what the viz inspector displays rather than `repr`: fractional values render to a fixed number of decimals (so `0.1 + 0.2` is found by `"0.3"` and never by `"0.30000000000000004"`), whole values render without a trailing `.0`, and NaN plus the Int32 sentinel `2147483647` display nothing and never match. Precision is a `float_precision` parameter (default 4). This removes the previous cuDF float decline and the polars float exclusion (#1695).
+  - Only pandas can reproduce the inspector's half-away-from-zero rounding; polars and cuDF round half-to-even, so a value whose `float_precision+1`-th decimal is exactly 5 renders one unit lower there. Measured on 26,008 realistic column values: pandas 100%, cuDF 99.996%, polars 99.931% agreement with the UI. Pinned in `test_known_cross_engine_divergences.py`.
+
 ### Fixed
 
+- GFQL Polars: id-set membership (`is_in`) is spelled per installed polars version by one helper (`membership.is_in_ids`): the imploded RHS on polars >= 1.28, the bare Series RHS below it. Fixes `ComputeError: shapes don't match ... 'is_in'` on polars 1.21 (RAPIDS 25.02) for hop endpoint resolution, the seeded chain lanes, and EXISTS/OPTIONAL row ops, and removes the remaining bare-Series deprecation warnings on polars >= 1.28 (#2082, #1938).
 - GFQL: record whole-entity projection kind and presence independently of identity columns, so adapters distinguish unlabeled entities, property returns, and absent entities; preserve presence through OPTIONAL null-fill and reentry (tck-gfql#200).
 - GFQL: explicit `polars-gpu` row aggregation collects the aggregate plan on GPU; unsupported aggregation plans raise a structured operation decline (#2075).
 - GFQL: reject malformed aggregation sources during validation while preserving literal column names and valid expressions (#2076).
