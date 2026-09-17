@@ -42,14 +42,25 @@ import json
 import os
 import subprocess
 import sys
+from dataclasses import dataclass
 from typing import Dict, List, Optional, Sequence, Tuple
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DEFAULT_BASELINE = os.path.join(REPO_ROOT, "bin", "ci_pyright_baseline.json")
+
+#: Fraction of the baseline's file count a run may drop to before it is treated as a
+#: collapsed gate rather than a smaller tree. Deleting a tenth of the package in one PR is
+#: rare enough to be worth a deliberate --update-baseline.
+SCOPE_FLOOR = 0.9
 PYRIGHT_SH = os.path.join(REPO_ROOT, "bin", "pyright.sh")
 
 # Rules decided by the source file alone, with no type consulted. See the module
 # docstring for why the bar is a principle and not merely measured agreement.
+# pyright reports a file it cannot parse with no rule at all. That verdict consults no
+# type either, and an unparseable file otherwise reads as an IMPROVEMENT (fewer findings),
+# so it is gated separately and must stay at zero.
+UNPARSEABLE = "<unparseable>"
+
 RATCHETED_RULES = (
     "reportPossiblyUnboundVariable",   # control flow within the function
     "reportSelfClsParameterName",      # syntax
@@ -58,18 +69,19 @@ RATCHETED_RULES = (
     "reportUnusedExpression",          # syntax
 )
 
+#: Everything the guard enforces: the ratcheted rules, plus unparseable files.
+GATED = RATCHETED_RULES + (UNPARSEABLE,)
+
 CountsByFile = Dict[str, int]
 Counts = Dict[str, CountsByFile]
 
 
-class Finding(object):
-    __slots__ = ("rule", "path", "line", "message")
-
-    def __init__(self, rule: str, path: str, line: int, message: str) -> None:
-        self.rule = rule
-        self.path = path
-        self.line = line
-        self.message = message
+@dataclass(frozen=True)
+class Finding:
+    rule: str
+    path: str
+    line: int
+    message: str
 
 
 def rel(path: str) -> str:
@@ -94,13 +106,17 @@ def run_pyright() -> dict:
     return json.loads(proc.stdout)
 
 
+def files_analyzed(report: dict) -> int:
+    return int(report.get("summary", {}).get("filesAnalyzed", 0))
+
+
 def parse_report(report: dict) -> Tuple[Counts, Dict[str, List[Finding]], Dict[str, int]]:
     """Split a pyright report into ratcheted counts, their findings, and the rest."""
-    counts = dict((rule, {}) for rule in RATCHETED_RULES)  # type: Counts
-    by_rule = dict((rule, []) for rule in RATCHETED_RULES)  # type: Dict[str, List[Finding]]
-    ungated = {}  # type: Dict[str, int]
+    counts: Counts = dict((rule, {}) for rule in GATED)
+    by_rule: Dict[str, List[Finding]] = dict((rule, []) for rule in GATED)
+    ungated: Dict[str, int] = {}
     for diagnostic in report.get("generalDiagnostics", []):
-        rule = diagnostic.get("rule", "<no-rule>")
+        rule = diagnostic.get("rule", UNPARSEABLE)
         path = rel(diagnostic["file"])
         if rule not in counts:
             ungated[rule] = ungated.get(rule, 0) + 1
@@ -112,26 +128,37 @@ def parse_report(report: dict) -> Tuple[Counts, Dict[str, List[Finding]], Dict[s
     return counts, by_rule, ungated
 
 
+def baseline_scope(path: str) -> int:
+    """How many files pyright saw when the baseline was written; 0 when unrecorded."""
+    if not os.path.exists(path):
+        return 0
+    with open(path, "r", encoding="utf-8") as handle:
+        return int(json.load(handle).get("files_analyzed", 0))
+
+
 def load_baseline(path: str) -> Counts:
     if not os.path.exists(path):
-        return dict((rule, {}) for rule in RATCHETED_RULES)
+        return dict((rule, {}) for rule in GATED)
     with open(path, "r", encoding="utf-8") as handle:
         raw = json.load(handle)
     rules = raw.get("rules", {})
-    return dict((rule, dict(rules.get(rule, {}))) for rule in RATCHETED_RULES)
+    return dict((rule, dict(rules.get(rule, {}))) for rule in GATED)
 
 
-def write_baseline(path: str, counts: Counts, version: str) -> None:
+def write_baseline(path: str, counts: Counts, version: str, analyzed: int = 0) -> None:
     payload = {
         "_comment": (
             "Per-file ratchet for bin/ci_pyright_guard.py, built with pyright %s. Counts "
             "may shrink, never grow; a file absent here must have zero findings. Only the "
             "rules listed are gated -- the rest move with the installed dependencies. "
             "Regenerate with `./bin/ci_pyright_guard.py --update-baseline` and explain the "
-            "delta in the PR description." % version
+            "delta in the PR description. files_analyzed records the scope this was built "
+            "over; a run that sees materially less is a collapsed gate, not an improvement."
+            % version
         ),
         "pyright_version": version,
-        "rules": dict((rule, dict(sorted(counts.get(rule, {}).items()))) for rule in RATCHETED_RULES),
+        "files_analyzed": analyzed,
+        "rules": dict((rule, dict(sorted(counts.get(rule, {}).items()))) for rule in GATED),
     }
     with open(path, "w", encoding="utf-8") as handle:
         json.dump(payload, handle, indent=2, sort_keys=False)
@@ -158,11 +185,12 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         report = run_pyright()
     counts, by_rule, ungated = parse_report(report)
     version = str(report.get("version", "unknown"))
+    analyzed = files_analyzed(report)
 
     if args.list_rule is not None:
-        if args.list_rule not in RATCHETED_RULES:
+        if args.list_rule not in GATED:
             parser.error("unknown rule %r; pick one of: %s"
-                         % (args.list_rule, ", ".join(RATCHETED_RULES)))
+                         % (args.list_rule, ", ".join(GATED)))
         rows = sorted(by_rule[args.list_rule], key=lambda f: (f.path, f.line))
         for finding in rows:
             print("%s:%d: %s" % (finding.path, finding.line, finding.message))
@@ -172,7 +200,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     if args.report:
         print("pyright report (graphistry/, tests excluded), pyright %s" % version)
         print("  gated:")
-        for rule in RATCHETED_RULES:
+        for rule in GATED:
             print("    %-36s %5d finding(s) across %3d file(s)"
                   % (rule, sum(counts[rule].values()), len(counts[rule])))
         print("  not gated (environment-dependent, informational only):")
@@ -181,16 +209,32 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         return 0
 
     if args.update_baseline:
-        write_baseline(args.baseline, counts, version)
-        print("wrote %s (pyright %s)" % (rel(args.baseline), version))
-        for rule in RATCHETED_RULES:
+        write_baseline(args.baseline, counts, version, analyzed)
+        print("wrote %s (pyright %s, %d file(s) analyzed)"
+              % (rel(args.baseline), version, analyzed))
+        for rule in GATED:
             print("  %-36s %5d" % (rule, sum(counts[rule].values())))
         return 0
 
     baseline = load_baseline(args.baseline)
-    regressions = []  # type: List[str]
-    slack = []  # type: List[str]
-    for rule in RATCHETED_RULES:
+
+    # Scope lives in pyrightconfig.json, a different file from the baseline, so widening an
+    # exclude would otherwise quiet this gate with no baseline change and no failure. Shrinking
+    # findings and shrinking scope look identical from the counts alone; only this tells them
+    # apart. Deleting files legitimately shrinks scope -- rerun --update-baseline and the delta
+    # shows up in review, which is the contract the baseline's own _comment states.
+    expected_scope = baseline_scope(args.baseline)
+    if expected_scope and analyzed < expected_scope * SCOPE_FLOOR:
+        print("Pyright guard FAILED - pyright analyzed %d file(s); the baseline was built over "
+              "%d." % (analyzed, expected_scope))
+        print("\nThat is a collapsed gate, not an improvement: check `include`/`exclude` in")
+        print("pyrightconfig.json. If the scope change is intended, rerun --update-baseline and")
+        print("say why in the PR description.")
+        return 1
+
+    regressions: List[str] = []
+    slack: List[str] = []
+    for rule in GATED:
         current = counts[rule]
         allowed = baseline[rule]
         for path in sorted(set(current) | set(allowed)):
@@ -215,7 +259,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         print("intended remedy; see DEVELOP.md \"Pyright ratchet\".")
         return 1
 
-    total = sum(sum(counts[rule].values()) for rule in RATCHETED_RULES)
+    total = sum(sum(counts[rule].values()) for rule in GATED)
     print("Pyright guard OK (%d grandfathered finding(s), no growth)." % total)
     if slack:
         print("%d file(s) now below baseline; run --update-baseline to lock the improvement."

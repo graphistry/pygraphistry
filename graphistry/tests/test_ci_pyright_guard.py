@@ -40,13 +40,17 @@ def diagnostic(rule: str, path: str, line: int = 1) -> Dict[str, Any]:
     }
 
 
-def report(diagnostics: List[Dict[str, Any]]) -> Dict[str, Any]:
-    return {"version": "1.1.414", "generalDiagnostics": diagnostics}
+def report(diagnostics: List[Dict[str, Any]], analyzed: int = 400) -> Dict[str, Any]:
+    return {
+        "version": "1.1.414",
+        "summary": {"filesAnalyzed": analyzed},
+        "generalDiagnostics": diagnostics,
+    }
 
 
-def run(tmp_path, diagnostics, baseline, argv=()) -> int:
+def run(tmp_path, diagnostics, baseline, argv=(), analyzed=400) -> int:
     report_path = tmp_path / "pyright.json"
-    report_path.write_text(json.dumps(report(diagnostics)), encoding="utf-8")
+    report_path.write_text(json.dumps(report(diagnostics, analyzed)), encoding="utf-8")
     baseline_path = tmp_path / "baseline.json"
     baseline_path.write_text(json.dumps(baseline), encoding="utf-8")
     return GUARD.main(
@@ -54,7 +58,7 @@ def run(tmp_path, diagnostics, baseline, argv=()) -> int:
     )
 
 
-EMPTY_BASELINE = {"rules": {}}
+EMPTY_BASELINE = {"rules": {}, "files_analyzed": 400}
 
 
 def test_a_new_finding_in_a_ratcheted_rule_fails(tmp_path):
@@ -121,13 +125,14 @@ def test_every_ratcheted_rule_is_decided_without_consulting_a_type(tmp_path):
         "reportUnsupportedDunderAll",
         "reportUnusedExpression",
     }
+    assert set(GUARD.GATED) == set(GUARD.RATCHETED_RULES) | {GUARD.UNPARSEABLE}
 
 
 @pytest.mark.skipif(not os.path.exists(BASELINE_PATH), reason="baseline is not shipped")
 def test_the_committed_baseline_covers_exactly_the_ratcheted_rules():
     with open(BASELINE_PATH, "r", encoding="utf-8") as handle:
         baseline = json.load(handle)
-    assert set(baseline["rules"]) == set(GUARD.RATCHETED_RULES)
+    assert set(baseline["rules"]) == set(GUARD.GATED)
     assert baseline["pyright_version"], "the baseline must record the pyright it was built with"
 
 
@@ -156,4 +161,47 @@ def test_a_written_baseline_reads_back_as_the_same_budgets(tmp_path):
     GUARD.write_baseline(str(out), counts, "1.1.414")
     loaded = GUARD.load_baseline(str(out))
     assert loaded["reportUndefinedVariable"] == {"graphistry/a.py": 2}
-    assert set(loaded) == set(GUARD.RATCHETED_RULES)
+    assert set(loaded) == set(GUARD.GATED)
+
+
+def test_a_run_that_sees_far_fewer_files_is_a_collapsed_gate_not_an_improvement(tmp_path):
+    """Scope lives in pyrightconfig.json, so widening an exclude must not quiet this gate.
+
+    Shrinking findings and shrinking scope are indistinguishable from the counts alone.
+    """
+    baseline = {"rules": {"reportUndefinedVariable": {"graphistry/a.py": 1}}, "files_analyzed": 400}
+    assert run(tmp_path, [], baseline, analyzed=150) == 1
+
+
+def test_a_report_over_no_files_at_all_fails(tmp_path):
+    baseline = {"rules": {}, "files_analyzed": 400}
+    assert run(tmp_path, [], baseline, analyzed=0) == 1
+
+
+def test_a_slightly_smaller_tree_still_passes(tmp_path):
+    """Deleting a few files is ordinary; only a collapse is suspicious."""
+    baseline = {"rules": {}, "files_analyzed": 400}
+    assert run(tmp_path, [], baseline, analyzed=395) == 0
+
+
+def test_a_baseline_with_no_recorded_scope_does_not_fail_every_run(tmp_path):
+    """Back-compat: a baseline predating files_analyzed simply skips the scope check."""
+    assert run(tmp_path, [], {"rules": {}}, analyzed=1) == 0
+
+
+def test_a_file_that_does_not_parse_fails_the_gate(tmp_path):
+    """pyright reports syntax errors with no rule; unhandled, they read as an improvement."""
+    found = [{
+        "file": os.path.join(REPO_ROOT, "graphistry/a.py"),
+        "severity": "error",
+        "message": "Expected class, function or variable declaration after decorator",
+        "range": {"start": {"line": 0, "character": 0}},
+    }]
+    assert run(tmp_path, found, EMPTY_BASELINE) == 1
+
+
+def test_updating_a_baseline_records_the_scope_it_was_built_over(tmp_path):
+    out = tmp_path / "baseline.json"
+    GUARD.write_baseline(str(out), {}, "1.1.414", 351)
+    assert json.loads(out.read_text(encoding="utf-8"))["files_analyzed"] == 351
+    assert GUARD.baseline_scope(str(out)) == 351

@@ -217,6 +217,14 @@ Do **not** raise a cap with `--update-baseline` to make a new finding go away.
 Lowering caps after fixing debt is the intended use; commit the code change and
 the baseline update together.
 
+Two things beyond the rule counts also gate. A file pyright cannot **parse** is reported with no
+rule at all, and would otherwise read as an improvement (fewer findings), so unparseable files are
+counted under `<unparseable>` and must stay at zero. And because scope lives in
+`pyrightconfig.json` — a different file from the baseline — the baseline records how many files
+pyright saw when it was written; a run that sees materially fewer fails as a collapsed gate rather
+than passing as a cleaner tree. Widening an `exclude` is therefore loud, not silent. If a scope
+change is intended, rerun `--update-baseline` so the delta shows up in review.
+
 One entry dominates the baseline: `graphistry/compute/gfql/cypher/projection_planning.py`
 holds 195 of the 273 grandfathered findings because it builds its namespace with
 `globals().update(vars(_lowering))`. It already carries `# mypy: ignore-errors` and
