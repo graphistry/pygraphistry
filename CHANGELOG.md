@@ -9,6 +9,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 <!-- Do Not Erase This Section - Used for tracking unreleased changes -->
 
 
+### Performance
+
+- GFQL: seeded fixed-hop chains on the indexed bindings path do less per-hop frame work — an array-side join estimate, the endpoint filter evaluated before the wide node gather, the endpoint semi-join skipped when it is the identity, and (polars) a searchsorted path expand join — and a bare `rows()` immediately followed by `select` attaches only the properties the select reads (`rows(attach_prop_columns=...)`) on pandas, cuDF, and polars. Same rows, order, and dtypes; LDBC SNB IC8 `recent-replies` on polars drops from about 24 ms to 11 ms locally (#2084).
+
 ### Infrastructure
 
 - **CI: the gfql change filter now includes the chain engine** (`compute/chain*.py`, `hop.py`, `gfql_fast_paths.py`, `filter_by_dict.py`, `ast.py`, `predicates/`, and the chain/hop test files), so tck-gfql, the Cypher-frontend gates and the gfql benchmark lane run on a change to the chain engine; they were skipped on #2055.

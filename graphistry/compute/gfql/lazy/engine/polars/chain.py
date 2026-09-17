@@ -515,7 +515,7 @@ def _run_calls_polars(g_cur, calls, start_nodes, base_graph, middle):
     fallback) rather than secretly running the pandas row pipeline.
     """
     from graphistry.compute.ast import ASTCall, ASTNode as _ASTNode, ASTEdge as _ASTEdge, rows as rows_fn
-    from graphistry.compute.chain import serialize_binding_ops
+    from graphistry.compute.chain import serialize_binding_ops, select_attach_prop_columns
     from graphistry.compute.gfql.exec_context import attach_row_exec_context, clear_row_exec_context
 
     calls = list(calls)
@@ -547,10 +547,16 @@ def _run_calls_polars(g_cur, calls, start_nodes, base_graph, middle):
         # than building a fresh one, so the params the rewrite has no opinion about
         # (`attach_prop_aliases`, `alias_prefilters`) reach the binding_ops builder.
         prev_params = calls[0].params
+        attach_prop_columns = prev_params.get("attach_prop_columns")
+        if attach_prop_columns is None and base_graph._nodes is not None:
+            attach_prop_columns = select_attach_prop_columns(
+                middle, calls, list(base_graph._nodes.columns), base_graph._node,
+            )
         calls = [rows_fn(
             binding_ops=serialize_binding_ops(middle),
             alias_prefilters=prev_params.get("alias_prefilters"),
             attach_prop_aliases=prev_params.get("attach_prop_aliases"),
+            attach_prop_columns=attach_prop_columns,
         )] + list(calls[1:])
 
     # Per-op NATIVE-OR-DEFER. Ops that don't lower:
@@ -667,6 +673,7 @@ def _try_native_row_op(g_cur, op):
             bindings_result = binding_rows_polars(
                 g_cur, op.params["binding_ops"], op.params.get("attach_prop_aliases"),
                 alias_prefilters=op.params.get("alias_prefilters"),
+                attach_prop_columns=op.params.get("attach_prop_columns"),
             )
             if bindings_result is not None:
                 return bindings_result
