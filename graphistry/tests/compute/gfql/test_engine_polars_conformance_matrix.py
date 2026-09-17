@@ -518,13 +518,20 @@ def test_search_any_cudf_regex_guards():
     assert got.to_pandas().tolist() == [True, False]
     got_cs = search_any_mask(df, r"\d{4}", regex=True, case_sensitive=True)
     assert got_cs.to_pandas().tolist() == [False, True]
-    # explicit FLOAT column on cuDF: astype(str) rendering diverges from pandas
-    # (dgx-probed: 0.1+0.2 -> '0.3', 1e16 -> '1.0e+16', mantissa truncation) —
-    # honest NIE, never a silent oracle mismatch (wave-3 W3-1); string stays native
+    # explicit FLOAT column on cuDF is now SUPPORTED: floats are RENDERED the way the
+    # inspector displays them rather than astype(str)'d, which is what used to diverge
+    # (0.1+0.2 -> '0.3', 1e16 -> '1.0e+16') — #1695. 0.1+0.2 displays as '0.3000', so a
+    # search for the repr tail '0.30000000000000004' must NOT match, and '0.3' must.
     dff = cudf.DataFrame({"f": [0.1 + 0.2, 7.25], "s": ["x", "y"]})
-    with pytest.raises(NotImplementedError):
-        search_any_mask(dff, "0.3", columns=["f"])
+    assert search_any_mask(dff, "0.3", columns=["f"]).to_pandas().tolist() == [True, False]
+    assert search_any_mask(dff, "0.30000000000000004",
+                           columns=["f"]).to_pandas().tolist() == [False, False]
+    assert search_any_mask(dff, "7.2500", columns=["f"]).to_pandas().tolist() == [False, True]
     assert search_any_mask(dff, "x", columns=["s"]).to_pandas().tolist() == [True, False]
+    # TEMPORAL still declines honestly — its stringification is unverified (#1695 S2)
+    dft = cudf.DataFrame({"t": cudf.to_datetime(["2024-01-02", "2024-01-03"])})
+    with pytest.raises(NotImplementedError):
+        search_any_mask(dft, "2024", columns=["t"])
 
 
 def test_search_any_null_and_float_stringify():
@@ -553,14 +560,15 @@ def test_search_any_null_and_float_stringify():
         got = _to_pd(g.gfql(q(**kw), engine="pandas")._nodes).sort_values("id")["__hit__"].tolist()
         assert got == [False, False, False], f"null cells matched {term!r}: {got}"
         _assert_invariant(g, q(**kw), f"search_any nulls {term}")
-    # floats stay OUT of the auto gate even when they'd match stringified ('7' in
-    # '7.25'); numeric term still probes int cols — ni=7 hits row 0 ONLY
+    # floats are now IN the auto gate for a numeric term (#1695): the inspector searches
+    # number columns, so '7' must hit BOTH the int col (ni=7, row 0) and the float col
+    # (f=7.25 renders '7.2500', row 2). Row 1 is all-null and never matches.
     got = _to_pd(g.gfql(q(term="7"), engine="pandas")._nodes).sort_values("id")["__hit__"].tolist()
-    assert got == [True, False, False], f"auto gate drift: {got}"  # NOT [.., .., True]
+    assert got == [True, False, True], f"auto gate drift: {got}"
     _assert_invariant(g, q(term="7"), "search_any float auto-gate")
-    # explicit float column: canonical toString on pandas, discriminating pin (I3);
-    # polars DECLINES floats — repr diverges in the exponent regime, same decision
-    # as the polars toString lowering (wave-3 W3-1); NIE tolerated by the invariant
+    # explicit float column: the WYSIWYG render on every engine now (#1695). '7' hits
+    # f=7.25 ('7.2500') only; polars no longer declines, so the invariant is a real
+    # cross-engine comparison here rather than an NIE tolerance
     kw = dict(term="7", columns=["f"])
     got = _to_pd(g.gfql(q(**kw), engine="pandas")._nodes).sort_values("id")["__hit__"].tolist()
     assert got == [False, False, True], f"float stringify drift: {got}"
@@ -578,10 +586,13 @@ def test_search_any_null_and_float_stringify():
         pl.from_pandas(ed), "s", "d").bind(edge="eid")
     with pytest.raises(GFQLValidationError, match="absent"):
         gpl.gfql(q(term="x", columns=["nope"]), engine="polars")
-    # explicit FLOAT column on polars: pinned NIE (exponent-regime repr divergence,
-    # wave-3 W3-1 — same decision as the polars toString lowering)
-    with pytest.raises(NotImplementedError):
-        gpl.gfql(q(term="7", columns=["f"]), engine="polars")
+    # explicit FLOAT column on polars now LOWERS natively and renders WYSIWYG (#1695):
+    # f=[0.5, None, 7.25] renders ['0.5000', null, '7.2500'], so '7' hits row 2 only and
+    # the null row still never matches
+    got_f = _to_pd(gpl.gfql(q(term="7", columns=["f"]), engine="polars")._nodes)
+    assert got_f.sort_values("id")["__hit__"].tolist() == [False, False, True]
+    got_disp = _to_pd(gpl.gfql(q(term="0.5000", columns=["f"]), engine="polars")._nodes)
+    assert got_disp.sort_values("id")["__hit__"].tolist() == [True, False, False]
     # explicit TEMPORAL column: stringification is engine-divergent — polars
     # declines honestly (NIE) instead of risking a silent mismatch (wave-2 W2-3)
     ndt = nd.assign(t=pd.to_datetime(["2020-01-02", "2021-03-04", "2022-05-06"]))
