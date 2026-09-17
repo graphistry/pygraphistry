@@ -828,11 +828,8 @@ def gfql_index_categories(g: Plottable,
                           engine: EngineAbstractType = EngineAbstract.AUTO) -> Plottable:
     """Category indexes for the low-cardinality columns predicates test -- EAGER.
 
-    A label or edge-type predicate is a scalar equality on a column with a handful of
-    distinct values; coding those columns once at build time turns the predicate into a
-    code compare on the candidate rows. Default target is every eligible column, since
-    eligibility is itself narrow (no nulls, at most 64 distinct values, Boolean/integer/
-    string). Declines are silent and cost only a canonical filter, never an answer.
+    Default target is every eligible column; ``build_category_index`` defines eligible,
+    and nulls do NOT disqualify a column. Declines cost only a canonical filter.
 
     Like the other indexes here this is a declared SETUP step, not lazy per-query work, so
     a measurement harness discloses it the same way it discloses the adjacency build.
