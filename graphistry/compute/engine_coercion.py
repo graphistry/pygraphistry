@@ -123,6 +123,9 @@ def ensure_engine_match(g: Plottable, requested_engine: Engine) -> Plottable:
         - No-op path (types match): ~1 microsecond
         - Conversion path (types differ): ~10-100ms depending on data size
     """
+    # bound before the try so the handler below can report them even if resolve_engine raises
+    nodes_engine = None
+    edges_engine = None
     try:
         # Check if conversion is needed by detecting types of both nodes and edges
         # Schema-changing operations (UMAP hypergraph) may create edges/nodes in different types
@@ -184,8 +187,8 @@ def ensure_engine_match(g: Plottable, requested_engine: Engine) -> Plottable:
     except Exception as e:
         # Graceful degradation: log error but return original graph
         # Better to return "wrong" type than crash user's workflow
-        nodes_type = nodes_engine.value if 'nodes_engine' in locals() and nodes_engine else 'unknown'
-        edges_type = edges_engine.value if 'edges_engine' in locals() and edges_engine else 'unknown'
+        nodes_type = nodes_engine.value if nodes_engine else 'unknown'
+        edges_type = edges_engine.value if edges_engine else 'unknown'
         logger.warning(
             "Engine coercion failed: %s. Returning original graph (nodes=%s, edges=%s) instead of requested %s.",
             str(e),

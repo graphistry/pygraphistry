@@ -6,10 +6,8 @@
     "reportPossiblyUnboundVariable": {
       "graphistry/arrow_uploader.py": 2,
       "graphistry/compute/chain_fast_paths.py": 4,
-      "graphistry/compute/engine_coercion.py": 2,
       "graphistry/compute/gfql/cypher/lowering.py": 1,
       "graphistry/compute/gfql/cypher/reentry/compiletime.py": 1,
-      "graphistry/compute/gfql/index/degrees.py": 8,
       "graphistry/compute/gfql/lazy/engine/polars/row_pipeline.py": 3,
       "graphistry/compute/hop.py": 1,
       "graphistry/embed_utils.py": 1,
