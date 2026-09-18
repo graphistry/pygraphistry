@@ -8,6 +8,10 @@ We follow [The Apache Software Foundation's code of conduct](https://www.apache.
 
 Developer communications should primarily live in GitHub issues and PRs, as this best helps with asynchronous communications and future reference
 
+## AI policy
+
+See [AI_POLICY.md](AI_POLICY.md) for repository policy on AI-assisted and autonomous AI contributions.
+
 ## Chat!
 
 When in doubt, [stop by the Slack channel](https://join.slack.com/t/graphistry-community/shared_invite/zt-53ik36w2-fpP0Ibjbk7IJuVFIRSnr6g)
