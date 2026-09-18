@@ -13,7 +13,7 @@
       "graphistry/compute/gfql/lazy/engine/polars/row_pipeline.py": 3,
       "graphistry/compute/hop.py": 1,
       "graphistry/embed_utils.py": 1,
-      "graphistry/feature_utils.py": 18,
+      "graphistry/feature_utils.py": 8,
       "graphistry/plugins/cugraph.py": 5,
       "graphistry/plugins/igraph.py": 4,
       "graphistry/pygraphistry.py": 1,
