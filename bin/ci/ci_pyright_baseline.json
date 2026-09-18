@@ -15,7 +15,6 @@
       "graphistry/embed_utils.py": 1,
       "graphistry/feature_utils.py": 8,
       "graphistry/plugins/cugraph.py": 5,
-      "graphistry/plugins/igraph.py": 4,
       "graphistry/pygraphistry.py": 1,
       "graphistry/tigeristry.py": 1
     },
@@ -31,8 +30,7 @@
     "reportUnusedExpression": {
       "graphistry/gremlin.py": 1,
       "graphistry/layouts.py": 1,
-      "graphistry/plugins/cugraph.py": 3,
-      "graphistry/plugins/igraph.py": 1
+      "graphistry/plugins/cugraph.py": 3
     },
     "<unparseable>": {}
   }
