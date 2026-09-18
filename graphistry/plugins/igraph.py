@@ -148,18 +148,16 @@ def from_igraph(self,
         #User to_igraph() with numeric IDs may swizzle id mappings (ex: sparse numeric) so try to un-swizzle
         #FIXME: how to handle dense edge case's swizzling?
         elif g._node is not None and g._nodes[g._node].dtype.name == ig_vs_df.reset_index()['vertex ID'].dtype.name:
-            found = False
+            node_id_col = None
             #FIXME: This seems quite error prone... what if any fields already exist?
             for c in ['name', 'id', 'idx', NODE]:
                 if c in ig_vs_df.columns:
                     if g._nodes[g._node].min() == ig_vs_df[c].min() and g._nodes[g._node].max() == ig_vs_df[c].max():
                         if g._nodes[g._node].sort_values().equals(ig_vs_df[c].sort_values()):
                             node_id_col = c
-                            found = True
                             break
-            if not found:
+            if node_id_col is None:
                 logger.debug('lacks matching sortable dimension, likely passed integers-as-vids, continue without remapping')
-                node_id_col = None
         elif 'name' in ig_vs_df:
             node_id_col = 'name'
         else:
@@ -229,7 +227,7 @@ def from_igraph(self,
 
             if len(g_indexed._edges.columns) == 3 and (len(g_indexed._edges) == len(edges_df)):
                 #opt: skip merge: no old columns
-                1
+                pass
             elif ((len(edges_df.columns) == 3) or len(edges_df.columns) == 0) and (len(g._edges) == len(edges_df)):
                 #opt: skip merge: no new columns
                 edges_df = g._edges

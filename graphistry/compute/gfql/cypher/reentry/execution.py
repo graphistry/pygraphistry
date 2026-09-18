@@ -36,6 +36,7 @@ from graphistry.compute.gfql.cypher.reentry.naming import (
 from graphistry.compute.gfql.cypher.reentry_plan import ReentryPlan
 from graphistry.compute.gfql.cypher.result_postprocess import (
     entity_projection_meta_entry,
+    entity_projection_presence_for_rows,
 )
 from graphistry.compute.typing import DataFrameT, SeriesT
 
@@ -184,18 +185,22 @@ def apply_optional_reentry_null_fill(
         return result
 
     if result_df is None or len(result_df) == 0:
-        return _bind_reentry_graph(result, df_ctor(fill_rows))
+        out = _bind_reentry_graph(result, df_ctor(fill_rows))
+        out._cypher_entity_projection_presence = entity_projection_presence_for_rows(result, [None] * len(fill_rows))
+        return out
 
     fill_df = df_ctor(fill_rows)
     # NOTE: do NOT pre-align all-NA fill columns to result dtypes to silence
     # the pandas concat FutureWarning -- casting to pandas-3 string dtypes
     # turns the null-extension's None into NaN (user-visible representation
     # regression caught by CI on py3.13/3.14 lanes). The warning is cosmetic.
-    return _bind_reentry_graph(
+    out = _bind_reentry_graph(
         result,
         concat([result_df, fill_df], ignore_index=True, sort=False),
         empty_edges=True,
     )
+    out._cypher_entity_projection_presence = entity_projection_presence_for_rows(result, [*range(len(result_df)), *([None] * len(fill_rows))])
+    return out
 
 
 def _optional_reentry_unmatched_identity_null_rows(
@@ -398,8 +403,8 @@ def compiled_query_reentry_state(
     prefix_alias_values: Optional[SeriesT] = None
     if prefix_rows is not None and output_name in prefix_rows.columns:
         prefix_alias_values = cast(SeriesT, prefix_rows[output_name])
-    entity_meta = cast(Optional[Dict[str, Any]], getattr(prefix_result, "_cypher_entity_projection_meta", None))
-    has_projection_meta = isinstance(entity_meta, dict) and output_name in entity_meta
+    entity_meta = prefix_result._cypher_entity_projection_meta
+    has_projection_meta = output_name in entity_meta
     has_secondary_carried_alias = any(not alias.is_reentry_alias for alias in plan.aliases)
     if (
         not has_projection_meta

@@ -512,7 +512,6 @@ def _rendered_whole_entity(result, alias: str, table: str = "nodes"):
     Asserts the output is identity-keyed flattened ``{alias}.{field}`` columns
     (never a bare pre-rendered ``{alias}`` text column), then renders the
     display text the pre-#1650 oracles encode. Returns (records, flat_df)."""
-    from types import SimpleNamespace
     from graphistry.compute.gfql.cypher.result_postprocess import render_entity_text
 
     df = _labeled_flat_pd(result)
@@ -520,7 +519,9 @@ def _rendered_whole_entity(result, alias: str, table: str = "nodes"):
     flat_cols = [c for c in df.columns if str(c).startswith(prefix)]
     assert flat_cols, f"#1650 violation: no flattened {prefix}* columns, got {list(df.columns)}"
     assert alias not in df.columns, f"#1650 violation: bare pre-rendered {alias!r} text column"
-    rendered = render_entity_text(SimpleNamespace(_nodes=df), alias, table=table)  # type: ignore[arg-type]
+    rendered_graph = result.bind()
+    rendered_graph._nodes = df
+    rendered = render_entity_text(rendered_graph, alias, table=table)
     records = [{alias: (None if pd.isna(v) else v)} for v in rendered.tolist()]
     return records, df[flat_cols]
 

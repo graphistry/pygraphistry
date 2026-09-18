@@ -1508,6 +1508,13 @@ def test_auto_engine_hop_agreed_gates_never_mismatch_1767():
         assert st.get("engine") == "polars", steps
 
 
+#: Every kind `show_indexes` reports: the four registry indexes plus the build-time facts.
+ALL_REPORTED_KINDS = {
+    "edge_out_adj", "edge_in_adj", "node_id", "node_prop",
+    "category", "endpoint_rows", "temporal_text",
+}
+
+
 class TestShowIndexesEngineUsability:
     """#1767 disposition: ``show_indexes`` must stop reporting an index as fine when
     the resolved query engine cannot use it. ``valid`` stays fingerprint-only (BC);
@@ -1603,14 +1610,16 @@ class TestShowIndexesEngineUsability:
         # AUTO now resolves polars on the coerced-polars frames (#1743 alignment):
         # every kind is usable with no reason.
         si_auto = gi.show_indexes()
-        assert set(si_auto["kind"]) == {"edge_out_adj", "edge_in_adj", "node_id", "node_prop"}
+        # The build-time facts report here too: an index the memory signal cannot see is
+        # memory nobody can tell they are paying for.
+        assert set(si_auto["kind"]) == ALL_REPORTED_KINDS
         assert si_auto["valid"].all()
         assert si_auto["usable"].all()
         assert si_auto["reason"].isna().all()
         # The per-row mismatch reason still fires per kind under an explicit
         # mismatched engine preview.
         si = gi.show_indexes(engine="pandas")
-        assert set(si["kind"]) == {"edge_out_adj", "edge_in_adj", "node_id", "node_prop"}
+        assert set(si["kind"]) == ALL_REPORTED_KINDS
         assert si["valid"].all()
         assert not si["usable"].any()
         for _, row in si.iterrows():

@@ -8,7 +8,7 @@ from typing import Any
 
 
 def _load_module() -> Any:
-    path = Path(__file__).resolve().parents[2] / "bin" / "coverage_audit.py"
+    path = Path(__file__).resolve().parents[2] / "bin" / "ci" / "coverage_audit.py"
     spec = importlib.util.spec_from_file_location("coverage_audit", path)
     assert spec is not None
     module = importlib.util.module_from_spec(spec)

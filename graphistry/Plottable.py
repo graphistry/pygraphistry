@@ -23,6 +23,7 @@ from graphistry.models.surfaces.graphistry_frontend.url_params import URLParamsD
 
 if TYPE_CHECKING:
     from graphistry.compute.typing import DataFrameT
+    from graphistry.compute.gfql.cypher.result_postprocess import WholeRowProjectionMeta
     from graphistry.compute.gfql.index.handoff import IndexedBindingsHandoff
     from graphistry.compute.gfql.index.policy import IndexPolicy
     from graphistry.compute.gfql.index.registry import GfqlIndexRegistry
@@ -70,6 +71,9 @@ class Plottable(Protocol):
     _gfql_start_nodes: Optional["DataFrameT"]
     _gfql_rows_edge_aliases: Optional[Iterable[str]]
     _gfql_shortest_path_backend: str
+    _cypher_entity_projection_kinds: Optional[Dict[str, GraphEntityKind]]
+    _cypher_entity_projection_presence: Dict[str, "DataFrameT"]
+    _cypher_entity_projection_meta: Dict[str, "WholeRowProjectionMeta"]
 
     _edges : Any
     _nodes : Any

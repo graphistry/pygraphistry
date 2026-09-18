@@ -1,7 +1,7 @@
 """Join-related engine-polymorphic DataFrame operations."""
 
 import operator
-from typing import Any, Dict, List, Optional, Sequence, Tuple, Union, cast
+from typing import Any, Callable, Dict, List, NamedTuple, Optional, Sequence, Tuple, Union, cast
 
 from graphistry.Engine import Engine, POLARS_ENGINES, is_polars_df
 from graphistry.compute.gfql.cypher.reentry.naming import REENTRY_HIDDEN_COLUMN_PREFIX
@@ -298,6 +298,57 @@ def semijoin_eval_pairs(
     return left_eval, right_eval, mid_values
 
 
+def _estimate_inner_join_rows_arrays(
+    left: DataFrameT,
+    right: DataFrameT,
+    *,
+    left_on: str,
+    right_on: str,
+    engine: Engine,
+) -> Optional[int]:
+    """Exact ``estimate_inner_join_rows`` over null-free integer keys as one array pass.
+
+    Frame group-by/join plans cost ~1ms each on small frontiers; the same
+    sum-of-products is a unique/searchsorted over the key arrays. Nulls defer to
+    the frame path: engines disagree on null-key matching (pandas merges NaN with
+    NaN, polars does not), so that contract stays where it is. Key arrays of
+    different dtypes also defer, because the compare that would join them promotes
+    to float64 and aliases ids past 2**53.
+    """
+    from graphistry.compute.gfql.index.engine_arrays import (
+        array_namespace, as_eager_polars_frame, col_to_array, unique_with_counts,
+    )
+
+    if engine in POLARS_ENGINES:
+        left_frame, right_frame = as_eager_polars_frame(left), as_eager_polars_frame(right)
+        if left_frame is None or right_frame is None:
+            return None  # lazy inputs keep the single-collect plan
+        for frame, column in ((left_frame, left_on), (right_frame, right_on)):
+            series = frame.get_column(column)
+            if not series.dtype.is_integer() or series.null_count():
+                return None
+    elif engine in (Engine.PANDAS, Engine.CUDF):
+        for pandas_frame, column in ((left, left_on), (right, right_on)):
+            values = pandas_frame[column]
+            if getattr(values.dtype, "kind", None) not in ("i", "u") or bool(values.isna().any()):
+                return None
+    else:
+        return None
+    xp, _ = array_namespace(engine)
+    left_values = col_to_array(left, left_on, engine)
+    right_values = col_to_array(right, right_on, engine)
+    if left_values.dtype != right_values.dtype:
+        return None  # a promoted compare is float64, which aliases ids past 2**53
+    if int(left_values.shape[0]) == 0 or int(right_values.shape[0]) == 0:
+        return 0
+    left_keys, left_counts = unique_with_counts(xp, left_values)
+    right_keys, right_counts = unique_with_counts(xp, right_values)
+    positions = xp.minimum(xp.searchsorted(left_keys, right_keys), left_keys.shape[0] - 1)
+    matched = left_keys[positions] == right_keys
+    products = left_counts[positions[matched]].astype("int64") * right_counts[matched].astype("int64")
+    return int(products.sum())
+
+
 def estimate_inner_join_rows(
     left: DataFrameT,
     right: DataFrameT,
@@ -314,6 +365,11 @@ def estimate_inner_join_rows(
     """
     if len(left) == 0 or len(right) == 0:
         return 0
+    array_estimate = _estimate_inner_join_rows_arrays(
+        left, right, left_on=left_on, right_on=right_on, engine=engine,
+    )
+    if array_estimate is not None:
+        return array_estimate
     left_n, right_n = "__gfql_join_left_n__", "__gfql_join_right_n__"
     if engine in POLARS_ENGINES:
         import polars as pl
@@ -341,6 +397,106 @@ def estimate_inner_join_rows(
     return int((counts[left_n] * counts[right_n]).sum())
 
 
+class PathExpandPlan(NamedTuple):
+    """A costed one-step path expansion: ``rows`` it will emit, ``expand`` to materialize."""
+
+    rows: int
+    expand: Callable[[], DataFrameT]
+
+
+def _plan_path_ordered_expand_arrays(
+    state: DataFrameT,
+    step: DataFrameT,
+    *,
+    current_col: str,
+    from_col: str,
+    to_col: str,
+    tiebreak_cols: Sequence[str],
+    alias: Optional[str],
+    engine: Engine,
+) -> Optional[PathExpandPlan]:
+    """Exact ``path_ordered_expand_join`` for eager polars over null-free integer keys.
+
+    A join+sort plan costs ~1ms on a small frontier; the same (path, tiebreak...)
+    order is a searchsorted range per state row over the step rows sorted by
+    (key, tiebreak...), then two row gathers. The range widths sum to the row count
+    ``estimate_inner_join_rows`` returns, so the plan reports it without a second pass,
+    and the (key, tiebreak...) sort happens only when the plan is materialized -- a
+    caller that cost-gates and rejects must not pay for an ordering it discards.
+    Declines (None) to the frame path on lazy inputs, nulls, non-integer
+    keys/tiebreaks, or no tiebreak columns (the frame path's intra-key order is then
+    the engine's own, not reproduced here).
+    """
+    if engine != Engine.POLARS or not tiebreak_cols:
+        return None
+    import polars as pl
+
+    from graphistry.compute.gfql.index.engine_arrays import (
+        array_namespace, as_eager_polars_frame, col_to_array, take_rows_polars,
+    )
+
+    state_frame, step_frame = as_eager_polars_frame(state), as_eager_polars_frame(step)
+    if state_frame is None or step_frame is None:
+        return None
+    key_columns = ((state_frame, current_col), (step_frame, from_col),
+                   *((step_frame, col) for col in tiebreak_cols))
+    for frame, col in key_columns:
+        series = frame.get_column(col)
+        if not series.dtype.is_integer() or series.null_count():
+            return None
+    xp, _ = array_namespace(engine)
+    current = col_to_array(state_frame, current_col, engine)
+    keys = col_to_array(step_frame, from_col, engine)
+    if current.dtype != keys.dtype:
+        return None  # a promoted compare is float64, which aliases ids past 2**53
+    # Counting needs key order only; the (key, tiebreak...) sort is deferred to expand().
+    sorted_keys = xp.sort(keys)
+    lo = xp.searchsorted(sorted_keys, current, side="left")
+    counts = xp.searchsorted(sorted_keys, current, side="right") - lo
+    total = int(counts.sum())
+
+    def expand() -> DataFrameT:
+        # lexsort takes its PRIMARY key last, so this orders by (key, tiebreak_0, ...).
+        tiebreaks = [col_to_array(step_frame, col, engine) for col in tiebreak_cols]
+        step_order = xp.lexsort(tuple([*reversed(tiebreaks), keys]))
+        left_idx = xp.repeat(xp.arange(current.shape[0]), counts)
+        starts = xp.cumsum(counts) - counts
+        right_idx = step_order[xp.repeat(lo - starts, counts) + xp.arange(total)]
+        left_part = take_rows_polars(state_frame, left_idx).drop(current_col)
+        right_part = (
+            take_rows_polars(step_frame, right_idx)
+            .drop([from_col, *tiebreak_cols])
+            .rename({to_col: current_col})
+        )
+        out = pl.concat([left_part, right_part], how="horizontal")
+        if isinstance(alias, str):
+            out = out.with_columns(pl.col(current_col).alias(alias))
+        return cast(  # hygiene-ok: explicit-cast -- DataFrameT narrowing on the polars branch, module-wide idiom
+            DataFrameT, out,
+        )
+
+    return PathExpandPlan(total, expand)
+
+
+def _path_ordered_expand_join_arrays(
+    state: DataFrameT,
+    step: DataFrameT,
+    *,
+    current_col: str,
+    from_col: str,
+    to_col: str,
+    tiebreak_cols: Sequence[str],
+    alias: Optional[str],
+    engine: Engine,
+) -> Optional[DataFrameT]:
+    """The array-side expansion, materialized, or None to decline to the frame path."""
+    plan = _plan_path_ordered_expand_arrays(
+        state, step, current_col=current_col, from_col=from_col, to_col=to_col,
+        tiebreak_cols=tiebreak_cols, alias=alias, engine=engine,
+    )
+    return None if plan is None else plan.expand()
+
+
 def path_ordered_expand_join(
     state: DataFrameT,
     step: DataFrameT,
@@ -362,6 +518,12 @@ def path_ordered_expand_join(
     under that name.
     """
     drop_after = [from_col, path_order_col, *tiebreak_cols]
+    array_expand = _path_ordered_expand_join_arrays(
+        state, step, current_col=current_col, from_col=from_col, to_col=to_col,
+        tiebreak_cols=tiebreak_cols, alias=alias, engine=engine,
+    )
+    if array_expand is not None:
+        return array_expand
     if engine in POLARS_ENGINES:
         import polars as pl
 
@@ -399,6 +561,40 @@ def path_ordered_expand_join(
     return cast(
         DataFrameT,
         out.drop(columns=[col for col in drop_after if col in out.columns]),
+    )
+
+
+def plan_path_ordered_expand_join(
+    state: DataFrameT,
+    step: DataFrameT,
+    *,
+    current_col: str,
+    from_col: str,
+    to_col: str,
+    path_order_col: str,
+    tiebreak_cols: Sequence[str],
+    alias: Optional[str],
+    engine: Engine,
+) -> PathExpandPlan:
+    """Cost this expansion before materializing it, for a caller that cost-gates a hop.
+
+    ``rows`` is exact, not an estimate. On the array path it is the expansion's own
+    searchsorted range widths, so gating costs nothing beyond work the expansion
+    already does; elsewhere it falls back to ``estimate_inner_join_rows``.
+    """
+    array_plan = _plan_path_ordered_expand_arrays(
+        state, step, current_col=current_col, from_col=from_col, to_col=to_col,
+        tiebreak_cols=tiebreak_cols, alias=alias, engine=engine,
+    )
+    if array_plan is not None:
+        return array_plan
+    return PathExpandPlan(
+        estimate_inner_join_rows(state, step, left_on=current_col, right_on=from_col, engine=engine),
+        lambda: path_ordered_expand_join(
+            state, step, current_col=current_col, from_col=from_col, to_col=to_col,
+            path_order_col=path_order_col, tiebreak_cols=tiebreak_cols, alias=alias,
+            engine=engine,
+        ),
     )
 
 

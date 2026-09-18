@@ -169,7 +169,7 @@ Delete from a diff: narration of the next block (extract a helper named for the 
 why-this-fix or issue-number rationale (the pin's test name carries it; an issue ref may stay as a
 trailing tag), any perf/complexity/benchmark claim (measurement belongs in pyg-bench), and
 restatements of the signature. A keep must state a constraint that no name and no test can express
-— *defensible* is not the bar, and a doubtful keep deletes. Guard: `bin/ci_comment_density_guard.py`.
+— *defensible* is not the bar, and a doubtful keep deletes. Guard: `bin/ci/ci_comment_density_guard.py`.
 
 Typing, same rule: `Any` over a known domain gets the real alias; a new `# type: ignore` or
 `hygiene-ok` gets restructured (both are for grandfathered debt only); `cast()` to satisfy the

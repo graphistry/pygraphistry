@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 import pandas as pd
+import pytest
 
 import graphistry
 from graphistry.compute.gfql.cypher.lowering import ResultProjectionColumn, ResultProjectionPlan
@@ -88,3 +89,46 @@ def test_numeric_return_order_by_is_numeric_not_lexical() -> None:
     out = g.gfql("MATCH (a) RETURN a.val ORDER BY a.val", engine="pandas")._nodes
     vals = out[out.columns[0]].tolist()
     assert vals == [1, 2, 10, 30]
+
+
+def test_whole_entity_projection_records_kind_without_identity_column() -> None:
+    pl = pytest.importorskip("polars")
+
+    frame = pl.DataFrame({"x": [True, True], "x.name": ["same", None]})
+    g = graphistry.nodes(frame, "id")
+    plan = ResultProjectionPlan(
+        alias="x", table="nodes",
+        columns=(ResultProjectionColumn("renamed", "whole_row"),),
+    )
+    out = apply_result_projection(g, plan)
+    assert out._cypher_entity_projection_kinds == {"renamed": "nodes"}
+    assert out._nodes.to_dicts() == [{"renamed.name": "same"}, {"renamed.name": None}]
+    assert g._cypher_entity_projection_kinds is None
+    assert out._cypher_entity_projection_meta == {}
+
+
+def test_property_projection_clears_whole_entity_provenance() -> None:
+    g = graphistry.nodes(pd.DataFrame({"x": [True], "name": ["Alice"]}), "id")
+    g._cypher_entity_projection_kinds = {"x": "nodes"}
+    g._cypher_entity_projection_presence = {"x": pd.DataFrame({"x": [True]})}
+    plan = ResultProjectionPlan(
+        alias="x", table="nodes",
+        columns=(ResultProjectionColumn("x.name", "property", "name"),),
+    )
+    out = apply_result_projection(g, plan)
+    assert out._cypher_entity_projection_kinds == {}
+    assert out._cypher_entity_projection_presence == {}
+    assert g._cypher_entity_projection_presence["x"].to_dict("records") == [{"x": True}]
+    assert g._cypher_entity_projection_kinds == {"x": "nodes"}
+    assert out._nodes.to_dict("records") == [{"x.name": "Alice"}]
+
+
+def test_empty_projection_keeps_whole_entity_provenance() -> None:
+    g = graphistry.nodes(pd.DataFrame({"x": pd.Series([], dtype="bool"), "name": pd.Series([], dtype="str")}), "id")
+    plan = ResultProjectionPlan(
+        alias="x", table="nodes",
+        columns=(ResultProjectionColumn("x", "whole_row"),),
+    )
+    out = apply_result_projection(g, plan)
+    assert out._cypher_entity_projection_kinds == {"x": "nodes"}
+    assert len(out._nodes) == 0

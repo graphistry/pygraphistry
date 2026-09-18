@@ -312,3 +312,55 @@ def test_output_hop_window_backfills_the_source_node_row_on_cudf():
     src_cudf, ids_cudf = _hop(cudf.from_pandas, "cudf")
     assert src_pandas <= ids_pandas  # pandas is the correct side
     assert src_cudf <= ids_cudf, "cuDF left an edge source with no node row"
+
+
+def test_1695_searchany_float_half_boundary_renders_differently_per_engine():
+    """searchAny renders floats the way the viz inspector does, and the engines cannot all
+    round identically. Pinned executable so the exact shape is discoverable.
+
+    The inspector uses ``sprintf('%.4f')``, i.e. JS ``toFixed``, which rounds half-AWAY
+    from zero on the exact decimal expansion of the double. Python's formatter reproduces
+    that, so pandas matches the UI. polars and cuDF have no column-wide equivalent, and their
+    ``round`` is half-to-EVEN on the binary value, so a value whose 5th decimal is exactly
+    5 can render one unit lower there. Measured on 26,008 realistic column values against a
+    JS reference: pandas 100%, cuDF 99.996%, polars 99.931% (#1695).
+
+    polars is additionally VERSION-dependent at this boundary -- 1.21 agrees with pandas,
+    1.35 does not -- so the polars arm accepts either and fails only on a malformed render.
+
+    The consequence for a user is narrow and worth stating: typing the string the UI shows
+    finds the row on pandas, and misses it on polars/cuDF, for that value class only.
+    """
+    from graphistry.compute.gfql.wysiwyg import render_float_pandas
+
+    # 0.12345 is the canonical case: the double sits just above the half, so JS/pandas
+    # round up to '0.1235' while an engine round() lands on '0.1234'.
+    assert render_float_pandas(pd.Series([0.12345], dtype="float64")).tolist() == ["0.1235"]
+
+    if _HAS_POLARS:
+        from graphistry.compute.gfql.wysiwyg import float_render_expr_polars
+        got = (pl.DataFrame({"x": pl.Series([0.12345], dtype=pl.Float64)})
+               .select(float_render_expr_polars(pl.col("x"), pl.Float64).alias("o"))
+               .to_series().to_list())
+        # WHICH side polars lands on is polars-VERSION-dependent, discovered by this pin
+        # failing on the RAPIDS 25.02 lane: polars 1.21 agrees with pandas here ('0.1235')
+        # while 1.35 does not ('0.1234'). Both are accepted; anything else is a real
+        # regression in the render (wrong width, dropped padding, exponent leaking in).
+        assert got in (["0.1235"], ["0.1234"]), f"polars float render is malformed: {got}"
+
+
+def test_1695_searchany_float_ordinary_values_agree_across_engines():
+    """The counterpart to the pin above: away from half-boundaries the engines DO agree,
+    so the divergence is genuinely narrow rather than a general float mismatch."""
+    from graphistry.compute.gfql.wysiwyg import render_float_pandas
+
+    vals = [0.5, 7.25, -3.125, 0.0, 42.0, 1234.5678]
+    expected = ["0.5000", "7.2500", "-3.1250", "0", "42", "1234.5678"]
+    assert render_float_pandas(pd.Series(vals, dtype="float64")).tolist() == expected
+
+    if _HAS_POLARS:
+        from graphistry.compute.gfql.wysiwyg import float_render_expr_polars
+        got = (pl.DataFrame({"x": pl.Series(vals, dtype=pl.Float64)})
+               .select(float_render_expr_polars(pl.col("x"), pl.Float64).alias("o"))
+               .to_series().to_list())
+        assert got == expected

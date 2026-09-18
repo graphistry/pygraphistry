@@ -21,6 +21,7 @@ python -m pytest --version
 # `graphistry/tests/compute/gfql/test_polars_lane_completeness.py` parses this array and
 # fails if any module-level polars-gated test file is absent from it (or listed but gone).
 POLARS_TEST_FILES=(
+    graphistry/tests/test_plotterbase_optional_deps.py
     graphistry/tests/compute/test_polars.py
     # cache-coverage lock: its static scans run everywhere, but the functional pin for the
     # polars single-alias lowering memo can only execute where polars is installed
@@ -107,6 +108,8 @@ POLARS_TEST_FILES=(
     graphistry/tests/compute/gfql/test_validate_execute_agreement_1889.py
     # dotted/hyphenated column names as group_by aggregation sources: the polars params
     # (polars aggregates existing columns only) only run in this lane
+    graphistry/tests/compute/gfql/test_entity_projection_kinds.py
+    graphistry/tests/compute/gfql/cypher/test_result_postprocess.py
     graphistry/tests/compute/gfql/test_group_by_agg_source_columns.py
     graphistry/tests/compute/gfql/test_aggregate_expression_shapes.py
     graphistry/tests/compute/gfql/test_polars_rows_entity_groupby.py
@@ -119,10 +122,12 @@ POLARS_TEST_FILES=(
     graphistry/tests/compute/gfql/test_semi_join_key_frame.py
     graphistry/tests/compute/gfql/test_fast_path_engagement.py
     graphistry/tests/compute/gfql/test_known_cross_engine_divergences.py
+    graphistry/tests/compute/gfql/test_searchany_wysiwyg_float.py
     graphistry/tests/compute/gfql/test_decline_guidance_cross_engine.py
     graphistry/tests/compute/gfql/test_endpoint_closure_matrix.py
     graphistry/tests/compute/gfql/test_gfql_unified_routing_contracts.py
     graphistry/tests/compute/gfql/test_hop_kernel_contracts.py
+    graphistry/tests/compute/gfql/test_polars_membership_isin.py
     graphistry/tests/compute/gfql/test_polars_dtype_classifier_contracts.py
     graphistry/tests/compute/gfql/cypher/test_grouped_aggregate_fused_polars.py
     graphistry/tests/compute/gfql/cypher/test_grouped_aggregate_lowcard_count.py
@@ -164,6 +169,11 @@ POLARS_TEST_FILES=(
     # and the polars params only run here
     graphistry/tests/compute/gfql/test_duration_month_division_1937.py
     graphistry/tests/compute/gfql/index/test_indexed_bindings.py
+    graphistry/tests/compute/gfql/index/test_indexed_bindings_hop_overhead.py
+    graphistry/tests/compute/gfql/index/test_array_bindings_select.py
+    graphistry/tests/compute/gfql/index/test_category_index.py
+    graphistry/tests/compute/gfql/index/test_point_rows_indexed_edge_filter.py
+    graphistry/tests/compute/gfql/test_rows_select_projection_pushdown.py
     graphistry/tests/compute/gfql/test_reentry_caller_graph_immutability.py
     graphistry/tests/compute/gfql/test_rewrite_param_discard.py
     # #1804 rows(alias_prefilters=...) native honouring: the polars params (and the typed

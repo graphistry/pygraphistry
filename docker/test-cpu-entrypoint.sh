@@ -56,7 +56,7 @@ if [[ "${WITH_COVERAGE_AUDIT:-${WITH_GFQL_COVERAGE_AUDIT:-0}}" != "0" ]]; then
     if [[ -n "${COVERAGE_BASELINE_TOLERANCE}" ]]; then
         COVERAGE_BASELINE_ARGS+=(--baseline-tolerance "${COVERAGE_BASELINE_TOLERANCE}")
     fi
-    python bin/coverage_audit.py \
+    python bin/ci/coverage_audit.py \
         --profile "${COVERAGE_PROFILE}" \
         --engine-label "${COVERAGE_ENGINE_LABEL}" \
         --output-dir "${COVERAGE_OUTPUT_DIR}" \

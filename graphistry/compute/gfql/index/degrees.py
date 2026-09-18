@@ -86,6 +86,8 @@ def adjacency_membership_keys(
     pattern; the drop-self (neq) flavor must NOT use this path.
     """
     from .engine_arrays import union1d
+    oi = None
+    ii = None
     if direction in ("forward", "undirected"):
         oi = _valid_adjacency(registry, EDGE_OUT_ADJ, edges_df, cols, engine)
         if oi is None:
