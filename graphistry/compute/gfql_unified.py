@@ -361,6 +361,8 @@ def _synthesize_bare_alias_from_prefixed_column(
     polars = is_polars_df(joined)
     if polars:
         import polars as pl
+    else:
+        pl = None  # type: ignore[assignment]
     for alias in opt_only_aliases:
         if alias in joined.columns:
             continue
