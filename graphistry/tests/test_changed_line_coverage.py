@@ -7,7 +7,7 @@ from typing import Any
 
 
 def _load_module() -> Any:
-    path = Path(__file__).resolve().parents[2] / "bin" / "changed_line_coverage.py"
+    path = Path(__file__).resolve().parents[2] / "bin" / "ci" / "changed_line_coverage.py"
     spec = importlib.util.spec_from_file_location("changed_line_coverage", path)
     assert spec is not None
     module = importlib.util.module_from_spec(spec)
@@ -53,7 +53,7 @@ def test_eligible_path_defaults_include_package_and_exclude_tests() -> None:
 
     assert module._is_eligible_path("graphistry/compute/foo.py", module.DEFAULT_INCLUDE, module.DEFAULT_EXCLUDE)
     assert not module._is_eligible_path("graphistry/tests/test_foo.py", module.DEFAULT_INCLUDE, module.DEFAULT_EXCLUDE)
-    assert not module._is_eligible_path("bin/changed_line_coverage.py", module.DEFAULT_INCLUDE, module.DEFAULT_EXCLUDE)
+    assert not module._is_eligible_path("bin/ci/changed_line_coverage.py", module.DEFAULT_INCLUDE, module.DEFAULT_EXCLUDE)
 
 
 def test_build_report_passes_when_changed_statements_meet_threshold() -> None:

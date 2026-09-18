@@ -21,7 +21,7 @@ import sys
 from pathlib import Path
 from typing import List, Optional, Tuple
 
-REPO = Path(__file__).resolve().parent.parent
+REPO = Path(__file__).resolve().parent.parent.parent
 TESTS = REPO / "graphistry" / "tests"
 WORKFLOWS = REPO / ".github" / "workflows"
 DEVELOP = REPO / "DEVELOP.md"

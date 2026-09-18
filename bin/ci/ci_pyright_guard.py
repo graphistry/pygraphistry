@@ -2,7 +2,7 @@
 """CI guardrail that holds pyright's reproducible findings to a per-file ratchet.
 
 Runs `bin/pyright.sh --outputjson` over `graphistry/` and compares the result to
-`bin/ci_pyright_baseline.json`. A file may not gain findings relative to the
+`bin/ci/ci_pyright_baseline.json`. A file may not gain findings relative to the
 baseline, and a file absent from the baseline must have none. Existing debt is
 grandfathered; new and moved code is held to the rule.
 
@@ -23,13 +23,13 @@ simply because they are rare enough to agree by luck. Corroboration: the rules b
 have identical per-file counts on python 3.8 / 3.11 / 3.12 / 3.14 and on a
 workstation carrying polars, cudf, scipy and scikit-learn.
 
-  ./bin/ci_pyright_guard.py                   # check (this is what CI runs)
-  ./bin/ci_pyright_guard.py --report          # totals per rule, always exit 0
-  ./bin/ci_pyright_guard.py --list RULE       # every current finding for RULE
-  ./bin/ci_pyright_guard.py --update-baseline
-  ./bin/ci_pyright_guard.py --strict          # also fail when the baseline is
+  ./bin/ci/ci_pyright_guard.py                   # check (this is what CI runs)
+  ./bin/ci/ci_pyright_guard.py --report          # totals per rule, always exit 0
+  ./bin/ci/ci_pyright_guard.py --list RULE       # every current finding for RULE
+  ./bin/ci/ci_pyright_guard.py --update-baseline
+  ./bin/ci/ci_pyright_guard.py --strict          # also fail when the baseline is
                                               # looser than reality
-  ./bin/ci_pyright_guard.py --from-json FILE  # reuse a saved pyright run
+  ./bin/ci/ci_pyright_guard.py --from-json FILE  # reuse a saved pyright run
 
 Escape hatch: pyright's own `# pyright: ignore[<rule>]` on the reported line.
 Suppressed findings never reach this guard.
@@ -45,8 +45,8 @@ import sys
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Sequence, Tuple
 
-REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-DEFAULT_BASELINE = os.path.join(REPO_ROOT, "bin", "ci_pyright_baseline.json")
+REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+DEFAULT_BASELINE = os.path.join(REPO_ROOT, "bin", "ci", "ci_pyright_baseline.json")
 
 #: Fraction of the baseline's file count a run may drop to before it is treated as a
 #: collapsed gate rather than a smaller tree. Deleting a tenth of the package in one PR is
@@ -101,7 +101,7 @@ def run_pyright() -> dict:
     # state of a ratcheted tree, so the exit code says nothing; empty output does.
     if not proc.stdout.strip():
         raise SystemExit(
-            "bin/ci_pyright_guard.py: bin/pyright.sh produced no JSON (exit %d)." % proc.returncode
+            "bin/ci/ci_pyright_guard.py: bin/pyright.sh produced no JSON (exit %d)." % proc.returncode
         )
     return json.loads(proc.stdout)
 
@@ -148,10 +148,10 @@ def load_baseline(path: str) -> Counts:
 def write_baseline(path: str, counts: Counts, version: str, analyzed: int = 0) -> None:
     payload = {
         "_comment": (
-            "Per-file ratchet for bin/ci_pyright_guard.py, built with pyright %s. Counts "
+            "Per-file ratchet for bin/ci/ci_pyright_guard.py, built with pyright %s. Counts "
             "may shrink, never grow; a file absent here must have zero findings. Only the "
             "rules listed are gated -- the rest move with the installed dependencies. "
-            "Regenerate with `./bin/ci_pyright_guard.py --update-baseline` and explain the "
+            "Regenerate with `./bin/ci/ci_pyright_guard.py --update-baseline` and explain the "
             "delta in the PR description. files_analyzed records the scope this was built "
             "over; a run that sees materially less is a collapsed gate, not an improvement."
             % version
