@@ -32,7 +32,6 @@
       "graphistry/compute/gfql/temporal_text.py": 1
     },
     "reportUnusedExpression": {
-      "graphistry/PlotterBase.py": 9,
       "graphistry/gremlin.py": 1,
       "graphistry/layouts.py": 1,
       "graphistry/plugins/cugraph.py": 3,
