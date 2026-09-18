@@ -21,11 +21,11 @@ Enforcement is a **per-file count ratchet**: a file may not gain findings relati
 to the committed baseline, and a file absent from the baseline must have zero.
 Existing debt is grandfathered; new and moved code is held to the rule.
 
-  ./bin/ci_type_hygiene_guard.py                  # check (this is what CI runs)
-  ./bin/ci_type_hygiene_guard.py --report         # totals per check, always exit 0
-  ./bin/ci_type_hygiene_guard.py --list CHECK     # every current finding for CHECK
-  ./bin/ci_type_hygiene_guard.py --update-baseline
-  ./bin/ci_type_hygiene_guard.py --strict         # also fail when the baseline has
+  ./bin/ci/ci_type_hygiene_guard.py                  # check (this is what CI runs)
+  ./bin/ci/ci_type_hygiene_guard.py --report         # totals per check, always exit 0
+  ./bin/ci/ci_type_hygiene_guard.py --list CHECK     # every current finding for CHECK
+  ./bin/ci/ci_type_hygiene_guard.py --update-baseline
+  ./bin/ci/ci_type_hygiene_guard.py --strict         # also fail when the baseline has
                                                   # gone stale-loose (time to tighten)
 
 Escape hatch: put `# hygiene-ok` on the reported line, ideally as
@@ -42,9 +42,9 @@ import sys
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Sequence, Set, Tuple, Union
 
-REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 SCAN_ROOT = os.path.join(REPO_ROOT, "graphistry")
-DEFAULT_BASELINE = os.path.join(REPO_ROOT, "bin", "ci_type_hygiene_baseline.json")
+DEFAULT_BASELINE = os.path.join(REPO_ROOT, "bin", "ci", "ci_type_hygiene_baseline.json")
 
 # Tests are excluded to match `mypy.ini` (`exclude = ...|graphistry/tests`).
 # Including them would add ~5000 missing-annotation findings from throwaway
@@ -338,9 +338,9 @@ def load_baseline(path: str) -> Counts:
 def write_baseline(path: str, counts: Counts) -> None:
     payload = {
         "_comment": (
-            "Per-file ratchet for bin/ci_type_hygiene_guard.py. Counts may shrink, never "
+            "Per-file ratchet for bin/ci/ci_type_hygiene_guard.py. Counts may shrink, never "
             "grow; a file absent here must have zero findings. Regenerate with "
-            "`./bin/ci_type_hygiene_guard.py --update-baseline` and explain the delta in "
+            "`./bin/ci/ci_type_hygiene_guard.py --update-baseline` and explain the delta in "
             "the PR description."
         ),
         "checks": dict((check, dict(sorted(counts[check].items()))) for check in CHECKS),

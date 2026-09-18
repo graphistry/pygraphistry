@@ -1,5 +1,5 @@
 {
-  "_comment": "Per-file ratchet for bin/ci_comment_density_guard.py. Counts may shrink, never grow; a file absent here must have zero findings. Regenerate with `./bin/ci_comment_density_guard.py --update-baseline` and explain the delta in the PR description.",
+  "_comment": "Per-file ratchet for bin/ci/ci_comment_density_guard.py. Counts may shrink, never grow; a file absent here must have zero findings. Regenerate with `./bin/ci/ci_comment_density_guard.py --update-baseline` and explain the delta in the PR description.",
   "checks": {
     "comment-block": {
       "graphistry/Engine.py": 17,

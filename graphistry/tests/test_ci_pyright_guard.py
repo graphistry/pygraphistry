@@ -1,4 +1,4 @@
-"""Pins for bin/ci_pyright_guard.py: what the ratchet must fail on, and what it must not."""
+"""Pins for bin/ci/ci_pyright_guard.py: what the ratchet must fail on, and what it must not."""
 
 import importlib.util
 import json
@@ -9,8 +9,8 @@ from typing import Any, Dict, List
 import pytest
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-GUARD_PATH = os.path.join(REPO_ROOT, "bin", "ci_pyright_guard.py")
-BASELINE_PATH = os.path.join(REPO_ROOT, "bin", "ci_pyright_baseline.json")
+GUARD_PATH = os.path.join(REPO_ROOT, "bin", "ci", "ci_pyright_guard.py")
+BASELINE_PATH = os.path.join(REPO_ROOT, "bin", "ci", "ci_pyright_baseline.json")
 
 
 pytestmark = pytest.mark.skipif(

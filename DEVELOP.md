@@ -118,13 +118,13 @@ CI includes `cypher-frontend-surface-guard`, which enforces bounded growth for:
 
 Guard implementation + baseline:
 
-- Script: `bin/ci_cypher_surface_guard.py`
-- Baseline: `bin/ci_cypher_surface_guard_baseline.json`
+- Script: `bin/ci/ci_cypher_surface_guard.py`
+- Baseline: `bin/ci/ci_cypher_surface_guard_baseline.json`
 
 If growth is intentional, regenerate baseline in your branch and include explicit PR rationale:
 
 ```bash
-python bin/ci_cypher_surface_guard.py --write-baseline
+python bin/ci/ci_cypher_surface_guard.py --write-baseline
 ```
 
 Then commit both code changes and baseline update together.
@@ -132,7 +132,7 @@ Then commit both code changes and baseline update together.
 ### Type Hygiene Guard
 
 `bin/lint.sh` (run by the `python-lint-types` matrix on py3.8-3.14) runs
-`bin/ci_type_hygiene_guard.py`, a stdlib-only AST check over `graphistry/`
+`bin/ci/ci_type_hygiene_guard.py`, a stdlib-only AST check over `graphistry/`
 (tests excluded, matching `mypy.ini`). It exists to catch the defect classes
 that keep coming back in code review, so a reviewer does not have to.
 
@@ -147,15 +147,15 @@ that keep coming back in code review, so a reviewer does not have to.
 | `vocab-str-param` | a closed-vocabulary parameter (`table`, `kind`, `direction`, `how`, `mode`, `engine`) annotated as plain `str` |
 
 Enforcement is a **per-file count ratchet** against
-`bin/ci_type_hygiene_baseline.json`: a file may not gain findings, and a file
+`bin/ci/ci_type_hygiene_baseline.json`: a file may not gain findings, and a file
 absent from the baseline must have zero. Existing debt is grandfathered, new and
 moved code is not.
 
 ```bash
-./bin/ci_type_hygiene_guard.py             # what CI runs
-./bin/ci_type_hygiene_guard.py --report    # totals per check
-./bin/ci_type_hygiene_guard.py --list plottable-setattr
-./bin/ci_type_hygiene_guard.py --strict    # show files that improved; time to retighten
+./bin/ci/ci_type_hygiene_guard.py             # what CI runs
+./bin/ci/ci_type_hygiene_guard.py --report    # totals per check
+./bin/ci/ci_type_hygiene_guard.py --list plottable-setattr
+./bin/ci/ci_type_hygiene_guard.py --strict    # show files that improved; time to retighten
 ```
 
 When a finding is genuinely correct, annotate that line and say why:
@@ -170,8 +170,8 @@ the baseline update together.
 
 ### Pyright Ratchet
 
-The `python-pyright` CI job (py3.12) runs `bin/ci_pyright_guard.py`, which invokes `bin/pyright.sh`
-and holds the result to a per-file count ratchet against `bin/ci_pyright_baseline.json`. It catches
+The `python-pyright` CI job (py3.12) runs `bin/ci/ci_pyright_guard.py`, which invokes `bin/pyright.sh`
+and holds the result to a per-file count ratchet against `bin/ci/ci_pyright_baseline.json`. It catches
 what ruff and mypy do not: locals bound on only some paths, names that resolve nowhere, statements
 with no effect.
 
@@ -192,10 +192,10 @@ an installed `pyright` only when it matches, else fetches the pin via `uvx`/`npx
 `PYRIGHT_VERSION` and regenerate the baseline in the same commit.
 
 ```bash
-./bin/ci_pyright_guard.py                  # what CI runs
-./bin/ci_pyright_guard.py --report         # gated and ungated totals, always exit 0
-./bin/ci_pyright_guard.py --list reportPossiblyUnboundVariable
-./bin/ci_pyright_guard.py --strict         # show files that improved; time to retighten
+./bin/ci/ci_pyright_guard.py                  # what CI runs
+./bin/ci/ci_pyright_guard.py --report         # gated and ungated totals, always exit 0
+./bin/ci/ci_pyright_guard.py --list reportPossiblyUnboundVariable
+./bin/ci/ci_pyright_guard.py --strict         # show files that improved; time to retighten
 ./bin/pyright.sh graphistry/compute        # the raw tool, narrowed
 ```
 
@@ -213,7 +213,7 @@ is baselined rather than excluded so that fixing it shows up as slack under `--s
 ### Comment Density Guard
 
 `bin/lint.sh` (the same `python-lint-types` matrix lane as the type-hygiene
-guard) runs `bin/ci_comment_density_guard.py`, a stdlib-only `tokenize` + `ast`
+guard) runs `bin/ci/ci_comment_density_guard.py`, a stdlib-only `tokenize` + `ast`
 check over `graphistry/`. It enforces the "Encoding: names, tests, and
 structure — not prose" rules in `agents/skills/review/SKILL.md`, which were the
 last rule class on that stack still enforced only by human review.
@@ -236,13 +236,13 @@ performance vocabulary (they also name correctness concepts), and a comment that
 points at `pyg-bench` is a pointer to the measurement rather than a claim.
 
 Enforcement is a **per-file count ratchet** against
-`bin/ci_comment_density_baseline.json`, exactly like the type-hygiene guard.
+`bin/ci/ci_comment_density_baseline.json`, exactly like the type-hygiene guard.
 
 ```bash
-./bin/ci_comment_density_guard.py             # what CI runs
-./bin/ci_comment_density_guard.py --report    # totals per check
-./bin/ci_comment_density_guard.py --list comment-block
-./bin/ci_comment_density_guard.py --strict    # show files that improved; time to retighten
+./bin/ci/ci_comment_density_guard.py             # what CI runs
+./bin/ci/ci_comment_density_guard.py --report    # totals per check
+./bin/ci/ci_comment_density_guard.py --list comment-block
+./bin/ci/ci_comment_density_guard.py --strict    # show files that improved; time to retighten
 ```
 
 The fix is almost never a suppression: extract a helper whose NAME states the
@@ -299,7 +299,7 @@ a cuDF-gated test can contradict the CPU contract, or rot outright, and stay gre
 on master indefinitely. Treat a GPU claim in a PR as unprotected until a GPU lane
 exists: re-run it yourself rather than trusting the last receipt.
 
-`bin/ci_gpu_gate_audit.py` (lane `gpu-gate-audit`) keeps the size of that gap
+`bin/ci/ci_gpu_gate_audit.py` (lane `gpu-gate-audit`) keeps the size of that gap
 visible: it counts the cuDF gates, requires each to be attributable (a `reason=`
 naming `TEST_CUDF`, so `pytest -rs` names what was not run rather than reporting a
 bare `s`) and to actually read the flag from the environment, and cross-checks this note against

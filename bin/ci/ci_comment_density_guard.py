@@ -3,7 +3,7 @@
 
 Meaning belongs in a **name**, a **test/pin**, or the **structure** of the code.
 Prose is the last resort. Every other rule on that stack already has a machine
-gate (`bin/ci_type_hygiene_guard.py`, `bin/ci_cypher_surface_guard.py`, the
+gate (`bin/ci/ci_type_hygiene_guard.py`, `bin/ci/ci_cypher_surface_guard.py`, the
 per-file coverage floors); comment discipline was the only one left to human
 review, which is why it is the only one that kept reaching the owner.
 
@@ -37,11 +37,11 @@ Enforcement is a **per-file count ratchet** against the committed baseline: a
 file may not gain findings, and a file absent from the baseline must have zero.
 Existing debt is grandfathered; new and moved code is held to the rule.
 
-  ./bin/ci_comment_density_guard.py                  # check (this is what CI runs)
-  ./bin/ci_comment_density_guard.py --report         # totals per check, always exit 0
-  ./bin/ci_comment_density_guard.py --list CHECK     # every current finding for CHECK
-  ./bin/ci_comment_density_guard.py --update-baseline
-  ./bin/ci_comment_density_guard.py --strict         # also fail when the baseline has
+  ./bin/ci/ci_comment_density_guard.py                  # check (this is what CI runs)
+  ./bin/ci/ci_comment_density_guard.py --report         # totals per check, always exit 0
+  ./bin/ci/ci_comment_density_guard.py --list CHECK     # every current finding for CHECK
+  ./bin/ci/ci_comment_density_guard.py --update-baseline
+  ./bin/ci/ci_comment_density_guard.py --strict         # also fail when the baseline has
                                                      # gone stale-loose (time to tighten)
 
 Escape hatch: put `# guard-ok: <check> -- <reason>` on the reported line, or on
@@ -62,9 +62,9 @@ import tokenize
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Sequence, Tuple
 
-REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 SCAN_ROOT = os.path.join(REPO_ROOT, "graphistry")
-DEFAULT_BASELINE = os.path.join(REPO_ROOT, "bin", "ci_comment_density_baseline.json")
+DEFAULT_BASELINE = os.path.join(REPO_ROOT, "bin", "ci", "ci_comment_density_baseline.json")
 
 EXCLUDE_DIRS = ("__pycache__",)
 EXCLUDE_FILES = ("graph_vector_pb2.py", "_version.py", "versioneer.py")
@@ -382,9 +382,9 @@ def load_baseline(path: str) -> Counts:
 def write_baseline(path: str, counts: Counts) -> None:
     payload = {
         "_comment": (
-            "Per-file ratchet for bin/ci_comment_density_guard.py. Counts may shrink, never "
+            "Per-file ratchet for bin/ci/ci_comment_density_guard.py. Counts may shrink, never "
             "grow; a file absent here must have zero findings. Regenerate with "
-            "`./bin/ci_comment_density_guard.py --update-baseline` and explain the delta in "
+            "`./bin/ci/ci_comment_density_guard.py --update-baseline` and explain the delta in "
             "the PR description."
         ),
         "checks": dict((check, dict(sorted(counts[check].items()))) for check in CHECKS),

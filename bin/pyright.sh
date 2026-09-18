@@ -3,7 +3,7 @@ set -euo pipefail
 
 # Run pyright over graphistry/ at the version the ratchet baseline was built against.
 #
-# The pin is load-bearing: bin/ci_pyright_baseline.json holds per-file finding counts,
+# The pin is load-bearing: bin/ci/ci_pyright_baseline.json holds per-file finding counts,
 # and upstream adds and retunes rules between releases, so an unpinned tool would move
 # the baseline under us. Bump PYRIGHT_VERSION and --update-baseline together.
 #

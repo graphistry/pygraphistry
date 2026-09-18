@@ -1,5 +1,5 @@
 {
-  "_comment": "Per-file ratchet for bin/ci_pyright_guard.py, built with pyright 1.1.414. Counts may shrink, never grow; a file absent here must have zero findings. Only the rules listed are gated -- the rest move with the installed dependencies. Regenerate with `./bin/ci_pyright_guard.py --update-baseline` and explain the delta in the PR description. files_analyzed records the scope this was built over; a run that sees materially less is a collapsed gate, not an improvement.",
+  "_comment": "Per-file ratchet for bin/ci/ci_pyright_guard.py, built with pyright 1.1.414. Counts may shrink, never grow; a file absent here must have zero findings. Only the rules listed are gated -- the rest move with the installed dependencies. Regenerate with `./bin/ci/ci_pyright_guard.py --update-baseline` and explain the delta in the PR description. files_analyzed records the scope this was built over; a run that sees materially less is a collapsed gate, not an improvement.",
   "pyright_version": "1.1.414",
   "files_analyzed": 351,
   "rules": {

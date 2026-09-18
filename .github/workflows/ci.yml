@@ -234,7 +234,7 @@ jobs:
           '^mypy\.ini$' \
           '^bin/lint\.sh$' \
           '^bin/typecheck\.sh$' \
-          '^bin/ci_.*baseline\.json$'
+          '^bin/ci/ci_.*baseline\.json$'
 
         # GFQL core + tests.
         emit gfql \
@@ -863,7 +863,7 @@ jobs:
     - name: Pyright ratchet
       run: |
         source pygraphistry/bin/activate
-        ./bin/ci_pyright_guard.py
+        ./bin/ci/ci_pyright_guard.py
 
   cypher-frontend-strict-typing:
     name: cypher-frontend-strict-typing (py3.12)
@@ -983,7 +983,7 @@ jobs:
 
     - name: Audit cuDF test gates and the CI coverage they lack
       run: |
-        python bin/ci_gpu_gate_audit.py
+        python bin/ci/ci_gpu_gate_audit.py
 
   cypher-frontend-surface-guard:
     name: cypher-frontend-surface-guard
@@ -1000,7 +1000,7 @@ jobs:
 
     - name: Cypher surface growth guard
       run: |
-        python bin/ci_cypher_surface_guard.py
+        python bin/ci/ci_cypher_surface_guard.py
 
   test-networkx-scipy-policy:
     name: test-networkx-scipy-policy (${{ matrix.label }}, py${{ matrix.python-version }})
@@ -1248,7 +1248,7 @@ jobs:
           graphistry/tests/test_gfql_remote_metadata.py \
           graphistry/tests/test_gfql_remote_persistence.py \
           tests/gfql/ref
-        python bin/coverage_audit.py \
+        python bin/ci/coverage_audit.py \
           --profile gfql \
           --skip-tests \
           --engine-label ci-pandas-py3.12 \
@@ -1362,7 +1362,7 @@ jobs:
           build/changed-line-coverage/artifacts/core/coverage.core-py3.14 \
           build/changed-line-coverage/artifacts/gfql/coverage.gfql-py3.12 \
           build/changed-line-coverage/artifacts/polars/coverage.polars-py3.12
-        python bin/changed_line_coverage.py \
+        python bin/ci/changed_line_coverage.py \
           --data-file build/changed-line-coverage/combined.coverage \
           --base-ref "$BASE_SHA" \
           --head-ref "$HEAD_SHA" \
@@ -1749,7 +1749,7 @@ jobs:
       if: ${{ matrix.python-version == '3.12' }}
       run: |
         source pygraphistry/bin/activate
-        python bin/coverage_audit.py \
+        python bin/ci/coverage_audit.py \
           --profile gfql-polars \
           --skip-tests \
           --engine-label ci-polars-py3.12 \
@@ -1859,7 +1859,7 @@ jobs:
     - name: Derive HF cache key
       id: hf-cache-key
       run: |
-        key_output="$(python bin/ci-hf-cache-key.py requirements/test-ai-py${{ matrix.python-version }}.lock)"
+        key_output="$(python bin/ci/ci-hf-cache-key.py requirements/test-ai-py${{ matrix.python-version }}.lock)"
         printf '%s\n' "$key_output"
         printf '%s\n' "$key_output" >> "$GITHUB_OUTPUT"
 

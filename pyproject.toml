@@ -22,7 +22,7 @@ select = [
     # `getattr(x, "const")` / `setattr(x, "const", v)` hide attribute writes from
     # every static tool. Banning the constant-name form is free (both are
     # auto-fixable to plain attribute access) and shrinks the surface that
-    # `bin/ci_type_hygiene_guard.py` has to reason about. Today's offenders are
+    # `bin/ci/ci_type_hygiene_guard.py` has to reason about. Today's offenders are
     # seeded into `per-file-ignores` below; run `ruff check --fix --select B009,B010`
     # on a file and delete its line to retire the debt.
     "B009",    # get-attr-with-constant

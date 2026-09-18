@@ -6,9 +6,9 @@ slice under coverage.py and reports low/zero-hit files and symbols for a
 named source profile.
 
 Usage:
-    python bin/coverage_audit.py --profile gfql
+    python bin/ci/coverage_audit.py --profile gfql
 
-    python bin/coverage_audit.py --profile gfql --engine-label pandas-cpu \
+    python bin/ci/coverage_audit.py --profile gfql --engine-label pandas-cpu \
         --output-dir build/gfql-coverage-audit -- -q path/to/test_file.py
 
 For RAPIDS/cuDF validation, run through docker/test-rapids-official-local.sh on
@@ -32,7 +32,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
 
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
+REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
@@ -317,7 +317,7 @@ def _write_markdown(
         "## Test Command",
         "",
         "```bash",
-        f"python bin/coverage_audit.py --profile {profile.name} -- " + " ".join(pytest_args),
+        f"python bin/ci/coverage_audit.py --profile {profile.name} -- " + " ".join(pytest_args),
         "```",
         "",
         "## Target File Summary",
