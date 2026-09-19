@@ -767,7 +767,7 @@ Tips and Best Practices
 - **Limit hops for performance:** Specify `hops` to control traversal depth.
 - **Use naming for analysis:** Apply `name` to label and filter results.
 - **Combine filters:** Use `filter_dict` and `query` for precise matching.
-- **Leverage GPU acceleration:** Use `engine='cudf'` for large datasets.
+- **Use GPU acceleration:** Use `engine='cudf'` for large datasets.
 - **Avoid infinite loops:** Be cautious with `to_fixed_point=True` in cyclic graphs.
 
 Examples at a Glance
