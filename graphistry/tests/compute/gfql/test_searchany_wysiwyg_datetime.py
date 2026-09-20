@@ -191,3 +191,39 @@ class TestPolars:
         got = df.select(
             datetime_render_expr_polars(pl.col("t"), df["t"].dtype).alias("o"))["o"].to_list()
         assert got[1] is None
+
+
+@pytest.mark.parametrize("term,label", [("2024", "numeric"), ("alpha", "alphabetic")])
+def test_the_polars_dtype_gate_agrees_with_the_pandas_one(term, label):
+    """The two engines pick the same columns, or one of them answers rows the other cannot.
+
+    `lazy/engine/polars/search.py::auto_search_columns` restates the pandas auto-gate rather
+    than sharing it, so the two drift apart whenever a dtype is added to one. That drift is
+    silent -- the engine that skips a column answers all-False against the other's match --
+    and it has happened for float and again for datetime. This is the pin that catches it.
+    """
+    pl = pytest.importorskip("polars")
+    from graphistry.compute.gfql.lazy.engine.polars.search import auto_search_columns
+
+    pdf = pd.DataFrame({
+        "s_str": ["alpha", "beta"],
+        "i_int": [1, 2],
+        "f_float": [1.5, 2.5],
+        "b_bool": [True, False],
+        "t_datetime": pd.to_datetime(["2024-01-05", "2023-07-04"]),
+    })
+    pldf = pl.DataFrame({
+        "s_str": ["alpha", "beta"],
+        "i_int": pl.Series([1, 2], dtype=pl.Int64),
+        "f_float": pl.Series([1.5, 2.5], dtype=pl.Float64),
+        "b_bool": [True, False],
+        "t_datetime": pl.Series(["2024-01-05", "2023-07-04"]).str.to_datetime(),
+    })
+
+    from_pandas = set(search_candidate_columns(pdf, term, None) or [])
+    schema = dict(zip(pldf.columns, pldf.dtypes))
+    from_polars = set(auto_search_columns(schema, list(pldf.columns), term) or [])
+
+    assert from_pandas == from_polars, (
+        f"{label} term {term!r}: pandas chose {sorted(from_pandas)}, "
+        f"polars chose {sorted(from_polars)} -- the duplicated dtype gates have drifted")
