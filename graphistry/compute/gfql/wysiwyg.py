@@ -41,6 +41,13 @@ DEFAULT_FLOAT_PRECISION = 4
 #: JS switches ``String(v)`` to exponential at this magnitude; below it, integers print in full.
 _JS_EXPONENTIAL_AT = 1e21
 
+#: The inspector renders a date with moment ``'MMM D YYYY, h:mm:ss a z'``.
+_MONTH_ABBREVS = ("Jan", "Feb", "Mar", "Apr", "May", "Jun",
+                  "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
+
+#: The inspector formats in the VIEWER's zone, which a server cannot know, so it is a caller knob.
+DEFAULT_TEMPORAL_TZ = "UTC"
+
 
 def js_string_of_whole_float(v: float) -> str:
     """``String(v)`` for a float that has no fractional part: ``42.0`` -> ``"42"``.
@@ -153,3 +160,121 @@ def float_render_expr_polars(
         .then(whole_txt)
         .otherwise(fractional_txt)
     )
+
+
+def _tz_abbrev_by_offset(loc: SeriesT) -> SeriesT:
+    """Zone abbreviation per row, resolved once per distinct UTC offset.
+
+    Within one zone the abbreviation follows the offset (``EST`` at -5, ``EDT`` at -4), and the
+    offset only moves at a DST transition, so a column spanning years still holds a handful of
+    distinct values. ``strftime`` is a per-element path, so it runs on one representative row per
+    offset rather than on every row.
+    """
+    import numpy as np
+    import pandas as pd
+
+    naive = loc.dt.tz_localize(None)
+    offset = naive.astype("int64") - loc.astype("int64")
+    codes, uniques = pd.factorize(offset)
+    names = np.array(
+        [loc[offset == value].iloc[0].strftime("%Z") for value in uniques], dtype=object
+    )
+    return pd.Series(names[codes], index=loc.index, dtype=object)
+
+
+def render_datetime_pandas(s: SeriesT, tz: str = DEFAULT_TEMPORAL_TZ) -> SeriesT:
+    """Inspector-exact render of a pandas datetime column, as an object Series of str/None.
+
+    Reproduces moment's ``'MMM D YYYY, h:mm:ss a z'``: month abbreviation, day and 12-hour hour
+    without a leading zero, minute and second with one, lowercase am/pm, zone abbreviation last.
+    Midnight and noon are ``12`` rather than ``0``.
+
+    ``tz`` decides which day and hour a timestamp lands on, so it changes what matches, not just
+    how a row looks. None marks a row the inspector shows nothing for, which must never match.
+
+    The zone ABBREVIATION comes from the installed tz database, which can disagree with the one a
+    browser bundles for historical or contested zones (``Africa/Juba`` reads ``CAST`` here and
+    ``EAT`` in moment). Search terms are numeric, so an alphabetic abbreviation cannot be matched
+    either way.
+    """
+    import numpy as np
+    import pandas as pd
+
+    if len(s) == 0:
+        return pd.Series([], index=s.index, dtype=object)
+
+    localized = (
+        s.dt.tz_localize("UTC").dt.tz_convert(tz) if s.dt.tz is None else s.dt.tz_convert(tz)
+    )
+    present = localized.notna()
+    # NaT turns every extracted component into a float, so stand a real timestamp in for it
+    localized = localized.fillna(
+        localized[present].iloc[0] if present.any() else pd.Timestamp(0, tz="UTC")
+    )
+
+    hour_24 = localized.dt.hour
+    hour_12 = hour_24 % 12
+    hour_12 = hour_12.where(hour_12 != 0, 12)
+    meridiem = pd.Series(np.where(hour_24 < 12, "am", "pm"), index=localized.index)
+    month = pd.Series(
+        np.array(_MONTH_ABBREVS, dtype=object)[localized.dt.month.to_numpy() - 1],
+        index=localized.index,
+    )
+
+    rendered = (
+        month + " " + localized.dt.day.astype(str) + " " + localized.dt.year.astype(str) + ", "
+        + hour_12.astype(str) + ":" + localized.dt.minute.astype(str).str.zfill(2)
+        + ":" + localized.dt.second.astype(str).str.zfill(2) + " " + meridiem + " "
+        + _tz_abbrev_by_offset(localized)
+    )
+    return pd.Series(rendered, index=s.index, dtype=object).where(present, None)
+
+
+class CudfTemporalTzUnsupported(NotImplementedError):
+    """cuDF cannot name a zone other than UTC; the caller should decline rather than guess."""
+
+
+def render_datetime_cudf(  # pragma: no cover - cuDF-only; the changed-line-coverage gate has no cuDF lane (validated on dgx)
+    s: SeriesT, tz: str = DEFAULT_TEMPORAL_TZ
+) -> SeriesT:
+    """Inspector render of a cuDF datetime column, GPU-resident throughout.
+
+    Matches :func:`render_datetime_pandas` for ``tz='UTC'``, and raises for any other zone.
+
+    Measured on cudf 26.02.01: ``.dt`` components follow ``tz_convert`` but ``strftime`` does
+    not. ``strftime('%Z')`` answers ``UTC`` whatever the zone, and ``%p`` reads the underlying
+    UTC instant, so an ``Asia/Kolkata`` column renders the right hour beside the wrong meridiem
+    and the wrong zone name. The meridiem is therefore taken from ``.dt.hour``; the zone name has
+    no component to take it from, so a non-UTC zone declines instead of rendering a false one.
+    ``strftime`` also rejects the no-leading-zero specifiers moment's ``D`` and ``h`` need.
+    """
+    import cudf
+
+    if tz != "UTC":
+        raise CudfTemporalTzUnsupported(
+            "cuDF renders every zone abbreviation as UTC, so temporal_tz=%r would produce a "
+            "wrong label; use engine='pandas' for non-UTC temporal search" % (tz,)
+        )
+
+    if len(s) == 0:
+        return cudf.Series([], dtype="object")
+
+    localized = s.dt.tz_localize("UTC") if s.dt.tz is None else s.dt.tz_convert("UTC")
+    present = localized.notna()
+
+    hour_24 = localized.dt.hour
+    hour_12 = hour_24 % 12
+    hour_12 = hour_12.where(hour_12 != 0, 12)
+    meridiem = cudf.Series(["am"] * len(s), index=s.index).where(hour_24 < 12, "pm")
+
+    month_num = localized.dt.month
+    month = cudf.Series([_MONTH_ABBREVS[0]] * len(s), index=s.index)
+    for ordinal, abbrev in enumerate(_MONTH_ABBREVS[1:], start=2):
+        month = month.where(month_num != ordinal, abbrev)
+
+    rendered = (
+        month + " " + localized.dt.day.astype(str) + " " + localized.dt.year.astype(str)
+        + ", " + hour_12.astype(str) + ":" + localized.dt.minute.astype(str).str.zfill(2)
+        + ":" + localized.dt.second.astype(str).str.zfill(2) + " " + meridiem + " UTC"
+    )
+    return rendered.where(present, None)
