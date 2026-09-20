@@ -278,3 +278,22 @@ def render_datetime_cudf(  # pragma: no cover - cuDF-only; the changed-line-cove
         + ":" + localized.dt.second.astype(str).str.zfill(2) + " " + meridiem + " UTC"
     )
     return rendered.where(present, None)
+
+
+def datetime_render_expr_polars(col: "pl.Expr", tz: str = DEFAULT_TEMPORAL_TZ) -> "pl.Expr":
+    """Inspector render of a polars datetime column as an expression.
+
+    Same output as :func:`render_datetime_pandas`. chrono accepts the no-leading-zero
+    specifiers moment's ``D`` and ``h`` need, and names the zone once the column carries one,
+    so this is one expression rather than assembled components. ``%p`` is upper case in chrono
+    and lower in moment, so it is rendered separately and folded.
+    """
+    import polars as pl
+
+    localized = col.dt.replace_time_zone("UTC").dt.convert_time_zone(tz)
+    return (
+        localized.dt.strftime("%b %-d %Y, %-I:%M:%S ")
+        + localized.dt.strftime("%p").str.to_lowercase()
+        + pl.lit(" ")
+        + localized.dt.strftime("%Z")
+    )

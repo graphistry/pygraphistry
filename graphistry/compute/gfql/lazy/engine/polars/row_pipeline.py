@@ -1202,7 +1202,10 @@ def _apply_alias_prefilters_polars(
                     )
                 chosen = list(columns)
             else:
-                chosen = auto_search_columns(schema, pool, term)
+                auto = auto_search_columns(schema, pool, term)
+                if auto is None:
+                    raise _decline(f"searchAny prefilter spans an unrenderable dtype: {term!r}")
+                chosen = auto
             if not chosen:
                 # No searchable column ⇒ no row matches (pandas kernel: all-False mask).
                 frame = frame.filter(pl.lit(False))

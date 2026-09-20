@@ -98,7 +98,7 @@ class TestCudf:
     """cuDF matches pandas at UTC and declines any other zone rather than mislabel it."""
 
     def test_cudf_matches_pandas_at_utc(self):
-        cudf = pytest.importorskip("cudf")
+        cudf = pytest.importorskip("cudf", reason="cuDF lane needs a GPU box")
         from graphistry.compute.gfql.wysiwyg import render_datetime_cudf
         stamps = ["2024-01-05T03:04:05", "2024-01-05T00:00:00", "2024-12-25T23:59:59"]
         want = render_datetime_pandas(pd.Series(pd.to_datetime(stamps))).tolist()
@@ -106,9 +106,57 @@ class TestCudf:
         assert got == want
 
     def test_cudf_declines_a_non_utc_zone(self):
-        cudf = pytest.importorskip("cudf")
+        cudf = pytest.importorskip("cudf", reason="cuDF lane needs a GPU box")
         from graphistry.compute.gfql.wysiwyg import (
             CudfTemporalTzUnsupported, render_datetime_cudf)
         s = cudf.Series(cudf.to_datetime(["2024-01-05T03:04:05"]))
         with pytest.raises(CudfTemporalTzUnsupported):
             render_datetime_cudf(s, "America/New_York")
+
+
+class TestPolars:
+    """polars renders natively, so the same query answers the same rows as pandas."""
+
+    def test_polars_render_matches_pandas(self):
+        pl = pytest.importorskip("polars")
+        from graphistry.compute.gfql.wysiwyg import datetime_render_expr_polars
+
+        stamps = ["2024-01-05T03:04:05", "2024-01-05T00:00:00", "2024-01-05T12:00:00",
+                  "2024-12-25T23:59:59", "1999-11-30T13:45:07"]
+        want = render_datetime_pandas(pd.Series(pd.to_datetime(stamps))).tolist()
+        got = (pl.DataFrame({"t": pl.Series(stamps).str.to_datetime()})
+               .select(datetime_render_expr_polars(pl.col("t")).alias("o"))["o"].to_list())
+        assert got == want
+
+    def test_polars_render_honours_the_timezone(self):
+        pl = pytest.importorskip("polars")
+        from graphistry.compute.gfql.wysiwyg import datetime_render_expr_polars
+
+        df = pl.DataFrame({"t": pl.Series(["2024-01-05T03:04:05"]).str.to_datetime()})
+        got = df.select(
+            datetime_render_expr_polars(pl.col("t"), "America/New_York").alias("o"))["o"][0]
+        assert got == "Jan 4 2024, 10:04:05 pm EST"
+
+    def test_polars_search_answers_the_same_rows_as_pandas_end_to_end(self):
+        """The divergence this guards against is silent: polars used to skip datetime
+        columns and answer all-False where pandas answered a match."""
+        pl = pytest.importorskip("polars")
+        import graphistry
+        from graphistry.compute.ast import n, search_any as search_any_op
+
+        stamps = ["2024-01-05T03:04:05", "2023-07-04T09:05:00", "2024-12-25T23:59:59"]
+        edges_pd = pd.DataFrame({"s": [0, 1], "d": [1, 2]})
+        nodes_pd = pd.DataFrame({"id": [0, 1, 2], "when": pd.to_datetime(stamps)})
+        nodes_pl = pl.DataFrame({"id": [0, 1, 2], "when": pl.Series(stamps).str.to_datetime()})
+        edges_pl = pl.DataFrame({"s": [0, 1], "d": [1, 2]})
+
+        def hits(nodes, edges, engine, term):
+            g = graphistry.nodes(nodes, "id").edges(edges, "s", "d")
+            out = g.gfql([n(name="a"), search_any_op(alias="a", out_col="__hit__", term=term)],
+                         engine=engine)._nodes
+            out = out.to_pandas() if hasattr(out, "to_pandas") else out
+            return out.sort_values("id")["__hit__"].tolist()
+
+        for term in ["2024", "2023", "05", "9999"]:
+            assert (hits(nodes_pl, edges_pl, "polars", term)
+                    == hits(nodes_pd, edges_pd, "pandas", term)), f"term={term!r}"
