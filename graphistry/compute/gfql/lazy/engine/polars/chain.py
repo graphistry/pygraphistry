@@ -148,12 +148,11 @@ def _alias_hop_bounds(op: ASTEdge) -> Tuple[int, Optional[int]]:
 
 
 def _edge_alias_can_shadow_column(ops: Sequence[ASTObject], g: Plottable) -> bool:
-    """Whether an edge alias could be stamped over a column it also filters on (#2039).
+    """Whether an edge alias could be stamped over a column it also filters on.
 
-    ``_step_edges_with_source_columns`` re-joins the WHOLE edge frame to undo that shadowing,
-    which on a 34M-edge graph costs more than the hop it protects. The shadowing needs an alias
-    NAMED like an edge column; when no alias can collide, the step's own edges already carry the
-    graph's columns. Unprovable cases answer True and keep the restore.
+    The alias-shadow restore re-joins the WHOLE edge frame, which on a 34M-edge graph costs more
+    than the hop it protects. Shadowing needs an alias NAMED like an edge column; otherwise the
+    step's own edges already carry the graph's columns. Unprovable cases keep the restore.
     """
     edges = g._edges
     if edges is None:
@@ -961,7 +960,7 @@ def _chain_traversal_polars(self: Plottable, ops, start_nodes: Optional[Any] = N
     if isinstance(ops[-1], ASTEdge):
         ops = ops + [ASTNode()]
 
-    # Decided once per chain: the #2039 column restore re-joins the whole edge frame per step.
+    # Once per chain: the alias-shadow restore re-joins the whole edge frame per step.
     _alias_shadow_restore = _edge_alias_can_shadow_column(ops, self)
 
     if any(isinstance(op, ASTEdge) and op.prune_to_endpoints and op.is_simple_single_hop() for op in ops):
