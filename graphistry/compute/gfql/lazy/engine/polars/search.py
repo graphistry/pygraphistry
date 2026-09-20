@@ -35,7 +35,7 @@ def auto_search_columns(
                                    pl.UInt8, pl.UInt16, pl.UInt32, pl.UInt64,
                                    pl.Float32, pl.Float64):
             chosen.append(real)
-        elif numeric_ok and isinstance(dt, pl.Datetime):
+        elif numeric_ok and (isinstance(dt, pl.Datetime) or dt == pl.Date):
             chosen.append(real)
     return chosen
 
@@ -63,7 +63,8 @@ def search_match_expr(schema: "Mapping[str, pl.DataType]", chosen: Sequence[str]
         pl.UInt8, pl.UInt16, pl.UInt32, pl.UInt64,
         pl.Float32, pl.Float64,
     }
-    if any(schema[real] not in _stringify_ok and not isinstance(schema[real], pl.Datetime)
+    if any(schema[real] not in _stringify_ok and schema[real] != pl.Date
+           and not isinstance(schema[real], pl.Datetime)
            for real in chosen):
         return None
     exprs = []
@@ -75,10 +76,10 @@ def search_match_expr(schema: "Mapping[str, pl.DataType]", chosen: Sequence[str]
             # native on purpose: a device must not change the answer
             from graphistry.compute.gfql.wysiwyg import float_render_expr_polars
             base = float_render_expr_polars(pl.col(real), dt)
-        elif isinstance(dt, pl.Datetime):
+        elif isinstance(dt, pl.Datetime) or dt == pl.Date:
             # native on purpose: a device must not change the answer
             from graphistry.compute.gfql.wysiwyg import datetime_render_expr_polars
-            base = datetime_render_expr_polars(pl.col(real))
+            base = datetime_render_expr_polars(pl.col(real), dt)
         elif dt == pl.Boolean:
             # null cells must STAY null (never match) — bare when/otherwise would
             # send null conditions to the 'False' branch

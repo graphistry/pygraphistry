@@ -280,17 +280,28 @@ def render_datetime_cudf(  # pragma: no cover - cuDF-only; the changed-line-cove
     return rendered.where(present, None)
 
 
-def datetime_render_expr_polars(col: "pl.Expr", tz: str = DEFAULT_TEMPORAL_TZ) -> "pl.Expr":
+def datetime_render_expr_polars(
+    col: "pl.Expr", dtype: "pl.DataType", tz: str = DEFAULT_TEMPORAL_TZ
+) -> "pl.Expr":
     """Inspector render of a polars datetime column as an expression.
 
     Same output as :func:`render_datetime_pandas`. chrono accepts the no-leading-zero
     specifiers moment's ``D`` and ``h`` need, and names the zone once the column carries one,
     so this is one expression rather than assembled components. ``%p`` is upper case in chrono
     and lower in moment, so it is rendered separately and folded.
+
+    ``dtype`` decides how the column reaches a zone: a naive one is stamped UTC, one that
+    already carries a zone is CONVERTED (stamping it would relabel the same wall clock as a
+    different instant), and a date is widened to midnight first.
     """
     import polars as pl
 
-    localized = col.dt.replace_time_zone("UTC").dt.convert_time_zone(tz)
+    if dtype == pl.Date:
+        col = col.cast(pl.Datetime("us"))
+        aware = False
+    else:
+        aware = isinstance(dtype, pl.Datetime) and dtype.time_zone is not None
+    localized = (col if aware else col.dt.replace_time_zone("UTC")).dt.convert_time_zone(tz)
     return (
         localized.dt.strftime("%b %-d %Y, %-I:%M:%S ")
         + localized.dt.strftime("%p").str.to_lowercase()

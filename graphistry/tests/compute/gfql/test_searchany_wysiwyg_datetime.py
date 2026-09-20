@@ -124,8 +124,9 @@ class TestPolars:
         stamps = ["2024-01-05T03:04:05", "2024-01-05T00:00:00", "2024-01-05T12:00:00",
                   "2024-12-25T23:59:59", "1999-11-30T13:45:07"]
         want = render_datetime_pandas(pd.Series(pd.to_datetime(stamps))).tolist()
-        got = (pl.DataFrame({"t": pl.Series(stamps).str.to_datetime()})
-               .select(datetime_render_expr_polars(pl.col("t")).alias("o"))["o"].to_list())
+        df = pl.DataFrame({"t": pl.Series(stamps).str.to_datetime()})
+        got = df.select(
+            datetime_render_expr_polars(pl.col("t"), df["t"].dtype).alias("o"))["o"].to_list()
         assert got == want
 
     def test_polars_render_honours_the_timezone(self):
@@ -133,8 +134,8 @@ class TestPolars:
         from graphistry.compute.gfql.wysiwyg import datetime_render_expr_polars
 
         df = pl.DataFrame({"t": pl.Series(["2024-01-05T03:04:05"]).str.to_datetime()})
-        got = df.select(
-            datetime_render_expr_polars(pl.col("t"), "America/New_York").alias("o"))["o"][0]
+        got = df.select(datetime_render_expr_polars(
+            pl.col("t"), df["t"].dtype, "America/New_York").alias("o"))["o"][0]
         assert got == "Jan 4 2024, 10:04:05 pm EST"
 
     def test_polars_search_answers_the_same_rows_as_pandas_end_to_end(self):
@@ -160,3 +161,33 @@ class TestPolars:
         for term in ["2024", "2023", "05", "9999"]:
             assert (hits(nodes_pl, edges_pl, "polars", term)
                     == hits(nodes_pd, edges_pd, "pandas", term)), f"term={term!r}"
+
+    def test_polars_converts_a_tz_aware_column_instead_of_relabelling_it(self):
+        """Stamping UTC onto a column that already carries a zone moves the instant."""
+        pl = pytest.importorskip("polars")
+        from graphistry.compute.gfql.wysiwyg import datetime_render_expr_polars
+
+        df = pl.DataFrame({"t": pl.Series(["2024-01-05T03:04:05"]).str.to_datetime()
+                           .dt.replace_time_zone("America/New_York")})
+        got = df.select(
+            datetime_render_expr_polars(pl.col("t"), df["t"].dtype).alias("o"))["o"][0]
+        assert got == "Jan 5 2024, 8:04:05 am UTC", "03:04 in New York is 08:04 UTC"
+
+    def test_polars_date_columns_render_at_midnight_like_pandas(self):
+        """A polars Date has no time; pandas widens the same value to midnight."""
+        pl = pytest.importorskip("polars")
+        from graphistry.compute.gfql.wysiwyg import datetime_render_expr_polars
+
+        df = pl.DataFrame({"t": pl.Series(["2024-01-05"]).str.to_date()})
+        got = df.select(
+            datetime_render_expr_polars(pl.col("t"), df["t"].dtype).alias("o"))["o"][0]
+        assert got == render_datetime_pandas(pd.Series(pd.to_datetime(["2024-01-05"]))).iloc[0]
+
+    def test_polars_null_rows_render_as_nothing(self):
+        pl = pytest.importorskip("polars")
+        from graphistry.compute.gfql.wysiwyg import datetime_render_expr_polars
+
+        df = pl.DataFrame({"t": pl.Series(["2024-01-05T03:04:05", None]).str.to_datetime()})
+        got = df.select(
+            datetime_render_expr_polars(pl.col("t"), df["t"].dtype).alias("o"))["o"].to_list()
+        assert got[1] is None
