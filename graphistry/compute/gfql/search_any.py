@@ -12,7 +12,7 @@ rules as ``=~``."""
 import re
 from typing import List, Optional
 
-from graphistry.compute.gfql.wysiwyg import DEFAULT_FLOAT_PRECISION
+from graphistry.compute.gfql.wysiwyg import DEFAULT_FLOAT_PRECISION, DEFAULT_TEMPORAL_TZ
 from graphistry.compute.typing import DataFrameT, DType, SeriesT
 
 # inspector's numeric-term gate (streamgl-viz sortAndFilterRowsByQuery.js)
@@ -36,6 +36,11 @@ def _is_int_dtype(dtype: DType) -> bool:
 def _is_float_dtype(dtype: DType) -> bool:
     import pandas.api.types as pat
     return bool(pat.is_float_dtype(dtype))
+
+
+def _is_datetime_dtype(dtype: DType) -> bool:
+    import pandas.api.types as pat
+    return bool(pat.is_datetime64_any_dtype(dtype))
 
 
 def _has_string_content(df: DataFrameT, c: object) -> bool:
@@ -73,7 +78,8 @@ def search_candidate_columns(
         dt = df[c].dtype
         if _has_string_content(df, c):
             out.append(c)
-        elif numeric_ok and (_is_int_dtype(dt) or _is_float_dtype(dt)):
+        elif numeric_ok and (_is_int_dtype(dt) or _is_float_dtype(dt)
+                             or _is_datetime_dtype(dt)):
             out.append(c)
     return out
 
@@ -86,11 +92,14 @@ def search_any_mask(
     regex: bool = False,
     columns: Optional[List[str]] = None,
     float_precision: int = DEFAULT_FLOAT_PRECISION,
+    temporal_tz: str = DEFAULT_TEMPORAL_TZ,
 ) -> Optional[SeriesT]:
     """Boolean row mask over ``df`` (pandas or cuDF), or None to decline (an explicit
     column is missing). Null cells never match; no candidate columns -> all-False.
 
-    ``float_precision`` is the inspector's fixed decimal count for fractional floats."""
+    ``float_precision`` is the inspector's fixed decimal count for fractional floats;
+    ``temporal_tz`` is the zone datetimes are rendered in, since the inspector renders in the
+    viewer's zone and a server cannot know it."""
     from graphistry.compute.predicates.str import (
         Contains, _cudf_casefold_or_decline, _cudf_regex_prep,
     )
@@ -108,11 +117,11 @@ def search_any_mask(
         for c in cols:
             dt = df[c].dtype
             if not (_is_searchable_string_dtype(dt) or _is_int_dtype(dt)
-                    or _is_float_dtype(dt) or bool(pd_types.is_bool_dtype(dt))):
+                    or _is_float_dtype(dt) or _is_datetime_dtype(dt)
+                    or bool(pd_types.is_bool_dtype(dt))):
                 raise NotImplementedError(
-                    "cuDF searchAny explicit columns support string/int/float/bool dtypes "
-                    "only (temporal stringification diverges from pandas); "
-                    "use engine='pandas'"
+                    "cuDF searchAny explicit columns support string/int/float/bool/datetime "
+                    "dtypes only; use engine='pandas'"
                 )
     if not cols or len(df) == 0:
         if len(df.columns) == 0:
@@ -131,7 +140,15 @@ def search_any_mask(
     for c in cols:
         s = df[c]
         m: SeriesT
-        if _is_float_dtype(s.dtype):
+        if _is_datetime_dtype(s.dtype):
+            # renders null where the inspector displays nothing, which must never match
+            from graphistry.compute.gfql.wysiwyg import (
+                render_datetime_cudf, render_datetime_pandas)
+            rendered = (render_datetime_cudf(s, temporal_tz)
+                        if "cudf" in type(s).__module__
+                        else render_datetime_pandas(s, temporal_tz))
+            m = pred(rendered) & rendered.notna()
+        elif _is_float_dtype(s.dtype):
             # renders null where the inspector displays nothing, which must never match
             from graphistry.compute.gfql.wysiwyg import render_float_cudf, render_float_pandas
             rendered = (render_float_cudf(s, float_precision)

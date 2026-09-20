@@ -12,7 +12,7 @@ from .chain_let import chain_let as chain_let_base
 from .gfql_unified import gfql as gfql_base
 from .gfql_validate import gfql_validate as gfql_validate_base
 from .gfql.strictness import StrictInput
-from .gfql.wysiwyg import DEFAULT_FLOAT_PRECISION
+from .gfql.wysiwyg import DEFAULT_FLOAT_PRECISION, DEFAULT_TEMPORAL_TZ
 from .chain_remote import (
     chain_remote as chain_remote_base,
     chain_remote_shape as chain_remote_shape_base
@@ -527,11 +527,13 @@ class ComputeMixin(Plottable):
             return self.nodes(out_df)
 
     def search_nodes(self, term, columns=None, case_sensitive=False, regex=False,
-                     float_precision: int = DEFAULT_FLOAT_PRECISION):
+                     float_precision: int = DEFAULT_FLOAT_PRECISION,
+                     temporal_tz: str = DEFAULT_TEMPORAL_TZ):
         """Keep nodes where ANY column matches ``term`` (viz-filter L2 inspector
         semantics: OR across columns; case-insensitive substring default; regex
         opt-in; string columns always, integer AND FLOAT columns iff the term is a
-        numeric literal; dates decline).
+        numeric literal; DATE columns too, rendered as the inspector displays them in
+        ``temporal_tz``).
 
         Floats match what the viz inspector DISPLAYS, not ``repr``: fractional values
         render to ``float_precision`` decimals (so ``0.1+0.2`` is found by ``"0.3"``,
@@ -556,7 +558,7 @@ class ComputeMixin(Plottable):
                 "search_any op or engine='pandas'")
         mask = search_any_mask(
             df, term, case_sensitive=case_sensitive, regex=regex, columns=columns,
-            float_precision=float_precision)
+            float_precision=float_precision, temporal_tz=temporal_tz)
         if mask is None:
             raise GFQLValidationError(
                 ErrorCode.E108,
@@ -566,7 +568,8 @@ class ComputeMixin(Plottable):
         return self.nodes(df[mask])
 
     def search_edges(self, term, columns=None, case_sensitive=False, regex=False,
-                     float_precision: int = DEFAULT_FLOAT_PRECISION):
+                     float_precision: int = DEFAULT_FLOAT_PRECISION,
+                     temporal_tz: str = DEFAULT_TEMPORAL_TZ):
         """Keep edges where ANY column matches ``term`` — see :meth:`search_nodes`."""
         from graphistry.compute.gfql.search_any import search_any_mask
         from graphistry.compute.exceptions import ErrorCode, GFQLValidationError
@@ -579,7 +582,7 @@ class ComputeMixin(Plottable):
                 "search_any op or engine='pandas'")
         mask = search_any_mask(
             df, term, case_sensitive=case_sensitive, regex=regex, columns=columns,
-            float_precision=float_precision)
+            float_precision=float_precision, temporal_tz=temporal_tz)
         if mask is None:
             raise GFQLValidationError(
                 ErrorCode.E108,
