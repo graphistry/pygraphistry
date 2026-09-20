@@ -13,6 +13,8 @@ import graphistry
 from graphistry.compute.ast import n, e_forward, e_undirected
 from graphistry.compute.gfql.lazy.engine.polars.chain import _edge_alias_can_shadow_column
 
+pytest.importorskip("polars")
+
 
 @pytest.fixture()
 def g():
