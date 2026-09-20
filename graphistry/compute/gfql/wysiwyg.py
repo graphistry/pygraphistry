@@ -196,6 +196,8 @@ def render_datetime_pandas(s: SeriesT, tz: str = DEFAULT_TEMPORAL_TZ) -> SeriesT
     browser bundles for historical or contested zones (``Africa/Juba`` reads ``CAST`` here and
     ``EAT`` in moment). Search terms are numeric, so an alphabetic abbreviation cannot be matched
     either way.
+
+    A search whose term is not numeric never reaches here, since the column is not gated in.
     """
     import numpy as np
     import pandas as pd
