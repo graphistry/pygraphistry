@@ -59,8 +59,19 @@ class Chain(ASTSerializable):
     ) -> None:
         self.chain = chain
         self.where = normalize_where_entries(where or [])
+        self._constructor_validated: bool = validate
+        self._gfql_validated_in_call: bool = False
         if validate:
             self.validate(collect_all=False)
+
+    def gfql_validated(self) -> "Chain":
+        """Mark a Chain that `gfql` built and is executing in the same call."""
+        self._gfql_validated_in_call = self._constructor_validated
+        return self
+
+    @staticmethod
+    def ops_were_validated_in_this_call(ops: Union[List[ASTObject], "Chain"]) -> bool:
+        return isinstance(ops, Chain) and ops._gfql_validated_in_call
 
     def validate(self, collect_all: bool = False) -> Optional[List['GFQLValidationError']]:
         from graphistry.compute.exceptions import ErrorCode, GFQLTypeError, GFQLValidationError
@@ -553,6 +564,56 @@ def combine_steps(
     return out_df
 
 
+
+def select_attach_prop_columns(
+    middle: Sequence[ASTObject],
+    calls: Sequence[ASTObject],
+    node_columns: Sequence[str],
+    node_id: Optional[str],
+) -> Optional[Dict[str, List[str]]]:
+    """Projection pushdown for a bare ``rows()`` immediately followed by ``select``.
+
+    Returns, per node alias of ``middle``, the property columns that select reads,
+    so the bindings builder attaches only those. None keeps attach-all: any item
+    that is not a literal, a bare alias id, an edge-alias column, or a plain
+    ``alias.column`` over an existing node column (absent properties keep their
+    3VL verdict on the full table).
+    """
+    from graphistry.compute.ast import ASTCall, ASTEdge, ASTNode
+
+    if len(calls) < 2 or not isinstance(calls[1], ASTCall) or calls[1].function not in ("select", "return_"):
+        return None
+    items = calls[1].params.get("items")
+    if not isinstance(items, list):
+        return None
+    node_aliases = [op._name for op in middle if isinstance(op, ASTNode) and isinstance(op._name, str)]
+    edge_aliases = {op._name for op in middle if isinstance(op, ASTEdge) and isinstance(op._name, str)}
+    if not node_aliases:
+        return None
+    columns = set(map(str, node_columns))
+    requested: Dict[str, List[str]] = {alias: [] for alias in node_aliases}
+    for item in items:
+        if isinstance(item, str):
+            expr: Any = item
+        elif isinstance(item, (list, tuple)) and len(item) == 2:
+            expr = item[1]
+        else:
+            return None
+        if not isinstance(expr, str):
+            continue  # literal
+        if expr in requested or expr in edge_aliases:
+            continue  # bare id column, always on the state
+        alias, sep, prop = expr.partition(".")
+        if not sep:
+            return None
+        if alias in edge_aliases:
+            continue  # edge payload columns ride on the state
+        if alias not in requested or (prop not in columns and prop != node_id):
+            return None
+        if prop not in requested[alias]:
+            requested[alias].append(prop)
+    return requested
+
 def _get_boundary_calls(ops: List[ASTObject]) -> Tuple[List[ASTObject], List[ASTObject], List[ASTObject]]:
     """Split ops into call-prefix, traversal middle, and call-suffix segments.
 
@@ -787,10 +848,16 @@ def _handle_boundary_calls(
             # threw them away, so merely naming the middle silently attached every alias's
             # properties. The excluded params above cannot be present here.
             prev_params = suffix[0].params
+            attach_prop_columns = prev_params.get("attach_prop_columns")
+            if attach_prop_columns is None and suffix_base_graph._nodes is not None:
+                attach_prop_columns = select_attach_prop_columns(
+                    middle, suffix, list(suffix_base_graph._nodes.columns), suffix_base_graph._node,
+                )
             suffix = [rows_fn(
                 binding_ops=serialize_binding_ops(middle),
                 alias_prefilters=prev_params.get("alias_prefilters"),
                 attach_prop_aliases=prev_params.get("attach_prop_aliases"),
+                attach_prop_columns=attach_prop_columns,
             )] + list(suffix[1:])
         g_temp = _chain_impl(
             g_temp,
@@ -985,7 +1052,8 @@ def _chain_with_strictness(
         # (Dependency guards for polars / cudf_polars are above, pre-coercion.)
         if validate_schema:
             # Construct a fresh validator: the constructor validates children once.
-            Chain(ops if not isinstance(ops, Chain) else ops.chain)
+            if not Chain.ops_were_validated_in_this_call(ops):
+                Chain(ops if not isinstance(ops, Chain) else ops.chain)
             validate_graph_shape(self, ops, collect_all=False)  # pandas gets this via validate_chain_schema (#1889)
         from graphistry.compute.gfql.lazy.engine.polars.chain import chain_polars
         from graphistry.compute.gfql.lazy import target_mode, ExecutionTarget
@@ -1050,10 +1118,11 @@ def _chain_impl(
     if isinstance(engine, str):
         engine = EngineAbstract(engine)
 
+    validated_in_call = Chain.ops_were_validated_in_this_call(ops)
     if isinstance(ops, Chain):
         ops = ops.chain
 
-    if validate_schema:
+    if validate_schema and not validated_in_call:
         # Revalidate mutable operations on every execution, including reused Chains.
         Chain(ops)
 

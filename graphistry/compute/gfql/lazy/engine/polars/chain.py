@@ -19,6 +19,7 @@ from graphistry.compute.endpoint_utils import drop_null_endpoint_edges
 from graphistry.Plottable import Plottable
 from graphistry.compute.ast import ASTObject, ASTNode, ASTEdge
 from .chain_specializations.admission import polars_plain_single_hop_admits, polars_single_node_admits
+from .chain_specializations.bindings_select import try_bindings_select_polars
 from .chain_specializations.point_rows import _try_point_rows_polars
 from .chain_specializations.hotpaths import _plain_seeded_index_hop_polars, _plain_single_hop_polars, _single_node_polars, _try_seeded_chain_polars
 
@@ -144,6 +145,23 @@ def _alias_hop_bounds(op: ASTEdge) -> Tuple[int, Optional[int]]:
     if op.to_fixed_point:
         max_hop = None
     return min_hop, max_hop
+
+
+def _edge_alias_can_shadow_column(ops: Sequence[ASTObject], g: Plottable) -> bool:
+    """Whether an edge alias could be stamped over a column it also filters on.
+
+    The alias-shadow restore re-joins the WHOLE edge frame, which on a 34M-edge graph costs more
+    than the hop it protects. Shadowing needs an alias NAMED like an edge column; otherwise the
+    step's own edges already carry the graph's columns. Unprovable cases keep the restore.
+    """
+    edges = g._edges
+    if edges is None:
+        return True
+    try:
+        cols = set(edges.columns)
+    except Exception:
+        return True
+    return any(isinstance(op, ASTEdge) and getattr(op, "_name", None) in cols for op in ops)
 
 
 def _step_edges_with_source_columns(g: Plottable, g_step: Plottable, edge_id: str) -> "pl.DataFrame":
@@ -515,7 +533,7 @@ def _run_calls_polars(g_cur, calls, start_nodes, base_graph, middle):
     fallback) rather than secretly running the pandas row pipeline.
     """
     from graphistry.compute.ast import ASTCall, ASTNode as _ASTNode, ASTEdge as _ASTEdge, rows as rows_fn
-    from graphistry.compute.chain import serialize_binding_ops
+    from graphistry.compute.chain import serialize_binding_ops, select_attach_prop_columns
     from graphistry.compute.gfql.exec_context import attach_row_exec_context, clear_row_exec_context
 
     calls = list(calls)
@@ -547,10 +565,16 @@ def _run_calls_polars(g_cur, calls, start_nodes, base_graph, middle):
         # than building a fresh one, so the params the rewrite has no opinion about
         # (`attach_prop_aliases`, `alias_prefilters`) reach the binding_ops builder.
         prev_params = calls[0].params
+        attach_prop_columns = prev_params.get("attach_prop_columns")
+        if attach_prop_columns is None and base_graph._nodes is not None:
+            attach_prop_columns = select_attach_prop_columns(
+                middle, calls, list(base_graph._nodes.columns), base_graph._node,
+            )
         calls = [rows_fn(
             binding_ops=serialize_binding_ops(middle),
             alias_prefilters=prev_params.get("alias_prefilters"),
             attach_prop_aliases=prev_params.get("attach_prop_aliases"),
+            attach_prop_columns=attach_prop_columns,
         )] + list(calls[1:])
 
     # Per-op NATIVE-OR-DEFER. Ops that don't lower:
@@ -667,6 +691,7 @@ def _try_native_row_op(g_cur, op):
             bindings_result = binding_rows_polars(
                 g_cur, op.params["binding_ops"], op.params.get("attach_prop_aliases"),
                 alias_prefilters=op.params.get("alias_prefilters"),
+                attach_prop_columns=op.params.get("attach_prop_columns"),
             )
             if bindings_result is not None:
                 return bindings_result
@@ -810,6 +835,16 @@ def chain_polars(self: Plottable, ops, start_nodes: Optional[Any] = None) -> Plo
     from graphistry.compute.gfql.index.handoff import (
         IndexedBindingsHandoff, attach_handoff,
     )
+    projected = try_bindings_select_polars(self, middle, suffix, start_nodes)
+    if projected is not None:
+        from .chain_specializations.bindings_select import rewrap_projected_polars
+        from graphistry.compute.gfql.exec_context import clear_row_exec_context
+        g_cur = rewrap_projected_polars(self, middle, projected)
+        rest = list(suffix[2:])
+        if rest:
+            return _run_calls_polars(g_cur, rest, start_nodes, base_graph=self, middle=middle)
+        # The twin of `_run_calls_polars`' own tail: row plumbing never escapes a result.
+        return clear_row_exec_context(g_cur)
 
     indexed_state, indexed_attempted = _try_indexed_middle_polars(self, middle, suffix, start_nodes)
     if indexed_state is not None:
@@ -924,6 +959,9 @@ def _chain_traversal_polars(self: Plottable, ops, start_nodes: Optional[Any] = N
         ops = [ASTNode()] + ops
     if isinstance(ops[-1], ASTEdge):
         ops = ops + [ASTNode()]
+
+    # Once per chain: the alias-shadow restore re-joins the whole edge frame per step.
+    _alias_shadow_restore = _edge_alias_can_shadow_column(ops, self)
 
     if any(isinstance(op, ASTEdge) and op.prune_to_endpoints and op.is_simple_single_hop() for op in ops):
         raise NotImplementedError(
@@ -1050,8 +1088,10 @@ def _chain_traversal_polars(self: Plottable, ops, start_nodes: Optional[Any] = N
         # table). Single-hop reverse: None -> gate = all_nodes (vacuous), matching pandas
         # use_fast_backward (full g._nodes).
         _iu = g_step._nodes if (isinstance(op, ASTEdge) and not op.is_simple_single_hop()) else None
-        g_step_full = g_step.nodes(g._nodes, g._node).edges(
-            _step_edges_with_source_columns(g, g_step, EID), src, dst, edge=EID)
+        g_step_full = g_step.nodes(g._nodes, g._node)
+        if _alias_shadow_restore:
+            g_step_full = g_step_full.edges(
+                _step_edges_with_source_columns(g, g_step, EID), src, dst, edge=EID)
         rev = _exec(op.reverse(), g_step_full, prev_wf, target_wf, intermediate_universe=_iu,
                     auto_hop_col=auto_hop_col)
         # Undirected single-hop backward threading: the generic hop returns a ONE-SIDED
@@ -1095,7 +1135,9 @@ def _chain_traversal_polars(self: Plottable, ops, start_nodes: Optional[Any] = N
                     _semi(g._nodes, prev_src, node_col, node_col)
                     if prev_src is not None else None
                 )
-                g_sub = g.edges(_step_edges_with_source_columns(g, g_step, EID), src, dst, edge=g._edge)
+                g_sub = g.edges(
+                    _step_edges_with_source_columns(g, g_step, EID) if _alias_shadow_restore
+                    else g_step._edges, src, dst, edge=g._edge)
                 edge_steps.append((op, _exec(op, g_sub, prev_wf, None, auto_hop_col=auto_hop_col)))
             else:
                 edge_steps.append((op, g_step))

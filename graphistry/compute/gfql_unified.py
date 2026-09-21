@@ -68,6 +68,8 @@ from graphistry.compute.gfql.cypher.reentry.execution import (
 from graphistry.compute.gfql.cypher.call_procedures import CompiledCypherProcedureCall, execute_cypher_call
 from graphistry.compute.gfql.cypher.result_postprocess import (
     apply_result_projection,
+    entity_projection_presence_for_rows,
+    is_polars_projection_ids,
     entity_projection_meta_entry as _entity_projection_meta_entry,
 )
 from graphistry.compute.gfql.df_executor import (
@@ -120,16 +122,16 @@ def _slice_reentry_prefix_result_row(
         return prefix_result
     out = prefix_result.bind()
     out._nodes = cast(DataFrameT, rows_df.iloc[row_index:row_index + 1].reset_index(drop=True))
-    entity_meta = getattr(prefix_result, "_cypher_entity_projection_meta", None)
-    if isinstance(entity_meta, dict):
-        entry = entity_meta.get(output_name)
-        if isinstance(entry, dict):
-            sliced_entry = dict(entry)
-            ids = sliced_entry.get("ids")
-            if ids is not None and hasattr(ids, "iloc"):
-                ids_obj = cast(Any, ids)
-                sliced_entry["ids"] = cast(Any, ids_obj.iloc[row_index:row_index + 1]).reset_index(drop=True)
-            setattr(out, "_cypher_entity_projection_meta", {output_name: sliced_entry})
+    out._cypher_entity_projection_presence = entity_projection_presence_for_rows(prefix_result, [row_index])
+    entry = prefix_result._cypher_entity_projection_meta.get(output_name)
+    if entry is not None:
+        sliced_entry = entry.copy()
+        ids = entry["ids"]
+        sliced_entry["ids"] = (
+            ids.slice(row_index, 1) if is_polars_projection_ids(ids)
+            else ids.iloc[row_index:row_index + 1].reset_index(drop=True)
+        )
+        out._cypher_entity_projection_meta = {output_name: sliced_entry}
     return out
 
 
@@ -163,12 +165,8 @@ def _projector_recorded_matched_seed_ids(
     alignment_result: Plottable,
     alignment_output_name: str,
 ) -> bool:
-    meta = getattr(alignment_result, "_cypher_entity_projection_meta", None)
-    return (
-        isinstance(meta, dict)
-        and alignment_output_name in meta
-        and "ids" in meta[alignment_output_name]
-    )
+    meta = alignment_result._cypher_entity_projection_meta
+    return alignment_output_name in meta
 
 
 def _apply_optional_null_fill(
@@ -245,6 +243,7 @@ def _apply_optional_null_fill(
     )
     fill_df = df_ctor({col: [null_row.get(col)] for col in fill_columns_spanning_projected_frame})
     segments = []
+    presence_indices: List[Optional[int]] = []
     matched_idx = 0
     for base_id in base_ids:
         group_start = matched_idx
@@ -261,8 +260,10 @@ def _apply_optional_null_fill(
                     language="cypher",
                 )
             segments.append(_slice_rows(rows_df, group_start, matched_idx))
+            presence_indices.extend(range(group_start, matched_idx))
         else:
             segments.append(fill_df)
+            presence_indices.append(None)
     if matched_idx != len(matched_id_list):
         raise GFQLValidationError(
             ErrorCode.E108,
@@ -275,6 +276,7 @@ def _apply_optional_null_fill(
 
     out = result.bind()
     out._nodes = concat(segments, ignore_index=True, sort=False) if segments else df_ctor()
+    out._cypher_entity_projection_presence = entity_projection_presence_for_rows(result, presence_indices)
     edges_df = result._edges
     if edges_df is not None:
         out._edges = edges_df[:0]
@@ -312,9 +314,10 @@ def _semi_join_prune_arm_rows_to_base_keys(
     """Arm rows restricted to join-key values already present in the accumulated result."""
     if is_polars_df(joined):
         import polars as pl
+        from graphistry.compute.gfql.lazy.engine.polars.membership import is_in_ids
         if len(join_cols) == 1:
             # polars-stub gap: ``is_polars_df`` cannot narrow the eager-or-lazy union.
-            return opt_rows_df.filter(pl.col(join_cols[0]).is_in(joined[join_cols[0]]))  # type: ignore[index,arg-type]
+            return opt_rows_df.filter(is_in_ids(pl.col(join_cols[0]), joined[join_cols[0]]))  # type: ignore[index,arg-type]
         return opt_rows_df.join(joined.select(join_cols).unique(), on=join_cols, how="inner")
     if len(join_cols) == 1:
         return opt_rows_df[opt_rows_df[join_cols[0]].isin(joined[join_cols[0]])]
@@ -358,6 +361,8 @@ def _synthesize_bare_alias_from_prefixed_column(
     polars = is_polars_df(joined)
     if polars:
         import polars as pl
+    else:
+        pl = None  # type: ignore[assignment]
     for alias in opt_only_aliases:
         if alias in joined.columns:
             continue
@@ -480,7 +485,13 @@ def _apply_connected_optional_match(
         shared_node_aliases: Sequence[str],
         joined_rows: DataFrameT,
     ) -> Optional[DataFrameT]:
-        """Seed optional-arm materialization when the first node is already bound."""
+        """Seed optional-arm materialization when the first node is already bound.
+
+        Both polars arms below are dead while the caller routes polars engines to
+        ``_optional_arm_membership_chain`` -- they are kept because a routing change would
+        otherwise reach the pandas ``.isin`` with polars frames. The no-cover pragma on the
+        second one expires with that split.
+        """
         if not binding_ops:
             return None
         first_op = binding_ops[0]
@@ -516,12 +527,17 @@ def _apply_connected_optional_match(
         else:
             seed_frame = cast(DataFrameT, df_to_engine(
                 seed_src.dropna().drop_duplicates().rename(columns={joined_col: node_col}), concrete_engine))
+        if is_polars_df(base_nodes) and is_polars_df(seed_frame):  # pragma: no cover - unreachable (polars routes elsewhere)
+            import polars as pl
+            from graphistry.compute.gfql.lazy.engine.polars.dtypes import is_lazy
+            from graphistry.compute.gfql.lazy.engine.polars.membership import is_in_ids
+            seed_eager = seed_frame.collect() if is_lazy(seed_frame) else seed_frame
+            return cast(DataFrameT, base_nodes.filter(
+                is_in_ids(pl.col(node_col), seed_eager.get_column(node_col))))
         # Declared, not cast: selecting one column off a frame is a Series on every engine, so
         # the annotation states that directly instead of re-asserting it at the call site.
         seed_ids: SeriesT = seed_frame[node_col]
         node_ids: SeriesT = base_nodes[node_col]
-        if is_polars_df(base_nodes):
-            return cast(DataFrameT, base_nodes.filter(node_ids.is_in(seed_ids)))
         return cast(DataFrameT, base_nodes[node_ids.isin(seed_ids)].copy())
 
     # Run base chain to get binding rows.
@@ -2854,5 +2870,5 @@ def _chain_dispatch(
             inputs.include_paths,
         )
     # Validation state applies only to the fresh list-input Chain; execution revalidates mutable operations.
-    chain_input = chain_obj if _ast_validated else chain_obj.chain
+    chain_input = chain_obj.gfql_validated() if _ast_validated else chain_obj.chain
     return chain_impl(g, chain_input, engine, policy=policy, context=context, start_nodes=start_nodes)

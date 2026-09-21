@@ -12,7 +12,10 @@ Bulk operations stay vectorized; bounded CPU gathers can reuse row slices.
 """
 from __future__ import annotations
 
-from typing import Any, Tuple, cast
+from typing import TYPE_CHECKING, Any, Optional, Tuple, cast
+
+if TYPE_CHECKING:
+    import polars as pl
 
 from graphistry.Engine import Engine
 from graphistry.compute.typing import DataFrameT
@@ -54,6 +57,24 @@ def col_to_array(df: DataFrameT, col: str, engine: Engine) -> ArrayLike:
     return cast(ArrayLike, values)
 
 
+def as_eager_polars_frame(df: DataFrameT) -> Optional["pl.DataFrame"]:
+    """``df`` as a statically typed eager polars frame, or None when it is not one.
+
+    Array fast paths admit only eager polars; narrowing once here is what lets the
+    callers keep real polars types instead of per-call ignores.
+    """
+    import polars as pl
+
+    return df if isinstance(df, pl.DataFrame) else None
+
+
+def take_rows_polars(df: "pl.DataFrame", positions: ArrayLike) -> "pl.DataFrame":
+    """``take_rows`` for an already-narrowed eager polars frame; order follows ``positions``."""
+    import numpy as np
+
+    return df[np.asarray(positions)]
+
+
 def ids_to_array(ids: DataFrameT, col: str, engine: Engine) -> ArrayLike:
     """Frontier ids (a frame/Series) -> backend array, matching index backend."""
     if engine in (Engine.POLARS, Engine.POLARS_GPU):
@@ -62,6 +83,14 @@ def ids_to_array(ids: DataFrameT, col: str, engine: Engine) -> ArrayLike:
         ids = ids.dropna(subset=[col])
     return col_to_array(ids, col, engine)
 
+
+
+def unique_with_counts(xp: ArrayNamespace, values: ArrayLike) -> Tuple[ArrayLike, ArrayLike]:
+    """Sorted distinct values of a 1-D array and how often each occurs."""
+    return cast(  # hygiene-ok: explicit-cast -- ArrayNamespace.unique has one declared arity; return_counts is the numpy/cupy two-array form
+        Tuple[ArrayLike, ArrayLike],
+        xp.unique(values, return_counts=True),  # type: ignore[call-arg]
+    )
 
 
 def take_rows(df: DataFrameT, positions: ArrayLike, engine: Engine) -> DataFrameT:
@@ -105,9 +134,10 @@ def select_by_ids(df: DataFrameT, col: str, ids: ArrayLike, engine: Engine) -> D
         import numpy as np
         import polars as pl
 
-        # Semi-join (not Expr.is_in(Series), which polars 1.42 deprecates as ambiguous —
-        # pola-rs/polars#22149) — vectorized AND preserves the left (df) row order, which
-        # the node materialization relies on (table-order parity with the scan).
+        # Semi-join (not Expr.is_in(Series), which polars >= 1.28.0 deprecates as ambiguous —
+        # pola-rs/polars#22149; see lazy/engine/polars/membership.py) — vectorized AND
+        # preserves the left (df) row order, which the node materialization relies on
+        # (table-order parity with the scan).
         # Not deduplicated: a semi-join emits a left row iff >=1 match exists, so repeated
         # ids neither change the result nor multiply rows — the dedup is a hash pass for
         # nothing. (cudf/pandas `isin` below has the same set semantics, also without a

@@ -426,6 +426,19 @@ def _record_native_seed_lane(
         hop_details=[{"hop": 1}] if hop_count else None)
 
 
+def _index_edge_positions(
+    adj: "AdjacencyIndex", ids: Union["SeriesT", Sequence[Any]],
+    xp: ArrayNamespace, preserve_input_order: bool = False,
+) -> Optional[ArrayLike]:
+    """Edge ROW POSITIONS incident to ``ids``, before any frame is built."""
+    from graphistry.compute.gfql.index.lookup import lookup_edge_rows
+    arr = _ids_to_key_array(ids, adj.keys_sorted, xp)
+    if arr is None:
+        return None
+    rows, _ = lookup_edge_rows(adj, arr, xp)
+    return xp.sort(rows) if preserve_input_order else rows
+
+
 def _index_edge_rows(
     adj: "AdjacencyIndex", ids: Union["SeriesT", Sequence[Any]],
     xp: ArrayNamespace, engine: "Engine", edges_df: DataFrameT,
@@ -433,10 +446,8 @@ def _index_edge_rows(
 ) -> Optional[DataFrameT]:
     """Edge rows incident to ``ids`` on the indexed side via the CSR adjacency
     (searchsorted gather; replaces the O(E) isin scan)."""
-    from graphistry.compute.gfql.index.lookup import lookup_edge_rows
     from graphistry.compute.gfql.index.engine_arrays import take_rows
-    arr = _ids_to_key_array(ids, adj.keys_sorted, xp)
-    if arr is None:
+    positions = _index_edge_positions(adj, ids, xp, preserve_input_order)
+    if positions is None:
         return None
-    rows, _ = lookup_edge_rows(adj, arr, xp)
-    return take_rows(edges_df, xp.sort(rows) if preserve_input_order else rows, engine)
+    return take_rows(edges_df, positions, engine)

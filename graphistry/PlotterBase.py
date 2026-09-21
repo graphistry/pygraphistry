@@ -153,7 +153,7 @@ def maybe_cudf():
         import cudf
         return cudf
     except ImportError:
-        1
+        pass
     except RuntimeError:
         logger.warning('Runtime error import cudf: Available but failed to initialize', exc_info=True)
     return None
@@ -164,7 +164,7 @@ def maybe_dask_cudf():
         import dask_cudf
         return dask_cudf
     except ImportError:
-        1
+        pass
     except RuntimeError:
         logger.warning('Runtime error import dask_cudf: Available but failed to initialize', exc_info=True)
     return None
@@ -175,7 +175,7 @@ def maybe_dask_dataframe():
         import dask.dataframe as dd
         return dd
     except ImportError:
-        1
+        pass
     except RuntimeError:
         logger.warning('Runtime error import dask.dataframe: Available but failed to initialize', exc_info=True)
     return None
@@ -186,7 +186,7 @@ def maybe_spark():
         import pyspark
         return pyspark
     except ImportError:
-        1
+        pass
     except RuntimeError:
         logger.warning('Runtime error import pyspark: Available but failed to initialize', exc_info=True)
     return None
@@ -197,7 +197,7 @@ def maybe_polars():
         import polars
         return polars
     except ImportError:
-        1
+        pass
     except RuntimeError:
         logger.warning('Runtime error importing polars', exc_info=True)
     return None
@@ -257,6 +257,10 @@ class PlotterBase(Plottable):
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         # NOTE: See plotter initialization for session bindings & concurrency notes.
         super().__init__(*args, **kwargs)
+
+        self._cypher_entity_projection_kinds = None
+        self._cypher_entity_projection_presence = {}
+        self._cypher_entity_projection_meta = {}
 
         # Bindings
         self._edges : Any = None
@@ -3014,7 +3018,7 @@ class PlotterBase(Plottable):
             try:
                 g = cast(PlotterBase, self.infer_labels())
             except:
-                1
+                pass
 
         def make_arrow_upload(edges: Any, upload_nodes: Any) -> ArrowUploader:
             edges_arr = g._table_to_arrow(
@@ -3408,7 +3412,6 @@ class PlotterBase(Plottable):
                         logger.debug('pd->arrow memoization miss for id (of %s): %s', len(PlotterBase._pd_hash_to_arrow), hashed)
                 except:
                     logger.debug('Failed to hash pdf', exc_info=True)
-                    1
 
             try:
                 out = pa.Table.from_pandas(table, preserve_index=False).replace_schema_metadata({})
@@ -3451,7 +3454,6 @@ class PlotterBase(Plottable):
                         logger.debug('cudf->arrow memoization miss for id (of %s): %s', len(PlotterBase._cudf_hash_to_arrow), hashed)
                 except:
                     logger.debug('Failed to hash cudf', exc_info=True)
-                    1
 
             try:
                 out = table.to_arrow()
@@ -3654,7 +3656,7 @@ class PlotterBase(Plottable):
             if edges is not None and len(edges) == 0:
                 warn('Graph has no edges, may have rendering issues')
         except:
-            1
+            pass
 
         au : ArrowUploader = ArrowUploader(
             client_session=self.session,

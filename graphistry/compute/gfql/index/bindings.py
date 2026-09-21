@@ -14,7 +14,7 @@ from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple, Union, c
 
 from graphistry.Engine import Engine, df_concat
 from graphistry.Plottable import Plottable
-from graphistry.compute.typing import DataFrameT
+from graphistry.compute.typing import ArrayLike, ArrayNamespace, DataFrameT
 from graphistry.compute.gfql.identifiers import WALK_CURRENT_COL
 
 from .api import (
@@ -25,8 +25,7 @@ from .api import (
     with_index_policy,
 )
 from graphistry.compute.dataframe.join import (
-    estimate_inner_join_rows,
-    path_ordered_expand_join,
+    plan_path_ordered_expand_join,
     semijoin_by_column,
 )
 
@@ -59,9 +58,10 @@ _EDGE_ORD = "__gfql_ib_edge_ord__"
 _ORIENT_ORD = "__gfql_ib_orient_ord__"
 _LEFT_N = "__gfql_ib_left_n__"
 _RIGHT_N = "__gfql_ib_right_n__"
+_ROW_POS = "__gfql_ib_row_pos__"
 _INTERNAL = {
     _CURRENT, _FROM, _TO, _PATH_ORD, _EDGE_ORD, _ORIENT_ORD,
-    _LEFT_N, _RIGHT_N,
+    _LEFT_N, _RIGHT_N, _ROW_POS,
 }
 
 
@@ -172,8 +172,45 @@ def _with_marker(frame: DataFrameT, name: Optional[str], engine: Engine) -> Data
     return cast(DataFrameT, frame.assign(**{name: True}))
 
 
-def _frame_with_positions(
-    frame: DataFrameT, positions: Any, engine: Engine,
+def _take_filtered_rows(
+    frame: DataFrameT,
+    positions: ArrayLike,
+    filter_dict: Optional[dict],  # hygiene-ok: bare-generic -- the filter dict `_filter_frame` takes, passed through unchanged
+    engine: Engine,
+) -> DataFrameT:
+    """``_filter_frame(take_rows(frame, positions))`` with the predicate evaluated first.
+
+    The wide gather-then-filter pays the filter across every column; evaluating the
+    UNCHANGED filter on just the predicate columns (plus a row-position column)
+    and gathering the survivors is the same rows in the same order. Absent
+    predicate columns keep the wide path so its 3VL verdict is unchanged.
+    """
+    columns = set(map(str, frame.columns))
+    if not filter_dict or any(str(col) not in columns for col in filter_dict):
+        return _filter_frame(take_rows(frame, positions, engine), filter_dict, engine)
+    predicate_cols = list(filter_dict)
+    if engine == Engine.POLARS:
+        narrow = frame.select(predicate_cols)  # type: ignore[operator]
+    else:
+        narrow = frame[predicate_cols]
+    narrow = take_rows(narrow, positions, engine)
+    narrow = _with_positions(narrow, _ROW_POS, positions, engine)
+    kept = _filter_frame(narrow, filter_dict, engine)
+    if int(kept.shape[0]) == int(narrow.shape[0]):
+        return take_rows(frame, positions, engine)
+    return take_rows(frame, col_to_array(kept, _ROW_POS, engine), engine)
+
+
+def _covers_ids(
+    frame: DataFrameT, column: str, ids: ArrayLike, engine: Engine, xp: ArrayNamespace,
+) -> bool:
+    """Whether ``frame[column]`` (a gather by ``ids``) still holds EVERY id in ``ids``."""
+    found = xp.unique(col_to_array(frame, column, engine))
+    return int(found.shape[0]) == int(ids.shape[0])
+
+
+def _with_positions(
+    frame: DataFrameT, name: str, positions: ArrayLike, engine: Engine,
 ) -> DataFrameT:
     if engine == Engine.POLARS:
         import numpy as np
@@ -181,9 +218,16 @@ def _frame_with_positions(
 
         return cast(
             DataFrameT,
-            frame.with_columns(pl.Series(_EDGE_ORD, np.asarray(positions))),  # type: ignore[operator]
+            frame.with_columns(pl.Series(name, np.asarray(positions))),  # type: ignore[operator]
         )
-    return cast(DataFrameT, frame.assign(**{_EDGE_ORD: positions}))
+    return cast(DataFrameT, frame.assign(**{name: positions}))
+
+
+def _frame_with_positions(
+    frame: DataFrameT, positions: ArrayLike, engine: Engine,
+) -> DataFrameT:
+    """Tag gathered edge rows with their source row positions, the traversal tiebreak."""
+    return _with_positions(frame, _EDGE_ORD, positions, engine)
 
 
 def _orient_edges(
@@ -536,19 +580,15 @@ def _try_indexed_connected_bindings_state(
             return None
         endpoint_ids = xp.unique(col_to_array(oriented, _TO, engine))
         node_rows = xp.sort(lookup_node_rows(node_index, endpoint_ids, xp))
-        next_nodes = take_rows(nodes, node_rows, engine)
-        next_nodes = _filter_frame(next_nodes, next_op.filter_dict, engine)
+        next_nodes = _take_filtered_rows(nodes, node_rows, next_op.filter_dict, engine)
         next_alias_frame = _with_marker(next_nodes, next_op._name, engine)
-        oriented = semijoin_by_column(
-            oriented, next_nodes, left_on=_TO, right_on=node_id, engine=engine,
-        )
+        if not _covers_ids(next_nodes, node_id, endpoint_ids, engine, xp):
+            # Every surviving endpoint id still present makes this semi-join the identity.
+            oriented = semijoin_by_column(
+                oriented, next_nodes, left_on=_TO, right_on=node_id, engine=engine,
+            )
 
-        estimated_rows = estimate_inner_join_rows(
-            state, oriented, left_on=_CURRENT, right_on=_FROM, engine=engine,
-        )
-        if policy != "force" and estimated_rows > 0 and estimated_rows >= n_edges:
-            return None
-        state = path_ordered_expand_join(
+        expansion = plan_path_ordered_expand_join(
             state,
             oriented,
             current_col=_CURRENT,
@@ -559,6 +599,10 @@ def _try_indexed_connected_bindings_state(
             alias=next_op._name,
             engine=engine,
         )
+        estimated_rows = expansion.rows
+        if policy != "force" and estimated_rows > 0 and estimated_rows >= n_edges:
+            return None
+        state = expansion.expand()
         if isinstance(next_op._name, str):
             alias_frames[next_op._name] = next_alias_frame
 

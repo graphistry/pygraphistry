@@ -1022,6 +1022,7 @@ def _finish_binding_rows_polars(
     attach_prop_aliases: Optional[Sequence[str]],
     *,
     decline_on_schema_error: bool,
+    attach_prop_columns: Optional[Mapping[str, Sequence[str]]] = None,
 ) -> Optional[Plottable]:
     """Canonical property attachment/materialization for generic or indexed state.
 
@@ -1059,16 +1060,16 @@ def _finish_binding_rows_polars(
             if attach_set is not None and alias not in attach_set:
                 continue
             lookup_src = alias_frames[alias]
+            if attach_prop_columns is None:
+                attach_cols = [node_id] + [col for col in alias_columns[alias] if col != node_id]
+            else:
+                # projection pushdown: only the property columns the next select reads
+                wanted = set(attach_prop_columns.get(alias) or ())
+                attach_cols = [col for col in alias_columns[alias] if col in wanted]
+                if not attach_cols:
+                    continue
             lookup = lookup_src.lazy().select(
-                [
-                    pl.col(node_id),
-                    pl.col(node_id).alias(f"{alias}.{node_id}"),
-                ]
-                + [
-                    pl.col(col).alias(f"{alias}.{col}")
-                    for col in alias_columns[alias]
-                    if col != node_id
-                ]
+                [pl.col(node_id)] + [pl.col(col).alias(f"{alias}.{col}") for col in attach_cols]
             )
             if (set(names(lookup)) - {node_id}) & set(names(joined_state)):
                 return None
@@ -1201,7 +1202,10 @@ def _apply_alias_prefilters_polars(
                     )
                 chosen = list(columns)
             else:
-                chosen = auto_search_columns(schema, pool, term)
+                auto = auto_search_columns(schema, pool, term)
+                if auto is None:
+                    raise _decline(f"searchAny prefilter spans an unrenderable dtype: {term!r}")
+                chosen = auto
             if not chosen:
                 # No searchable column ⇒ no row matches (pandas kernel: all-False mask).
                 frame = frame.filter(pl.lit(False))
@@ -1891,6 +1895,7 @@ def binding_rows_polars(
     binding_ops: Sequence[Dict[str, JSONVal]],
     attach_prop_aliases: Optional[Sequence[str]] = None,
     alias_prefilters: "Optional[AliasPrefilters]" = None,
+    attach_prop_columns: Optional[Mapping[str, Sequence[str]]] = None,
 ) -> Optional[Plottable]:
     """Native polars bindings-row table for connected alias patterns (#1709).
 
@@ -2040,6 +2045,7 @@ def binding_rows_polars(
             cast(Dict[str, "pl.DataFrame"], indexed_state.alias_frames),
             str(node_id),
             attach_prop_aliases,
+            attach_prop_columns=attach_prop_columns,
             decline_on_schema_error=False,  # our own state: a schema clash is a bug
         )
 
@@ -2365,6 +2371,7 @@ def binding_rows_polars(
         return _finish_binding_rows_polars(  # type: ignore[misc]
             g, ops, state, alias_frames, node_id, attach_prop_aliases,
             decline_on_schema_error=True,  # pandas-vs-polars join-key dtype divergence
+            attach_prop_columns=attach_prop_columns,
         )
     except pl.exceptions.SchemaError:
         return None
