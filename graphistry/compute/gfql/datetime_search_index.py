@@ -67,7 +67,7 @@ class DatetimeSearchIndex:
         """Rows whose rendered text would contain ``term``."""
         import numpy as np
 
-        out = np.zeros(self.n, dtype=bool)
+        hits = np.zeros(self.n, dtype=bool)
         year_span = int(self.year.max()) + 1 if self.n else 0
         fields: List[Tuple["np.ndarray", int, Callable[[int], str]]] = [
             (self.day, 32, str),
@@ -84,8 +84,8 @@ class DatetimeSearchIndex:
                 continue
             table = np.zeros(size, dtype=bool)
             table[selected] = True
-            out |= table[codes]
-        return out & self.present
+            hits |= table[codes]
+        return hits & self.present
 
 
 def _zone_codes(localized: SeriesT) -> Tuple["np.ndarray", List[str]]:

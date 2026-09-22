@@ -136,3 +136,16 @@ def test_an_empty_column_builds_and_matches_nothing():
     s = pd.Series([], dtype="datetime64[ns]")
     idx = DatetimeSearchIndex(s, "UTC")
     assert idx.matches("2024").tolist() == []
+
+
+@pytest.mark.parametrize("tz", ["UTC", "Africa/Casablanca"])
+@pytest.mark.parametrize("sequence", [
+    ["2", "20", "202", "2024"], ["0", "05"], ["1", "12", "123"], ["5", "59"],
+    ["2", "20", "202", "2024", "20245"],
+], ids=lambda s: s[-1])
+def test_typing_a_term_one_character_at_a_time_agrees_with_the_render(sequence, tz):
+    """Each keystroke is its own query; none of them may drift from the rendered answer."""
+    s = stamps(600, 3 * 10 ** 8)
+    idx = index_for(s, tz)
+    for term in sequence:
+        assert np.array_equal(idx.matches(term), rendered_answer(s, tz, term)), term
