@@ -23,6 +23,7 @@ Switch engines with one keyword
    query = "MATCH (a)-[e]->(b) RETURN b"     # any GFQL / Cypher query
 
    g.gfql(query)                       # engine='auto': follows the input frames
+   g.gfql(query, engine='pandas')      # CPU, pandas frames
    g.gfql(query, engine='polars')      # CPU, columnar
    g.gfql(query, engine='cudf')        # NVIDIA GPU (RAPIDS)
    g.gfql(query, engine='polars-gpu')  # the Polars plan on the GPU

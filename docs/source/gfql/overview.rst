@@ -356,10 +356,11 @@ Example: Run GFQL queries with GPU dataframes.
 
 **Selecting an Engine Explicitly**
 
-Example: set the engine for a CPU columnar speedup or to force a specific GPU engine.
+Example: pin pandas, take a CPU columnar speedup, or force a specific GPU engine.
 
 .. code-block:: python
 
+    g_result = g.gfql([ ... ], engine='pandas')        # CPU, pandas frames
     g_result = g.gfql([ ... ], engine='polars')        # CPU columnar, no GPU
     g_result = g_gpu.gfql([ ... ], engine='cudf')       # NVIDIA GPU, eager
     g_result = g_gpu.gfql([ ... ], engine='polars-gpu') # NVIDIA GPU, fused plan
