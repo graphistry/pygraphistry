@@ -277,3 +277,41 @@ def test_the_render_is_called_once_per_datetime_column(monkeypatch):
     })
     search_any_mask(df, "2024")
     assert sorted(calls) == ["a", "b"], f"expected one render per datetime column, got {calls}"
+
+
+def test_repeated_timestamps_render_identically_to_distinct_ones():
+    """Rendering over distinct values must not change any row's answer."""
+    stamps = ["2024-01-05T03:04:05", "2023-07-04T09:05:00"]
+    one_each = render_datetime_pandas(dt_series(*stamps)).tolist()
+    repeated = render_datetime_pandas(dt_series(*(stamps * 3))).tolist()
+    assert repeated == one_each * 3
+
+
+def test_nulls_survive_a_column_of_repeats():
+    stamps = ["2024-01-05T03:04:05", None, "2024-01-05T03:04:05", None]
+    got = render_datetime_pandas(dt_series(*stamps)).tolist()
+    assert got[0] == got[2] == "Jan 5 2024, 3:04:05 am UTC"
+    assert got[1] is None and got[3] is None
+
+
+def test_the_render_runs_once_per_distinct_timestamp(monkeypatch):
+    """The saving this relies on: a low-cardinality column renders a fraction of its rows.
+
+    Spied rather than timed -- the row count reaching the renderer is exact, a duration is not.
+    """
+    import graphistry.compute.gfql.wysiwyg as wy
+
+    sizes = []
+    original = wy._render_datetime_values
+
+    def spy(localized):
+        sizes.append(len(localized))
+        return original(localized)
+
+    monkeypatch.setattr(wy, "_render_datetime_values", spy)
+
+    # 300 rows drawn from 3 distinct timestamps
+    stamps = ["2024-01-05T03:04:05", "2023-07-04T09:05:00", "2022-02-02T02:02:02"] * 100
+    out = render_datetime_pandas(dt_series(*stamps))
+    assert len(out) == 300
+    assert sizes == [3], f"expected one render of 3 distinct values, got {sizes}"

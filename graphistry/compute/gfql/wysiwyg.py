@@ -182,6 +182,27 @@ def _tz_abbrev_by_offset(loc: SeriesT) -> SeriesT:
     return pd.Series(names[codes], index=loc.index, dtype=object)
 
 
+def _render_datetime_values(localized: SeriesT) -> SeriesT:
+    """Render an already-localized, NaT-free datetime Series."""
+    import numpy as np
+    import pandas as pd
+
+    hour_24 = localized.dt.hour
+    hour_12 = hour_24 % 12
+    hour_12 = hour_12.where(hour_12 != 0, 12)
+    meridiem = pd.Series(np.where(hour_24 < 12, "am", "pm"), index=localized.index)
+    month = pd.Series(
+        np.array(_MONTH_ABBREVS, dtype=object)[localized.dt.month.to_numpy() - 1],
+        index=localized.index,
+    )
+    return (
+        month + " " + localized.dt.day.astype(str) + " " + localized.dt.year.astype(str) + ", "
+        + hour_12.astype(str) + ":" + localized.dt.minute.astype(str).str.zfill(2)
+        + ":" + localized.dt.second.astype(str).str.zfill(2) + " " + meridiem + " "
+        + _tz_abbrev_by_offset(localized)
+    )
+
+
 def render_datetime_pandas(s: SeriesT, tz: str = DEFAULT_TEMPORAL_TZ) -> SeriesT:
     """Inspector-exact render of a pandas datetime column, as an object Series of str/None.
 
@@ -191,6 +212,11 @@ def render_datetime_pandas(s: SeriesT, tz: str = DEFAULT_TEMPORAL_TZ) -> SeriesT
 
     ``tz`` decides which day and hour a timestamp lands on, so it changes what matches, not just
     how a row looks. None marks a row the inspector shows nothing for, which must never match.
+
+    The render is a pure function of the timestamp, so it runs over the column's DISTINCT values
+    and is taken back across the rows. A column of per-second readings is all distinct and pays
+    only for the factorize; a column bucketed to the hour or the day pays for a small fraction of
+    its rows. Factorizing also drops NaT into its own code, so nulls need no separate handling.
 
     The zone ABBREVIATION comes from the installed tz database, which can disagree with the one a
     browser bundles for historical or contested zones (``Africa/Juba`` reads ``CAST`` here and
@@ -205,31 +231,18 @@ def render_datetime_pandas(s: SeriesT, tz: str = DEFAULT_TEMPORAL_TZ) -> SeriesT
     if len(s) == 0:
         return pd.Series([], index=s.index, dtype=object)
 
+    codes, uniques = pd.factorize(s)
+    if len(uniques) == 0:
+        return pd.Series([None] * len(s), index=s.index, dtype=object)
+
+    distinct = pd.Series(uniques)
     localized = (
-        s.dt.tz_localize("UTC").dt.tz_convert(tz) if s.dt.tz is None else s.dt.tz_convert(tz)
+        distinct.dt.tz_localize("UTC").dt.tz_convert(tz)
+        if distinct.dt.tz is None else distinct.dt.tz_convert(tz)
     )
-    present = localized.notna()
-    # NaT turns every extracted component into a float, so stand a real timestamp in for it
-    localized = localized.fillna(
-        localized[present].iloc[0] if present.any() else pd.Timestamp(0, tz="UTC")
-    )
-
-    hour_24 = localized.dt.hour
-    hour_12 = hour_24 % 12
-    hour_12 = hour_12.where(hour_12 != 0, 12)
-    meridiem = pd.Series(np.where(hour_24 < 12, "am", "pm"), index=localized.index)
-    month = pd.Series(
-        np.array(_MONTH_ABBREVS, dtype=object)[localized.dt.month.to_numpy() - 1],
-        index=localized.index,
-    )
-
-    rendered = (
-        month + " " + localized.dt.day.astype(str) + " " + localized.dt.year.astype(str) + ", "
-        + hour_12.astype(str) + ":" + localized.dt.minute.astype(str).str.zfill(2)
-        + ":" + localized.dt.second.astype(str).str.zfill(2) + " " + meridiem + " "
-        + _tz_abbrev_by_offset(localized)
-    )
-    return pd.Series(rendered, index=s.index, dtype=object).where(present, None)
+    rendered = _render_datetime_values(localized).to_numpy()
+    out = np.where(codes >= 0, rendered[codes.clip(min=0)], None)
+    return pd.Series(out, index=s.index, dtype=object)
 
 
 class CudfTemporalTzUnsupported(NotImplementedError):
