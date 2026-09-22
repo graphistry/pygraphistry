@@ -229,21 +229,23 @@ def test_the_polars_dtype_gate_agrees_with_the_pandas_one(term, label):
         f"polars chose {sorted(from_polars)} -- the duplicated dtype gates have drifted")
 
 
-def test_an_alphabetic_term_does_not_render_datetime_columns_at_all(monkeypatch):
-    """A term that cannot match a datetime must not cause one to be rendered.
+def test_an_alphabetic_term_does_not_touch_datetime_columns_at_all(monkeypatch):
+    """A term that cannot match a datetime must not cause one to be read.
 
-    Spied rather than timed, so it cannot go flaky on a loaded CI box.
+    Spied rather than timed, so it cannot go flaky on a loaded CI box. A numeric term now takes
+    the component index rather than the render, so both routes are watched.
     """
+    import graphistry.compute.gfql.datetime_search_index as index_mod
     import graphistry.compute.gfql.wysiwyg as wy
 
-    calls = []
-    original = wy.render_datetime_pandas
-
-    def spy(s, tz=DEFAULT_TEMPORAL_TZ):
-        calls.append(tz)
-        return original(s, tz)
-
-    monkeypatch.setattr(wy, "render_datetime_pandas", spy)
+    touched = []
+    original_render, original_index = wy.render_datetime_pandas, index_mod.index_for
+    monkeypatch.setattr(
+        wy, "render_datetime_pandas",
+        lambda s, tz=DEFAULT_TEMPORAL_TZ: (touched.append("render"), original_render(s, tz))[1])
+    monkeypatch.setattr(
+        index_mod, "index_for",
+        lambda s, tz: (touched.append("index"), original_index(s, tz))[1])
 
     df = pd.DataFrame({
         "name": ["alpha", "beta"],
@@ -251,24 +253,24 @@ def test_an_alphabetic_term_does_not_render_datetime_columns_at_all(monkeypatch)
     })
 
     search_any_mask(df, "alpha")
-    assert calls == [], "an alphabetic term rendered a datetime column"
+    assert touched == [], "an alphabetic term read a datetime column"
 
     search_any_mask(df, "2024")
-    assert calls, "a numeric term did not reach the datetime render"
+    assert touched == ["index"], f"a numeric term should take the index, got {touched}"
 
 
-def test_the_render_is_called_once_per_datetime_column(monkeypatch):
+def test_the_index_is_built_once_per_datetime_column(monkeypatch):
     """Cost scales with the number of datetime columns, linearly and no worse."""
-    import graphistry.compute.gfql.wysiwyg as wy
+    import graphistry.compute.gfql.datetime_search_index as index_mod
 
-    calls = []
-    original = wy.render_datetime_pandas
+    built = []
+    original = index_mod.index_for
 
-    def spy(s, tz=DEFAULT_TEMPORAL_TZ):
-        calls.append(s.name)
+    def spy(s, tz):
+        built.append(s.name)
         return original(s, tz)
 
-    monkeypatch.setattr(wy, "render_datetime_pandas", spy)
+    monkeypatch.setattr(index_mod, "index_for", spy)
 
     df = pd.DataFrame({
         "a": dt_series("2024-01-05T03:04:05", "2023-07-04T09:05:00"),
@@ -276,4 +278,4 @@ def test_the_render_is_called_once_per_datetime_column(monkeypatch):
         "c": ["x", "y"],
     })
     search_any_mask(df, "2024")
-    assert sorted(calls) == ["a", "b"], f"expected one render per datetime column, got {calls}"
+    assert sorted(built) == ["a", "b"], f"expected one index per datetime column, got {built}"

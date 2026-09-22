@@ -11,6 +11,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Performance
 
+- **GFQL `searchAny` over a datetime column answers a live, as-you-type search on 30M rows in 412ms instead of 43.7s** — 106x, measured on a GB10 with every arm checked equal to the rendered answer. A numeric search term cannot straddle two fields of the inspector's date format, because the separators between them are a space, a comma and a colon and a term may contain none of those. So the rendered text is never needed: the search becomes membership tests over narrow integer arrays for day, year, hour, minute, second and zone, and a term selects a handful of the at most sixty values a field can take. The components are built once per column and zone and held in a 512MB LRU keyed by a digest of the timestamps' own buffer — not by identity, which serves a stale answer once a frame is mutated in place, and order-sensitively, since a sorted column is a different index. Applies to pandas; polars still renders (399ms at 1M, 4.3s at 10M) and cuDF is unchanged.
+
 - GFQL: seeded fixed-hop chains on the indexed bindings path do less per-hop frame work — an array-side join estimate, the endpoint filter evaluated before the wide node gather, the endpoint semi-join skipped when it is the identity, and (polars) a searchsorted path expand join — and a bare `rows()` immediately followed by `select` attaches only the properties the select reads (`rows(attach_prop_columns=...)`) on pandas, cuDF, and polars. Same rows, order, and dtypes; LDBC SNB IC8 `recent-replies` on polars drops from about 24 ms to 11 ms locally (#2084).
 
 ### Infrastructure
