@@ -24,9 +24,9 @@ from pathlib import Path
 from typing import Dict
 
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
+REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 LOWERING_PATH = REPO_ROOT / "graphistry/compute/gfql/cypher/lowering.py"
-DEFAULT_BASELINE_PATH = REPO_ROOT / "bin/ci_cypher_surface_guard_baseline.json"
+DEFAULT_BASELINE_PATH = REPO_ROOT / "bin/ci/ci_cypher_surface_guard_baseline.json"
 TARGET_CLASSES = (
     "CompiledCypherQuery",
     "CompiledGraphBinding",

@@ -41,8 +41,8 @@ NODES = pd.DataFrame({
     # float column: searchAny now RENDERS floats WYSIWYG on every engine (#1695), so a
     # float prefilter LOWERS natively rather than declining.
     "score": np.linspace(0.0, 1.1, 12),
-    # temporal column: stringification is still unverified against the pandas kernel, so
-    # this is what the polars lowering declines on — the typed-NIE pin below.
+    # temporal column: searchAny now RENDERS datetimes WYSIWYG on polars too, so a temporal
+    # prefilter LOWERS natively; the typed-NIE pin below uses a regex polars cannot compile.
     "t": pd.to_datetime(["2024-01-%02d" % (i + 1) for i in range(12)]),
 })
 EDGES = pd.DataFrame({
@@ -158,13 +158,14 @@ def test_single_entity_prefilter_narrows_and_keeps_the_layout(engine: str) -> No
 def test_polars_unlowerable_prefilter_declines_typed_naming_the_feature() -> None:
     """A spec polars cannot lower raises a typed NIE NAMING alias_prefilters.
 
-    searchAny over an explicit TEMPORAL column is the deterministic decline: its
-    stringification is still unverified against the pandas kernel. (Float used to sit
-    here and no longer does — it is rendered WYSIWYG on every engine as of #1695, so a
-    float prefilter now LOWERS instead of declining.) The error must name the feature
-    and the alias — never a silent drop, never a raw polars exception.
+    A lookahead is the deterministic decline: Rust's regex engine has none, so the
+    lowering refuses rather than hand polars a pattern it would reject. (Float sat here
+    until #1695 and temporal until datetimes were rendered WYSIWYG; both LOWER now. The
+    slot needs a construct that stays unlowerable.) The error must name the feature and
+    the alias — never a silent drop, never a raw polars exception.
     """
     _require("polars")
-    pref = {"a": [{"kind": "search_any", "term": "1", "columns": ["t"]}]}
+    pref = {"a": [{"kind": "search_any", "term": "(?=seed)", "columns": ["kind"],
+                   "regex": True}]}
     with pytest.raises(NotImplementedError, match=r"alias_prefilters.*'a'"):
         _run("polars", [rows(binding_ops=BOPS, alias_prefilters=pref)])

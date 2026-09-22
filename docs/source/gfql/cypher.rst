@@ -334,17 +334,21 @@ and ``RETURN`` expressions:
   position; GFQL extension for the viz filter pipeline): True where ANY of the
   entity's columns matches ``term``. Inspector semantics: OR across columns,
   case-insensitive substring by default, regex opt-in; dtype-gated — string
-  columns always, integer columns iff the term is a numeric literal
-  (``/^[0-9.-]+$/``); floats/dates/booleans only via the explicit list. Options
-  map: ``{caseSensitive: true, regex: true, columns: ['name', ...]}`` (unknown
-  keys error, listing the valid ones). Composes with other WHERE predicates
-  through AND/OR/NOT; nodes and edges independently searchable with different
-  terms. Runs natively on all four engines for node aliases; an edge-alias
-  ``searchAny(r, ...)`` declines on polars pending multi-entity
-  binding-row support (use ``engine='pandas'``), and explicit non-string
-  columns beyond ints/bools likewise decline on polars and cuDF rather than
-  risk divergent stringification (float repr differs across engines). The regex path obeys the same
-  per-engine decline rules as ``=~``. Python twins:
+  columns always, and integer, float AND datetime columns iff the term is a
+  numeric literal (``/^[0-9.-]+$/``); booleans only via the explicit list.
+  Numbers and datetimes are matched as the viz inspector DISPLAYS them, not as
+  ``repr``: a fractional float renders to ``float_precision`` decimals and a
+  timestamp to the inspector's date format, so ``'2024'`` finds rows in that
+  year. Options map: ``{caseSensitive: true, regex: true, columns: ['name',
+  ...]}`` (unknown keys error, listing the valid ones). Composes with other
+  WHERE predicates through AND/OR/NOT; nodes and edges independently searchable
+  with different terms. Runs natively on all four engines for node aliases; an
+  edge-alias ``searchAny(r, ...)`` declines on polars pending
+  multi-entity binding-row support (use ``engine='pandas'``). A datetime column
+  is rendered in ``temporal_tz`` (default UTC) because the inspector renders in
+  the viewer's zone, which a server cannot know; cuDF serves UTC and declines
+  other zones, since its ``strftime`` ignores the conversion. The regex path
+  obeys the same per-engine decline rules as ``=~``. Python twins:
   :meth:`ComputeMixin.search_nodes` / :meth:`ComputeMixin.search_edges`.
 
 ``LIKE`` / ``ILIKE`` and ``BETWEEN`` are intentionally not provided — they are

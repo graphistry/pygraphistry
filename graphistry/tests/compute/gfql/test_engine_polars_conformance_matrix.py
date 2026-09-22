@@ -593,13 +593,18 @@ def test_search_any_null_and_float_stringify():
     assert got_f.sort_values("id")["__hit__"].tolist() == [False, False, True]
     got_disp = _to_pd(gpl.gfql(q(term="0.5000", columns=["f"]), engine="polars")._nodes)
     assert got_disp.sort_values("id")["__hit__"].tolist() == [True, False, False]
-    # explicit TEMPORAL column: stringification is engine-divergent — polars
-    # declines honestly (NIE) instead of risking a silent mismatch (wave-2 W2-3)
+    # explicit TEMPORAL column: polars renders it as the inspector displays it, so it
+    # answers the same rows as pandas rather than declining (this replaced an NIE, whose
+    # stated reason -- engine-divergent stringification -- no longer holds)
     ndt = nd.assign(t=pd.to_datetime(["2020-01-02", "2021-03-04", "2022-05-06"]))
     gplt = graphistry.nodes(pl.from_pandas(ndt), "id").edges(
         pl.from_pandas(ed), "s", "d").bind(edge="eid")
-    with pytest.raises(NotImplementedError):
-        gplt.gfql(q(term="2020", columns=["t"]), engine="polars")
+    gpdt = graphistry.nodes(ndt, "id").edges(ed, "s", "d").bind(edge="eid")
+    for term in ["2020", "2021", "9999"]:
+        got_t = _to_pd(gplt.gfql(q(term=term, columns=["t"]), engine="polars")._nodes)
+        want_t = _to_pd(gpdt.gfql(q(term=term, columns=["t"]), engine="pandas")._nodes)
+        assert (got_t.sort_values("id")["__hit__"].tolist()
+                == want_t.sort_values("id")["__hit__"].tolist()), f"temporal drift {term!r}"
     # precedence: a MISSING column is a user error (E108) even when another listed
     # column would trip the dtype gate — a refactor must not flip it to NIE (wave-3)
     with pytest.raises(GFQLValidationError, match="absent"):

@@ -21,6 +21,8 @@ python -m pytest --version
 # `graphistry/tests/compute/gfql/test_polars_lane_completeness.py` parses this array and
 # fails if any module-level polars-gated test file is absent from it (or listed but gone).
 POLARS_TEST_FILES=(
+    graphistry/tests/compute/gfql/test_searchany_wysiwyg_datetime.py
+    graphistry/tests/test_plotterbase_optional_deps.py
     graphistry/tests/compute/test_polars.py
     # cache-coverage lock: its static scans run everywhere, but the functional pin for the
     # polars single-alias lowering memo can only execute where polars is installed
@@ -136,6 +138,7 @@ POLARS_TEST_FILES=(
     graphistry/tests/compute/gfql/test_engine_polars_narrow_combine.py
     graphistry/tests/compute/gfql/row/test_alias_prefilter_alignment_2020.py
     graphistry/tests/compute/gfql/lazy/engine/polars/test_chain_alias_column_collision_2039.py
+    graphistry/tests/compute/gfql/lazy/engine/polars/test_chain_alias_shadow_restore_guard.py
     graphistry/tests/compute/gfql/lazy/engine/polars/test_chain_duplicate_node_rows_2051.py
     graphistry/tests/compute/gfql/cypher/test_variable_column_collision.py
     graphistry/tests/compute/test_chain_alias_column_collision.py

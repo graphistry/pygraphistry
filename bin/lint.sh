@@ -33,13 +33,13 @@ else
   echo "ERROR: no python interpreter found for the type-hygiene guard."
   exit 1
 fi
-"$PY_CMD" ./bin/ci_type_hygiene_guard.py
+"$PY_CMD" ./bin/ci/ci_type_hygiene_guard.py
 
 # Comment-encoding ratchet (multi-line comment runs, perf/complexity claims,
 # issue numbers used as rationale). Per-file counts may shrink but never grow;
 # see DEVELOP.md "Comment density guard".
 echo "Running comment-encoding guard ..."
-"$PY_CMD" ./bin/ci_comment_density_guard.py
+"$PY_CMD" ./bin/ci/ci_comment_density_guard.py
 
 # Check for relative imports with '..' using custom regex
 # This will fail if any relative imports with .. are found
