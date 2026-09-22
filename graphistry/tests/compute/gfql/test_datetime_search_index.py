@@ -119,6 +119,23 @@ class TestCache:
         first = index_for(s, "UTC")
         assert index_for(s.iloc[::-1].reset_index(drop=True), "UTC") is not first
 
+    def test_the_same_bytes_under_a_different_unit_do_not_hit(self):
+        """The buffer alone does not say what its integers MEAN.
+
+        The same int64s read as nanoseconds and as microseconds are different instants, so a
+        digest of the bytes is only a key once the dtype is part of it. The value is chosen so
+        both readings land in a year pandas can format.
+        """
+        clear_cache()
+        shared = np.array([1_000_000_000_000_000], dtype="int64")
+        nanos = pd.Series(pd.array(shared, dtype="datetime64[ns]"))
+        micros = pd.Series(pd.array(shared, dtype="datetime64[us]"))
+        assert np.array_equal(nanos.to_numpy().view("int64"), micros.to_numpy().view("int64")), (
+            "this test is vacuous unless the two columns share their bytes")
+        assert nanos.iloc[0].year != micros.iloc[0].year, (
+            "same bytes, different unit, so they are different instants")
+        assert index_for(nanos, "UTC") is not index_for(micros, "UTC")
+
     def test_a_different_zone_does_not_hit(self):
         clear_cache()
         s = stamps(100, 10 ** 7)

@@ -104,7 +104,7 @@ def _zone_codes(localized: SeriesT) -> Tuple["np.ndarray", List[str]]:
     return codes.astype(np.int16), labels
 
 
-_CACHE: "OrderedDict[Tuple[object, str, int], DatetimeSearchIndex]" = OrderedDict()
+_CACHE: "OrderedDict[Tuple[bytes, str, str, int], DatetimeSearchIndex]" = OrderedDict()
 _CACHE_LOCK = threading.Lock()
 
 
@@ -113,12 +113,16 @@ def clear_cache() -> None:
         _CACHE.clear()
 
 
-def _cache_key(s: SeriesT, tz: str) -> Optional[Tuple[bytes, str, int]]:
+def _cache_key(s: SeriesT, tz: str) -> Optional[Tuple[bytes, str, str, int]]:
     """Content digest of the column, so an in-place edit cannot serve a stale index.
 
     Identity is deliberately not used: keying a memo on ``id()`` serves a stale answer once the
     frame is mutated in place. The digest reads the timestamps' own buffer, which is
     ``int64`` nanoseconds whatever the zone, and is taken over a memoryview so nothing is copied.
+
+    The dtype is part of the key because the buffer alone does not say what the integers MEAN:
+    the same bytes read as nanoseconds and as microseconds are different instants, and a column of
+    each would otherwise share an entry.
 
     It must be ORDER sensitive -- the index is row-ordered, so a sorted column is a different
     index even though its values are the same. That rules out a sum or an xor, both of which a
@@ -134,7 +138,7 @@ def _cache_key(s: SeriesT, tz: str) -> Optional[Tuple[bytes, str, int]]:
         digest = hashlib.blake2b(memoryview(raw), digest_size=16).digest()
     except (TypeError, ValueError, AttributeError):
         return None
-    return (digest, tz, len(s))
+    return (digest, str(s.dtype), tz, len(s))
 
 
 def index_for(s: SeriesT, tz: str) -> DatetimeSearchIndex:
