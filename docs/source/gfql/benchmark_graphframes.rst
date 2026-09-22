@@ -311,7 +311,7 @@ Every figure on this page is printed from ``docs/source/_data/gfql_benchmarks.js
 which pyg-bench publishes. The documentation build and ``docs/test_bench_numbers.py``
 reject missing, stale, or unpublished values.
 
-.. bench-provenance:: graphframes-ladder-20260904 graphframes-ladder-059-hops-20260904
+.. bench-provenance:: graphframes-ladder-ship-62df29a8a-20260920 graphframes-ladder-059-hops-20260904
    :disclosures:
 
 See also

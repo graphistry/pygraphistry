@@ -2140,7 +2140,7 @@
       ],
       "engine": "gfql-polars",
       "measurement_profile": "graphframes-tasks-warm-resident",
-      "run": "graphframes-ladder-20260904",
+      "run": "graphframes-ladder-ship-62df29a8a-20260920",
       "status": "ok",
       "unit": "ms",
       "value": 3111.7,
@@ -2162,7 +2162,7 @@
       ],
       "engine": "gfql-polars",
       "measurement_profile": "graphframes-tasks-warm-resident",
-      "run": "graphframes-ladder-20260904",
+      "run": "graphframes-ladder-ship-62df29a8a-20260920",
       "status": "ok",
       "unit": "ms",
       "value": 6123.4,
@@ -2184,7 +2184,7 @@
       ],
       "engine": "gfql-polars",
       "measurement_profile": "graphframes-tasks-warm-resident",
-      "run": "graphframes-ladder-20260904",
+      "run": "graphframes-ladder-ship-62df29a8a-20260920",
       "status": "ok",
       "unit": "ms",
       "value": 164890.2,
@@ -2206,10 +2206,10 @@
       ],
       "engine": "gfql-polars",
       "measurement_profile": "graphframes-tasks-warm-resident",
-      "run": "graphframes-ladder-20260904",
+      "run": "graphframes-ladder-ship-62df29a8a-20260920",
       "status": "ok",
       "unit": "ms",
-      "value": 26.1,
+      "value": 24.5,
       "workload": "GraphFrames tasks LiveJournal filter"
     },
     "graphframes.lj.filter.gfql_polars_gpu": {
@@ -2228,10 +2228,10 @@
       ],
       "engine": "gfql-polars-gpu",
       "measurement_profile": "graphframes-tasks-warm-resident",
-      "run": "graphframes-ladder-20260904",
+      "run": "graphframes-ladder-ship-62df29a8a-20260920",
       "status": "ok",
       "unit": "ms",
-      "value": 27.1,
+      "value": 25.3,
       "workload": "GraphFrames tasks LiveJournal filter"
     },
     "graphframes.lj.filter.gfql_polars_gpu_vs_graphframes": {
@@ -2255,10 +2255,10 @@
         "graphframes.lj.filter.gfql_polars_gpu",
         "graphframes.lj.filter.graphframes"
       ],
-      "run": "graphframes-ladder-20260904",
+      "run": "graphframes-ladder-ship-62df29a8a-20260920",
       "status": "ok",
       "unit": "x",
-      "value": 3.0,
+      "value": 3.2,
       "workload": "GraphFrames tasks LiveJournal filter \u2014 gfql-polars-gpu vs graphframes"
     },
     "graphframes.lj.filter.gfql_polars_vs_graphframes": {
@@ -2282,10 +2282,10 @@
         "graphframes.lj.filter.gfql_polars",
         "graphframes.lj.filter.graphframes"
       ],
-      "run": "graphframes-ladder-20260904",
+      "run": "graphframes-ladder-ship-62df29a8a-20260920",
       "status": "ok",
       "unit": "x",
-      "value": 3.1,
+      "value": 3.3,
       "workload": "GraphFrames tasks LiveJournal filter \u2014 gfql-polars vs graphframes"
     },
     "graphframes.lj.filter.graphframes": {
@@ -2305,7 +2305,7 @@
       ],
       "engine": "graphframes",
       "measurement_profile": "graphframes-tasks-warm-resident",
-      "run": "graphframes-ladder-20260904",
+      "run": "graphframes-ladder-ship-62df29a8a-20260920",
       "status": "ok",
       "unit": "ms",
       "value": 80.4,
@@ -2327,10 +2327,10 @@
       ],
       "engine": "gfql-polars",
       "measurement_profile": "graphframes-tasks-warm-resident",
-      "run": "graphframes-ladder-20260904",
+      "run": "graphframes-ladder-ship-62df29a8a-20260920",
       "status": "ok",
       "unit": "ms",
-      "value": 219.7,
+      "value": 224.8,
       "workload": "GraphFrames tasks LiveJournal hop1"
     },
     "graphframes.lj.hop1.gfql_polars_gpu": {
@@ -2349,10 +2349,10 @@
       ],
       "engine": "gfql-polars-gpu",
       "measurement_profile": "graphframes-tasks-warm-resident",
-      "run": "graphframes-ladder-20260904",
+      "run": "graphframes-ladder-ship-62df29a8a-20260920",
       "status": "ok",
       "unit": "ms",
-      "value": 1159.6,
+      "value": 1180.6,
       "workload": "GraphFrames tasks LiveJournal hop1"
     },
     "graphframes.lj.hop1.gfql_polars_gpu_vs_graphframes": {
@@ -2376,10 +2376,10 @@
         "graphframes.lj.hop1.gfql_polars_gpu",
         "graphframes.lj.hop1.graphframes"
       ],
-      "run": "graphframes-ladder-20260904",
+      "run": "graphframes-ladder-ship-62df29a8a-20260920",
       "status": "ok",
       "unit": "x",
-      "value": 1.3,
+      "value": 1.2,
       "workload": "GraphFrames tasks LiveJournal hop1 \u2014 gfql-polars-gpu vs graphframes"
     },
     "graphframes.lj.hop1.gfql_polars_vs_graphframes": {
@@ -2403,10 +2403,10 @@
         "graphframes.lj.hop1.gfql_polars",
         "graphframes.lj.hop1.graphframes"
       ],
-      "run": "graphframes-ladder-20260904",
+      "run": "graphframes-ladder-ship-62df29a8a-20260920",
       "status": "ok",
       "unit": "x",
-      "value": 6.6,
+      "value": 6.5,
       "workload": "GraphFrames tasks LiveJournal hop1 \u2014 gfql-polars vs graphframes"
     },
     "graphframes.lj.hop1.graphframes": {
@@ -2426,7 +2426,7 @@
       ],
       "engine": "graphframes",
       "measurement_profile": "graphframes-tasks-warm-resident",
-      "run": "graphframes-ladder-20260904",
+      "run": "graphframes-ladder-ship-62df29a8a-20260920",
       "status": "ok",
       "unit": "ms",
       "value": 1460.2,
@@ -2448,10 +2448,10 @@
       ],
       "engine": "gfql-polars",
       "measurement_profile": "graphframes-tasks-warm-resident",
-      "run": "graphframes-ladder-20260904",
+      "run": "graphframes-ladder-ship-62df29a8a-20260920",
       "status": "ok",
       "unit": "ms",
-      "value": 6478.3,
+      "value": 6803.5,
       "workload": "GraphFrames tasks LiveJournal hop2"
     },
     "graphframes.lj.hop2.gfql_polars_gpu": {
@@ -2470,10 +2470,10 @@
       ],
       "engine": "gfql-polars-gpu",
       "measurement_profile": "graphframes-tasks-warm-resident",
-      "run": "graphframes-ladder-20260904",
+      "run": "graphframes-ladder-ship-62df29a8a-20260920",
       "status": "ok",
       "unit": "ms",
-      "value": 7162.5,
+      "value": 7611.6,
       "workload": "GraphFrames tasks LiveJournal hop2"
     },
     "graphframes.lj.hop2.gfql_polars_gpu_vs_graphframes": {
@@ -2497,7 +2497,7 @@
         "graphframes.lj.hop2.gfql_polars_gpu",
         "graphframes.lj.hop2.graphframes"
       ],
-      "run": "graphframes-ladder-20260904",
+      "run": "graphframes-ladder-ship-62df29a8a-20260920",
       "status": "ok",
       "unit": "x",
       "value": 0.5,
@@ -2524,7 +2524,7 @@
         "graphframes.lj.hop2.gfql_polars",
         "graphframes.lj.hop2.graphframes"
       ],
-      "run": "graphframes-ladder-20260904",
+      "run": "graphframes-ladder-ship-62df29a8a-20260920",
       "status": "ok",
       "unit": "x",
       "value": 0.5,
@@ -2547,7 +2547,7 @@
       ],
       "engine": "graphframes",
       "measurement_profile": "graphframes-tasks-warm-resident",
-      "run": "graphframes-ladder-20260904",
+      "run": "graphframes-ladder-ship-62df29a8a-20260920",
       "status": "ok",
       "unit": "ms",
       "value": 3475.8,
@@ -2569,10 +2569,10 @@
       ],
       "engine": "gfql-polars",
       "measurement_profile": "graphframes-tasks-warm-resident",
-      "run": "graphframes-ladder-20260904",
+      "run": "graphframes-ladder-ship-62df29a8a-20260920",
       "status": "ok",
       "unit": "ms",
-      "value": 52622.4,
+      "value": 53417.1,
       "workload": "GraphFrames tasks LiveJournal pagerank"
     },
     "graphframes.lj.pagerank.gfql_polars_gpu": {
@@ -2591,10 +2591,10 @@
       ],
       "engine": "gfql-polars-gpu",
       "measurement_profile": "graphframes-tasks-warm-resident",
-      "run": "graphframes-ladder-20260904",
+      "run": "graphframes-ladder-ship-62df29a8a-20260920",
       "status": "ok",
       "unit": "ms",
-      "value": 890.9,
+      "value": 933.4,
       "workload": "GraphFrames tasks LiveJournal pagerank"
     },
     "graphframes.lj.pagerank.gfql_polars_gpu_kernel": {
@@ -2614,10 +2614,10 @@
       ],
       "engine": "gfql-polars-gpu",
       "measurement_profile": "graphframes-tasks-warm-resident",
-      "run": "graphframes-ladder-20260904",
+      "run": "graphframes-ladder-ship-62df29a8a-20260920",
       "status": "ok",
       "unit": "ms",
-      "value": 59.3,
+      "value": 62.8,
       "workload": "GraphFrames tasks LiveJournal pagerank \u2014 gfql-polars-gpu kernel only"
     },
     "graphframes.lj.pagerank.gfql_polars_gpu_vs_graphframes": {
@@ -2641,10 +2641,10 @@
         "graphframes.lj.pagerank.gfql_polars_gpu",
         "graphframes.lj.pagerank.graphframes"
       ],
-      "run": "graphframes-ladder-20260904",
+      "run": "graphframes-ladder-ship-62df29a8a-20260920",
       "status": "ok",
       "unit": "x",
-      "value": 18.3,
+      "value": 17.5,
       "workload": "GraphFrames tasks LiveJournal pagerank \u2014 gfql-polars-gpu vs graphframes"
     },
     "graphframes.lj.pagerank.gfql_polars_kernel": {
@@ -2664,10 +2664,10 @@
       ],
       "engine": "gfql-polars",
       "measurement_profile": "graphframes-tasks-warm-resident",
-      "run": "graphframes-ladder-20260904",
+      "run": "graphframes-ladder-ship-62df29a8a-20260920",
       "status": "ok",
       "unit": "ms",
-      "value": 2834.8,
+      "value": 2870.9,
       "workload": "GraphFrames tasks LiveJournal pagerank \u2014 gfql-polars kernel only"
     },
     "graphframes.lj.pagerank.gfql_polars_vs_graphframes": {
@@ -2691,7 +2691,7 @@
         "graphframes.lj.pagerank.gfql_polars",
         "graphframes.lj.pagerank.graphframes"
       ],
-      "run": "graphframes-ladder-20260904",
+      "run": "graphframes-ladder-ship-62df29a8a-20260920",
       "status": "ok",
       "unit": "x",
       "value": 0.3,
@@ -2714,7 +2714,7 @@
       ],
       "engine": "graphframes",
       "measurement_profile": "graphframes-tasks-warm-resident",
-      "run": "graphframes-ladder-20260904",
+      "run": "graphframes-ladder-ship-62df29a8a-20260920",
       "status": "ok",
       "unit": "ms",
       "value": 16311.2,
@@ -2736,10 +2736,10 @@
       ],
       "engine": "gfql-polars",
       "measurement_profile": "graphframes-tasks-warm-resident",
-      "run": "graphframes-ladder-20260904",
+      "run": "graphframes-ladder-ship-62df29a8a-20260920",
       "status": "ok",
       "unit": "ms",
-      "value": 59.4,
+      "value": 57.7,
       "workload": "GraphFrames tasks Orkut filter"
     },
     "graphframes.orkut.filter.gfql_polars_gpu": {
@@ -2758,10 +2758,10 @@
       ],
       "engine": "gfql-polars-gpu",
       "measurement_profile": "graphframes-tasks-warm-resident",
-      "run": "graphframes-ladder-20260904",
+      "run": "graphframes-ladder-ship-62df29a8a-20260920",
       "status": "ok",
       "unit": "ms",
-      "value": 62.6,
+      "value": 66.6,
       "workload": "GraphFrames tasks Orkut filter"
     },
     "graphframes.orkut.filter.gfql_polars_gpu_vs_graphframes": {
@@ -2785,10 +2785,10 @@
         "graphframes.orkut.filter.gfql_polars_gpu",
         "graphframes.orkut.filter.graphframes"
       ],
-      "run": "graphframes-ladder-20260904",
+      "run": "graphframes-ladder-ship-62df29a8a-20260920",
       "status": "ok",
       "unit": "x",
-      "value": 1.1,
+      "value": 1.0,
       "workload": "GraphFrames tasks Orkut filter \u2014 gfql-polars-gpu vs graphframes"
     },
     "graphframes.orkut.filter.gfql_polars_vs_graphframes": {
@@ -2812,7 +2812,7 @@
         "graphframes.orkut.filter.gfql_polars",
         "graphframes.orkut.filter.graphframes"
       ],
-      "run": "graphframes-ladder-20260904",
+      "run": "graphframes-ladder-ship-62df29a8a-20260920",
       "status": "ok",
       "unit": "x",
       "value": 1.1,
@@ -2835,7 +2835,7 @@
       ],
       "engine": "graphframes",
       "measurement_profile": "graphframes-tasks-warm-resident",
-      "run": "graphframes-ladder-20260904",
+      "run": "graphframes-ladder-ship-62df29a8a-20260920",
       "status": "ok",
       "unit": "ms",
       "value": 66.1,
@@ -2857,10 +2857,10 @@
       ],
       "engine": "gfql-polars",
       "measurement_profile": "graphframes-tasks-warm-resident",
-      "run": "graphframes-ladder-20260904",
+      "run": "graphframes-ladder-ship-62df29a8a-20260920",
       "status": "ok",
       "unit": "ms",
-      "value": 514.0,
+      "value": 498.5,
       "workload": "GraphFrames tasks Orkut hop1"
     },
     "graphframes.orkut.hop1.gfql_polars_gpu": {
@@ -2879,10 +2879,10 @@
       ],
       "engine": "gfql-polars-gpu",
       "measurement_profile": "graphframes-tasks-warm-resident",
-      "run": "graphframes-ladder-20260904",
+      "run": "graphframes-ladder-ship-62df29a8a-20260920",
       "status": "ok",
       "unit": "ms",
-      "value": 4037.1,
+      "value": 4277.8,
       "workload": "GraphFrames tasks Orkut hop1"
     },
     "graphframes.orkut.hop1.gfql_polars_gpu_vs_graphframes": {
@@ -2906,10 +2906,10 @@
         "graphframes.orkut.hop1.gfql_polars_gpu",
         "graphframes.orkut.hop1.graphframes"
       ],
-      "run": "graphframes-ladder-20260904",
+      "run": "graphframes-ladder-ship-62df29a8a-20260920",
       "status": "ok",
       "unit": "x",
-      "value": 0.9,
+      "value": 0.8,
       "workload": "GraphFrames tasks Orkut hop1 \u2014 gfql-polars-gpu vs graphframes"
     },
     "graphframes.orkut.hop1.gfql_polars_vs_graphframes": {
@@ -2933,10 +2933,10 @@
         "graphframes.orkut.hop1.gfql_polars",
         "graphframes.orkut.hop1.graphframes"
       ],
-      "run": "graphframes-ladder-20260904",
+      "run": "graphframes-ladder-ship-62df29a8a-20260920",
       "status": "ok",
       "unit": "x",
-      "value": 7.1,
+      "value": 7.3,
       "workload": "GraphFrames tasks Orkut hop1 \u2014 gfql-polars vs graphframes"
     },
     "graphframes.orkut.hop1.graphframes": {
@@ -2956,7 +2956,7 @@
       ],
       "engine": "graphframes",
       "measurement_profile": "graphframes-tasks-warm-resident",
-      "run": "graphframes-ladder-20260904",
+      "run": "graphframes-ladder-ship-62df29a8a-20260920",
       "status": "ok",
       "unit": "ms",
       "value": 3632.2,
@@ -2978,10 +2978,10 @@
       ],
       "engine": "gfql-polars",
       "measurement_profile": "graphframes-tasks-warm-resident",
-      "run": "graphframes-ladder-20260904",
+      "run": "graphframes-ladder-ship-62df29a8a-20260920",
       "status": "ok",
       "unit": "ms",
-      "value": 27348.3,
+      "value": 27473.2,
       "workload": "GraphFrames tasks Orkut hop2"
     },
     "graphframes.orkut.hop2.gfql_polars_gpu": {
@@ -3000,10 +3000,10 @@
       ],
       "engine": "gfql-polars-gpu",
       "measurement_profile": "graphframes-tasks-warm-resident",
-      "run": "graphframes-ladder-20260904",
+      "run": "graphframes-ladder-ship-62df29a8a-20260920",
       "status": "ok",
       "unit": "ms",
-      "value": 33852.9,
+      "value": 34039.7,
       "workload": "GraphFrames tasks Orkut hop2"
     },
     "graphframes.orkut.hop2.gfql_polars_gpu_vs_graphframes": {
@@ -3027,7 +3027,7 @@
         "graphframes.orkut.hop2.gfql_polars_gpu",
         "graphframes.orkut.hop2.graphframes"
       ],
-      "run": "graphframes-ladder-20260904",
+      "run": "graphframes-ladder-ship-62df29a8a-20260920",
       "status": "ok",
       "unit": "x",
       "value": 0.3,
@@ -3054,7 +3054,7 @@
         "graphframes.orkut.hop2.gfql_polars",
         "graphframes.orkut.hop2.graphframes"
       ],
-      "run": "graphframes-ladder-20260904",
+      "run": "graphframes-ladder-ship-62df29a8a-20260920",
       "status": "ok",
       "unit": "x",
       "value": 0.4,
@@ -3077,7 +3077,7 @@
       ],
       "engine": "graphframes",
       "measurement_profile": "graphframes-tasks-warm-resident",
-      "run": "graphframes-ladder-20260904",
+      "run": "graphframes-ladder-ship-62df29a8a-20260920",
       "status": "ok",
       "unit": "ms",
       "value": 10885.8,
@@ -3099,10 +3099,10 @@
       ],
       "engine": "gfql-polars",
       "measurement_profile": "graphframes-tasks-warm-resident",
-      "run": "graphframes-ladder-20260904",
+      "run": "graphframes-ladder-ship-62df29a8a-20260920",
       "status": "ok",
       "unit": "ms",
-      "value": 170865.5,
+      "value": 170556.7,
       "workload": "GraphFrames tasks Orkut pagerank"
     },
     "graphframes.orkut.pagerank.gfql_polars_gpu": {
@@ -3121,10 +3121,10 @@
       ],
       "engine": "gfql-polars-gpu",
       "measurement_profile": "graphframes-tasks-warm-resident",
-      "run": "graphframes-ladder-20260904",
+      "run": "graphframes-ladder-ship-62df29a8a-20260920",
       "status": "ok",
       "unit": "ms",
-      "value": 2795.7,
+      "value": 2897.5,
       "workload": "GraphFrames tasks Orkut pagerank"
     },
     "graphframes.orkut.pagerank.gfql_polars_gpu_kernel": {
@@ -3144,10 +3144,10 @@
       ],
       "engine": "gfql-polars-gpu",
       "measurement_profile": "graphframes-tasks-warm-resident",
-      "run": "graphframes-ladder-20260904",
+      "run": "graphframes-ladder-ship-62df29a8a-20260920",
       "status": "ok",
       "unit": "ms",
-      "value": 151.4,
+      "value": 155.3,
       "workload": "GraphFrames tasks Orkut pagerank \u2014 gfql-polars-gpu kernel only"
     },
     "graphframes.orkut.pagerank.gfql_polars_gpu_vs_graphframes": {
@@ -3171,10 +3171,10 @@
         "graphframes.orkut.pagerank.gfql_polars_gpu",
         "graphframes.orkut.pagerank.graphframes"
       ],
-      "run": "graphframes-ladder-20260904",
+      "run": "graphframes-ladder-ship-62df29a8a-20260920",
       "status": "ok",
       "unit": "x",
-      "value": 12.5,
+      "value": 12.0,
       "workload": "GraphFrames tasks Orkut pagerank \u2014 gfql-polars-gpu vs graphframes"
     },
     "graphframes.orkut.pagerank.gfql_polars_kernel": {
@@ -3194,10 +3194,10 @@
       ],
       "engine": "gfql-polars",
       "measurement_profile": "graphframes-tasks-warm-resident",
-      "run": "graphframes-ladder-20260904",
+      "run": "graphframes-ladder-ship-62df29a8a-20260920",
       "status": "ok",
       "unit": "ms",
-      "value": 7834.5,
+      "value": 7848.6,
       "workload": "GraphFrames tasks Orkut pagerank \u2014 gfql-polars kernel only"
     },
     "graphframes.orkut.pagerank.gfql_polars_vs_graphframes": {
@@ -3221,7 +3221,7 @@
         "graphframes.orkut.pagerank.gfql_polars",
         "graphframes.orkut.pagerank.graphframes"
       ],
-      "run": "graphframes-ladder-20260904",
+      "run": "graphframes-ladder-ship-62df29a8a-20260920",
       "status": "ok",
       "unit": "x",
       "value": 0.2,
@@ -3244,7 +3244,7 @@
       ],
       "engine": "graphframes",
       "measurement_profile": "graphframes-tasks-warm-resident",
-      "run": "graphframes-ladder-20260904",
+      "run": "graphframes-ladder-ship-62df29a8a-20260920",
       "status": "ok",
       "unit": "ms",
       "value": 34860.7,
@@ -4406,15 +4406,15 @@
     }
   },
   "contract_version": 3,
-  "generated_at": "2026-09-17T23:36:58Z",
-  "generated_by": "graphistry/pyg-bench f517d2ce scripts/export_docs_numbers.py",
+  "generated_at": "2026-09-22T04:44:38Z",
+  "generated_by": "graphistry/pyg-bench 528907b1 scripts/export_docs_numbers.py",
   "policy": {
     "accepted_regressions": [],
     "drift_waivers": {
       "filter-pagerank-059-20260904": "Measured at the 0.59.0-era heads (pygraphistry 3fb216dd); the 0.60 stack landed since (#2055 #2056 #2054 #2062) changes chain RESULT contracts (binding-name alias declines, duplicate-id collapse, internal-column scoping) and the route dispatch layout, not the hop/PageRank kernels these rungs time; its perf receipts (sentinel at every head, q1-q9 and SNB re-measured at master 1a4107924 on 2026-09-07) moved within run-to-run spread. The GraphFrames/Spark ladder and the GPlus/Twitter PageRank pipelines are multi-hour dgx campaigns not re-run in this close-out; re-measure scheduled for the 0.60 release board.",
       "filter-pagerank-gplus-locked-20260830": "Competitor-only cells: this run publishes the Neo4j + GDS GPlus pipeline time (pagerank.gplus.neo4j_gds), which does not depend on graphistry/compute; the GFQL GPlus arms are re-measured at 0.59.0 in filter-pagerank-059-20260904. Re-measure Neo4j only when its own version or the pipeline contract changes.",
       "graphframes-ladder-059-hops-20260904": "Measured at the 0.59.0-era heads (pygraphistry 3fb216dd); the 0.60 stack landed since (#2055 #2056 #2054 #2062) changes chain RESULT contracts (binding-name alias declines, duplicate-id collapse, internal-column scoping) and the route dispatch layout, not the hop/PageRank kernels these rungs time; its perf receipts (sentinel at every head, q1-q9 and SNB re-measured at master 1a4107924 on 2026-09-07) moved within run-to-run spread. The GraphFrames/Spark ladder and the GPlus/Twitter PageRank pipelines are multi-hour dgx campaigns not re-run in this close-out; re-measure scheduled for the 0.60 release board.",
-      "graphframes-ladder-20260904": "Measured at the 0.59.0-era heads (pygraphistry e951e9a2c); the 0.60 stack landed since (#2055 #2056 #2054 #2062) changes chain RESULT contracts (binding-name alias declines, duplicate-id collapse, internal-column scoping) and the route dispatch layout, not the hop/PageRank kernels these rungs time; its perf receipts (sentinel at every head, q1-q9 and SNB re-measured at master 1a4107924 on 2026-09-07) moved within run-to-run spread. The GraphFrames/Spark ladder and the GPlus/Twitter PageRank pipelines are multi-hour dgx campaigns not re-run in this close-out; re-measure scheduled for the 0.60 release board.",
+      "graphframes-ladder-ship-62df29a8a-20260920": "GFQL arms for LiveJournal and Orkut re-measured at pygraphistry 62df29a8a in each source's own published mode (cpu_streaming and gpu_executor matched per source), all 16 cells within +-6.6% of the superseded board. GraphFrames arms retained from 2026-09-04: they do not depend on graphistry code, and a 2026-09-04 GFQL number reproduced today to 0.2% (220.2 vs 219.7), which is the evidence the host is stable. The three FRIENDSTER cells are retained at e951e9a2c and CANNOT be re-measured under the current memory guard: dgx-guard refuses the 1.8B-edge rung at an estimated 86.7 GB against an 80 GB budget, and the 2026-09-04 run's own recorded peak was 103.6 GB on a 119 GB shared host, so the estimate is conservative in the wrong direction. Re-measure only with a raised host budget on a quiesced box.",
       "snb-is3-single-query-20260727": "Diagnostic-only probe (comparison_allowed false) at pygraphistry 233b64c8; kept for the IS3 single-query versus two-pass note, never quoted as a result."
     },
     "literal_allowlist": {},
@@ -4513,18 +4513,20 @@
       "row_validation": "every task records the materialized result size (node count of the filter / k-hop ball, scored vertex count for PageRank); a cell is comparable only when every system on that dataset and task reports the same size, else it is published as a direct, diagnostic-only time",
       "runtime": "GFQL in graphistry/test-rapids-official:26.02-gfql-polars (RAPIDS 26.02, Python 3.13, polars 1.35.2, cuDF/cuGraph 26.2) under dgx-guard safe_run (RMM 80 GB, 100 GB for the Friendster rungs; host floor 20 GB); GraphFrames on host PySpark 3.5.3 + graphframes assembly jar, OpenJDK 1.8.0_492"
     },
-    "graphframes-ladder-20260904": {
-      "artifact": "results/graphframes-ladder-20260904 (one receipted rung directory per dataset x system x task group; fix2024/ holds the #2024-head hop, eager and CPU PageRank rungs; stale-attempts/ the breached ones; fix2024/*.killed-attempt1, *.failed-attempt1 and *.refused-attempt1 the Friendster runs that did not complete, with their launch logs)",
+    "graphframes-ladder-ship-62df29a8a-20260920": {
+      "artifact": "results/graphframes-ladder-ship-62df29a8a-20260920 (one receipted rung directory per dataset x system x task group; fix2024/ holds the #2024-head hop, eager and CPU PageRank rungs; stale-attempts/ the breached ones; fix2024/*.killed-attempt1, *.failed-attempt1 and *.refused-attempt1 the Friendster runs that did not complete, with their launch logs)",
       "competitor": "Apache Spark GraphFrames",
       "competitor_version": "graphframes assembly jar 1a4826bc (sha256 in each rung's SOURCE_COMMITS) on PySpark 3.5.3, OpenJDK 1.8.0_492, Spark local[*]",
       "dataset": "SNAP com-LiveJournal (3,997,962 nodes / 34,681,189 edges), com-Orkut (3,072,441 nodes / 117,185,083 edges), com-Friendster (65,608,366 nodes / 1,806,067,135 edges) as parquet edge lists; 50 highest-degree seeds; filter thresholds 42 / 162 / 148 (Friendster: the 90th degree percentile)",
+      "friendster_exception": "dgx-guard refuses the 1.8B-edge rung: estimated peak 86.7 GB against an 80 GB budget. The 2026-09-04 run's own recorded peak_rss was 103.6 GB on a 119 GB SHARED host, so the estimate errs low, not high, and overriding the guard's factor would risk the host OOM it exists to prevent. filter 3111.7 / hop1 6123.4 / hop2 164890.2 are therefore 2026-09-04 numbers at e951e9a2c, quoted as such.",
+      "graphframes_arms": "Retained from 2026-09-04: they do not depend on graphistry code. Justified rather than assumed -- a 2026-09-04 GFQL number re-measured today reproduced to 0.2% (220.2 vs 219.7), so the host has not drifted.",
       "host": "dgx-spark (NVIDIA GB10), 20 CPU",
-      "measured_at": "2026-09-04",
+      "measured_at": "2026-09-20",
       "perf_lock_held": true,
       "pyg_bench_commit": "f626913 for the batch C/D rungs (fix2024/lj-polars, orkut-polars, lj-polars-pagerank, orkut-polars-pagerank, friendster-polars-hop2-nocap); the earlier fix2024 rungs record 9757665 and the 0.59 rungs 0f8e213 in their SOURCE_COMMITS; the runner gained the optional HOST_GB address-space cap after 0f8e213 and the bench script is unchanged (sha256 in each rung's runner-sha256.txt)",
-      "pygraphistry_commit": "e951e9a2c",
+      "pygraphistry_commit": "62df29a8a for every LiveJournal and Orkut GFQL rung; the three FRIENDSTER cells remain at e951e9a2c and are NOT re-measured (see friendster_exception)",
       "quiet_host": true,
-      "reps": "each system loads once and stays resident; 2 warmups + 5 timed runs per task, median; GraphFrames PageRank 20 iterations",
+      "reps": "each system loads once and stays resident; 2 warmups + 5 timed runs per task, median; GraphFrames PageRank 20 iterations; the 2026-09-20 re-measurement ran each source in ITS OWN published mode (cpu_streaming and gpu_executor matched per source, verified against the superseded artifact) and reproduced every LiveJournal and Orkut cell within +-6.6%.",
       "row_validation": "every task records the materialized result size (node count of the filter / k-hop ball, scored vertex count for PageRank); a cell is comparable only when every system on that dataset and task reports the same size, else it is published as a direct, diagnostic-only time",
       "runtime": "GFQL in graphistry/test-rapids-official:26.02-gfql-polars (RAPIDS 26.02, Python 3.13, polars 1.35.2, cuDF/cuGraph 26.2) under dgx-guard safe_run (RMM 80 GB, 100 GB for the Friendster rungs; host floor 20 GB); the two CPU PageRank rungs (fix2024/lj-polars-pagerank, orkut-polars-pagerank) in graphistry/test-rapids-official:26.02-gfql-polars-igraph, the same image plus python-igraph 1.0.0 (image id and versions in each rung's IMAGE_RECEIPT.txt, recorded after the run); GraphFrames on host PySpark 3.5.3 + graphframes assembly jar, OpenJDK 1.8.0_492"
     },
