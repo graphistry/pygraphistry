@@ -141,13 +141,19 @@ def search_any_mask(
         s = df[c]
         m: SeriesT
         if _is_datetime_dtype(s.dtype):
-            # renders null where the inspector displays nothing, which must never match
-            from graphistry.compute.gfql.wysiwyg import (
-                render_datetime_cudf, render_datetime_pandas)
-            rendered = (render_datetime_cudf(s, temporal_tz)
-                        if "cudf" in type(s).__module__
-                        else render_datetime_pandas(s, temporal_tz))
-            m = pred(rendered) & rendered.notna()
+            if not regex and not case_sensitive and is_numeric_term(term) \
+                    and "cudf" not in type(s).__module__:
+                # a numeric term cannot straddle the render's fields, so skip the text
+                from graphistry.compute.gfql.datetime_search_index import index_for
+                m = df[c].__class__(index_for(s, temporal_tz).matches(term), index=s.index)
+            else:
+                # renders null where the inspector displays nothing, which must never match
+                from graphistry.compute.gfql.wysiwyg import (
+                    render_datetime_cudf, render_datetime_pandas)
+                rendered = (render_datetime_cudf(s, temporal_tz)
+                            if "cudf" in type(s).__module__
+                            else render_datetime_pandas(s, temporal_tz))
+                m = pred(rendered) & rendered.notna()
         elif _is_float_dtype(s.dtype):
             # renders null where the inspector displays nothing, which must never match
             from graphistry.compute.gfql.wysiwyg import render_float_cudf, render_float_pandas
