@@ -178,11 +178,6 @@ size. The query, the analytic and the scoring run in one pipeline over one set o
      - The same Cypher.
      - Query the frame already in memory, with nothing to load or index first. The q1–q9
        board on :doc:`performance` shows every query, wins and losses.
-   * - **LadybugDB**
-     - The same dataframe-native approach, in process.
-     - Streaming modes for results larger than RAM or GPU memory
-       (:ref:`gfql-larger-than-memory`). Scan-style queries are measured on
-       :doc:`performance`.
    * - **networkx**
      - A query language over frames instead of Python object graphs.
      - Columnar CPU execution and a one-keyword move to the GPU.
