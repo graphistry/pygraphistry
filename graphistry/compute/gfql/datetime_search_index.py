@@ -37,6 +37,9 @@ class DatetimeSearchIndex:
     __slots__ = ("day", "year", "year_base", "hour12", "minute", "second",
                  "present", "zone", "zones", "n", "nbytes")
 
+    #: Measured crossover: past this many selected values, a gather replaces the comparisons.
+    _COMPARE_UPTO = 11
+
     def __init__(self, s: SeriesT, tz: str) -> None:
         import numpy as np
         import pandas as pd
@@ -63,13 +66,10 @@ class DatetimeSearchIndex:
         self.nbytes = int(sum(a.nbytes for a in (
             self.day, self.year, self.hour12, self.minute, self.second, self.present, self.zone)))
 
-    def matches(self, term: str) -> "np.ndarray":
-        """Rows whose rendered text would contain ``term``."""
-        import numpy as np
-
-        hits = np.zeros(self.n, dtype=bool)
+    def _fields(self) -> List[Tuple["np.ndarray", int, Callable[[int], str]]]:
+        """The per-row code array, alphabet size and value renderer for each rendered field."""
         year_span = int(self.year.max()) + 1 if self.n else 0
-        fields: List[Tuple["np.ndarray", int, Callable[[int], str]]] = [
+        return [
             (self.day, 32, str),
             (self.year, year_span, lambda v: str(self.year_base + v)),
             (self.hour12, 13, str),
@@ -78,14 +78,55 @@ class DatetimeSearchIndex:
             # per row, not per column: +01 must select its own DST regime
             (self.zone, len(self.zones), lambda v: self.zones[v]),
         ]
-        for codes, size, render in fields:
+
+    def matches(self, term: str) -> "np.ndarray":
+        """Rows whose rendered text would contain ``term``.
+
+        Each field contributes the rows whose value renders to text containing the term. Three
+        things keep that from touching every row once per field:
+
+        * a field NO value of which matches contributes nothing, and if that holds for every
+          field the answer is empty without reading a row;
+        * a field EVERY value of which matches means every present row matches, whatever the
+          other fields say, so the answer is the present mask itself;
+        * once the accumulated mask is all true the remaining fields cannot add to it.
+
+        Within a field, comparing against each chosen value costs one pass per value, while
+        building a lookup table and gathering through it costs one pass whatever the count.
+        ``_COMPARE_UPTO`` is where those meet on this machine, so it is measured rather than
+        derived from the format.
+        """
+        import numpy as np
+
+        live: List[Tuple["np.ndarray", int, List[int]]] = []
+        for codes, size, render in self._fields():
             selected = [value for value in range(size) if term in render(value)]
             if not selected:
                 continue
-            table = np.zeros(size, dtype=bool)
-            table[selected] = True
-            hits |= table[codes]
-        return hits & self.present
+            if len(selected) == size:
+                return self.present.copy()
+            live.append((codes, size, selected))
+        if not live:
+            return np.zeros(self.n, dtype=bool)
+
+        hits = np.zeros(self.n, dtype=bool)
+        scratch = np.empty(self.n, dtype=bool)
+        last = len(live) - 1
+        for position, (codes, size, selected) in enumerate(live):
+            if len(selected) <= self._COMPARE_UPTO:
+                for value in selected:
+                    np.equal(codes, value, out=scratch)
+                    np.logical_or(hits, scratch, out=hits)
+            else:
+                table = np.zeros(size, dtype=bool)
+                table[selected] = True
+                np.take(table, codes, out=scratch)
+                np.logical_or(hits, scratch, out=hits)
+            # only worth asking while there is still a field that could add rows
+            if position != last and hits.all():
+                break
+        np.logical_and(hits, self.present, out=hits)
+        return hits
 
 
 def _zone_codes(localized: SeriesT) -> Tuple["np.ndarray", List[str]]:
