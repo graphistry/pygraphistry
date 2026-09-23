@@ -169,6 +169,11 @@ def _cache_key(s: SeriesT, tz: str) -> Optional[Tuple[bytes, str, str, int]]:
     index even though its values are the same. That rules out a sum or an xor, both of which a
     permutation leaves untouched. ``None`` means the column cannot be digested, so it is not
     cached rather than cached wrongly.
+
+    SHA-2 rather than BLAKE2 because this runs once per search over the whole column, and the
+    machines it runs on implement SHA-2 as an instruction while BLAKE2 has to be executed; the
+    two are equally sound here and the measurement lives in pyg-bench. Truncating to sixteen
+    bytes keeps the key the size it was -- a memo this small does not need more.
     """
     import hashlib
 
@@ -176,7 +181,7 @@ def _cache_key(s: SeriesT, tz: str) -> Optional[Tuple[bytes, str, str, int]]:
 
     try:
         raw = np.ascontiguousarray(s.to_numpy()).view(np.int64)
-        digest = hashlib.blake2b(memoryview(raw), digest_size=16).digest()
+        digest = hashlib.sha256(memoryview(raw)).digest()[:16]
     except (TypeError, ValueError, AttributeError):
         return None
     return (digest, str(s.dtype), tz, len(s))
