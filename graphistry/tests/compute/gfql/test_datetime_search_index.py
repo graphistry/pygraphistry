@@ -5,13 +5,16 @@ allowed to reach the same answer by another route, never a different one.
 """
 
 import itertools
+import warnings
 
 import numpy as np
 import pandas as pd
 import pytest
 
+from graphistry.compute.gfql import datetime_search_index as dsi
 from graphistry.compute.gfql.datetime_search_index import (
-    DatetimeSearchIndex, clear_cache, index_for)
+    DatetimeIndexCacheThrashWarning, DatetimeSearchIndex, clear_cache, index_for,
+    thrash_events)
 from graphistry.compute.gfql.search_any import search_any_mask
 from graphistry.compute.gfql.wysiwyg import render_datetime_pandas
 
@@ -228,3 +231,83 @@ class TestTheShortcutsAreActuallyTaken:
         column = stamps(300, 700 * 86_400, "2023-06-01")
         index = DatetimeSearchIndex(column, "UTC")
         assert 0 < index._COMPARE_UPTO < 60
+
+class TestCacheBudgetAndThrash:
+    """Two columns whose indexes together exceed the budget evict each other on every search,
+    so each keystroke rebuilds both. That is invisible in the answers -- only in the time -- so
+    the cache has to say so itself, and the budget has to be something an operator can raise
+    without a code change.
+    """
+
+    @staticmethod
+    def two_columns():
+        a = stamps(2_000, 10 ** 7)
+        return a, a + pd.Timedelta(seconds=1)
+
+    def test_the_budget_is_read_from_the_environment(self, monkeypatch):
+        monkeypatch.setenv(dsi._CACHE_BUDGET_ENV, "12345")
+        assert dsi._cache_budget_bytes() == 12345
+
+    def test_an_unusable_budget_falls_back_to_the_default(self, monkeypatch):
+        for bad in ("", "  ", "lots", "-1", "0"):
+            monkeypatch.setenv(dsi._CACHE_BUDGET_ENV, bad)
+            assert dsi._cache_budget_bytes() == dsi._CACHE_BUDGET_BYTES
+        monkeypatch.delenv(dsi._CACHE_BUDGET_ENV)
+        assert dsi._cache_budget_bytes() == dsi._CACHE_BUDGET_BYTES
+
+    def test_alternating_columns_under_budget_is_reported_as_thrash(self, monkeypatch):
+        a, b = self.two_columns()
+        clear_cache()
+        one = DatetimeSearchIndex(a, "UTC").nbytes
+        monkeypatch.setenv(dsi._CACHE_BUDGET_ENV, str(one + one // 2))   # room for one, not two
+        with pytest.warns(DatetimeIndexCacheThrashWarning):
+            for _ in range(3):
+                index_for(a, "UTC")
+                index_for(b, "UTC")
+        assert thrash_events() >= 1
+        assert len(dsi._CACHE) == 1
+
+    def test_the_warning_fires_once_but_the_count_keeps_going(self, monkeypatch):
+        a, b = self.two_columns()
+        clear_cache()
+        one = DatetimeSearchIndex(a, "UTC").nbytes
+        monkeypatch.setenv(dsi._CACHE_BUDGET_ENV, str(one + one // 2))
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            for _ in range(4):
+                index_for(a, "UTC")
+                index_for(b, "UTC")
+        ours = [w for w in caught if issubclass(w.category, DatetimeIndexCacheThrashWarning)]
+        assert len(ours) == 1
+        assert thrash_events() > 1
+
+    def test_a_budget_that_fits_both_keeps_both_and_stays_quiet(self, monkeypatch):
+        a, b = self.two_columns()
+        clear_cache()
+        one = DatetimeSearchIndex(a, "UTC").nbytes
+        monkeypatch.setenv(dsi._CACHE_BUDGET_ENV, str(3 * one))
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", DatetimeIndexCacheThrashWarning)
+            first_a = index_for(a, "UTC")
+            first_b = index_for(b, "UTC")
+            for _ in range(3):
+                assert index_for(a, "UTC") is first_a
+                assert index_for(b, "UTC") is first_b
+        assert thrash_events() == 0
+        assert len(dsi._CACHE) == 2
+
+    def test_clearing_resets_the_detector(self, monkeypatch):
+        a, b = self.two_columns()
+        clear_cache()
+        one = DatetimeSearchIndex(a, "UTC").nbytes
+        monkeypatch.setenv(dsi._CACHE_BUDGET_ENV, str(one + one // 2))
+        with pytest.warns(DatetimeIndexCacheThrashWarning):
+            for _ in range(2):
+                index_for(a, "UTC")
+                index_for(b, "UTC")
+        clear_cache()
+        assert thrash_events() == 0
+        with pytest.warns(DatetimeIndexCacheThrashWarning):      # can fire again
+            for _ in range(2):
+                index_for(a, "UTC")
+                index_for(b, "UTC")

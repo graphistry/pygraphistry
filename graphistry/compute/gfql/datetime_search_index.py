@@ -17,18 +17,37 @@ every legal substring of many timestamps rather than trusting this docstring.
 
 from __future__ import annotations
 
+import os
 import threading
-from collections import OrderedDict
-from typing import TYPE_CHECKING, Callable, List, Optional, Tuple
+import warnings
+from collections import OrderedDict, deque
+from typing import TYPE_CHECKING, Callable, Deque, Dict, List, Optional, Tuple
 
 from graphistry.compute.typing import SeriesT
 
 if TYPE_CHECKING:
     import numpy as np
 
-#: Bytes of index the process keeps. A datetime column costs eight bytes a row, so this holds a
-#: 30M-row column and evicts the least recently used beyond that.
+#: Default bytes of index the process keeps; ``GRAPHISTRY_GFQL_DATETIME_INDEX_CACHE_BYTES`` overrides it.
 _CACHE_BUDGET_BYTES = 512 * 1024 * 1024
+_CACHE_BUDGET_ENV = "GRAPHISTRY_GFQL_DATETIME_INDEX_CACHE_BYTES"
+
+
+def _cache_budget_bytes() -> int:
+    """The eviction budget, from the environment when set to a positive integer."""
+    raw = os.environ.get(_CACHE_BUDGET_ENV, "").strip()
+    if raw:
+        try:
+            value = int(raw)
+        except ValueError:
+            return _CACHE_BUDGET_BYTES
+        if value > 0:
+            return value
+    return _CACHE_BUDGET_BYTES
+
+
+class DatetimeIndexCacheThrashWarning(RuntimeWarning):
+    """A column's index was rebuilt right after being evicted: the budget is below the working set."""
 
 
 class DatetimeSearchIndex:
@@ -145,13 +164,25 @@ def _zone_codes(localized: SeriesT) -> Tuple["np.ndarray", List[str]]:
     return codes.astype(np.int16), labels
 
 
-_CACHE: "OrderedDict[Tuple[bytes, str, str, int], DatetimeSearchIndex]" = OrderedDict()
+_CacheKey = Tuple[bytes, str, str, int]
+_CACHE: "OrderedDict[_CacheKey, DatetimeSearchIndex]" = OrderedDict()
 _CACHE_LOCK = threading.Lock()
+#: Keys evicted most recently; re-inserting one of these is the signature of a thrashing cache.
+_RECENTLY_EVICTED: Deque[_CacheKey] = deque(maxlen=8)
+#: ``events`` counts rebuilds-after-eviction; ``warned`` marks the one warning per process.
+_THRASH: Dict[str, int] = {}
 
 
 def clear_cache() -> None:
     with _CACHE_LOCK:
         _CACHE.clear()
+        _RECENTLY_EVICTED.clear()
+        _THRASH.clear()
+
+
+def thrash_events() -> int:
+    """How many times an index was rebuilt right after its eviction since the last clear."""
+    return _THRASH.get("events", 0)
 
 
 def _cache_key(s: SeriesT, tz: str) -> Optional[Tuple[bytes, str, str, int]]:
@@ -199,15 +230,34 @@ def index_for(s: SeriesT, tz: str) -> DatetimeSearchIndex:
             return hit
     built = DatetimeSearchIndex(s, tz)
     with _CACHE_LOCK:
+        rebuilt_after_eviction = key in _RECENTLY_EVICTED
         _CACHE[key] = built
         _CACHE.move_to_end(key)
+        budget = _cache_budget_bytes()
         held = sum(entry.nbytes for entry in _CACHE.values())
-        while len(_CACHE) > 1 and held > _CACHE_BUDGET_BYTES:
-            _, evicted = _CACHE.popitem(last=False)
+        evicted_bytes = 0
+        while len(_CACHE) > 1 and held > budget:
+            evicted_key, evicted = _CACHE.popitem(last=False)
+            _RECENTLY_EVICTED.append(evicted_key)
             held -= evicted.nbytes
+            evicted_bytes += evicted.nbytes
+        warn_now = False
+        if rebuilt_after_eviction:
+            _THRASH["events"] = _THRASH.get("events", 0) + 1
+            warn_now = not _THRASH.get("warned", 0)
+            _THRASH["warned"] = 1
+    if warn_now:
+        warnings.warn(
+            "datetime search index rebuilt immediately after being evicted: the working set "
+            "exceeds the cache budget of %d bytes (this index is %d bytes; %d bytes were evicted "
+            "to admit it). Every search over this frame is paying a full rebuild. Raise %s."
+            % (budget, built.nbytes, evicted_bytes, _CACHE_BUDGET_ENV),
+            DatetimeIndexCacheThrashWarning, stacklevel=2)
     return built
 
 
 from graphistry.compute.gfql.cache_registry import register_clearable_dict  # noqa: E402
 
 register_clearable_dict("_CACHE", _CACHE)
+register_clearable_dict("_RECENTLY_EVICTED", _RECENTLY_EVICTED)
+register_clearable_dict("_THRASH", _THRASH)
