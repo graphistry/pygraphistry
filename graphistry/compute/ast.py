@@ -1808,7 +1808,7 @@ def count_table(
     ``source`` alias-mask column is present, the count of its truthy rows). This
     avoids the full-frame materialize + constant-key ``group_by`` the general
     aggregate path performs — the win that turns count(*) from O(N) into a single
-    reduction. See plans/gfql-engine-followups (BEAT LADYBUG).
+    reduction.
     """
     params: Dict[str, Any] = {"table": table, "alias": alias}
     if source is not None:
