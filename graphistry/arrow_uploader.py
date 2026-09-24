@@ -1,6 +1,6 @@
 from typing import List, Optional, Dict, Any
 
-import base64, io, json, pyarrow as pa, requests, sys
+import io, json, pyarrow as pa, requests, sys
 
 from graphistry.privacy import Mode, Privacy, ModeAction
 from graphistry.otel import inject_trace_headers
@@ -14,46 +14,12 @@ from .io.metadata import (
     serialize_edge_encodings
 )
 
-from .exceptions import TokenExpireException
+from .exceptions import TokenExpireException, SsoPendingException
 from .validate.validate_encodings import validate_encodings
-from .utils.requests import log_requests_error
+from .utils.requests import log_requests_error, switch_org_request, OrgSwitchError, OrgSwitchIdpChallenge
 from .util import setup_logger
 from graphistry.models.types import ValidationParam
 logger = setup_logger(__name__)
-
-
-def _personal_org_from_jwt(token: str) -> Optional[str]:
-    """Extract the username claim from a JWT payload, used as a personal-org slug.
-
-    Trust chain: callers pass a JWT just received from the authenticated
-    /api/v2/o/sso/oidc/jwt/{state}/ endpoint in the same exchange, so we decode
-    the payload without local signature verification. The server re-validates
-    the token signature on every subsequent request — an incorrect username
-    can at worst route the session to an org the user isn't a member of (server
-    rejects), not grant unauthorized access. Do NOT reuse this helper for
-    tokens received from outside that trust chain.
-
-    Server contract: ``personal_org.slug == jwt_payload.username`` for users
-    auto-provisioned via SSO.
-
-    Returns None on any decode/parse failure or missing/non-string username.
-    """
-    try:
-        parts = token.split('.')
-        if len(parts) < 2:
-            return None
-        # base64 padding: only the missing chars (0, 2, or 3); never extra.
-        # Inputs whose stripped length is 1 mod 4 are invalid b64; the decode
-        # call below will raise and the caller-level except returns None.
-        segment = parts[1] + '=' * (-len(parts[1]) % 4)
-        payload = json.loads(base64.urlsafe_b64decode(segment))
-        if not isinstance(payload, dict):
-            return None
-        username = payload.get('username')
-        return username if isinstance(username, str) and username else None
-    except Exception as exc:
-        logger.debug("@_personal_org_from_jwt: failed to extract username: %s", exc)
-        return None
 
 
 class ArrowUploader:
@@ -251,42 +217,27 @@ class ArrowUploader:
         self.__certificate_validation = certificate_validation
 
 
-    ########################################################################3
-
-    # @property
-    # def sso_state(self) -> str:
-    #     return getattr(self, '__sso_state', "")
-
-    ########################################################################3
-
-    # @property
-    # def sso_auth_url(self) -> str:
-    #     return getattr(self, '__sso_auth_url')
-
-    ########################################################################3
-
-
     def _switch_org(self, org_name: Optional[str], token: Optional[str]) -> None:
         if not org_name or not token:
             return
-        last = self._client_session._last_switched_org_token
-        if last == (org_name, token):
+        if self._client_session.is_org_verified(token, org_name):
             return
         try:
-            switch_url = f"{self.server_base_path}/api/v2/o/{org_name}/switch/"
-            response = requests.post(
-                switch_url,
-                data={'slug': org_name},
-                headers=inject_trace_headers({'Authorization': f'Bearer {token}'}),
-                verify=self.certificate_validation,
-            )
-            log_requests_error(response)
-            self._client_session._last_switched_org_token = (org_name, token)
-            from .pygraphistry import PyGraphistry
-            if PyGraphistry.session is self._client_session:
-                PyGraphistry.session._last_switched_org_token = (org_name, token)
+            switch_org_request(self.server_base_path, org_name, token, self.certificate_validation)
+        except OrgSwitchError as exc:
+            logger.warning("%s; not recording switch", exc)
+            return
+        except OrgSwitchIdpChallenge as exc:
+            logger.warning("%s; not recording switch", exc)
+            return
         except Exception as exc:
             logger.warning("Failed to switch organization %s: %s", org_name, exc)
+            return
+
+        self._client_session.mark_org_verified(token, org_name)
+        from .pygraphistry import PyGraphistry
+        if PyGraphistry.session is self._client_session:
+            PyGraphistry.session.mark_org_verified(token, org_name)
 
 
     def login(self, username, password, org_name=None):
@@ -344,8 +295,7 @@ class ArrowUploader:
                 if not logged_in_org_name:  # no active_organization in JWT payload
                     raise Exception("You are not authorized to the organization '{}', or server does not support organization, please omit org_name parameter".format(org_name))
                 else:
-                    # if JWT response with org_name different than the pass in org_name
-                    # => org_name not found and return default organization (currently is personal org)
+                    # JWT's active org differs from the requested org_name -> treat as not found.
                     if logged_in_org_name != org_name:
                         raise Exception("Login Organization is not found in your organization")
 
@@ -431,6 +381,40 @@ class ArrowUploader:
             
         return self
 
+    def _personal_org_from_api(self, token: str) -> Optional[str]:
+        """Look up the caller's personal org via GET /api/v2/my/organizations/.
+
+        Trust chain: token is the one just returned by the SSO exchange in
+        this same flow. Replaces the old JWT-username-slugify reconstruction
+        (unreliable: couldn't replicate server-side slug-collision suffixing
+        and depended on byte-for-byte parity with Django's slugify), with a
+        real server-confirmed lookup, filtered on the ``is_personal`` flag.
+
+        Returns None on any request/parse failure or if no personal org is found.
+        """
+        try:
+            out = requests.get(
+                f'{self.server_base_path}/api/v2/my/organizations/',
+                params={'limit': 1000},
+                verify=self.certificate_validation,
+                headers=inject_trace_headers({'Authorization': f'Bearer {token}'})
+            )
+            if not (200 <= out.status_code < 300):
+                return None
+            payload = out.json()
+            orgs = payload.get('results', payload) if isinstance(payload, dict) else payload
+            if not isinstance(orgs, list):
+                return None
+            for org in orgs:
+                if isinstance(org, dict) and org.get('is_personal'):
+                    slug = org.get('slug')
+                    if isinstance(slug, str) and slug:
+                        return slug
+            return None
+        except Exception as exc:
+            logger.debug("@_personal_org_from_api: failed to fetch personal org: %s", exc)
+            return None
+
     def sso_get_token(self, state):
         """
         Koa, 04 May 2022    Use state to get token
@@ -450,10 +434,12 @@ class ArrowUploader:
             json_response = out.json()
             self.token = None
             if 'status' not in json_response:
-                raise Exception(out.text)
+                # Unrecognized body (proxy error page, DRF detail, ...): retryable, not fatal.
+                raise SsoPendingException(out.text)
 
             if json_response['status'] != 'OK':
-                raise Exception(json_response.get('message', out.text))
+                # Normal "not ready yet" answer while the browser login is in flight.
+                raise SsoPendingException(json_response.get('message', out.text))
 
             data = json_response.get('data', {})
             token_value = data.get('token')
@@ -464,11 +450,19 @@ class ArrowUploader:
             active_org = data.get('active_organization')
             slug = active_org.get('slug') if isinstance(active_org, dict) else None
 
+            # Defense-in-depth: treat the reserved site-wide sentinel org ('SITE') as unbound -- no dataset can ever be created under it.
+            if isinstance(slug, str) and slug.upper() == 'SITE':
+                logger.warning(
+                    "SSO returned active_organization=%r, the reserved "
+                    "site-wide org; treating as unbound and falling back to "
+                    "personal org. This usually means an IdP org claim was "
+                    "mis-mapped server-side — verify per-org SSO config.",
+                    slug
+                )
+                slug = None
+
             if slug:
-                # Layer 1: server-bound active_organization. Caller's intent
-                # (self.org_name from register(org_name=...) or session) must
-                # MATCH or be ABSENT. Symmetric with _finalize_login's strict
-                # check for username/password (line ~309-316).
+                # Layer 1: server-bound active_organization -- caller's intent (self.org_name) must MATCH or be ABSENT.
                 if self.org_name and self.org_name != slug:
                     raise Exception(
                         f"SSO returned active_organization={slug!r}, but caller "
@@ -481,11 +475,7 @@ class ArrowUploader:
                 self.org_name = slug
                 self._switch_org(slug, token_value)
             elif self.org_name:
-                # Layer 2: caller-supplied, server silent. Preserve caller
-                # intent — subsequent authenticated requests will validate org
-                # membership lazily. WARNING because the asymmetric outcome
-                # (caller asked, server didn't bind) is operationally
-                # interesting and worth investigating per-org SSO config.
+                # Layer 2: caller-supplied, server silent -- preserve caller intent; membership validates lazily on later requests.
                 logger.warning(
                     "SSO did not bind active_organization but caller requested "
                     "org_name=%s; preserving caller value. Subsequent requests "
@@ -494,27 +484,26 @@ class ArrowUploader:
                     self.org_name
                 )
             else:
-                # Layer 3: caller didn't ask, server didn't bind. Try
-                # JWT-derived personal-org fallback for first-login UX. See
-                # _personal_org_from_jwt for the trust-chain rationale.
-                fallback = _personal_org_from_jwt(token_value)
+                # Layer 3: caller didn't ask, server didn't bind -- try the server-confirmed personal-org fallback (see _personal_org_from_api).
+                fallback = self._personal_org_from_api(token_value)
                 if fallback:
                     logger.info(
                         "SSO did not bind active_organization; falling back to "
-                        "JWT-derived personal org=%s", fallback
+                        "personal org=%s", fallback
                     )
                     self.org_name = fallback
                     self._switch_org(fallback, token_value)
                 else:
                     # Layer 4: nothing claimed, nothing bound, nothing inferable.
                     logger.info(
-                        "SSO did not bind active_organization and no JWT "
-                        "username present; site-wide SSO login completes with "
-                        "no org binding."
+                        "SSO did not bind active_organization and no personal "
+                        "org found; site-wide SSO login completes with no org "
+                        "binding."
                     )
 
         except Exception as e:
-            logger.error('Unexpected SSO authentication error: %s', out, exc_info=True)
+            # debug, not error: fires on every routine "not ready yet" poll, not just genuine failures -- error level would spam the console.
+            logger.debug('SSO token poll did not complete: %s', out, exc_info=True)
             raise e
             
         return self
