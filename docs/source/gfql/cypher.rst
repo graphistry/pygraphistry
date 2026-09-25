@@ -275,7 +275,7 @@ WHERE Forms
   uppercase escape classes (e.g. ``(?i)\\D+``; lowercase ``\\d``/``\\.``
   work), case-crossing character ranges (``(?i)[A-z]``), hex escapes, and
   non-ASCII patterns raise ``NotImplementedError`` (libcudf
-  regex limits — declined honestly rather than approximated); use
+  regex limits — declined rather than approximated); use
   ``engine='pandas'`` for those patterns. (``LIKE`` / ``ILIKE`` are not part of
   Cypher or GQL — use ``=~``, ``CONTAINS``, or ``STARTS WITH`` instead.)
 - Label predicates such as ``WHERE b:Foo:Bar``.
@@ -343,7 +343,7 @@ and ``RETURN`` expressions:
   ...]}`` (unknown keys error, listing the valid ones). Composes with other
   WHERE predicates through AND/OR/NOT; nodes and edges independently searchable
   with different terms. Runs natively on all four engines for node aliases; an
-  edge-alias ``searchAny(r, ...)`` declines honestly on polars pending
+  edge-alias ``searchAny(r, ...)`` declines on polars pending
   multi-entity binding-row support (use ``engine='pandas'``). A datetime column
   is rendered in ``temporal_tz`` (default UTC) because the inspector renders in
   the viewer's zone, which a server cannot know; cuDF serves UTC and declines
