@@ -209,8 +209,8 @@ The q8 GFQL cells are diagnostic; all other cells are benchmark results.
    * - q8
      - 1
      - :bench:`graphbench.20k.q8.kuzu`
-     - :bench-diag:`graphbench.20k.q8.pandas`
-     - :bench-diag:`graphbench.20k.q8.polars`
+     - :bench:`graphbench.20k.q8.pandas`
+     - :bench:`graphbench.20k.q8.polars`
    * - q9
      - 1
      - :bench:`graphbench.20k.q9.kuzu`
@@ -269,8 +269,8 @@ The same queries run on a graph with 100,000 people.
    * - q8
      - 1
      - :bench:`graphbench.100k.q8.kuzu`
-     - :bench-diag:`graphbench.100k.q8.pandas`
-     - :bench-diag:`graphbench.100k.q8.polars`
+     - :bench:`graphbench.100k.q8.pandas`
+     - :bench:`graphbench.100k.q8.polars`
    * - q9
      - 1
      - :bench:`graphbench.100k.q9.kuzu`
@@ -280,9 +280,9 @@ The same queries run on a graph with 100,000 people.
 Provenance
 ~~~~~~~~~~
 
-.. bench-provenance:: graphbench-q1q9-20k-20260726
+.. bench-provenance:: graphbench-q1q9-20k-master-f283a305e-20260917
 
-.. bench-provenance:: graphbench-q1q9-100k-20260726
+.. bench-provenance:: graphbench-q1q9-100k-master-f283a305e-20260917
 
 .. bench-disclosures::
 
