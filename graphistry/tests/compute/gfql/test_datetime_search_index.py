@@ -311,3 +311,69 @@ class TestCacheBudgetAndThrash:
             for _ in range(2):
                 index_for(a, "UTC")
                 index_for(b, "UTC")
+
+
+class TestOnCuDF:
+    """The index lives where the column lives. On a cuDF column it is cupy arrays, built and
+    matched on the device, and it must answer exactly what the cuDF render answers. cuDF is
+    UTC-only here for the same reason the render is: libcudf's ``strftime`` ignores
+    ``tz_convert``, so no other zone can be named on the GPU -- and the index declines the same
+    way rather than indexing a false zone.
+    """
+
+    GPU_SHAPES = {k: v for k, v in SHAPES.items()}
+    GPU_TERMS = [t for t in TERMS if t not in ("+01", "+1245")]   # zone-label terms; UTC only
+
+    @staticmethod
+    def rendered_gpu_answer(gs, term):
+        from graphistry.compute.gfql.wysiwyg import render_datetime_cudf
+        text = render_datetime_cudf(gs, "UTC")
+        return (text.notna() & text.fillna("").str.contains(term, regex=False)).to_numpy()
+
+    @pytest.mark.parametrize("shape", list(SHAPES))
+    def test_the_gpu_index_answers_what_the_gpu_render_answers(self, shape):
+        cudf = pytest.importorskip("cudf", reason="cuDF lane needs a GPU box")
+        gs = cudf.Series(SHAPES[shape])
+        clear_cache()
+        index = index_for(gs, "UTC")
+        assert type(index.present).__module__.startswith("cupy"), "index must live on the device"
+        for term in self.GPU_TERMS:
+            got = index.matches(term).get()
+            want = self.rendered_gpu_answer(gs, term)
+            assert np.array_equal(got, want), (shape, term)
+
+    def test_searchany_on_a_cudf_frame_takes_the_index_and_agrees_with_pandas(self, monkeypatch):
+        cudf = pytest.importorskip("cudf", reason="cuDF lane needs a GPU box")
+        from graphistry.compute.gfql import datetime_search_index as dsi
+        s = stamps(400, 3 * 10 ** 8)
+        pdf = pd.DataFrame({"when": s})
+        gdf = cudf.DataFrame({"when": cudf.Series(s)})
+        calls = []
+        real = dsi.index_for
+        monkeypatch.setattr(dsi, "index_for", lambda *a, **k: calls.append(1) or real(*a, **k))
+        clear_cache()
+        for term in ("2", "20", "2024", "05", "9999"):
+            g = search_any_mask(gdf, term).to_numpy()
+            p = search_any_mask(pdf, term).to_numpy()
+            assert np.array_equal(g, p), term
+        assert len(calls) >= 5, "a numeric term on a cuDF datetime column must reach the index"
+
+    def test_a_non_utc_zone_declines_on_cudf_instead_of_indexing_a_false_one(self):
+        cudf = pytest.importorskip("cudf", reason="cuDF lane needs a GPU box")
+        from graphistry.compute.gfql.wysiwyg import CudfTemporalTzUnsupported
+        gs = cudf.Series(stamps(50, 10 ** 7))
+        clear_cache()
+        with pytest.raises(CudfTemporalTzUnsupported):
+            index_for(gs, "America/New_York")
+        with pytest.raises(CudfTemporalTzUnsupported):
+            search_any_mask(cudf.DataFrame({"when": gs}), "2024", temporal_tz="America/New_York")
+
+    def test_host_and_device_columns_with_the_same_bytes_do_not_share_an_entry(self):
+        cudf = pytest.importorskip("cudf", reason="cuDF lane needs a GPU box")
+        from graphistry.compute.gfql.datetime_search_index import _cache_key
+        s = stamps(200, 10 ** 7)
+        host_key, device_key = _cache_key(s, "UTC"), _cache_key(cudf.Series(s), "UTC")
+        assert host_key[:4] == device_key[:4], "same instants: same digest, dtype, zone, length"
+        assert host_key[4] != device_key[4], "different device: different entry"
+        clear_cache()
+        assert index_for(s, "UTC") is not index_for(cudf.Series(s), "UTC")
