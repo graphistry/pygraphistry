@@ -107,14 +107,16 @@ class BenchProvenance(Directive):
     across runs. A field whose value is the same in every run is shown once, and a field
     that differs is shown per run, keyed by that run's measurement date. The
     ``:disclosures:`` flag folds every disclosure attached to a number this page prints
-    into the same block, in place of a separate ``bench-disclosures``.
+    into the same block, in place of a separate ``bench-disclosures``. ``:fields:`` narrows
+    the block to a named subset, in the order given; an unknown name is an error rather
+    than a silently dropped row.
     """
 
     required_arguments = 1
     optional_arguments = 8
     final_argument_whitespace = False
     has_content = False
-    option_spec = {'disclosures': directives.flag}
+    option_spec = {'disclosures': directives.flag, 'fields': directives.unchanged}
 
     FIELDS = [
         ('measured_at', 'Measured'),
@@ -152,6 +154,16 @@ class BenchProvenance(Directive):
                 return []
             runs.append(run)
         spec = self.FIELDS if len(runs) == 1 else self.MERGED_FIELDS
+        wanted = [f.strip() for f in self.options.get('fields', '').split(',') if f.strip()]
+        if wanted:
+            known = dict(self.FIELDS)
+            unknown = [f for f in wanted if f not in known]
+            if unknown:
+                message = '{}: unknown provenance field(s) {}'.format(docname, ', '.join(sorted(unknown)))
+                state.fail(message)
+                logger.warning('[gfql-bench] %s', message)
+                return []
+            spec = [(f, known[f]) for f in wanted]
         field_list = _merged_fields(runs, spec)
         if 'disclosures' in self.options:
             state.disclosed.append(docname)

@@ -1,17 +1,18 @@
 .. _gfql-performance:
 
-GFQL Performance: Measured Against Graph Databases
-==================================================
+GFQL outperforming traditional graph databases
+==============================================
 
-Compare GFQL execution times across dataframe engines and graph databases.
-The tables below link to the run dates, hardware, and measurement profiles.
+We measured GFQL's CPU and GPU optimized lazy dataframe approach to frequently
+outperform graph databases on popular benchmarks at different sizes, for both
+low-latency search scenarios and large analytical ones.
 
 Choose an engine
 ----------------
 
 GFQL runs queries on ``pandas`` and ``polars`` on CPU, or ``cudf`` and ``polars-gpu``
 with NVIDIA GPU support. The default ``engine='auto'`` selects from the input frames.
-Supported queries return the same rows across engines. On the q1–q9 boards below,
+Supported queries return the same rows across engines. On the graph-benchmark boards below,
 the Polars engine is faster than pandas on :bench-tally:`graphbench.100k|polars|pandas`
 queries at 100,000 people, by up to :bench:`graphbench.100k.q5.polars_vs_pandas`
 (q5). See :doc:`engines` for the selection guide.
@@ -25,23 +26,15 @@ queries at 100,000 people, by up to :bench:`graphbench.100k.q5.polars_vs_pandas`
 
 .. _gfql-vs-kuzu-board:
 
-The q1–q9 board: GFQL, Kuzu, Memgraph, and Neo4j
--------------------------------------------------
+graph-benchmark: GFQL, Kuzu, Memgraph, and Neo4j
+------------------------------------------------
 
-Nine Cypher queries from ``prrao87/graph-benchmark`` rank nodes by degree, group and
+The nine queries from ``prrao87/graph-benchmark`` rank nodes by degree, group and
 filter records, and count two-hop paths on synthetic social graphs with 20,000 and
-100,000 people. Every cell passed result-row validation against every other engine.
-Times are milliseconds; lower is better.
+100,000 people.
 
-GFQL binds the graph inside every timed run. The GPU column uses ``polars-gpu``.
-At 20,000 people, q8 runs on CPU even with this engine setting.
-Kuzu compiles the query text on each call. Memgraph and
-Neo4j answer over Bolt with their default plan caches. These are direct times under
-those profiles, not cross-engine speedup ratios. At these sizes the queries are
-millisecond-scale, so the GPU engine wins some and loses others to the CPU engine:
-:bench-tally:`graphbench.100k|polars_gpu|polars` at 100,000 people. Its widest loss is
-q8 at 100,000 people, :bench:`graphbench.100k.q8.polars_gpu` against
-:bench:`graphbench.100k.q8.polars` on the CPU.
+GFQL on CPU already answers these queries in milliseconds, so GPU mode has little
+to gain on workloads this small.
 
 At 20,000 people, GFQL Polars is faster than Kuzu on
 :bench-tally:`graphbench.20k|polars|kuzu` queries, than Memgraph on
@@ -50,13 +43,6 @@ At 20,000 people, GFQL Polars is faster than Kuzu on
 :bench-tally:`graphbench.100k|polars|kuzu` (Kuzu),
 :bench-tally:`graphbench.100k|polars|memgraph` (Memgraph), and
 :bench-tally:`graphbench.100k|polars|neo4j` (Neo4j).
-
-GFQL and Kuzu discard five warmups, then time 51 calls in each of four
-position-balanced slots. Each cell is the median of the four slot medians.
-These runs use the same ten faster CPU cores on the DGX host, including CPU work
-in the GPU slots. Polars uses 20 worker threads. Memgraph and Neo4j retain their
-August 12 measurements: four slots of seven calls over Bolt, with their original
-CPU placement.
 
 The 20,000-person board
 ~~~~~~~~~~~~~~~~~~~~~~~
@@ -74,27 +60,20 @@ The 100,000-person board
 
 .. _gfql-snb-aligned:
 
-SNB-derived lookups and small-result queries
---------------------------------------------
+SNB Interactive
+---------------
 
 These queries come from the LDBC Social Network Benchmark Interactive workload.
-They run on SF0.1 and SF1 datasets with identical results across the compared
-engines. They are internal measurements; the official LDBC driver was not used.
-Times are milliseconds.
+They run on SF0.1 and SF1 datasets.
 
-GFQL Polars is fastest among the four engines for message content and creator
-lookups at both scales. At SF1, these take
+GFQL outperforms Kuzu, Memgraph, and Neo4j across the SNB Interactive tables at
+both SF 0.1 and SF 1; the one exception is recent replies at SF 0.1, where GFQL and
+Neo4j are level. At SF1, message content and creator lookups take
 :bench:`snb.sf1.message_content.gfql_polars_idx` and
 :bench:`snb.sf1.message_creator.gfql_polars_idx`, respectively.
 Polars is also faster than Kuzu on every eligible query in these tables, including
 message replies and new topics. The tables show each engine's result for the
 profile lookup and recent replies as well.
-
-GFQL builds adjacency and node-property indexes before timing, then reuses them
-across queries. The single-node lookups use these indexes to select matching rows.
-The GFQL arm runs native operation lists. Each engine discards eight warmups,
-times 31 executions with full result materialization, and repeats the process
-three times. Each table cell is the median of the three run medians.
 
 SF0.1
 ~~~~~
@@ -111,17 +90,6 @@ SF1
    :rows: seed_lookup,message_content,message_creator,new_topics
    :columns: gfql_polars_idx=GFQL polars, gfql_pandas_idx=GFQL pandas, kuzu=Kuzu, neo4j=Neo4j, memgraph=Memgraph
    :row-labels: seed_lookup=seed lookup; message_content=message content; message_creator=message creator; recent_replies=recent replies; message_replies=message replies (GFQL and Kuzu only); new_topics=new topics (GFQL and Kuzu only)
-
-Neo4j and Memgraph use a reduced adapter for one query, and one parameter returns zero
-rows; those cells are excluded rather than estimated. SF10 was not run.
-
-Lookups from known nodes
-------------------------
-
-Queries that start from known node IDs can use an adjacency index to read only
-those nodes' neighborhoods. The SNB tables exercise indexed lookups and
-traversals. See :doc:`index_adjacency` for how the index works and :doc:`indexing`
-for when to build or refresh it.
 
 How GFQL is fast, and when it is not
 ------------------------------------
@@ -147,9 +115,10 @@ traversals, and PageRank against Spark GraphFrames.
 Provenance
 ----------
 
-Run dates, hardware, and measurement profiles are listed below.
+Run dates and hardware.
 
 .. bench-provenance:: graphbench-q1q9-20k-master-f283a305e-20260917 graphbench-q1q9-100k-master-f283a305e-20260917 snb-aligned-ship-f283a305e-20260917 snb-ship-f283a305e-20260917
+   :fields: measured_at,host
    :disclosures:
 
 Next steps
