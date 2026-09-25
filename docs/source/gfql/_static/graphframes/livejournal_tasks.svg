@@ -7,47 +7,47 @@
 <text class="s" x="16" y="49">Median of 5 after 2 warmups; same result size on every system unless marked. Lower is better.</text>
 <text class="n" x="16" y="89">filter: degree &gt;= 42</text>
 <rect x="193" y="96" width="1" height="84" fill="var(--rule)"/>
-<text class="a" x="26" y="116">GFQL polars (CPU)</text>
-<path class="cpu" d="M194 103H281.4a4 4 0 0 1 4 4V117a4 4 0 0 1 -4 4H194Z"/>
-<text x="293.4" y="116"><tspan class="n">24.5 ms</tspan><tspan class="a" dx="9">3.3x faster than GraphFrames</tspan></text>
-<text class="a" x="26" y="144">GFQL polars-gpu (GPU)</text>
-<path class="gpu" d="M194 131H284.4a4 4 0 0 1 4 4V145a4 4 0 0 1 -4 4H194Z"/>
-<text x="296.4" y="144"><tspan class="n">25.3 ms</tspan><tspan class="a" dx="9">3.2x faster than GraphFrames</tspan></text>
+<text class="a" x="26" y="116">GFQL polars-gpu (GPU)</text>
+<path class="gpu" d="M194 103H284.4a4 4 0 0 1 4 4V117a4 4 0 0 1 -4 4H194Z"/>
+<text x="296.4" y="116"><tspan class="n">25.3 ms</tspan><tspan class="a" dx="9">3.2x faster than GraphFrames</tspan></text>
+<text class="a" x="26" y="144">GFQL polars (CPU)</text>
+<path class="cpu" d="M194 131H281.4a4 4 0 0 1 4 4V145a4 4 0 0 1 -4 4H194Z"/>
+<text x="293.4" y="144"><tspan class="n">24.5 ms</tspan><tspan class="a" dx="9">3.3x faster than GraphFrames</tspan></text>
 <text class="a" x="26" y="172">GraphFrames local[*]</text>
 <path class="neo" d="M194 159H490a4 4 0 0 1 4 4V173a4 4 0 0 1 -4 4H194Z"/>
 <text x="502" y="172"><tspan class="n">80.4 ms</tspan></text>
 <text class="n" x="16" y="205">1-hop from 50 seeds</text>
 <rect x="193" y="212" width="1" height="84" fill="var(--rule)"/>
-<text class="a" x="26" y="232">GFQL polars (CPU)</text>
-<path class="cpu" d="M194 219H236.2a4 4 0 0 1 4 4V233a4 4 0 0 1 -4 4H194Z"/>
-<text x="248.2" y="232"><tspan class="n">224.8 ms</tspan><tspan class="a" dx="9">6.5x faster than GraphFrames</tspan></text>
-<text class="a" x="26" y="260">GFQL polars-gpu (GPU)</text>
-<path class="gpu" d="M194 247H432.6a4 4 0 0 1 4 4V261a4 4 0 0 1 -4 4H194Z"/>
-<text x="444.6" y="260"><tspan class="n">1180.6 ms</tspan><tspan class="a" dx="9">1.2x faster than GraphFrames</tspan></text>
+<text class="a" x="26" y="232">GFQL polars-gpu (GPU)</text>
+<path class="gpu" d="M194 219H432.6a4 4 0 0 1 4 4V233a4 4 0 0 1 -4 4H194Z"/>
+<text x="444.6" y="232"><tspan class="n">1180.6 ms</tspan><tspan class="a" dx="9">1.2x faster than GraphFrames</tspan></text>
+<text class="a" x="26" y="260">GFQL polars (CPU)</text>
+<path class="cpu" d="M194 247H236.2a4 4 0 0 1 4 4V261a4 4 0 0 1 -4 4H194Z"/>
+<text x="248.2" y="260"><tspan class="n">224.8 ms</tspan><tspan class="a" dx="9">6.5x faster than GraphFrames</tspan></text>
 <text class="a" x="26" y="288">GraphFrames local[*]</text>
 <path class="neo" d="M194 275H490a4 4 0 0 1 4 4V289a4 4 0 0 1 -4 4H194Z"/>
 <text x="502" y="288"><tspan class="n">1460.2 ms</tspan></text>
 <text class="n" x="16" y="321">2-hop from 50 seeds</text>
 <rect x="193" y="328" width="1" height="84" fill="var(--rule)"/>
-<text class="a" x="26" y="348">GFQL polars (CPU)</text>
-<path class="cpu" d="M194 335H458.1a4 4 0 0 1 4 4V349a4 4 0 0 1 -4 4H194Z"/>
-<text x="470.1" y="348"><tspan class="n">6803.5 ms</tspan><tspan class="a" dx="9">0.5x of GraphFrames’ speed (slower)</tspan></text>
-<text class="a" x="26" y="376">GFQL polars-gpu (GPU)</text>
-<path class="gpu" d="M194 363H490a4 4 0 0 1 4 4V377a4 4 0 0 1 -4 4H194Z"/>
-<text x="502" y="376"><tspan class="n">7611.6 ms</tspan><tspan class="a" dx="9">0.5x of GraphFrames’ speed (slower)</tspan></text>
+<text class="a" x="26" y="348">GFQL polars-gpu (GPU)</text>
+<path class="gpu" d="M194 335H490a4 4 0 0 1 4 4V349a4 4 0 0 1 -4 4H194Z"/>
+<text x="502" y="348"><tspan class="n">7611.6 ms</tspan><tspan class="a" dx="9">0.5x of GraphFrames’ speed (slower)</tspan></text>
+<text class="a" x="26" y="376">GFQL polars (CPU)</text>
+<path class="cpu" d="M194 363H458.1a4 4 0 0 1 4 4V377a4 4 0 0 1 -4 4H194Z"/>
+<text x="470.1" y="376"><tspan class="n">6803.5 ms</tspan><tspan class="a" dx="9">0.5x of GraphFrames’ speed (slower)</tspan></text>
 <text class="a" x="26" y="404">GraphFrames local[*]</text>
 <path class="neo" d="M194 391H327a4 4 0 0 1 4 4V405a4 4 0 0 1 -4 4H194Z"/>
 <text x="339" y="404"><tspan class="n">3475.8 ms</tspan></text>
 <text class="n" x="16" y="437">PageRank, full graph</text>
 <rect x="193" y="444" width="1" height="84" fill="var(--rule)"/>
-<text class="a" x="26" y="464">GFQL polars (CPU)</text>
-<path class="cpu" opacity="0.4" d="M194 451H490a4 4 0 0 1 4 4V465a4 4 0 0 1 -4 4H194Z"/>
-<rect class="cpu" x="194" y="451" width="16.1" height="18"/>
-<text x="502" y="464"><tspan class="n">53417.1 ms</tspan><tspan class="a" dx="7">(solver 2870.9 ms)</tspan><tspan class="a" dx="9">0.3x of GraphFrames’ speed (slower)</tspan></text>
-<text class="a" x="26" y="492">GFQL polars-gpu (GPU)</text>
-<path class="gpu" opacity="0.4" d="M194 479H195.2a4 4 0 0 1 4 4V493a4 4 0 0 1 -4 4H194Z"/>
-<rect class="gpu" x="194" y="479" width="5" height="18"/>
-<text x="207.2" y="492"><tspan class="n">933.4 ms</tspan><tspan class="a" dx="7">(solver 62.8 ms)</tspan><tspan class="a" dx="9">17.5x faster than GraphFrames</tspan></text>
+<text class="a" x="26" y="464">GFQL polars-gpu (GPU)</text>
+<path class="gpu" opacity="0.4" d="M194 451H195.2a4 4 0 0 1 4 4V465a4 4 0 0 1 -4 4H194Z"/>
+<rect class="gpu" x="194" y="451" width="5" height="18"/>
+<text x="207.2" y="464"><tspan class="n">933.4 ms</tspan><tspan class="a" dx="7">(solver 62.8 ms)</tspan><tspan class="a" dx="9">17.5x faster than GraphFrames</tspan></text>
+<text class="a" x="26" y="492">GFQL polars (CPU)</text>
+<path class="cpu" opacity="0.4" d="M194 479H490a4 4 0 0 1 4 4V493a4 4 0 0 1 -4 4H194Z"/>
+<rect class="cpu" x="194" y="479" width="16.1" height="18"/>
+<text x="502" y="492"><tspan class="n">53417.1 ms</tspan><tspan class="a" dx="7">(solver 2870.9 ms)</tspan><tspan class="a" dx="9">0.3x of GraphFrames’ speed (slower)</tspan></text>
 <text class="a" x="26" y="520">GraphFrames local[*]</text>
 <path class="neo" d="M194 507H281.6a4 4 0 0 1 4 4V521a4 4 0 0 1 -4 4H194Z"/>
 <text x="293.6" y="520"><tspan class="n">16311.2 ms</tspan></text>

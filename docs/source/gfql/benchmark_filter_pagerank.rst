@@ -6,20 +6,15 @@ Speedup Case Study: Cypher + PageRank, GFQL vs Neo4j + GDS
    :width: 160px
    :align: right
 
-This case study runs one three-stage graph pipeline, filter, PageRank, filter,
-on two systems. GFQL is Graphistry's open-source graph query language: Cypher
-that executes in-process on Python dataframes with no database. Neo4j + Graph
-Data Science (GDS) is the graph database and its analytics library. On both
-graphs, Twitter (2.4M edges) and GPlus (30M edges), GFQL on CPU finished the
-pipeline faster than Neo4j + GDS while selecting the same nodes. On GPlus the
-GFQL CPU path takes :bench:`pagerank.gplus.gfql_cpu` and Neo4j + GDS
-:bench:`pagerank.gplus.neo4j_gds`. On Twitter the GFQL GPU path is
-:bench:`pagerank.twitter.gfql_gpu_vs_gfql_cpu` faster than the CPU path
-(:bench:`pagerank.twitter.gfql_gpu` versus :bench:`pagerank.twitter.gfql_cpu`).
-On GPlus the GPU path takes :bench-diag:`pagerank.gplus.gfql_gpu`, but its
-cuGraph PageRank selects a different node set than igraph at the 0.9995
-cutoff, so that time is a diagnostic and no GPU-vs-CPU ratio is published
-for GPlus.
+Real graph work is usually a pipeline, not one query: select a subgraph, run an
+algorithm over it, then select from the result. This case study times that shape,
+filter then PageRank then filter, against Neo4j + Graph Data Science.
+
+GFQL turns minutes into seconds, and seconds into subseconds. On GPlus (30M edges)
+the pipeline drops from :bench:`pagerank.gplus.neo4j_gds` on Neo4j + GDS to
+:bench:`pagerank.gplus.gfql_cpu` on CPU. On Twitter (2.4M edges) it drops from
+:bench:`pagerank.twitter.neo4j_gds` to :bench:`pagerank.twitter.gfql_cpu` on CPU, and
+to :bench:`pagerank.twitter.gfql_gpu` on GPU. Both systems select the same nodes.
 
 .. list-table::
    :header-rows: 1

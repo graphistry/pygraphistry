@@ -7,36 +7,36 @@
 <text class="s" x="16" y="49">Median of 5 after 2 warmups; same result size on every system unless marked. Lower is better.</text>
 <text class="n" x="16" y="89">filter: degree &gt;= 148</text>
 <rect x="193" y="96" width="1" height="84" fill="var(--rule)"/>
-<text class="a" x="26" y="116">GFQL polars (CPU)</text>
-<path class="cpu" d="M194 103H490a4 4 0 0 1 4 4V117a4 4 0 0 1 -4 4H194Z"/>
-<text x="502" y="116"><tspan class="n">3111.7 ms</tspan></text>
-<text class="a" x="26" y="144">GFQL polars-gpu (GPU)</text>
-<text class="m" x="202" y="144">not measured</text>
+<text class="a" x="26" y="116">GFQL polars-gpu (GPU)</text>
+<text class="m" x="202" y="116">not measured</text>
+<text class="a" x="26" y="144">GFQL polars (CPU)</text>
+<path class="cpu" d="M194 131H490a4 4 0 0 1 4 4V145a4 4 0 0 1 -4 4H194Z"/>
+<text x="502" y="144"><tspan class="n">3111.7 ms</tspan></text>
 <text class="a" x="26" y="172">GraphFrames local[*]</text>
 <text class="m" x="202" y="172">not measured</text>
 <text class="n" x="16" y="205">1-hop from 50 seeds</text>
 <rect x="193" y="212" width="1" height="84" fill="var(--rule)"/>
-<text class="a" x="26" y="232">GFQL polars (CPU)</text>
-<path class="cpu" d="M194 219H490a4 4 0 0 1 4 4V233a4 4 0 0 1 -4 4H194Z"/>
-<text x="502" y="232"><tspan class="n">6123.4 ms</tspan></text>
-<text class="a" x="26" y="260">GFQL polars-gpu (GPU)</text>
-<text class="m" x="202" y="260">not measured</text>
+<text class="a" x="26" y="232">GFQL polars-gpu (GPU)</text>
+<text class="m" x="202" y="232">not measured</text>
+<text class="a" x="26" y="260">GFQL polars (CPU)</text>
+<path class="cpu" d="M194 247H490a4 4 0 0 1 4 4V261a4 4 0 0 1 -4 4H194Z"/>
+<text x="502" y="260"><tspan class="n">6123.4 ms</tspan></text>
 <text class="a" x="26" y="288">GraphFrames local[*]</text>
 <text class="m" x="202" y="288">not measured</text>
 <text class="n" x="16" y="321">2-hop from 50 seeds</text>
 <rect x="193" y="328" width="1" height="84" fill="var(--rule)"/>
-<text class="a" x="26" y="348">GFQL polars (CPU)</text>
-<path class="cpu" d="M194 335H490a4 4 0 0 1 4 4V349a4 4 0 0 1 -4 4H194Z"/>
-<text x="502" y="348"><tspan class="n">164890.2 ms</tspan></text>
-<text class="a" x="26" y="376">GFQL polars-gpu (GPU)</text>
-<text class="m" x="202" y="376">not measured</text>
+<text class="a" x="26" y="348">GFQL polars-gpu (GPU)</text>
+<text class="m" x="202" y="348">not measured</text>
+<text class="a" x="26" y="376">GFQL polars (CPU)</text>
+<path class="cpu" d="M194 363H490a4 4 0 0 1 4 4V377a4 4 0 0 1 -4 4H194Z"/>
+<text x="502" y="376"><tspan class="n">164890.2 ms</tspan></text>
 <text class="a" x="26" y="404">GraphFrames local[*]</text>
 <text class="m" x="202" y="404">not measured</text>
 <text class="n" x="16" y="437">PageRank, full graph</text>
 <rect x="193" y="444" width="1" height="84" fill="var(--rule)"/>
-<text class="a" x="26" y="464">GFQL polars (CPU)</text>
+<text class="a" x="26" y="464">GFQL polars-gpu (GPU)</text>
 <text class="m" x="202" y="464">not measured</text>
-<text class="a" x="26" y="492">GFQL polars-gpu (GPU)</text>
+<text class="a" x="26" y="492">GFQL polars (CPU)</text>
 <text class="m" x="202" y="492">not measured</text>
 <text class="a" x="26" y="520">GraphFrames local[*]</text>
 <text class="m" x="202" y="520">not measured</text>

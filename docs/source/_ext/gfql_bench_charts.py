@@ -230,8 +230,8 @@ GF_TASKS = (
     ('pagerank', 'PageRank, full graph'),
 )
 GF_SYSTEMS = (
-    ('gfql_polars', 'GFQL polars (CPU)', 'cpu'),
     ('gfql_polars_gpu', 'GFQL polars-gpu (GPU)', 'gpu'),
+    ('gfql_polars', 'GFQL polars (CPU)', 'cpu'),
     ('graphframes', 'GraphFrames local[*]', 'neo'),
 )
 GF_BASELINE = 'graphframes'
