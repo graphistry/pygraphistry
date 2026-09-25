@@ -27,8 +27,8 @@ with **Neo4j + GDS** for the same three-stage pipeline.
    * - **GPlus** (107,614 nodes / 30M edges)
      - :bench:`pagerank.gplus.neo4j_gds`
      - :bench:`pagerank.gplus.gfql_cpu`
-     - :bench:`pagerank.gplus.gfql_gpu`
-     - :bench:`pagerank.gplus.gfql_gpu_vs_gfql_cpu`
+     - :bench-diag:`pagerank.gplus.gfql_gpu`
+     - —
 
 Each time covers the full search → PageRank → search pipeline after warm-up. GFQL
 reuses data already loaded in Python. Neo4j includes server calls and rebuilds the
@@ -36,8 +36,9 @@ in-memory graph used by Graph Data Science (GDS) for each timed iteration. The t
 therefore shows direct pipeline times, not a GFQL-to-Neo4j speedup ratio.
 
 For the same GFQL query, the GPU path is
-:bench:`pagerank.twitter.gfql_gpu_vs_gfql_cpu` faster on Twitter and
-:bench:`pagerank.gplus.gfql_gpu_vs_gfql_cpu` faster on the 30M-edge GPlus graph.
+:bench:`pagerank.twitter.gfql_gpu_vs_gfql_cpu` faster on Twitter. On the 30M-edge GPlus
+graph the GPU arm's selected-node set differs from the CPU arm's (Jaccard 0.91 against a 0.95
+gate), so its time is reported as a direct pipeline measurement, not as a comparison.
 
 The pipeline
 ------------
@@ -103,8 +104,8 @@ GPlus (30M edges): larger graph
 
 - **Neo4j + GDS**: :bench:`pagerank.gplus.neo4j_gds`
 - **GFQL Cypher on CPU** (pandas + igraph): :bench:`pagerank.gplus.gfql_cpu`
-- **GFQL Cypher on GPU** (cuDF + cuGraph): :bench:`pagerank.gplus.gfql_gpu` —
-  :bench:`pagerank.gplus.gfql_gpu_vs_gfql_cpu` faster than the CPU path
+- **GFQL Cypher on GPU** (cuDF + cuGraph): :bench-diag:`pagerank.gplus.gfql_gpu` — a direct
+  pipeline time; not compared with the CPU path, whose selected-node set differs on this graph
 
 GPlus is 12x the edges of the Twitter graph, and the GPU pipeline still answers in
 seconds.
@@ -198,7 +199,7 @@ Benchmark environment and provenance
 
 Every figure is printed from ``docs/source/_data/gfql_benchmarks.json`` (pyg-bench).
 
-.. bench-provenance:: filter-pagerank-20260728
+.. bench-provenance:: filter-pagerank-059-20260904
 
 .. bench-provenance:: filter-pagerank-gplus-locked-20260830
 
