@@ -15,8 +15,9 @@ policy knobs, the Cypher DDL forms, and when the index engages.
 
 .. code-block:: python
 
-   g = g.gfql_index_all()   # pay once ...
-   g.gfql(...)              # ... every later query from known nodes uses the index
+   g = g.gfql("CREATE GFQL INDEX FOR edge_out_adj")   # pay once ...
+   g = g.gfql("CREATE GFQL INDEX FOR node_id")
+   g.gfql("MATCH (m {id: 0})-[e]->(p) RETURN p")      # ... later lookups from a known node use it
 
 What a resident index is
 ------------------------
@@ -61,7 +62,6 @@ A complete, runnable example:
 
    import pandas as pd
    import graphistry
-   from graphistry import n, e_forward, is_in
 
    # A small synthetic graph: 6 accounts, 8 transfers
    edges_df = pd.DataFrame({
@@ -75,19 +75,34 @@ A complete, runnable example:
    })
    g = graphistry.edges(edges_df, "src", "dst").nodes(nodes_df, "id")
 
-   # Pay once: build out+in adjacency + node-id indexes (resident on the returned g)
-   g_indexed = g.gfql_index_all()
-   print(g_indexed.show_indexes()[["name", "kind", "key_col", "n_keys", "valid"]])
+   # Pay once: adjacency over outgoing edges, plus the node-id lookup
+   g_indexed = g.gfql("CREATE GFQL INDEX FOR edge_out_adj").gfql("CREATE GFQL INDEX FOR node_id")
+   print(g_indexed.gfql("SHOW GFQL INDEXES")[["name", "kind", "key_col", "n_keys", "valid"]])
 
-   # 1-hop from known nodes: who did accounts 0 and 3 transfer to?
-   out = g_indexed.gfql([n({"id": is_in([0, 3])}), e_forward(), n()])
-   print(sorted(out._nodes["id"].tolist()))          # [0, 1, 2, 3, 4]
+   # 1-hop from a known node: who did account 0 transfer to?
+   out = g_indexed.gfql("MATCH (m {id: 0})-[e]->(p) RETURN p")
+   print(sorted(out._nodes["p.id"].tolist()))        # [1, 2]
 
-   # Decline safety: the same query without any index gives the SAME answer
-   out_scan = g.gfql([n({"id": is_in([0, 3])}), e_forward(), n()])
-   assert sorted(out._nodes["id"].tolist()) == sorted(out_scan._nodes["id"].tolist())
+   # 2-hop from the same node
+   out2 = g_indexed.gfql("MATCH (m {id: 0})-[e]->()-[f]->(p) RETURN p")
+   print(sorted(out2._nodes["p.id"].tolist()))       # [2, 3, 4]
 
-   # Direct hop() uses the index too
+   # Decline safety: with indexes switched off, the SAME answer comes back
+   out_scan = g_indexed.gfql("MATCH (m {id: 0})-[e]->(p) RETURN p", index_policy="off")
+   assert sorted(out._nodes["p.id"].tolist()) == sorted(out_scan._nodes["p.id"].tolist())
+
+   # Was the index used? gfql_explain says so
+   assert g_indexed.gfql_explain("MATCH (m {id: 0})-[e]->(p) RETURN p")["used_index"]
+
+A seed *list* is written ``WHERE m.id IN [0, 3]``; that form currently takes the scan
+path and returns the same rows it always did. The same hop as a native chain, and the
+direct ``hop()`` call:
+
+.. code-block:: python
+
+   from graphistry import n, e_forward, is_in
+
+   out_chain = g_indexed.gfql([n({"id": is_in([0])}), e_forward(), n()])
    hop_out = g_indexed.hop(nodes=pd.DataFrame({"id": [0]}), hops=2, direction="forward")
    print(sorted(hop_out._nodes["id"].tolist()))      # [0, 1, 2, 3, 4]
 
@@ -181,7 +196,7 @@ time). Consequences:
 
    new_edges_df = edges_df.assign(amount=edges_df["amount"] + 1)
    g2 = g_indexed.edges(new_edges_df, "src", "dst")
-   g2.show_indexes()          # edge_out_adj / edge_in_adj now valid=False; node_id still True
+   g2.show_indexes()          # edge_out_adj now valid=False; node_id still True
    g2 = g2.gfql_index_all()   # pay again for the new frame; all valid=True
 
 **Declines are always safe.** Whether an index is missing, stale, or the query shape is
@@ -253,8 +268,9 @@ Build it with Cypher
    edges_df = pd.DataFrame({"src": ["a", "a", "b", "c"], "dst": ["b", "c", "c", "d"]})
    g = graphistry.edges(edges_df, "src", "dst").nodes(nodes_df, "id")
 
-   g = g.gfql("CREATE GFQL INDEX FOR edge_out_adj")      # build once
-   out = g.gfql("MATCH (a {id: 'a'})-[e]->(b) RETURN b")  # served by the index
+   g = g.gfql("CREATE GFQL INDEX FOR edge_out_adj")      # build once: the adjacency ...
+   g = g.gfql("CREATE GFQL INDEX FOR node_id")           # ... and the node-id lookup
+   out = g.gfql("MATCH (a {id: 'a'})-[e]->(b) RETURN b")  # gfql_explain: used_index=True
    g.gfql("SHOW GFQL INDEXES")                           # what is resident
 
 The DDL forms are ``CREATE GFQL INDEX FOR <kind>``, ``DROP GFQL INDEX``, and ``SHOW GFQL
