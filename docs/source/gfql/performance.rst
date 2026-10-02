@@ -125,6 +125,6 @@ Next steps
 ----------
 
 - **Choose an engine**: :doc:`engines`.
-- **Lookups from known nodes**: :doc:`index_adjacency` and :doc:`indexing`.
+- **Lookups from known nodes**: :doc:`indexing`.
 - **Speedup case study**: :doc:`benchmark_filter_pagerank`.
 - **Explore GFQL**: :ref:`10min-gfql`. **Get started**: :ref:`10min-pygraphistry`.

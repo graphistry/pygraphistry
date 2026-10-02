@@ -8,8 +8,8 @@ When your workload is **seeded** — "expand from these 50 accounts", "look up t
 hop out" — you can opt into **resident indexes**: build them once with one call, and
 seeded queries reuse them automatically after that. This page is the user guide to that
 lifecycle: what the indexes are, what engages them, when they go stale, and what they cost.
-For the planner policy knobs and competitive benchmarks, see
-:doc:`Adjacency Index <index_adjacency>`.
+The :ref:`adjacency index <gfql-adjacency-index>` section below covers the planner
+policy knobs, the Cypher DDL forms, and when the index engages.
 
 .. doc-test: skip
 
@@ -134,12 +134,14 @@ What uses the index today
 
 On 0.58.0, a resident index is consumed automatically by:
 
-- **Typed hops from known nodes** (native chain or Cypher): a typed 1-hop from known nodes —
-  ``[n({"id": is_in([...])}), e_forward(), n(...)]`` or
-  ``MATCH (m {id: $x})-[:T]->(p) RETURN p`` — including the single-alias **property
-  RETURN** form (``RETURN p.a AS x, p.b``). The seed lookup, frontier expansion, and
-  endpoint materialization all become positional index gathers, so the lookup stops
-  paying graph-size costs.
+- **Cypher hops from one known node**: ``MATCH (m {id: $x})-[:T]->(p) RETURN p``, the
+  ``WHERE m.id = $x`` spelling, and the single-alias **property RETURN** form
+  (``RETURN p.a AS x, p.b``), typed or untyped. The seed lookup, frontier expansion, and
+  endpoint materialization all become positional index gathers. A seed *list*
+  (``WHERE m.id IN [...]``) currently takes the scan path.
+- **Native chains** such as ``[n({"id": is_in([...])}), e_forward(), n(...)]``: check a
+  given shape with ``g.gfql_explain(query)``, which reports ``used_index`` and the
+  planner's decision.
 - **Lookups by a property value**: the start filter may hit a *property* column (e.g.
   ``MATCH (m {id: $x})`` when the graph is bound on a different key column). The seed
   row falls back to a property scan, but the adjacency and endpoint gathers still
@@ -218,12 +220,87 @@ the specialized path and again once the index is built, on both CPU engines.
 ``O(E)`` scan into an ``O(degree)`` gather, so its cost tracks the seeds' neighborhood
 rather than the graph.
 
-Measured figures are published on :doc:`performance` and :doc:`index_adjacency`.
+.. _gfql-adjacency-index:
+
+Adjacency index: fast lookups from known nodes
+----------------------------------------------
+
+A **seeded** query starts from known nodes — "the neighbors of this account", "2 hops
+out from this device" — and by default GFQL answers it with one pass over every edge.
+With the adjacency index resident, the same hop reads only the edges the seeds touch, so
+its cost tracks the seeds' neighborhood instead of the size of the graph.
+
+When to use it
+~~~~~~~~~~~~~~
+
+- **Seeded traversals**: you start from specific node ids (a watchlist, a session, a fraud
+  ring's known members) and hop out 1–3 steps.
+- **Repeated queries** against the same graph: build once, reuse over many such queries.
+- **Interactive latency**: neighbor expansion whose cost tracks the seeds, not the graph.
+
+It does **not** help a full-graph scan (a property filter over every node, a global
+PageRank). For those, choose an *engine* instead — see :doc:`engines`.
+
+Build it with Cypher
+~~~~~~~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   import pandas as pd
+   import graphistry
+
+   nodes_df = pd.DataFrame({"id": ["a", "b", "c", "d"]})
+   edges_df = pd.DataFrame({"src": ["a", "a", "b", "c"], "dst": ["b", "c", "c", "d"]})
+   g = graphistry.edges(edges_df, "src", "dst").nodes(nodes_df, "id")
+
+   g = g.gfql("CREATE GFQL INDEX FOR edge_out_adj")      # build once
+   out = g.gfql("MATCH (a {id: 'a'})-[e]->(b) RETURN b")  # served by the index
+   g.gfql("SHOW GFQL INDEXES")                           # what is resident
+
+The DDL forms are ``CREATE GFQL INDEX FOR <kind>``, ``DROP GFQL INDEX``, and ``SHOW GFQL
+INDEXES`` — the mandatory ``GFQL`` token distinguishes them from standard property
+``CREATE INDEX``. The same intent travels over the JSON wire protocol
+(``{"type": "CreateIndex", ...}`` ops plus ``index_policy`` in the request envelope), so a
+remote ``gfql_remote`` call can carry it.
+
+Controlling the planner
+~~~~~~~~~~~~~~~~~~~~~~~
+
+``gfql(..., index_policy=...)`` decides whether a resident index is used:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 18 82
+
+   * - ``index_policy``
+     - Behavior
+   * - ``'use'`` *(default)*
+     - Use a resident index when one covers the query; never build one. Zero overhead if
+       no index exists.
+   * - ``'auto'``
+     - Build an index on the fly when the planner predicts it pays off (selective seed set).
+   * - ``'force'``
+     - Require the index path (useful for asserting it is engaged).
+   * - ``'off'``
+     - Ignore indexes entirely (the plain scan).
+
+Use ``g.gfql_explain(query, index_policy=...)`` to see whether the index path was taken.
+
+Column-stat facts
+~~~~~~~~~~~~~~~~~
+
+``gfql_index_col_stats()`` records **verified facts** (min/max/null count; integer
+columns in v1) for the bound node id and edge endpoint columns. Fast paths use them to
+prove a per-query invariant — for example, that every filtered edge endpoint lies inside a
+dense id interval — and skip the scan that would re-prove it. A missing or insufficient
+fact just means the scan runs; a fact can save work but never change an answer. Facts
+follow the same fingerprint validity contract as the physical indexes, and
+``gfql_index_all()`` includes them. Pass ``node_columns=`` / ``edge_columns=`` to fact
+additional integer columns — explicitly named columns raise if they can't be fact-ed,
+while the binding defaults skip silently.
 
 See also
 --------
 
-- :doc:`Adjacency Index <index_adjacency>` — the planner (``index_policy``),
-  Cypher DDL / wire protocol forms, and the index cost model.
 - :doc:`engines` — choosing pandas / Polars / cuDF / Polars-GPU.
-- :doc:`performance` — the vectorization + GPU design behind GFQL.
+- :doc:`performance` — GFQL measured against graph databases.

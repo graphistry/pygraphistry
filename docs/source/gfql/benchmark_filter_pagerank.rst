@@ -152,7 +152,7 @@ Method and limits
 - **Comparable ratio**: the GPU-vs-CPU column compares the same GFQL query and
   the same profile, so that ratio is published.
 - **Scope**: for the four-engine CPU/GPU comparison and engine choice, see
-  :doc:`engines`. For queries from known nodes, see :doc:`index_adjacency`. For the
+  :doc:`engines`. For queries from known nodes, see :ref:`gfql-adjacency-index`. For the
   Spark GraphFrames comparison, see :doc:`benchmark_graphframes`.
 
 .. _pagerank-provenance:

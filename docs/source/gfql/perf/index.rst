@@ -24,7 +24,7 @@ Read these when you have a graph and want it to run faster.
 
 1. :doc:`Choose an engine <../engines>` — pandas, Polars, cuDF or Polars-GPU with one
    keyword; which one for which work.
-2. :doc:`Index for queries that start from known nodes <../index_adjacency>` — build the
+2. :ref:`Index for queries that start from known nodes <gfql-adjacency-index>` — build the
    adjacency index once; a traversal from a watchlist or a seed set then reads only those
    nodes' neighborhoods.
 3. :doc:`Indexing guide <../indexing>` — property and adjacency indexes, when they engage,
@@ -45,6 +45,5 @@ Reference
    ../performance
    ../benchmark_graphframes
    ../engines
-   ../index_adjacency
    ../indexing
    ../remote

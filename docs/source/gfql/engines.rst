@@ -129,7 +129,7 @@ Which engine for which work
      - Input conversion can cost more than the query itself.
    * - Queries starting from a few known nodes
      - ``pandas`` / ``polars`` with an adjacency index
-     - Build indexes once and reuse them across queries; see :doc:`index_adjacency`.
+     - Build indexes once and reuse them across queries; see :ref:`gfql-adjacency-index`.
    * - Features the Polars engine does not support
      - ``pandas``
      - Explicit Polars raises for unsupported queries; ``auto`` can run them on pandas.
@@ -141,7 +141,7 @@ Three rules cover most decisions:
   finish faster on CPU.
 - **Reuse indexes for repeated lookups.** Build them with ``g.gfql_index_all()`` so
   queries from known nodes can read their neighborhoods. Start with a CPU engine for
-  small neighborhoods. See :doc:`index_adjacency`.
+  small neighborhoods. See :ref:`gfql-adjacency-index`.
 - **Check which operations use the GPU.** The ``polars-gpu`` setting selects GPU
   execution for submitted lazy plans. It does not guarantee that every query uses the
   GPU. Unsupported GPU plans raise an error.
@@ -339,6 +339,6 @@ See also
 
 - :doc:`performance` — measured results against graph databases
 - :doc:`benchmark_filter_pagerank` — a Cypher + PageRank pipeline vs Neo4j + GDS
-- :doc:`index_adjacency` — queries that start from known nodes
+- :ref:`gfql-adjacency-index` — queries that start from known nodes
 - :doc:`/api/gfql/index` — GFQL API reference
 - :doc:`remote` — run GFQL on a remote GPU

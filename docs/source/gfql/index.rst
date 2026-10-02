@@ -21,7 +21,7 @@ Where to start
   :doc:`spec/cypher_mapping`.
 - **Need speed**: :doc:`engines` picks the engine. ``engine='polars'`` is the
   one-keyword CPU speedup; :doc:`performance` covers GPU and remote GPU.
-- **Start from known nodes**: :doc:`indexing` and :doc:`index_adjacency` make
+- **Start from known nodes**: :doc:`indexing` makes
   lookups from known nodes cost O(degree) instead of O(E).
 
 .. toctree::
