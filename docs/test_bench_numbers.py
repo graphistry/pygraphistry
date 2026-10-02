@@ -6,11 +6,14 @@ the contract it promises to satisfy. pyg-bench checks those promises before it p
 this checks them again before we print anything, because a boundary only holds if both
 sides check it.
 
-These run in the ordinary test lane, not only in the docs build, so a number going stale
-or a page referencing a key that no longer exists fails CI rather than a nightly. That is
-why every rule lives in `gfql_bench_data`, which imports nothing but the standard library;
-the docutils half is a renderer. A gate that needs Sphinx to run is a gate that runs in one
-job out of forty.
+These run in the docs lane (`docs/docker/build-docs.sh`), which CI runs for every pull
+request that touches docs, Python or infrastructure, next to the Sphinx build whose
+extension refuses a stale or unpublished number at its point of use. They are kept out of
+the root-collecting Python test runners on purpose: a vendored number ageing past
+`policy.max_age_days` is a docs publication fact, and letting it fail every Python lane
+turned the rule into a calendar time bomb for unrelated work. Every rule still lives in
+`gfql_bench_data`, which imports nothing but the standard library; the docutils half is a
+renderer.
 """
 
 import datetime
