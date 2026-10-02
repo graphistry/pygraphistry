@@ -6089,6 +6089,99 @@ def _rewrite_where_clause_and_resync(
     return rewritten_where
 
 
+def _literal_membership_seed(
+    text: str,
+    *,
+    span: SourceSpan,
+    alias_targets: Mapping[str, ASTObject],
+    params: Optional[Mapping[str, Any]],  # hygiene-ok: explicit-any -- Cypher params are heterogeneous JSON scalars, file idiom
+) -> Optional[Tuple[PropertyRef, List[Union[str, int, float]]]]:
+    """``alias.prop IN [scalar literals]`` as (property, values), else None."""
+    from graphistry.compute.gfql.cypher import projection_planning as _projection
+    try:
+        node = _parse_row_expr(
+            text, params=params, alias_targets=alias_targets, field="where", line=span.line, column=span.column,
+        )
+    except GFQLValidationError:
+        return None  # the row evaluator reports it, with its own wording
+    if not isinstance(node, BinaryOp) or node.op != "in":
+        return None
+    if isinstance(node.left, PropertyAccessExpr) and isinstance(node.left.value, Identifier):
+        alias, prop = node.left.value.name, node.left.property
+    elif isinstance(node.left, Identifier):
+        try:
+            alias, prop = _projection._split_qualified_name(node.left.name, line=span.line, column=span.column)
+        except GFQLValidationError:
+            return None
+    else:
+        return None
+    values: List[Union[str, int, float]] = []
+    if isinstance(node.right, ListLiteral):
+        for item in node.right.items:
+            if not isinstance(item, ExprLiteral):
+                return None
+            values.append(item.value)
+    elif isinstance(node.right, ExprLiteral) and isinstance(node.right.value, (list, tuple)):
+        values = list(node.right.value)
+    else:
+        return None
+    for value in values:  # ExprLiteral.value is untyped; this loop is the type check
+        if not isinstance(value, (str, int, float)) or (isinstance(value, float) and math.isnan(value)):
+            return None  # null and NaN carry three-valued verdicts; a nested list is structural
+    if prop is None or not isinstance(alias_targets.get(alias), (ASTNode, ASTEdge)):
+        return None
+    return PropertyRef(alias=alias, property=prop, span=span), values
+
+
+def _apply_membership_where(
+    targets: Mapping[str, ASTObject], *, left: PropertyRef, values: List[Union[str, int, float]],
+) -> None:
+    target = targets[left.alias]
+    filter_dict = dict(_target_filter_dict(target) or {})
+    new_filter = is_in(list(values))
+    existing_filter = filter_dict.get(left.property)
+    if existing_filter is None or left.property not in filter_dict:
+        filter_dict[left.property] = new_filter
+    else:
+        filter_dict[left.property] = _merge_filter_predicates(
+            existing_filter,
+            new_filter,
+            field=f"where.{left.alias}.{left.property}",
+            line=left.span.line,
+            column=left.span.column,
+        )
+    _set_target_filter_dict(target, filter_dict)
+
+
+def _peel_literal_membership_where(
+    expr: ExpressionText,
+    *,
+    alias_targets: Mapping[str, ASTObject],
+    params: Optional[Mapping[str, Any]],  # hygiene-ok: explicit-any -- Cypher params are heterogeneous JSON scalars, file idiom
+) -> Optional[ExpressionText]:
+    """Move each ``alias.prop IN [scalar literals]`` conjunct onto the pattern as an ``is_in``
+    filter, the way a literal equality already seeds it, and return the WHERE that is left
+    (None when nothing is). The pattern filter and the row WHERE agree on these: a row whose
+    property is in the list is kept, every other row is dropped. Lists holding null or NaN,
+    and anything under OR/NOT, stay in the WHERE.
+    """
+    from graphistry.compute.gfql.cypher.row_pushdown import _flatten_and_conjuncts
+    conjuncts = _flatten_and_conjuncts(expr.text)
+    kept: List[str] = []
+    for text in conjuncts:
+        seed = _literal_membership_seed(text, span=expr.span, alias_targets=alias_targets, params=params)
+        if seed is None:
+            kept.append(text)
+            continue
+        left, values = seed
+        _apply_membership_where(alias_targets, left=left, values=values)
+    if len(kept) == len(conjuncts):
+        return expr
+    if not kept:
+        return None
+    return ExpressionText(text=" and ".join(f"({text})" for text in kept), span=expr.span)
+
+
 def _extract_relationship_type_where(
     expr: ExpressionText,
     *,
@@ -6803,6 +6896,12 @@ def lower_match_query(
             for op in row_pre_filters
             if isinstance(op.params.get("out_col"), str)
         }
+        if where_expr is not None:
+            where_expr = _peel_literal_membership_where(
+                where_expr,
+                alias_targets=alias_targets,
+                params=params,
+            )
         if where_expr is not None:
             type_where = _extract_relationship_type_where(
                 where_expr,

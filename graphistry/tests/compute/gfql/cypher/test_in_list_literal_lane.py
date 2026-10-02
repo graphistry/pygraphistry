@@ -96,10 +96,10 @@ def test_a_where_in_list_never_enters_the_element_loop(monkeypatch: pytest.Monke
     calls = _counting_equal(monkeypatch)
     result = g.gfql(f"MATCH (a)-[e]->(b) WHERE a.id IN {seeds} RETURN b")
     assert calls[0] == 0, "the literal-list lane must answer IN without the per-element loop"
-    expected = sorted(set(edges[edges["src"].isin(seeds)]["dst"].tolist()))
+    expected = sorted(edges[edges["src"].isin(seeds)]["dst"].tolist())  # one b row per matched edge
     assert sorted(result._nodes["b.id"].tolist()) == expected
     native = g.gfql([n({"id": is_in(seeds)}), e_forward(), n()])
-    assert sorted(native._nodes[native._nodes["id"].isin(expected)]["id"].tolist()) == expected
+    assert sorted(native._edges["dst"].tolist()) == expected
 
 
 def test_structural_equality_still_runs_through_the_loop(monkeypatch: pytest.MonkeyPatch) -> None:
