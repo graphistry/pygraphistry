@@ -4010,36 +4010,6 @@
       "value": 36.182,
       "workload": "SNB-derived matched queries (GFQL, resident indexes) sf0.1 tag-cooccurrence"
     },
-    "snb.sf1.is3.single_query.polars": {
-      "board_quotable": false,
-      "comparison_allowed": false,
-      "decimals": 2,
-      "disclosures": [
-        "The A/B configuration this was measured under declares comparison_allowed: false, so it is a diagnostic against the previous GFQL form only, never a competitor result."
-      ],
-      "engine": "polars",
-      "measurement_profile": "snb-interactive-warm-repeated-query",
-      "run": "snb-is3-single-query-20260727",
-      "status": "ok",
-      "unit": "ms",
-      "value": 18.05,
-      "workload": "LDBC SNB IS3 (SF1), single-query form"
-    },
-    "snb.sf1.is3.two_pass.polars": {
-      "board_quotable": false,
-      "comparison_allowed": false,
-      "decimals": 2,
-      "disclosures": [
-        "Answered by a two-pass adapter workaround with a Python-side join inside the timed region; superseded, kept only as the baseline for the single-query improvement."
-      ],
-      "engine": "polars",
-      "measurement_profile": "snb-interactive-warm-repeated-query",
-      "run": "snb-is3-single-query-20260727",
-      "status": "partial",
-      "unit": "ms",
-      "value": 75.22,
-      "workload": "LDBC SNB IS3 (SF1), superseded two-pass adapter form"
-    },
     "snb.sf1.message_content.gfql_pandas_idx": {
       "board_quotable": true,
       "comparison_allowed": true,
@@ -4406,16 +4376,15 @@
     }
   },
   "contract_version": 3,
-  "generated_at": "2026-09-22T04:44:38Z",
-  "generated_by": "graphistry/pyg-bench 528907b1 scripts/export_docs_numbers.py",
+  "generated_at": "2026-10-02T08:07:28Z",
+  "generated_by": "graphistry/pyg-bench 01353d84 scripts/export_docs_numbers.py",
   "policy": {
     "accepted_regressions": [],
     "drift_waivers": {
       "filter-pagerank-059-20260904": "Measured at the 0.59.0-era heads (pygraphistry 3fb216dd); the 0.60 stack landed since (#2055 #2056 #2054 #2062) changes chain RESULT contracts (binding-name alias declines, duplicate-id collapse, internal-column scoping) and the route dispatch layout, not the hop/PageRank kernels these rungs time; its perf receipts (sentinel at every head, q1-q9 and SNB re-measured at master 1a4107924 on 2026-09-07) moved within run-to-run spread. The GraphFrames/Spark ladder and the GPlus/Twitter PageRank pipelines are multi-hour dgx campaigns not re-run in this close-out; re-measure scheduled for the 0.60 release board.",
       "filter-pagerank-gplus-locked-20260830": "Competitor-only cells: this run publishes the Neo4j + GDS GPlus pipeline time (pagerank.gplus.neo4j_gds), which does not depend on graphistry/compute; the GFQL GPlus arms are re-measured at 0.59.0 in filter-pagerank-059-20260904. Re-measure Neo4j only when its own version or the pipeline contract changes.",
       "graphframes-ladder-059-hops-20260904": "Measured at the 0.59.0-era heads (pygraphistry 3fb216dd); the 0.60 stack landed since (#2055 #2056 #2054 #2062) changes chain RESULT contracts (binding-name alias declines, duplicate-id collapse, internal-column scoping) and the route dispatch layout, not the hop/PageRank kernels these rungs time; its perf receipts (sentinel at every head, q1-q9 and SNB re-measured at master 1a4107924 on 2026-09-07) moved within run-to-run spread. The GraphFrames/Spark ladder and the GPlus/Twitter PageRank pipelines are multi-hour dgx campaigns not re-run in this close-out; re-measure scheduled for the 0.60 release board.",
-      "graphframes-ladder-ship-62df29a8a-20260920": "GFQL arms for LiveJournal and Orkut re-measured at pygraphistry 62df29a8a in each source's own published mode (cpu_streaming and gpu_executor matched per source), all 16 cells within +-6.6% of the superseded board. GraphFrames arms retained from 2026-09-04: they do not depend on graphistry code, and a 2026-09-04 GFQL number reproduced today to 0.2% (220.2 vs 219.7), which is the evidence the host is stable. The three FRIENDSTER cells are retained at e951e9a2c and CANNOT be re-measured under the current memory guard: dgx-guard refuses the 1.8B-edge rung at an estimated 86.7 GB against an 80 GB budget, and the 2026-09-04 run's own recorded peak was 103.6 GB on a 119 GB shared host, so the estimate is conservative in the wrong direction. Re-measure only with a raised host budget on a quiesced box.",
-      "snb-is3-single-query-20260727": "Diagnostic-only probe (comparison_allowed false) at pygraphistry 233b64c8; kept for the IS3 single-query versus two-pass note, never quoted as a result."
+      "graphframes-ladder-ship-62df29a8a-20260920": "GFQL arms for LiveJournal and Orkut re-measured at pygraphistry 62df29a8a in each source's own published mode (cpu_streaming and gpu_executor matched per source), all 16 cells within +-6.6% of the superseded board. GraphFrames arms retained from 2026-09-04: they do not depend on graphistry code, and a 2026-09-04 GFQL number reproduced today to 0.2% (220.2 vs 219.7), which is the evidence the host is stable. The three FRIENDSTER cells are retained at e951e9a2c and CANNOT be re-measured under the current memory guard: dgx-guard refuses the 1.8B-edge rung at an estimated 86.7 GB against an 80 GB budget, and the 2026-09-04 run's own recorded peak was 103.6 GB on a 119 GB shared host, so the estimate is conservative in the wrong direction. Re-measure only with a raised host budget on a quiesced box."
     },
     "literal_allowlist": {},
     "managed_docs": [
@@ -4544,21 +4513,6 @@
       "reps": "8 discarded warmups, 31 timed executions with full result materialization, 3 independent process runs; median of the three run medians",
       "row_validation": "Exact canonical result hashes and row counts verified in every run and across eligible GFQL, Kuzu, Neo4j, and Memgraph comparisons; pandas also matches Polars.",
       "runtime": "GFQL Polars 1.35.2 (explicit runner pin) and pandas on CPU in Python 3.12.12; GFQL/Kuzu runner image ghcr.io/astral-sh/uv:python3.12-bookworm-slim@sha256:e5b65587bce7de595f299855d7385fe7fca39b8a74baa261ba1b7147afa78e58; Kuzu 0.11.3 embedded CPU; Memgraph 2.18.1 and Neo4j 5 community in pinned Docker images. Memgraph SF0.1: 4 GiB container / 3072 MiB engine; SF1: 16 GiB / 12288 MiB. Per-run records retain exact image digests and execution guards."
-    },
-    "snb-is3-single-query-20260727": {
-      "artifact": "results/is3-single-query-r{1,2,3} and results/is3-twopass-base-r{1,2,3}",
-      "competitor": "Neo4j",
-      "competitor_version": "not re-paired in this configuration",
-      "dataset": "LDBC SNB Interactive SF1, official format",
-      "host": "dgx-spark (NVIDIA GB10), 20 CPU",
-      "measured_at": "2026-07-27",
-      "perf_lock_held": true,
-      "pyg_bench_commit": "64864b8",
-      "pygraphistry_commit": "233b64c8",
-      "quiet_host": true,
-      "reps": "3 repetitions of configs/suites/ab-is1-is7-sf1-polars.yaml, each already a median of 5 measured repeats after 1 warmup; median across repetitions",
-      "row_validation": "920/920 rows, value-identical to the independently derived expected fixture in all 3 repetitions",
-      "runtime": "RAPIDS 26.02 (NVIDIA nvcr.io/nvidia/rapidsai/base:26.02-cuda12-py3.13 image, Python 3.13), polars 1.35.2; benchmark image graphistry/test-rapids-official:26.02-gfql-polars"
     },
     "snb-ship-f283a305e-20260917": {
       "artifact": "results/snb-master-f7a7253bc",
