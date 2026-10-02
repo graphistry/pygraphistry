@@ -467,6 +467,9 @@ def test_tally_counts_strict_wins_and_registers_every_cell_it_read():
     assert sorted(state.refs["doc"]) == sorted([
         "gb.q1.polars", "gb.q1.kuzu", "gb.q2.polars", "gb.q2.kuzu", "gb.q3.polars", "gb.q3.kuzu"])
     assert bench.format_tally(1, 3) == "1 of 3"
+    assert bench.format_tally(3, 3) == "all"
+    assert bench.format_tally(0, 3) == "none"
+    assert bench.format_tally(0, 0) == "0 of 0"
 
 
 def test_tally_with_no_quotable_pair_is_a_recorded_problem():

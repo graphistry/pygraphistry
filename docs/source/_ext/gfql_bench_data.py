@@ -454,6 +454,11 @@ def tally(state: 'State', prefix: str, left: str, right: str,
 
 
 def format_tally(wins: int, total: int) -> str:
+    """A clean sweep reads as a word, not a fraction: "all" and "none" instead of "9 of 9"."""
+    if total > 0 and wins == total:
+        return 'all'
+    if total > 0 and wins == 0:
+        return 'none'
     return '{} of {}'.format(wins, total)
 
 

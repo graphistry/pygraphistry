@@ -14,7 +14,9 @@ dataframes, with no database to install, load, or keep in sync. It brings the
 columnar, vectorized execution model that DuckDB and ClickHouse made standard
 for analytics to graph pattern matching. A query compiles to batched dataframe
 operations over Arrow-backed columns on pandas, Polars, or NVIDIA cuDF. The
-same query therefore runs on a laptop CPU or on a GPU.
+same query therefore runs on a laptop CPU or on a GPU, faster than the graph databases
+it was measured against (see :doc:`performance`), and without the hassle of standing up
+a database to get there.
 
 
 Why GFQL?
@@ -64,6 +66,9 @@ Key GFQL Concepts
 GFQL works on the same graphs as the rest of PyGraphistry. Choose pandas, Polars,
 cuDF, or Polars-GPU to execute dataframe operations.
 
+- **Load from anywhere a dataframe comes from**: CSV, Parquet, JSON, SQL databases such
+  as Postgres, and graph databases such as Neo4j. If it loads into pandas, Polars, or
+  cuDF, GFQL can query it. See :doc:`loading_graph_data`.
 - **Nodes and Edges**: Represented as pandas, Polars, or cuDF dataframes
 - **Cypher strings**: Write queries as Cypher strings — ``g.gfql("MATCH (n) WHERE n.score > 5 RETURN n")``
 - **Native chains**: Or compose queries as Python objects — ``g.gfql([n({"score": gt(5)})])``
@@ -83,9 +88,10 @@ Use the entrypoint that matches where the query executes:
 - **Remote GFQL execution**: `g.gfql_remote([...])` runs the same GFQL chains/DAGs remotely, which is useful for larger datasets and remote GPU execution. See :ref:`gfql-remote`.
 
 .. warning::
-   `graphistry.cypher("...")` and `g.cypher("...")` are a separate remote database Cypher path
-   (for example, Neo4j/Neptune integrations), not the GFQL execution surface described on this page.
-   Do not treat them as interchangeable with `g.gfql(...)` or `g.gfql_remote(...)`.
+   `graphistry.cypher("...")` and `g.cypher("...")` are PyGraphistry's connector bindings
+   to external Cypher databases: they send the query over a BOLT driver to Neo4j, Memgraph,
+   or Amazon Neptune and load the result. They are not GFQL. GFQL's Cypher runs in-process
+   through `g.gfql(...)` (or `g.gfql_remote(...)`) with no database involved.
 
 GFQL pipelines also have two practical result kinds:
 
@@ -93,7 +99,7 @@ GFQL pipelines also have two practical result kinds:
 - **Row state**: Tabular results stored in `_nodes`, with `_edges` reduced to an empty placeholder frame. Row-pipeline steps like `rows()`, `with_()`, `select()`, `return_()`, `group_by()`, and row-returning local Cypher `CALL ... YIELD ... RETURN ...` queries move into row state.
 - A bare local Cypher procedure call without `.write()` is also row-returning. For example, `CALL graphistry.degree()` materializes the default procedure output columns into `_nodes` and clears `_edges`.
 
-If you need to enrich a graph and keep matching locally, use graph-preserving `call()` / `let()` composition or a bare local Cypher `CALL graphistry.*.write()`. The local Cypher compiler currently supports `graphistry.degree.write()` plus `graphistry.igraph.<alg>.write()` and `graphistry.cugraph.<alg>.write()` for algorithms exposed through `compute_igraph()` / `compute_cugraph()`, along with a curated NetworkX subset including `graphistry.nx.pagerank.write()`, `graphistry.nx.betweenness_centrality.write()`, `graphistry.nx.degree_centrality.write()`, `graphistry.nx.closeness_centrality.write()`, `graphistry.nx.eigenvector_centrality.write()`, `graphistry.nx.katz_centrality.write()`, `graphistry.nx.connected_components.write()`, `graphistry.nx.strongly_connected_components.write()`, `graphistry.nx.core_number.write()`, `graphistry.nx.hits.write()`, `graphistry.nx.edge_betweenness_centrality.write()`, and `graphistry.nx.k_core.write()`.
+If you need to enrich a graph and keep matching locally, use graph-preserving `call()` / `let()` composition or a bare local Cypher `CALL graphistry.*.write()`. The enrichers available as `.write()` procedures (degree, igraph, cuGraph, and a NetworkX subset) are listed in :doc:`builtin_calls`.
 
 Quick Examples
 ~~~~~~~~~~~~~~~
