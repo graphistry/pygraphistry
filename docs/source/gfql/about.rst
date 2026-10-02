@@ -21,14 +21,24 @@ In this guide, we'll explore the basics of GFQL in just 10 minutes. You'll learn
 Introduction to GFQL
 --------------------
 
-GFQL is an in-process graph query language for the compute tier. Graph databases couple storage and compute; GFQL queries the dataframes you already have, in memory, on CPU or GPU.
+GFQL is an in-process graph query language built for developers and AI coding agents.
+For typical graph tasks it is faster, easier, and safer than reaching for a graph
+database (see :doc:`performance`), and it comes without the infrastructure that database
+vendors sell alongside the query language: no server to run, no second copy of the data
+to load, no connection to manage. GFQL queries the dataframes you already have, in
+memory, on CPU or GPU.
 
 **Key Benefits:**
 
-- **Dataframe-Native:** Works directly with Pandas, Polars, cuDF, and other dataframe libraries.
-- **High Performance:** Optimized for both CPU and GPU execution.
-- **Ease of Use:** No need for external databases or new infrastructure.
-- **Interoperability:** Integrates with the Python data science ecosystem, including PyGraphistry for visualization.
+- **Dataframe-native:** queries run on the pandas, Polars, or cuDF frames you already
+  have and return dataframes. :doc:`engines` covers choosing one.
+- **Fast on CPU and GPU:** measured against Kuzu, Memgraph, Neo4j, and Spark GraphFrames
+  on :doc:`performance`.
+- **Easy:** one ``pip install``, then Cypher strings or Python chains. Nothing to deploy.
+- **Safe for agents:** queries are validated before they run, with structured error codes
+  an agent can act on. See :doc:`validation/fundamentals` and :doc:`validation/llm`.
+- **Interoperable:** part of the Python data science ecosystem, including PyGraphistry for
+  visualization.
 
 Sample Dataset
 --------------
@@ -71,7 +81,8 @@ GFQL is part of the open-source ``graphistry`` library. Install it using pip:
 
     pip install graphistry
 
-Ensure you have ``pandas`` or ``cudf`` installed, depending on whether you want to run on CPU or GPU.
+GFQL runs on ``pandas`` (installed with ``graphistry``), ``polars``, or ``cudf``. Install the
+one you want to query with; :doc:`engines` explains which to pick for CPU or GPU.
 
 Two Syntax Styles
 ------------------
