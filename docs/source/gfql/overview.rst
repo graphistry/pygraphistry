@@ -33,9 +33,8 @@ GFQL is an in-process graph query language for the compute tier. With it you can
 - **Move work to a remote GPU** when the data or the hardware lives elsewhere.
 
 On CPU alone, GFQL's Polars engine is faster than Kuzu, Memgraph, and Neo4j on most of
-the nine graph-benchmark analytics queries at both graph sizes. Polars also leads the
-four-engine SNB-derived comparison for message-content and creator lookups at both
-scales. See :doc:`performance` for the full tables. The :doc:`speedup case study
+the nine graph-benchmark analytics queries at both graph sizes. GFQL also outperforms
+all three on SNB Interactive at both SF 0.1 and SF 1, with one tie. See :doc:`performance` for the full tables. The :doc:`speedup case study
 <benchmark_filter_pagerank>` compares a full filter, PageRank, filter pipeline
 against Neo4j + GDS on CPU and GPU.
 
@@ -332,7 +331,7 @@ Using GPU Acceleration
 
 GFQL runs the same query on four interchangeable engines, all returning identical results: ``pandas`` (CPU, default), ``polars`` (CPU columnar — often an order of magnitude faster on query-heavy workloads, **no GPU**), ``cudf`` (NVIDIA GPU), and ``polars-gpu`` (NVIDIA GPU). ``engine='auto'`` follows the input frames — **a Polars-frame graph runs natively on Polars under the default** — resolving to ``cudf`` for cuDF input and ``pandas`` otherwise; an all-cuDF graph is additionally tried on ``polars-gpu`` when that GPU path probes usable. A query shape the native engine declines falls back to ``pandas`` (or ``cudf``); pass the engine explicitly to get an error instead of a fallback. Neither engine silently bridges mid-query: ``polars-gpu`` is GPU-or-error, and unsupported Polars/Cypher shapes are declined during validation, compilation, or planning — before execution — so the fallback re-runs the query from the start on pandas rather than half-executing. See :doc:`Choosing an Engine <engines>` for the decision matrix and benchmarks.
 
-When you use cuDF (GPU) dataframes with ``engine='auto'``, GFQL executes queries on the GPU for massive speedups.
+When you use cuDF (GPU) dataframes with ``engine='auto'``, GFQL executes queries on the GPU.
 
 **Automatic GPU Acceleration (cuDF)**
 

@@ -369,7 +369,7 @@ variable-length paths with ``IN`` filters on several aliases are not yet support
 Using GPU Acceleration
 ---------------------------
 
-GFQL is optimized for GPU acceleration using ``cudf`` and ``rapids``. When using GPU dataframes, GFQL automatically executes queries on the GPU for massive speedups.
+GFQL is optimized for GPU acceleration using ``cudf`` and ``rapids``. When using GPU dataframes, GFQL automatically executes queries on the GPU.
 
 6. Automatic GPU Acceleration
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

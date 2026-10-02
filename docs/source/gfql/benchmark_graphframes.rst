@@ -284,7 +284,6 @@ reject missing, stale, or unpublished values.
 
 .. bench-provenance:: graphframes-ladder-ship-62df29a8a-20260920 graphframes-ladder-059-hops-20260904
    :fields: measured_at,host
-   :disclosures:
 
 See also
 --------

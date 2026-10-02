@@ -165,4 +165,3 @@ which pyg-bench publishes.
 
 .. bench-provenance:: filter-pagerank-059-20260904 filter-pagerank-gplus-locked-20260830
    :fields: measured_at,host
-   :disclosures:
