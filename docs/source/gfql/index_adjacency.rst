@@ -1,12 +1,12 @@
 Adjacency Index: Fast Lookups from Known Nodes
 ==============================================
 
-A **seeded** graph query starts from a known set of nodes — "the neighbors of these
-50 accounts", "2 hops out from this device" — rather than scanning the whole graph.
-By default GFQL answers a seeded ``hop`` with an ``O(E)`` pass over every edge. With an
-opt-in **CSR adjacency index**, the same hop becomes an ``O(degree)`` gather: its cost
-depends on how many edges the *seeds* touch, not on how big the graph is — so a seeded
-lookup stays interactive as the graph grows.
+GFQL is fast out of the box. When you or your coding agent want more, GFQL supports the
+usual answer: an index. A **seeded** query starts from known nodes — "the neighbors of
+this account", "2 hops out from this device" — and by default GFQL answers it with one
+pass over every edge. With an opt-in **adjacency index**, the same hop reads only the
+edges the seeds touch, so its cost tracks the seeds' neighborhood instead of the size of
+the graph, and a seeded lookup stays interactive as the graph grows.
 
 Nothing changes about the answer. The index is a pay-as-you-go accelerator: a query either
 uses a resident index or falls back to the scan, and any feature the index does not cover
@@ -28,19 +28,30 @@ PageRank). For those, choose an *engine* instead — see :doc:`engines`.
 Quick start
 -----------
 
+Build the index with Cypher, then query as usual:
+
 .. code-block:: python
 
+   import pandas as pd
    import graphistry
-   from graphistry import n, e_forward, is_in
 
+   nodes_df = pd.DataFrame({"id": ["a", "b", "c", "d"]})
+   edges_df = pd.DataFrame({"src": ["a", "a", "b", "c"], "dst": ["b", "c", "c", "d"]})
    g = graphistry.edges(edges_df, "src", "dst").nodes(nodes_df, "id")
 
-   # Build the indexes once (out+in adjacency, plus a node-id accelerator when ids are unique)
-   g = g.gfql_index_all()
+   g = g.gfql("CREATE GFQL INDEX FOR edge_out_adj")      # build once
+   out = g.gfql("MATCH (a {id: 'a'})-[e]->(b) RETURN b")  # served by the index
+   g.gfql("SHOW GFQL INDEXES")                           # what is resident
 
-   # Seeded traversal — the index is used automatically (default index_policy='use')
-   my_seed_ids = ["a", "b"]   # your seed node ids
-   out = g.gfql([n({"id": is_in(my_seed_ids)}), e_forward(), n()])
+Check that a query took the index path with ``g.gfql_explain(query)``: it reports
+``used_index`` and the decision behind it. The same hop written as a native chain:
+
+.. code-block:: python
+
+   from graphistry import n, e_forward, is_in
+
+   g = g.gfql_index_all()   # out+in adjacency, plus a node-id accelerator when ids are unique
+   out = g.gfql([n({"id": is_in(["a", "b"])}), e_forward(), n()])
 
 ``gfql_index_all()`` is the one-liner. For finer control, build a single kind:
 
@@ -117,25 +128,16 @@ kernel-launch floor dominates it and a CPU engine — pandas or Polars, both bac
 GPU pulls ahead (see :doc:`engines`). Pick the index for selective traversal and a **CPU
 engine** to drive it.
 
-Latency figures for this path are not published yet: it has not been run under the
-protocol described on :doc:`performance`. Reproducers:
-``benchmarks/gfql/index_takeover_bench.py``, ``benchmarks/gfql/index_vs_dbs.py``,
-``benchmarks/gfql/index_vs_kuzu_prepared.py``.
-
 Cost and fallback
 -----------------
 
-- **Build cost** is one ``O(E log E)`` sort, amortized over subsequent queries.
-  ``index_policy='auto'`` only builds when the planner predicts a selective query will
-  pay it back.
-- **No change to default behavior.** With no index resident and ``index_policy='use'``
-  (the default), queries run exactly as before.
-- **Same results, with or without the index.** The index accelerates the seeded scan sites it covers (forward /
-  reverse hop, the Polars hop, the single-hop chain fast path). Any uncovered feature —
-  edge / source / destination match, ``target_wave_front``, ``min_hops>1``, labeling —
-  falls back to the scan/join path. The indexed subgraph is verified equal to the scan
-  subgraph in differential tests across pandas / cuDF / Polars / Polars-GPU. It is an
-  accelerator, never a source of a different answer.
+- **Build cost**: one sort of the edges, paid once and reused by every later query.
+  ``index_policy='auto'`` builds only when the planner expects a query to pay it back.
+- **Nothing changes until you build one.** With no index resident, queries run exactly
+  as before.
+- **Same answer either way.** A query the index covers takes the fast path; anything it
+  does not cover falls back to the normal scan. The index is an accelerator, never a
+  different result.
 
 See also
 --------
