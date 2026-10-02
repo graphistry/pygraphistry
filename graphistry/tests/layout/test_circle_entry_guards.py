@@ -74,13 +74,13 @@ def test_unique_bounding_box_partition_keys_still_work() -> None:
 
 def test_duplicate_bounding_box_partition_keys_of_mixed_sortability_still_name_the_keys() -> None:
     bb = pd.DataFrame({
-        'partition_key': ['a', 'a', None, None],
+        'partition_key': ['a', 'a', 1, 1],
         'cx': [0., 1., 2., 3.],
         'cy': [0.] * 4,
         'w': [1.] * 4,
         'h': [1.] * 4,
     })
-    with pytest.raises(ValueError, match=r"duplicate partition_key values: \[None, 'a'\]"):
+    with pytest.raises(ValueError, match=r"duplicate partition_key values: \[1, 'a'\]"):
         _partitioned_graph().circle_layout(partition_by='p', bounding_box=bb)
 
 
