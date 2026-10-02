@@ -256,7 +256,7 @@ def circle_layout(
             key_col = bounding_box_keyed[partition_by]
             duplicated_keys = key_col[key_col.duplicated()]
             if len(duplicated_keys) > 0:
-                raise ValueError(f'bounding_box has duplicate partition_key values: {sorted(set(series_to_pylist(duplicated_keys)))}')
+                raise ValueError(f'bounding_box has duplicate partition_key values: {sorted(set(series_to_pylist(duplicated_keys)), key=str)}')
 
             nodes_with_partitions = g._nodes.merge(
                 bounding_box_keyed,

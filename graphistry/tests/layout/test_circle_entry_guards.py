@@ -7,6 +7,9 @@ import pandas as pd
 import pytest
 
 import graphistry
+from graphistry.Engine import Engine
+from graphistry.compute.exceptions import GFQLTypeError
+from graphistry.compute.gfql.call.executor import execute_call
 
 TRIANGLE_EDGES = pd.DataFrame({'s': [0, 1, 2], 'd': [1, 2, 0]})
 PARTITIONED_EDGES = pd.DataFrame({'s': [0, 1, 2, 3], 'd': [1, 2, 0, 0]})
@@ -41,7 +44,7 @@ def test_nodes_without_node_binding_counts_the_materialized_nodes() -> None:
 def test_no_bounding_box_without_positions_raises_value_error() -> None:
     n = pd.DataFrame({'id': [0, 1, 2]})
     g = graphistry.edges(TRIANGLE_EDGES, 's', 'd').nodes(n, 'id')
-    with pytest.raises(ValueError, match='bounding_box'):
+    with pytest.raises(ValueError, match='requires either bounding_box= or existing x/y node positions'):
         g.circle_layout()
 
 
@@ -67,6 +70,18 @@ def test_unique_bounding_box_partition_keys_still_work() -> None:
     g = _partitioned_graph().circle_layout(partition_by='p', bounding_box=BOUNDING_BOX_AB)
     assert len(g._nodes) == 4
     assert not g._nodes['x'].isna().any()
+
+
+def test_duplicate_bounding_box_partition_keys_of_mixed_sortability_still_name_the_keys() -> None:
+    bb = pd.DataFrame({
+        'partition_key': ['a', 'a', None, None],
+        'cx': [0., 1., 2., 3.],
+        'cy': [0.] * 4,
+        'w': [1.] * 4,
+        'h': [1.] * 4,
+    })
+    with pytest.raises(ValueError, match=r"duplicate partition_key values: \[None, 'a'\]"):
+        _partitioned_graph().circle_layout(partition_by='p', bounding_box=bb)
 
 
 def test_null_partition_key_names_the_partition_column() -> None:
@@ -159,3 +174,21 @@ def test_cudf_null_partition_key_names_the_partition_column() -> None:
     g = graphistry.edges(cudf.from_pandas(PARTITIONED_EDGES), 's', 'd').nodes(n, 'id')
     with pytest.raises(ValueError, match=r"partition_by columns with nulls: \['p'\]"):
         g.circle_layout(partition_by='p', bounding_box=cudf.from_pandas(BOUNDING_BOX_AB))
+
+
+def test_gfql_call_surface_reports_the_missing_bounding_box() -> None:
+    n = pd.DataFrame({'id': [0, 1, 2]})
+    g = graphistry.edges(TRIANGLE_EDGES, 's', 'd').nodes(n, 'id')
+    with pytest.raises(GFQLTypeError, match='requires either bounding_box= or existing x/y node positions'):
+        execute_call(g, 'circle_layout', {}, Engine.PANDAS)
+
+
+def test_gfql_call_surface_lays_out_an_edge_only_graph() -> None:
+    g = execute_call(
+        graphistry.edges(TRIANGLE_EDGES, 's', 'd'),
+        'circle_layout',
+        {'bounding_box': [0, 0, 10, 10]},
+        Engine.PANDAS,
+    )
+    assert len(g._nodes) == 3
+    assert not g._nodes['x'].isna().any()
