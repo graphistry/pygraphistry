@@ -29,6 +29,7 @@ def _served(report: Any) -> List[str]:
     return [step["seam"] for step in report["steps"] if step.get("served")]
 
 
+@pytest.mark.route_engaged("indexed-kernel")
 def test_a_cypher_in_list_is_served_by_the_bindings_kernel() -> None:
     g, edges = _graph(list(range(4_000)))
     seeds = [3, 77, 1234, 3999]
@@ -38,6 +39,7 @@ def test_a_cypher_in_list_is_served_by_the_bindings_kernel() -> None:
     assert sorted(g.gfql(query)._nodes["b.id"].tolist()) == sorted(g.gfql(query, index_policy="off")._nodes["b.id"].tolist())
 
 
+@pytest.mark.route_engaged("indexed-kernel")
 def test_two_hops_from_a_seed_set_are_served_too() -> None:
     g, edges = _graph(list(range(4_000)))
     seeds = [3, 77]
@@ -47,6 +49,7 @@ def test_two_hops_from_a_seed_set_are_served_too() -> None:
     assert sorted(g.gfql(query)._nodes["c.id"].tolist()) == expected
 
 
+@pytest.mark.route_engaged("indexed-kernel")
 def test_a_seed_set_covering_most_of_the_graph_takes_the_scan_and_still_agrees() -> None:
     g, edges = _graph(list(range(4_000)))
     seeds = list(range(0, 3_600))
@@ -55,6 +58,7 @@ def test_a_seed_set_covering_most_of_the_graph_takes_the_scan_and_still_agrees()
     assert int(g.gfql(query)._nodes["c"].iloc[0]) == int(edges["src"].isin(seeds).sum())
 
 
+@pytest.mark.route_engaged("indexed-kernel")
 def test_string_ids_decline_the_kernel_and_still_agree() -> None:
     ids = [f"n{i}" for i in range(2_000)]
     g, edges = _graph(ids)

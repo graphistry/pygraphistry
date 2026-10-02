@@ -30,7 +30,7 @@ def _literal_membership_seed(
 ) -> Optional[Tuple["PropertyRef", List[Scalar]]]:
     """``alias.prop IN [scalar literals]`` as (property, values), else None."""
     from graphistry.compute.gfql.cypher.ast import PropertyRef
-    from graphistry.compute.gfql.cypher.lowering import _parse_row_expr
+    from graphistry.compute.gfql.cypher.lowering import _ZONED_ISO_TEMPORAL_TEXT_RE, _parse_row_expr
 
     try:
         node = _parse_row_expr(
@@ -50,6 +50,8 @@ def _literal_membership_seed(
         value = item.value if isinstance(item, ExprLiteral) else None
         if not isinstance(value, (str, int, float)) or (isinstance(value, float) and math.isnan(value)):
             return None  # null and NaN carry three-valued verdicts; a nested list is structural
+        if isinstance(value, str) and _ZONED_ISO_TEMPORAL_TEXT_RE.match(value) is not None:
+            return None  # datetime('...') lowers to zoned ISO text; the row path compares it as an instant, like `=` keeps it
         values.append(value)
     if not isinstance(alias_targets.get(alias), (ASTNode, ASTEdge)):
         return None

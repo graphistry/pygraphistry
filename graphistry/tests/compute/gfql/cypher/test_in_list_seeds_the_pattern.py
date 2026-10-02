@@ -73,8 +73,11 @@ def test_an_edge_alias_list_becomes_the_edge_match() -> None:
         "a.id IN [[1, 2]]",
         "[a.id] IN [[1]]",
         "a.id IN b.tags",
+        "a.ts IN [datetime('2020-03-04T00:00:00')]",
+        "a.ts IN ['2020-03-04T00:00:00Z', '2020-01-01T00:00:00+02:00']",
     ],
-    ids=["null element", "under OR", "under NOT", "nested list", "list-valued left side", "list held by another alias"],
+    ids=["null element", "under OR", "under NOT", "nested list", "list-valued left side", "list held by another alias",
+         "temporal constructor (lowers to zoned ISO text, compared as an instant)", "zoned ISO text"],
 )
 def test_three_valued_and_structural_forms_stay_in_the_row_where(where: str) -> None:
     ops = _lowered(f"MATCH (a)-[e]->(b) WHERE {where} RETURN b")

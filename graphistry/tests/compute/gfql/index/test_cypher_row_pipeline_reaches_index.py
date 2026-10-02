@@ -32,6 +32,7 @@ def _served(report: Any) -> List[str]:
     return [step["seam"] for step in report["steps"] if step.get("served")]
 
 
+@pytest.mark.route_engaged("indexed-kernel", "index-hop", "native-fast")
 @pytest.mark.parametrize(
     "ids,route",
     [(list(range(3_000)), "kernel"), ([f"n{i}" for i in range(3_000)], "hop")],
@@ -52,6 +53,7 @@ def test_a_multi_seed_cypher_hop_is_served_by_the_resident_index(ids: List[Any],
     assert served == sorted(edges[edges["src"].isin(seeds)]["dst"].tolist())  # one b row per matched edge
 
 
+@pytest.mark.route_engaged("indexed-kernel", "index-hop", "native-fast")
 def test_an_edge_frame_the_index_was_not_built_over_still_scans() -> None:
     g, edges = _graph(list(range(3_000)))
     permuted = edges.sort_values("src").reset_index(drop=True)
