@@ -28,14 +28,25 @@ def _hop_steps(report: Any) -> List[str]:
     return [step["path"] for step in report["steps"] if step.get("op") == "hop"]
 
 
-@pytest.mark.parametrize("ids", [list(range(3_000)), [f"n{i}" for i in range(3_000)]], ids=["int ids", "str ids"])
-def test_a_multi_seed_cypher_hop_is_served_by_the_resident_index(ids: List[Any]) -> None:
+def _served(report: Any) -> List[str]:
+    return [step["seam"] for step in report["steps"] if step.get("served")]
+
+
+@pytest.mark.parametrize(
+    "ids,route",
+    [(list(range(3_000)), "kernel"), ([f"n{i}" for i in range(3_000)], "hop")],
+    ids=["int ids: the bindings kernel serves before any hop", "str ids: the kernel declines, the hop itself is indexed"],
+)
+def test_a_multi_seed_cypher_hop_is_served_by_the_resident_index(ids: List[Any], route: str) -> None:
     g, edges = _graph(ids)
     seeds = [ids[i] for i in (5, 77, 1234, 2999)]
     query = f"MATCH (a)-[e]->(b) WHERE a.id IN {seeds!r} RETURN b"
     report = g.gfql_explain(query)
     assert report["used_index"] is True
-    assert _hop_steps(report) == ["index"]
+    if route == "kernel":
+        assert _served(report) == ["connected_bindings"] and _hop_steps(report) == []
+    else:
+        assert _hop_steps(report) == ["index"]
     served = sorted(g.gfql(query)._nodes["b.id"].tolist())
     assert served == sorted(g.gfql(query, index_policy="off")._nodes["b.id"].tolist())
     assert served == sorted(edges[edges["src"].isin(seeds)]["dst"].tolist())  # one b row per matched edge
