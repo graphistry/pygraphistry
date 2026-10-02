@@ -87,6 +87,13 @@ A complete, runnable example:
    out2 = g_indexed.gfql("MATCH (m {id: 0})-[e]->()-[f]->(p) RETURN p")
    print(sorted(out2._nodes["p.id"].tolist()))       # [2, 3, 4]
 
+   # Same lookups as a graph pipeline: GRAPH { ... } keeps nodes AND edges, so the
+   # result is a subgraph you can plot or keep querying, not a table of rows
+   sub1 = g_indexed.gfql("GRAPH { MATCH (m {id: 0})-[e]->(p) }")
+   print(sorted(sub1._nodes["id"].tolist()), len(sub1._edges))   # [0, 1, 2] 2
+   sub2 = g_indexed.gfql("GRAPH { MATCH (m {id: 0})-[e]->()-[f]->(p) }")
+   print(sorted(sub2._nodes["id"].tolist()), len(sub2._edges))   # [0, 1, 2, 3, 4] 5
+
    # Decline safety: with indexes switched off, the SAME answer comes back
    out_scan = g_indexed.gfql("MATCH (m {id: 0})-[e]->(p) RETURN p", index_policy="off")
    assert sorted(out._nodes["p.id"].tolist()) == sorted(out_scan._nodes["p.id"].tolist())
@@ -94,9 +101,11 @@ A complete, runnable example:
    # Was the index used? gfql_explain says so
    assert g_indexed.gfql_explain("MATCH (m {id: 0})-[e]->(p) RETURN p")["used_index"]
 
-A seed *list* is written ``WHERE m.id IN [0, 3]``; that form currently takes the scan
-path and returns the same rows it always did. The same hop as a native chain, and the
-direct ``hop()`` call:
+Both forms take the index path for a lookup from one known node, as ``gfql_explain``
+reports. A seed *list* is written ``WHERE m.id IN [0, 3]``: in the row-returning form it
+currently takes the scan path and returns the same rows it always did; the ``GRAPH { }``
+form does not accept it yet. The same hop as a native chain, and the direct ``hop()``
+call:
 
 .. code-block:: python
 
