@@ -67,20 +67,61 @@ def test_the_vendored_contract_is_the_one_the_artifact_was_built_against(payload
     assert payload['contract_version'] == contract['contract_version']
 
 
-def test_no_published_number_is_stale(payload):
-    """The staleness rule is the whole reason this pipeline exists: a number nobody
-    re-measured must fail loudly rather than keep looking authoritative."""
+def quotable_runs(payload):
+    """Runs with at least one board-quotable cell. A run no board can quote and no page
+    cites cannot mislead anyone, so its age is the publisher's concern, not this build's;
+    a page that DOES cite one of its cells is still age-checked per citation by the
+    Sphinx extension."""
+    return {cell['run'] for cell in payload['cells'].values() if cell.get('board_quotable') is True}
+
+
+def overdue_runs(payload, today):
     max_age = payload['policy']['max_age_days']
-    today = datetime.date.today()
+    quotable = quotable_runs(payload)
     overdue = []
     for run_id, run in sorted(payload['runs'].items()):
+        if run_id not in quotable:
+            continue
         measured = datetime.datetime.strptime(run['measured_at'], '%Y-%m-%d').date()
         age = (today - measured).days
         if age > max_age:
             overdue.append('{} measured {} days ago (limit {})'.format(run_id, age, max_age))
+    return overdue
+
+
+def test_no_published_number_is_stale(payload):
+    """The staleness rule is the whole reason this pipeline exists: a number nobody
+    re-measured must fail loudly rather than keep looking authoritative."""
+    overdue = overdue_runs(payload, datetime.date.today())
     assert not overdue, (
         'Re-measure in pyg-bench and republish published/docs-numbers.json: '
         + '; '.join(overdue))
+
+
+def _with_synthetic_run(payload, quotable):
+    """A copy of the payload plus one run measured long ago, carrying one cell that is
+    board-quotable or not. Synthetic so the test does not depend on what the live artifact
+    happens to publish -- the earlier IS3 probe was the only diagnostic-only run, and the
+    day it was retired a test keyed on it would have stopped being able to fail."""
+    doc = json.loads(json.dumps(payload))
+    template_key, template = sorted(payload['cells'].items())[0]
+    run_id = 'synthetic-run-20200101'
+    doc['runs'][run_id] = dict(payload['runs'][template['run']], measured_at='2020-01-01')
+    cell = dict(template, run=run_id, board_quotable=quotable, comparison_allowed=False)
+    doc['cells']['synthetic.' + template_key] = cell
+    return doc, run_id
+
+
+def test_a_stale_run_no_board_can_quote_does_not_fail_the_build(payload):
+    doc, run_id = _with_synthetic_run(payload, quotable=False)
+    assert run_id not in quotable_runs(doc)
+    assert not any(run_id in line for line in overdue_runs(doc, datetime.date(2026, 1, 1)))
+
+
+def test_a_stale_run_a_board_can_quote_still_fails_the_build(payload):
+    doc, run_id = _with_synthetic_run(payload, quotable=True)
+    assert run_id in quotable_runs(doc)
+    assert any(run_id in line for line in overdue_runs(doc, datetime.date(2026, 1, 1)))
 
 
 def test_every_number_the_docs_reference_is_published(payload):
