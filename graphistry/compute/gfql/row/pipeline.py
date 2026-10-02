@@ -4148,9 +4148,14 @@ class RowPipelineMixin:
             else DEFAULT_ROW_EDGE_IDENTITY_COL
         )
         if base_edges_frame is not None:
-            base_graph = base_graph.edges(
-                base_edges_frame.assign(**{ident_col: range(len(base_edges_frame))})
-            )
+            identified_edges = base_edges_frame.copy(deep=False)
+            identified_edges[ident_col] = range(len(base_edges_frame))
+            base_graph = base_graph.edges(identified_edges)
+            # same rows, same order, one column added: the resident adjacency stays valid
+            from graphistry.compute.gfql.index import get_registry, set_registry
+            registry = get_registry(base_graph)
+            if not registry.is_empty():
+                base_graph = set_registry(base_graph, registry.rebind_edges(identified_edges, base_edges_frame))
 
         for edge_idx in range(1, len(ops), 2):
             edge_op = ops[edge_idx]
