@@ -1,14 +1,12 @@
 from typing import Any, Optional, Tuple, List, Union
 
-import numpy as np
-
 from graphistry.Engine import (
-    Engine,
     EngineAbstract,
     resolve_input_engine,
     df_cons,
     s_arange, s_cos, s_floor, s_full, s_isna, s_pi,
-    s_series, s_sin, s_sqrt, s_to_arr
+    s_series, s_sin, s_sqrt, s_to_arr,
+    series_to_pylist
 )
 from graphistry.Plottable import Plottable
 from graphistry.util import setup_logger
@@ -191,6 +189,9 @@ def circle_layout(
             partition_columns = partition_by
         else:
             raise ValueError(f"Invalid 'by' argument: must be None, str, or list[str], but got {partition_by}")
+        null_partition_columns = [col for col in partition_columns if g._nodes[col].isna().any()]
+        if len(null_partition_columns) > 0:
+            raise ValueError(f'circle_layout cannot partition on null values: partition_by columns with nulls: {null_partition_columns}')
     else:
         partition_columns = []
 
@@ -246,11 +247,16 @@ def circle_layout(
             assert isinstance(bounding_box, cons), f'Invalid bounding box type, expected {cons}, got {type(bounding_box)}'
 
             bounding_box_keyed = bounding_box.rename(columns={'partition_key': partition_by})
-            if partition_by in bounding_box_keyed.columns:
-                key_col = bounding_box_keyed[partition_by]
-                duplicated_keys = key_col[key_col.duplicated()]
-                if len(duplicated_keys) > 0:
-                    raise ValueError(f'bounding_box has duplicate partition_key values: {sorted(set(to_arr(duplicated_keys)))}')
+            missing_bounding_box_columns = [col for col in ['cx', 'cy', 'w', 'h'] if col not in bounding_box_keyed.columns]
+            if partition_by not in bounding_box_keyed.columns:
+                missing_bounding_box_columns = ['partition_key'] + missing_bounding_box_columns
+            if len(missing_bounding_box_columns) > 0:
+                raise ValueError(f'bounding_box frame is missing columns {missing_bounding_box_columns}; expected partition_key, cx, cy, w, h')
+
+            key_col = bounding_box_keyed[partition_by]
+            duplicated_keys = key_col[key_col.duplicated()]
+            if len(duplicated_keys) > 0:
+                raise ValueError(f'bounding_box has duplicate partition_key values: {sorted(set(series_to_pylist(duplicated_keys)))}')
 
             nodes_with_partitions = g._nodes.merge(
                 bounding_box_keyed,
@@ -342,12 +348,7 @@ def circle_layout(
 
     # Compute angles for each node in the ring
     #node_angles = (2 * pi * node_indices_in_ring) / nodes_in_ring  # (num_nodes,)
-    if engine_concrete in [EngineAbstract.CUDF, 'cudf', 'Engine.CUDF'] or hasattr(node_idx_relative, 'to_pandas'):
-        # CUDA OOM bug despite small data
-        #node_angles = Series((2 * np.pi * node_idx_relative.to_pandas()) / nodes_in_ring.to_pandas()).fillna(0.0)  # (num_nodes,)
-        node_angles = 2 * np.pi * node_idx_relative.reset_index(drop=True) / nodes_in_ring.reset_index(drop=True)  # (num_nodes,)
-    else:
-        node_angles = ((2 * pi * node_idx_relative) / nodes_in_ring).fillna(0.0)  # (num_nodes,)
+    node_angles = 2 * pi * node_idx_relative.reset_index(drop=True) / nodes_in_ring.reset_index(drop=True)  # (num_nodes,)
     if is_na(node_angles).any():
         raise ValueError('Unexpected NaNs in node angles')
 
