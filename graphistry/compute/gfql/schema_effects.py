@@ -54,7 +54,10 @@ class SchemaEffect:
 _INT32 = ScalarType("int32")
 _INT64 = ScalarType("int64")
 _FLOAT64 = ScalarType("float64")
+_FLOAT32 = ScalarType("float32")
+_BOOL = ScalarType("bool")
 _STRING = ScalarType("string")
+_UNKNOWN = ScalarType("unknown")
 
 _NODE_FLOAT_ALGS: FrozenSet[str] = frozenset(
     (
@@ -214,6 +217,34 @@ def schema_effect_for_procedure_output(
                 "degree_in": _INT32,
                 "degree_out": _INT32,
             },
+            confidence="declared",
+        )
+    if backend == "std":
+        if not value_columns:
+            return None
+        from graphistry.compute.algorithms.registry import (
+            STD_BOOL_ALGS,
+            STD_FLOAT32_ALGS,
+            STD_FLOAT64_ALGS,
+            STD_LABEL_ALGS,
+        )
+
+        logical_type = (
+            _FLOAT64
+            if algorithm in STD_FLOAT64_ALGS
+            else _FLOAT32
+            if algorithm in STD_FLOAT32_ALGS
+            else _BOOL
+            if algorithm in STD_BOOL_ALGS
+            else _UNKNOWN
+            if algorithm in STD_LABEL_ALGS
+            else _STRING
+        )
+        properties = _typed_properties(value_columns, logical_type)
+        if algorithm == "pagerank" and len(value_columns) > 1:
+            properties.update(_typed_properties(value_columns[1:], _BOOL))
+        return SchemaEffect(
+            adds_node_properties=properties,
             confidence="declared",
         )
     if not value_columns:
