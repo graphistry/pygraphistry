@@ -1,5 +1,6 @@
 import ast
 import math
+import numpy as np
 import numbers
 import re
 import warnings
@@ -3540,32 +3541,78 @@ class RowPipelineMixin:
         if temporal_in is not None:
             return temporal_in
 
-        lhs_values = self._gfql_series_to_pylist(left_series)
-        rhs_values = self._gfql_series_to_pylist(right_series)
-        out_values: List[Any] = []
-        for lhs_item, rhs_item in zip(lhs_values, rhs_values):
-            if is_null_scalar(rhs_item):
-                out_values.append(None)
-                continue
-            if not isinstance(rhs_item, (list, tuple)):
-                raise ValueError(f"unsupported row expression: IN rhs must be list-like in {expr!r}")
-            saw_unknown = False
-            saw_true = False
-            for rhs_elem in rhs_item:
-                is_equal = RowPipelineMixin._gfql_cypher_value_equal(lhs_item, rhs_elem)
-                if is_equal is True:
-                    saw_true = True
-                    break
-                if is_equal is None:
-                    saw_unknown = True
-            if saw_true:
-                out_values.append(True)
-            elif saw_unknown:
-                out_values.append(None)
-            else:
-                out_values.append(False)
+        out_values = self._gfql_in_literal_list_values(left_series, right_value)
+        if out_values is None:
+            lhs_values = self._gfql_series_to_pylist(left_series)
+            rhs_values = self._gfql_series_to_pylist(right_series)
+            out_values = []
+            for lhs_item, rhs_item in zip(lhs_values, rhs_values):
+                if is_null_scalar(rhs_item):
+                    out_values.append(None)
+                    continue
+                if not isinstance(rhs_item, (list, tuple)):
+                    raise ValueError(f"unsupported row expression: IN rhs must be list-like in {expr!r}")
+                saw_unknown = False
+                saw_true = False
+                for rhs_elem in rhs_item:
+                    is_equal = RowPipelineMixin._gfql_cypher_value_equal(lhs_item, rhs_elem)
+                    if is_equal is True:
+                        saw_true = True
+                        break
+                    if is_equal is None:
+                        saw_unknown = True
+                if saw_true:
+                    out_values.append(True)
+                elif saw_unknown:
+                    out_values.append(None)
+                else:
+                    out_values.append(False)
         out_col = RowPipelineMixin._gfql_fresh_col_name(table_df.columns, "__gfql_in_tri__")
         return table_df.reset_index(drop=True).assign(**{out_col: out_values})[out_col]
+
+    @staticmethod
+    def _gfql_in_literal_list_values(
+        left_series: Any,  # hygiene-ok: explicit-any -- pandas/cuDF Series, evaluator-wide idiom
+        right_value: Any,  # hygiene-ok: explicit-any -- arbitrary cypher list value, evaluator-wide idiom
+    ) -> Optional[List[Any]]:  # hygiene-ok: explicit-any -- tri-state row values, evaluator-wide idiom
+        """``<column> IN [<scalar literals>]`` through ``isin``, or None to leave it to the loop.
+
+        Same truth table as the element loop: a row is TRUE when a non-null element equals
+        it, else NULL when the row is Cypher-null or the list holds a null, else FALSE; an
+        empty list is FALSE for every row. Only a constant list of plain scalars qualifies:
+        list/map elements need the structural equality the loop implements, and a per-row
+        list is not a constant. NaN is a value, never equal to anything (``nan == nan`` is
+        False), so NaN elements are dropped from the probe and a NaN row is only TRUE/FALSE.
+        """
+        if not isinstance(right_value, (list, tuple)) or not hasattr(left_series, "isin"):
+            return None
+        probe: List[Any] = []
+        rhs_has_null = False
+        for element in right_value:
+            if RowPipelineMixin._gfql_is_cypher_null_scalar(element):
+                rhs_has_null = True
+                continue
+            if isinstance(element, (list, tuple, dict)):
+                return None  # structural equality is the loop's job
+            if isinstance(element, float) and math.isnan(element):
+                continue
+            probe.append(element)
+        try:
+            hit = np.asarray(RowPipelineMixin._gfql_series_to_pylist(left_series.isin(probe)), dtype=bool) if probe \
+                else np.zeros(len(left_series), dtype=bool)
+            missing = np.asarray(RowPipelineMixin._gfql_series_to_pylist(left_series.isna()), dtype=bool)
+        except Exception:
+            return None  # e.g. unhashable row values -> the loop's structural equality decides
+        if missing.any():
+            # ``isna`` also flags float NaN, which Cypher treats as a value; keep only real nulls.
+            sparse = RowPipelineMixin._gfql_series_to_pylist(left_series.iloc[np.flatnonzero(missing)])
+            real_null = np.fromiter(
+                (RowPipelineMixin._gfql_is_cypher_null_scalar(v) for v in sparse), dtype=bool, count=len(sparse),
+            )
+            missing[np.flatnonzero(missing)] = real_null
+        # an empty list has nothing to compare against, so even a null row is FALSE
+        unknown = (missing | rhs_has_null) if len(right_value) else np.zeros_like(missing)
+        return [True if h else (None if u else False) for h, u in zip(hit.tolist(), unknown.tolist())]
 
     def _gfql_eval_string_expr(self, table_df: Any, expr: str) -> Any:
         txt = expr.strip()
