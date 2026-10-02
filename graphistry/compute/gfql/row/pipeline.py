@@ -3597,6 +3597,10 @@ class RowPipelineMixin:
             if isinstance(element, float) and math.isnan(element):
                 continue
             probe.append(element)
+        probe_bools = [isinstance(element, bool) for element in probe]
+        series_is_bool = str(getattr(left_series, "dtype", "")).lower() in ("bool", "boolean")
+        if probe and (any(probe_bools) != all(probe_bools) or any(probe_bools) != series_is_bool):
+            return None  # `True == 1` holds in the loop but not in every engine's isin; the loop decides
         try:
             hit = np.asarray(RowPipelineMixin._gfql_series_to_pylist(left_series.isin(probe)), dtype=bool) if probe \
                 else np.zeros(len(left_series), dtype=bool)

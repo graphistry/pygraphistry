@@ -31,8 +31,6 @@ def _loop_oracle(lhs: Any, rhs: List[Any]) -> Optional[bool]:
 
 
 _SHAPES = [
-    ("bool column, int element", pd.Series([True, False]), [1]),
-    ("int column, bool element", pd.Series([1, 0, 2]), [True]),
     ("int column, float element", pd.Series([1, 2]), [1.0]),
     ("float column with NaN", pd.Series([np.nan, 1.0]), [1.0]),
     ("float NaN row, null in list", pd.Series([np.nan, 1.0]), [2.0, None]),
@@ -69,6 +67,27 @@ def test_the_lane_matches_the_element_loop(series: pd.Series, rhs: List[Any]) ->
 )
 def test_the_lane_declines_what_needs_structural_equality(rhs: Any) -> None:
     assert RowPipelineMixin._gfql_in_literal_list_values(pd.Series([1, 2]), rhs) is None
+
+
+@pytest.mark.parametrize(
+    "series,rhs",
+    [
+        (pd.Series([True, False]), [1]),
+        (pd.Series([1, 0]), [True]),
+        (pd.Series([True]), [True, 1]),
+        (pd.Series(["a"]), [True]),
+        (pd.Series([True, None], dtype=object), [True]),
+    ],
+    ids=["bool column, int element", "int column, bool element", "bool and int elements", "str column, bool element", "object column, bool element"],
+)
+def test_the_lane_leaves_bool_against_int_to_the_loop(series: pd.Series, rhs: List[Any]) -> None:
+    # Python says True == 1 and so does the loop; not every engine's isin agrees (cuDF says False).
+    assert RowPipelineMixin._gfql_in_literal_list_values(series, rhs) is None
+
+
+def test_bool_against_bool_still_takes_the_lane() -> None:
+    assert RowPipelineMixin._gfql_in_literal_list_values(pd.Series([True, False]), [True]) == [True, False]
+    assert RowPipelineMixin._gfql_in_literal_list_values(pd.Series([True, None], dtype="boolean"), [False]) == [False, None]
 
 
 def _counting_equal(monkeypatch: pytest.MonkeyPatch) -> List[int]:
