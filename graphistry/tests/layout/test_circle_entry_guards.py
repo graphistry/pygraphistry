@@ -84,6 +84,11 @@ def test_duplicate_bounding_box_partition_keys_of_mixed_sortability_still_name_t
         _partitioned_graph().circle_layout(partition_by='p', bounding_box=bb)
 
 
+def test_bounding_box_frame_without_partition_by_raises_value_error() -> None:
+    with pytest.raises(ValueError, match='requires partition_by='):
+        _partitioned_graph().circle_layout(bounding_box=BOUNDING_BOX_AB)
+
+
 def test_null_partition_key_names_the_partition_column() -> None:
     n = pd.DataFrame({'id': [0, 1, 2, 3], 'p': ['a', 'a', None, 'b']})
     g = graphistry.edges(PARTITIONED_EDGES, 's', 'd').nodes(n, 'id')
@@ -106,28 +111,31 @@ def test_bounding_box_without_extent_columns_raises_value_error() -> None:
 @pytest.mark.skipif(
     not ("TEST_CUDF" in os.environ and os.environ["TEST_CUDF"] == "1"),
     reason="cudf tests need TEST_CUDF=1")
-def test_cudf_positions_match_pandas() -> None:
+@pytest.mark.parametrize('partitioned', [False, True])
+def test_cudf_positions_match_pandas(partitioned: bool) -> None:
     import cudf
 
-    for kwargs in [
-        {'bounding_box': (0., 0., 10., 10.)},
-        {'partition_by': 'p', 'bounding_box': BOUNDING_BOX_AB},
-    ]:
-        g_pd = _partitioned_graph().circle_layout(**kwargs)
-        gpu_kwargs = dict(kwargs)
-        if isinstance(gpu_kwargs['bounding_box'], pd.DataFrame):
-            gpu_kwargs['bounding_box'] = cudf.from_pandas(gpu_kwargs['bounding_box'])
-        g_gdf = (
-            graphistry
-            .edges(cudf.from_pandas(PARTITIONED_EDGES), 's', 'd')
-            .nodes(cudf.from_pandas(PARTITIONED_NODES), 'id')
-            .circle_layout(**gpu_kwargs)
-        )
-        assert isinstance(g_gdf._nodes, cudf.DataFrame)
-        got = g_gdf._nodes.to_pandas().sort_values('id').reset_index(drop=True)
-        want = g_pd._nodes.sort_values('id').reset_index(drop=True)
-        pd.testing.assert_series_equal(got['x'], want['x'], check_dtype=False, rtol=1e-9)
-        pd.testing.assert_series_equal(got['y'], want['y'], check_dtype=False, rtol=1e-9)
+    kwargs: dict = (
+        {'partition_by': 'p', 'bounding_box': BOUNDING_BOX_AB} if partitioned
+        else {'bounding_box': (0., 0., 10., 10.)}
+    )
+    g_pd = _partitioned_graph().circle_layout(**kwargs)
+
+    gpu_kwargs = dict(kwargs)
+    if partitioned:
+        gpu_kwargs['bounding_box'] = cudf.from_pandas(BOUNDING_BOX_AB)
+    g_gdf = (
+        graphistry
+        .edges(cudf.from_pandas(PARTITIONED_EDGES), 's', 'd')
+        .nodes(cudf.from_pandas(PARTITIONED_NODES), 'id')
+        .circle_layout(**gpu_kwargs)
+    )
+
+    assert isinstance(g_gdf._nodes, cudf.DataFrame)
+    got = g_gdf._nodes.to_pandas().sort_values('id').reset_index(drop=True)
+    want = g_pd._nodes.sort_values('id').reset_index(drop=True)
+    pd.testing.assert_series_equal(got['x'], want['x'], check_dtype=False, rtol=1e-9)
+    pd.testing.assert_series_equal(got['y'], want['y'], check_dtype=False, rtol=1e-9)
 
 
 @pytest.mark.skipif(
@@ -149,6 +157,28 @@ def test_cudf_duplicate_bounding_box_partition_keys_raise_value_error() -> None:
         .nodes(cudf.from_pandas(PARTITIONED_NODES), 'id')
     )
     with pytest.raises(ValueError, match=r"duplicate partition_key values: \['a', 'b'\]"):
+        g.circle_layout(partition_by='p', bounding_box=bb)
+
+
+@pytest.mark.skipif(
+    not ("TEST_CUDF" in os.environ and os.environ["TEST_CUDF"] == "1"),
+    reason="cudf tests need TEST_CUDF=1")
+def test_cudf_duplicate_bounding_box_partition_keys_of_mixed_sortability_still_name_the_keys() -> None:
+    import cudf
+
+    bb = cudf.DataFrame({
+        'partition_key': ['a', 'a', None, None],
+        'cx': [0., 1., 2., 3.],
+        'cy': [0.] * 4,
+        'w': [1.] * 4,
+        'h': [1.] * 4,
+    })
+    g = (
+        graphistry
+        .edges(cudf.from_pandas(PARTITIONED_EDGES), 's', 'd')
+        .nodes(cudf.from_pandas(PARTITIONED_NODES), 'id')
+    )
+    with pytest.raises(ValueError, match=r"duplicate partition_key values: \[None, 'a'\]"):
         g.circle_layout(partition_by='p', bounding_box=bb)
 
 
