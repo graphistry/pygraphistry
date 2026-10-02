@@ -72,8 +72,9 @@ def test_an_edge_alias_list_becomes_the_edge_match() -> None:
         "NOT a.id IN [1]",
         "a.id IN [[1, 2]]",
         "[a.id] IN [[1]]",
+        "a.id IN b.tags",
     ],
-    ids=["null element", "under OR", "under NOT", "nested list", "list-valued left side"],
+    ids=["null element", "under OR", "under NOT", "nested list", "list-valued left side", "list held by another alias"],
 )
 def test_three_valued_and_structural_forms_stay_in_the_row_where(where: str) -> None:
     ops = _lowered(f"MATCH (a)-[e]->(b) WHERE {where} RETURN b")
@@ -130,3 +131,14 @@ def test_optional_match_keeps_its_null_row_with_a_seeded_list() -> None:
     out = g.gfql("MATCH (a) WHERE a.id IN [1, 3] OPTIONAL MATCH (a)-[e]->(b) RETURN a.id AS a, b.id AS b ORDER BY a")._nodes
     assert out["a"].tolist() == [1, 3]
     assert out["b"].tolist()[0] == 2 and pd.isna(out["b"].tolist()[1])
+
+
+def test_an_alias_outside_the_pattern_is_left_for_the_where_to_report() -> None:
+    from graphistry.compute.ast import e_forward, n
+    from graphistry.compute.gfql.cypher.ast import SourceSpan
+    from graphistry.compute.gfql.cypher.where_membership import _literal_membership_seed
+
+    targets = {"a": n(name="a"), "e": e_forward(name="e"), "b": n(name="b")}
+    span = SourceSpan(line=1, column=1, end_line=1, end_column=1, start_pos=0, end_pos=0)
+    assert _literal_membership_seed("z.id IN [1]", span=span, alias_targets=targets, params=None) is None
+    assert _literal_membership_seed("a.id IN [1]", span=span, alias_targets=targets, params=None) is not None

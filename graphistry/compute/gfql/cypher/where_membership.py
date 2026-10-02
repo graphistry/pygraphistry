@@ -29,7 +29,6 @@ def _literal_membership_seed(
     params: Optional[Mapping[str, Any]],  # hygiene-ok: explicit-any -- Cypher params are heterogeneous JSON scalars
 ) -> Optional[Tuple["PropertyRef", List[Scalar]]]:
     """``alias.prop IN [scalar literals]`` as (property, values), else None."""
-    from graphistry.compute.gfql.cypher import projection_planning as _projection
     from graphistry.compute.gfql.cypher.ast import PropertyRef
     from graphistry.compute.gfql.cypher.lowering import _parse_row_expr
 
@@ -41,29 +40,18 @@ def _literal_membership_seed(
         return None  # the row evaluator reports it, with its own wording
     if not isinstance(node, BinaryOp) or node.op != "in":
         return None
-    if isinstance(node.left, PropertyAccessExpr) and isinstance(node.left.value, Identifier):
-        alias, prop = node.left.value.name, node.left.property
-    elif isinstance(node.left, Identifier):
-        try:
-            alias, prop = _projection._split_qualified_name(node.left.name, line=span.line, column=span.column)
-        except GFQLValidationError:
-            return None
-    else:
+    if not (isinstance(node.left, PropertyAccessExpr) and isinstance(node.left.value, Identifier)):
         return None
+    alias, prop = node.left.value.name, node.left.property
+    if not isinstance(node.right, ListLiteral):
+        return None  # a list held in a property or a parameter row is not a constant
     values: List[Scalar] = []
-    if isinstance(node.right, ListLiteral):
-        for item in node.right.items:
-            if not isinstance(item, ExprLiteral):
-                return None
-            values.append(item.value)
-    elif isinstance(node.right, ExprLiteral) and isinstance(node.right.value, (list, tuple)):
-        values = list(node.right.value)
-    else:
-        return None
-    for value in values:  # ExprLiteral.value is untyped; this loop is the type check
+    for item in node.right.items:  # ExprLiteral.value is untyped; this loop is the type check
+        value = item.value if isinstance(item, ExprLiteral) else None
         if not isinstance(value, (str, int, float)) or (isinstance(value, float) and math.isnan(value)):
             return None  # null and NaN carry three-valued verdicts; a nested list is structural
-    if prop is None or not isinstance(alias_targets.get(alias), (ASTNode, ASTEdge)):
+        values.append(value)
+    if not isinstance(alias_targets.get(alias), (ASTNode, ASTEdge)):
         return None
     return PropertyRef(alias=alias, property=prop, span=span), values
 
