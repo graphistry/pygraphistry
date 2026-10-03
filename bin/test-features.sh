@@ -10,4 +10,5 @@ set -ex
 python -m pytest --version
 
 python -B -m pytest -vv \
+    --ignore=docs \
     graphistry/tests/test_feature_utils.py
