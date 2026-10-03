@@ -12,7 +12,7 @@ python3 --version
 python -m pytest --version
 
 # Set up base pytest arguments
-PYTEST_ARGS="-vv"
+PYTEST_ARGS="-vv --ignore=docs"  # docs/ publication checks gate the docs lane, not every test run
 
 # Add parallel testing by default when no args are provided
 if [ $# -eq 0 ]; then
