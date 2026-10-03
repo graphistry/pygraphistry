@@ -2,6 +2,10 @@
 
 This file defines AI assistant guidance for this repository.
 
+## Policy
+
+For AI contribution governance (AI-assisted vs autonomous contribution rules), see `AI_POLICY.md`.
+
 ## Skill Locations
 
 Canonical skills live under:
