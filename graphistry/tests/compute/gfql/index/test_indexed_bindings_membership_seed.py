@@ -119,6 +119,7 @@ def test_string_ids_decline_the_kernel_and_still_agree() -> None:
     assert sorted(g.gfql(query)._nodes["b.id"].tolist()) == sorted(edges[edges["src"].isin(seeds)]["dst"].tolist())
 
 
+@pytest.mark.route_engaged("indexed-kernel")
 def test_seed_ids_absent_from_the_graph_are_simply_unmatched() -> None:
     g, edges = _graph(list(range(4_000)))
     query = "MATCH (a)-[e]->(b) WHERE a.id IN [3, 999999, -7] RETURN b"
@@ -126,6 +127,7 @@ def test_seed_ids_absent_from_the_graph_are_simply_unmatched() -> None:
     assert _ids(g.gfql(query), "b.id") == sorted(edges[edges["src"] == 3]["dst"].tolist())
 
 
+@pytest.mark.route_engaged("indexed-kernel")
 def test_a_label_beside_the_seed_set_still_goes_through_the_kernel() -> None:
     rng = np.random.default_rng(9)
     nodes = pd.DataFrame({"id": range(3_000), "type": rng.choice(["person", "company"], 3_000)})
