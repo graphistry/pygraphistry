@@ -48,11 +48,15 @@ def _literal_membership_seed(
     values: List[Scalar] = []
     for item in node.right.items:  # ExprLiteral.value is untyped; this loop is the type check
         value = item.value if isinstance(item, ExprLiteral) else None
-        if not isinstance(value, (str, int, float)) or (isinstance(value, float) and math.isnan(value)):
-            return None  # null and NaN carry three-valued verdicts; a nested list is structural
+        if isinstance(value, bool) or not isinstance(value, (str, int, float)) or (isinstance(value, float) and math.isnan(value)):
+            return None  # null and NaN carry three-valued verdicts; a nested list is structural; `true == 1` is not every engine's isin
         if isinstance(value, str) and _ZONED_ISO_TEMPORAL_TEXT_RE.match(value) is not None:
             return None  # datetime('...') lowers to zoned ISO text; the row path compares it as an instant, like `=` keeps it
         values.append(value)
+    if not values:
+        return None  # `x IN []` is false for every row; NeverMatch has no wire form for the bindings op, so the WHERE keeps it
+    if any(isinstance(v, str) for v in values) and not all(isinstance(v, str) for v in values):
+        return None  # a list mixing text and numbers is compared element-wise by the row path; isin would coerce
     if not isinstance(alias_targets.get(alias), (ASTNode, ASTEdge)):
         return None
     return PropertyRef(alias=alias, property=prop, span=span), values

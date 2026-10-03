@@ -16,6 +16,28 @@ from graphistry.compute.gfql.index.bindings import _membership_seed_ids
 from graphistry.compute.predicates.is_in import is_in
 
 
+def _engines() -> List[Any]:
+    out: List[Any] = ["pandas", "polars"]
+    try:
+        import cudf
+        import cupy
+        cudf.Series([1]).sum()
+        cupy.arange(3).sum().item()  # the index kernels JIT through cupy; importable is not runnable on a CPU-only box
+        out.append("cudf")
+    except Exception:
+        out.append(pytest.param("cudf", marks=pytest.mark.skip(reason="cudf not runnable here")))
+    return out
+
+
+KERNEL_DISPATCHED = {"pandas", "cudf"}  # _plan_indexed_middle hands the middle to the kernel on these engines
+
+
+def _ids(result: Any, column: str) -> List[Any]:
+    frame = result._nodes
+    frame = frame.to_pandas() if hasattr(frame, "to_pandas") else frame
+    return sorted(int(v) for v in frame[column].tolist())
+
+
 def _graph(ids: List[Any]) -> tuple:
     rng = np.random.default_rng(5)
     n = len(ids)
@@ -30,32 +52,40 @@ def _served(report: Any) -> List[str]:
 
 
 @pytest.mark.route_engaged("indexed-kernel")
-def test_a_cypher_in_list_is_served_by_the_bindings_kernel() -> None:
+@pytest.mark.parametrize("engine", _engines())
+def test_a_cypher_in_list_is_served_by_the_bindings_kernel(engine: str) -> None:
     g, edges = _graph(list(range(4_000)))
     seeds = [3, 77, 1234, 3999]
     query = f"MATCH (a)-[e]->(b) WHERE a.id IN {seeds} RETURN b"
-    assert _served(g.gfql_explain(query)) == ["connected_bindings"]
-    assert sorted(g.gfql(query)._nodes["b.id"].tolist()) == sorted(edges[edges["src"].isin(seeds)]["dst"].tolist())
-    assert sorted(g.gfql(query)._nodes["b.id"].tolist()) == sorted(g.gfql(query, index_policy="off")._nodes["b.id"].tolist())
+    if engine in KERNEL_DISPATCHED:
+        assert _served(g.gfql_explain(query, engine=engine)) == ["connected_bindings"]
+    expected = sorted(edges[edges["src"].isin(seeds)]["dst"].tolist())
+    assert _ids(g.gfql(query, engine=engine), "b.id") == expected
+    assert _ids(g.gfql(query, engine=engine, index_policy="off"), "b.id") == expected
 
 
 @pytest.mark.route_engaged("indexed-kernel")
-def test_two_hops_from_a_seed_set_are_served_too() -> None:
+@pytest.mark.parametrize("engine", _engines())
+def test_two_hops_from_a_seed_set_are_served_too(engine: str) -> None:
     g, edges = _graph(list(range(4_000)))
     seeds = [3, 77]
     query = f"MATCH (a)-[e1]->(b)-[e2]->(c) WHERE a.id IN {seeds} RETURN c"
-    assert _served(g.gfql_explain(query)) == ["connected_bindings"]
+    if engine in KERNEL_DISPATCHED:
+        assert _served(g.gfql_explain(query, engine=engine)) == ["connected_bindings"]
     expected = sorted(edges[edges["src"].isin(seeds)][["dst"]].merge(edges, left_on="dst", right_on="src")["dst_y"].tolist())
-    assert sorted(g.gfql(query)._nodes["c.id"].tolist()) == expected
+    assert _ids(g.gfql(query, engine=engine), "c.id") == expected
 
 
 @pytest.mark.route_engaged("indexed-kernel")
-def test_a_seed_set_covering_most_of_the_graph_takes_the_scan_and_still_agrees() -> None:
+@pytest.mark.parametrize("engine", _engines())
+def test_a_seed_set_covering_most_of_the_graph_takes_the_scan_and_still_agrees(engine: str) -> None:
     g, edges = _graph(list(range(4_000)))
     seeds = list(range(0, 3_600))
     query = f"MATCH (a)-[e]->(b) WHERE a.id IN {seeds} RETURN count(b) AS c"
-    assert _served(g.gfql_explain(query)) == []
-    assert int(g.gfql(query)._nodes["c"].iloc[0]) == int(edges["src"].isin(seeds).sum())
+    assert _served(g.gfql_explain(query, engine=engine)) == []
+    frame = g.gfql(query, engine=engine)._nodes
+    frame = frame.to_pandas() if hasattr(frame, "to_pandas") else frame
+    assert int(frame["c"].iloc[0]) == int(edges["src"].isin(seeds).sum())
 
 
 @pytest.mark.route_engaged("indexed-kernel")
@@ -66,6 +96,25 @@ def test_string_ids_decline_the_kernel_and_still_agree() -> None:
     query = f"MATCH (a)-[e]->(b) WHERE a.id IN {seeds!r} RETURN b"
     assert "connected_bindings" not in _served(g.gfql_explain(query))
     assert sorted(g.gfql(query)._nodes["b.id"].tolist()) == sorted(edges[edges["src"].isin(seeds)]["dst"].tolist())
+
+
+def test_seed_ids_absent_from_the_graph_are_simply_unmatched() -> None:
+    g, edges = _graph(list(range(4_000)))
+    query = "MATCH (a)-[e]->(b) WHERE a.id IN [3, 999999, -7] RETURN b"
+    assert _served(g.gfql_explain(query)) == ["connected_bindings"]
+    assert _ids(g.gfql(query), "b.id") == sorted(edges[edges["src"] == 3]["dst"].tolist())
+
+
+def test_a_label_beside_the_seed_set_still_goes_through_the_kernel() -> None:
+    rng = np.random.default_rng(9)
+    nodes = pd.DataFrame({"id": range(3_000), "type": rng.choice(["person", "company"], 3_000)})
+    edges = pd.DataFrame({"src": rng.integers(0, 3_000, 30_000), "dst": rng.integers(0, 3_000, 30_000)})
+    g = graphistry.edges(edges, "src", "dst").nodes(nodes, "id").gfql("CREATE GFQL INDEX FOR edge_out_adj").gfql("CREATE GFQL INDEX FOR node_id")
+    seeds = [3, 77, 1234, 2999]
+    query = f"MATCH (a:person)-[e]->(b) WHERE a.id IN {seeds} RETURN b"
+    assert _served(g.gfql_explain(query)) == ["connected_bindings"]
+    persons = set(nodes[nodes["type"] == "person"]["id"]) & set(seeds)
+    assert _ids(g.gfql(query), "b.id") == sorted(edges[edges["src"].isin(persons)]["dst"].tolist())
 
 
 @pytest.mark.parametrize(
