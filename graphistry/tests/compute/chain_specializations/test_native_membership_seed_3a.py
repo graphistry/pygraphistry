@@ -47,6 +47,7 @@ def _n(frame):
 
 @pytest.mark.parametrize("engine", _ENGINES)
 @pytest.mark.parametrize("seed_form", ["is_in", "list"])
+@pytest.mark.route_engaged("native-fast", "index-hop")
 def test_membership_seeded_hop_takes_the_index_and_says_so(engine, seed_form):
     g, edges, nodes, seeds = _graph()
     seed = is_in(seeds) if seed_form == "is_in" else list(seeds)
@@ -62,6 +63,7 @@ def test_membership_seeded_hop_takes_the_index_and_says_so(engine, seed_form):
 
 
 @pytest.mark.parametrize("engine", _ENGINES)
+@pytest.mark.route_engaged("native-fast", "index-hop")
 def test_residual_filters_are_still_applied_on_the_index_hits(engine):
     g, edges, nodes, seeds = _graph()
     kind = nodes.set_index("id")["kind"]
@@ -74,6 +76,7 @@ def test_residual_filters_are_still_applied_on_the_index_hits(engine):
 
 
 @pytest.mark.parametrize("engine", _ENGINES)
+@pytest.mark.route_engaged("native-fast", "index-hop")
 def test_single_node_membership_seed_is_served_by_the_node_id_index(engine):
     g, edges, nodes, seeds = _graph()
     ops = [n({"id": is_in(seeds)})]
@@ -88,7 +91,6 @@ def test_non_integral_members_keep_the_scan_semantics():
     truth = int(edges["src"].isin(seeds).sum())
     mixed = [n({"id": is_in(seeds + ["x"])}), e_forward(), n()]
     assert _n(g.gfql(mixed, engine="pandas", index_policy="force")._edges) == truth
-    assert _explain(g, mixed, "pandas", "force")[0] is False
     booled = [n({"id": is_in([True, seeds[0]])}), e_forward(), n()]
     scan = _n(g.gfql(booled, engine="pandas", index_policy="off")._edges)
     assert _n(g.gfql(booled, engine="pandas", index_policy="force")._edges) == scan
@@ -109,6 +111,7 @@ def test_seed_filter_resolver_contract():
     assert _seeded_seed_filters({"id": is_in([1])}, df.drop(columns=["id"]), "id") is None  # id column absent
 
 
+@pytest.mark.route_engaged("native-fast", "index-hop")
 def test_a_seed_without_a_usable_index_records_the_decline():
     # the lane's scan branch used to leave explain silent; now it says why the index was not used
     g, edges, nodes, seeds = _graph()
@@ -121,3 +124,11 @@ def test_a_seed_without_a_usable_index_records_the_decline():
     # a scalar seed takes the same branch and says the same
     used, code, seams = _explain(bare, [n({"id": seeds[0]}), e_forward(), n()], "pandas", "use")
     assert (used, code) == (False, "index_path_unavailable") and "native_seeded_hop" in seams
+
+
+@pytest.mark.route_engaged("native-fast", "index-hop")
+def test_non_integral_members_decline_the_native_lane():
+    # the lane's own gate: a member that is not an id falls back to the scan body (the general
+    # chain's hop may still take the index when the lane is off, so this is an engagement pin)
+    g, edges, nodes, seeds = _graph()
+    assert _explain(g, [n({"id": is_in(seeds + ["x"])}), e_forward(), n()], "pandas", "force")[0] is False
