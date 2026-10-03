@@ -17,6 +17,9 @@ fi
 echo "Running GFQL doc example audit..."
 PYGRAPHISTRY_ROOT=/docs python3 -m pytest /docs/test_doc_examples.py -v --tb=short
 
+echo "Re-verifying the published benchmark numbers against their contract..."
+python3 -m pytest /docs/test_bench_numbers.py -v --tb=short
+
 build_html() {
     sphinx-build -b html -d /docs/doctrees . /docs/_build/html
 }
