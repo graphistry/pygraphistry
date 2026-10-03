@@ -8,6 +8,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [Development]
 <!-- Do Not Erase This Section - Used for tracking unreleased changes -->
 
+### Added
+
+- **GFQL index DDL and a query in one `gfql()` call** (#2119): leading `CREATE GFQL INDEX FOR <kind>` / `DROP GFQL INDEX ...` statements separated by `;` build the indexes in order and the query that follows runs on them — `g.gfql("CREATE GFQL INDEX FOR edge_out_adj; CREATE GFQL INDEX FOR node_id; MATCH (m {id: 0})-[e]->(p) RETURN p")` — with the caller's `g` unchanged and `gfql_explain` on the same string reporting the index. A DDL-only list returns the indexed graph. `;` inside string literals is not a statement break; DDL after the query, or `SHOW GFQL INDEXES` inside a list, is a typed error; a lone DDL statement keeps its existing path.
+
 ## [0.59.1 - 2026-10-03]
 
 ### Added

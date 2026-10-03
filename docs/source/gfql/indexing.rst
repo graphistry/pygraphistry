@@ -102,13 +102,25 @@ A complete, runnable example:
    assert g_indexed.gfql_explain("MATCH (m {id: 0})-[e]->(p) RETURN p")["used_index"]
 
 Both forms take the index path for a lookup from one known node, as ``gfql_explain``
-reports. Building and querying are two calls today: the DDL statement is its own
-``gfql()`` call, so the one-liner is ``g.gfql_index_all().gfql(query)`` (or the
-``.gfql(ddl).gfql(query)`` chain above); a single string that both creates the index and
-runs the lookup is not accepted yet. A seed *list* is written ``WHERE m.id IN [0, 3]``: in the row-returning form it
-currently takes the scan path and returns the same rows it always did; the ``GRAPH { }``
-form does not accept it yet. The same hop as a native chain, and the direct ``hop()``
-call:
+reports. You can also build and query in one string. Put the ``CREATE GFQL INDEX``
+statements first, separated by ``;``. The query that follows runs on the new indexes.
+The original ``g`` does not change:
+
+.. code-block:: python
+
+   out = g.gfql(
+       "CREATE GFQL INDEX FOR edge_out_adj; "
+       "CREATE GFQL INDEX FOR node_id; "
+       "MATCH (m {id: 0})-[e]->(p) RETURN p"
+   )
+   assert g.gfql_explain(
+       "CREATE GFQL INDEX FOR edge_out_adj; CREATE GFQL INDEX FOR node_id; "
+       "MATCH (m {id: 0})-[e]->(p) RETURN p"
+   )["used_index"]
+
+A seed *list* is written ``WHERE m.id IN [0, 3]``: in the row-returning form it currently
+takes the scan path and returns the same rows it always did; the ``GRAPH { }`` form does
+not accept it yet. The same hop as a native chain, and the direct ``hop()`` call:
 
 .. code-block:: python
 
