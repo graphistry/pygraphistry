@@ -25,14 +25,20 @@ def _graph():
 _DDL = "CREATE GFQL INDEX FOR edge_out_adj; CREATE GFQL INDEX FOR node_id; "
 
 
-def test_leading_ddl_then_query_runs_on_the_indexes_and_takes_them():
+_FUSED = _DDL + "MATCH (a {id: 5})-[e]->(b) RETURN b.id AS id"
+
+
+def test_leading_ddl_then_query_returns_the_scan_rows_and_leaves_the_caller_untouched():
     g, edges = _graph()
-    query = _DDL + "MATCH (a {id: 5})-[e]->(b) RETURN b.id AS id"
-    out = g.gfql(query, engine="pandas")
+    out = g.gfql(_FUSED, engine="pandas")
     assert sorted(out._nodes["id"].tolist()) == sorted(edges[edges["src"] == 5]["dst"].tolist())
-    report = g.gfql_explain(query, engine="pandas")
-    assert report["used_index"] is True
     assert g.show_indexes().empty  # the caller's graph is untouched
+
+
+@pytest.mark.route_engaged("native-fast", "index-hop")
+def test_leading_ddl_then_query_takes_the_indexes_it_built():
+    g, _ = _graph()
+    assert g.gfql_explain(_FUSED, engine="pandas")["used_index"] is True
 
 
 def test_ddl_only_list_returns_the_indexed_graph():
