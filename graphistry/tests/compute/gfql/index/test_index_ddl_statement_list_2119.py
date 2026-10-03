@@ -13,6 +13,20 @@ import graphistry
 from graphistry.compute.gfql.index.cypher_ddl import parse_index_ddl_prefix, split_top_level_statements
 from graphistry.compute.gfql.index.wire import CreateIndex, DropIndex
 
+try:
+    import polars  # noqa: F401
+    _HAS_POLARS = True
+except Exception:  # pragma: no cover - depends on test env
+    _HAS_POLARS = False
+
+try:
+    import cudf  # noqa: F401
+    _HAS_CUDF = True
+except Exception:  # pragma: no cover - depends on test env
+    _HAS_CUDF = False
+
+_ENGINES = ["pandas"] + (["polars"] if _HAS_POLARS else []) + (["cudf"] if _HAS_CUDF else [])
+
 
 def _graph():
     rng = np.random.default_rng(7)
@@ -28,10 +42,12 @@ _DDL = "CREATE GFQL INDEX FOR edge_out_adj; CREATE GFQL INDEX FOR node_id; "
 _FUSED = _DDL + "MATCH (a {id: 5})-[e]->(b) RETURN b.id AS id"
 
 
-def test_leading_ddl_then_query_returns_the_scan_rows_and_leaves_the_caller_untouched():
+@pytest.mark.parametrize("engine", _ENGINES)
+def test_leading_ddl_then_query_returns_the_scan_rows_and_leaves_the_caller_untouched(engine):
     g, edges = _graph()
-    out = g.gfql(_FUSED, engine="pandas")
-    assert sorted(out._nodes["id"].tolist()) == sorted(edges[edges["src"] == 5]["dst"].tolist())
+    col = g.gfql(_FUSED, engine=engine)._nodes["id"]
+    col = col.to_pandas() if hasattr(col, "to_pandas") else col
+    assert sorted(col.to_list() if hasattr(col, "to_list") else col.tolist()) == sorted(edges[edges["src"] == 5]["dst"].tolist())
     assert g.show_indexes().empty  # the caller's graph is untouched
 
 
