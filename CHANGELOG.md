@@ -9,7 +9,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 <!-- Do Not Erase This Section - Used for tracking unreleased changes -->
 
 ### Fixed
-- **GFQL Cypher `NOT (alias.col IN [...])` dropped rows under the index path**: on a node frame whose row labels are not `0..n-1` (what an indexed hop hands back), the tri-valued NOT builder aligned positionally built masks by label and silently lost whole destination ids (`index_policy='force'` returned 96 rows where the scan returned 111). Every row-values series now carries the table's own index, so label-aligned and positional consumers agree on any frame; pinned with a force/use/off parity test and a non-RangeIndex frame test.
+- **GFQL Cypher `NOT (alias.col IN [...])` dropped rows under the index path**: on a node frame whose row labels are not `0..n-1` (what an indexed hop hands back), the tri-valued NOT builder aligned positionally built masks by label and silently lost whole destination ids (`index_policy='force'` returned 96 rows where the scan returned 111). Temporal `IN` on the same frames returned no rows at all: the comparison, temporal-`IN` and list-comparison evaluators label-assign evaluator series into a freshly reset work frame. Every row-values series now carries the table's own index and those work frames are filled positionally, so label-aligned and positional consumers agree on any frame; pinned with force/use/off parity tests for `NOT IN`, temporal `IN`/`NOT IN` and list `=`/`<>`/`<`, plus a non-RangeIndex frame test.
 
 ## [0.59.1 - 2026-10-03]
 

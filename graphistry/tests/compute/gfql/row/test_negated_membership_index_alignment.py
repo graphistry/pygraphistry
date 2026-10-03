@@ -84,7 +84,8 @@ def _gappy_graph():
 ])
 def test_evaluator_families_agree_across_index_policies_on_the_index_path(label, query, truth_mask):
     # Temporal IN and list comparison build a reset work frame and insert evaluator series into
-    # it; before the fix the temporal path kept node 10 instead of node 9 under 'force'.
+    # it. On master the temporal cases returned 0 rows under 'force' (index engaged, every row
+    # shifted past the gap); the list cases take the index too and pin the positional contract.
     edges, g = _gappy_graph()
     truth = int(truth_mask(edges["dst"]).sum())
     for policy in ("off", "use", "force"):
