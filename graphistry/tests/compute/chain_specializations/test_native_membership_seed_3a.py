@@ -136,3 +136,33 @@ def test_non_integral_members_decline_the_native_lane():
     # chain's hop may still take the index when the lane is off, so this is an engagement pin)
     g, edges, nodes, seeds = _graph()
     assert _explain(g, [n({"id": is_in(seeds + ["x"])}), e_forward(), n()], "pandas", "force")[0] is False
+
+
+@pytest.mark.route_engaged("native-fast", "index-hop")
+def test_a_membership_seed_is_served_through_the_property_index_when_the_node_id_lookup_is_not():
+    # the SNB sentinel fixture: node_prop index on id, node-id lookup unavailable -> the scalar seed
+    # was served through the property index and the membership seed must be too
+    from unittest.mock import patch
+    from graphistry.compute import chain_fast_paths as cfp
+    g, edges, nodes, seeds = _graph()
+    g = g.gfql_index_node_props(["id"])
+    ops = [n({"id": is_in(seeds)}), e_forward(), n()]
+    truth = int(edges["src"].isin(seeds).sum())
+    with patch.object(cfp, "_index_node_rows", lambda *a, **k: None):
+        assert _n(g.gfql(ops, engine="pandas")._edges) == truth
+        used, code, seams = _explain(g, ops, "pandas", "use")
+    assert (used, code) == (True, "index_selected") and "native_seeded_hop" in seams
+
+
+def test_property_index_seed_lookup_accepts_only_integral_members():
+    import numpy as np
+    from graphistry.Engine import Engine
+    from graphistry.compute.gfql.index import get_registry
+    from graphistry.compute.gfql.index.bindings import _seed_rows_via_property_index
+    g, edges, nodes, seeds = _graph()
+    g = g.gfql_index_node_props(["id"])
+    registry, xp = get_registry(g), np
+    rows = _seed_rows_via_property_index(registry, g._nodes, {"id": tuple(seeds[:3])}, Engine.PANDAS, xp, policy="use")
+    assert rows is not None and sorted(g._nodes.iloc[rows]["id"].tolist()) == sorted(seeds[:3])
+    for bad in ({"id": (seeds[0], "x")}, {"id": (True, seeds[0])}, {"id": ()}):
+        assert _seed_rows_via_property_index(registry, g._nodes, bad, Engine.PANDAS, xp, policy="use") is None

@@ -296,7 +296,7 @@ def _resident_node_id_index(
 
 
 def _seed_rows_via_prop_index_frame(
-    g: Plottable, nodes_df: DataFrameT, n0f: ScalarFilterDict, engine: "Engine",
+    g: Plottable, nodes_df: DataFrameT, n0f: Mapping[str, SeedFilterValue], engine: "Engine",
 ) -> Optional[DataFrameT]:
     """Candidate seed rows through a resident node PROPERTY index covering one of the
     scalar predicates, else None (the caller re-applies the whole filter either way)."""
@@ -358,9 +358,8 @@ def _seed_node_rows_from_index(
         seed = _index_node_rows(nid, list(seed_val) if isinstance(seed_val, tuple) else [seed_val], xp, idx_engine, nodes_df)
         if seed is not None:
             how = "node_id_index"
-    if seed is None and not isinstance(n0f.get(node), tuple):  # a membership seed is served by the node-id index or the scan
-        scalars: ScalarFilterDict = {k: v for k, v in n0f.items() if not isinstance(v, tuple)}
-        seed = _seed_rows_via_prop_index_frame(g, nodes_df, scalars, engine)
+    if seed is None:
+        seed = _seed_rows_via_prop_index_frame(g, nodes_df, n0f, engine)
         if seed is not None:
             how = "property_index"
     if seed is None:
