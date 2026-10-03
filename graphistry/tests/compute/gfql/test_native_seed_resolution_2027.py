@@ -219,11 +219,11 @@ def test_stale_indexes_keep_parity_and_are_not_used(engine, shape):
 
 
 @pytest.mark.parametrize("engine", ENGINES)
-@pytest.mark.parametrize("seed", [
-    lambda: {"id": IsIn([10_007, 10_008]), "label__Person": True},
-    lambda: {"id": GT(10_007), "label__Person": True},
+@pytest.mark.parametrize("seed,served_by_the_lane", [
+    (lambda: {"id": IsIn([10_007, 10_008]), "label__Person": True}, True),   # a membership set is a seed (#2127)
+    (lambda: {"id": GT(10_007), "label__Person": True}, False),              # a range predicate is not
 ], ids=["is_in", "gt"])
-def test_non_scalar_seed_predicates_keep_parity_without_the_index(engine, seed):
+def test_non_scalar_seed_predicates_keep_parity(engine, seed, served_by_the_lane):
     from graphistry.compute.gfql.index import index_trace
     g = _lane_graph(engine)
     ops = [n(seed(), name="p"), e_forward({"type": "HAS_CREATOR"}, name="e"), n({"label__Person": True}, name="q")]
@@ -233,7 +233,8 @@ def test_non_scalar_seed_predicates_keep_parity_without_the_index(engine, seed):
     _same_values(fast._edges, full._edges)
     with index_trace() as steps:
         g.gfql(ops, engine=engine, index_policy="use")
-    assert not any(s.get("seam") in ("native_seed_lookup", "native_seeded_hop") and s.get("served") for s in steps), steps
+    served = any(s.get("seam") in ("native_seed_lookup", "native_seeded_hop") and s.get("served") for s in steps)
+    assert served is served_by_the_lane, steps
 
 
 @pytest.mark.route_engaged("native-fast")
