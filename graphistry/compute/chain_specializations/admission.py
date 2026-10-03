@@ -3,11 +3,11 @@ consult the same predicates, so a test that filters a shape corpus with them exe
 what the dispatcher admits."""
 # ruff: noqa: E501
 
-from typing import Literal, Optional, Sequence, Tuple, TYPE_CHECKING
+from typing import Literal, Mapping, Optional, Sequence, Tuple, TYPE_CHECKING
 
 from graphistry.compute.ast import ASTObject, ASTNode, ASTEdge, ASTCall
 from graphistry.compute.chain_fast_paths import SeedRowsHow
-from graphistry.compute.typing import ArrayNamespace, DataFrameT, ScalarFilterDict
+from graphistry.compute.typing import ArrayNamespace, DataFrameT, ScalarFilterDict, SeedFilterValue
 
 if TYPE_CHECKING:
     from graphistry.Engine import Engine
@@ -55,7 +55,7 @@ def native_fast_path_admits(
 
 
 def _indexed_kernel_admits(
-    seed_nodes: DataFrameT, gathered_edges: Optional[DataFrameT], n0f: ScalarFilterDict,
+    seed_nodes: DataFrameT, gathered_edges: Optional[DataFrameT], n0f: Mapping[str, SeedFilterValue],
     node: str, how: SeedRowsHow, ctx: Tuple["NodeIdIndex", "AdjacencyIndex", ArrayNamespace, "Engine"],
     n_nodes: int, n_edges: int,
 ) -> bool:
@@ -67,7 +67,7 @@ def _indexed_kernel_admits(
     from graphistry.compute.gfql.index.cost import cost_gate_frac
     _, adj, _, engine = ctx
     seed_val = n0f.get(node)
-    seeded_on_binding = isinstance(seed_val, Integral) and not isinstance(seed_val, bool)
+    seeded_on_binding = (isinstance(seed_val, Integral) and not isinstance(seed_val, bool)) or isinstance(seed_val, tuple)
     if not (seeded_on_binding or how == "property_index" or n_nodes < n_edges):
         return False
     frac = cost_gate_frac(engine)
