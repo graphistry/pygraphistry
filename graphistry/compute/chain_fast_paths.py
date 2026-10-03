@@ -4,14 +4,14 @@ lanes in ``gfql_fast_paths.py``. This module imports only leaf modules (no back-
 ``chain.py`` or the specialization packages)."""
 # ruff: noqa: E501
 
-from typing import Any, Dict, Literal, Optional, Sequence, Tuple, TYPE_CHECKING, Union, cast
+from typing import Mapping, Any, Dict, Literal, Optional, Sequence, Tuple, TYPE_CHECKING, Union, cast
 
 import pandas as pd
 
 from graphistry.Plottable import Plottable
 from graphistry.Engine import is_polars_series
 from .ast import Direction
-from .typing import ArrayLike, ArrayNamespace, DataFrameT, FilterDict, ScalarFilterDict, SeriesT
+from .typing import ArrayLike, ArrayNamespace, DataFrameT, FilterDict, ScalarFilterDict, SeedFilterDict, SeedFilterValue, SeriesT
 
 if TYPE_CHECKING:
     from graphistry.Engine import Engine
@@ -115,6 +115,28 @@ def _tag_fast_path_aliases_eager(
         out_edges.insert(0, alias_e1, True)
         edges = out_edges
     return nodes, edges
+
+
+def _seeded_seed_filters(fd: Optional[FilterDict], df: DataFrameT, node_id: str) -> Optional[SeedFilterDict]:
+    """The first op's filter for the native seeded lanes: the scalar gate below, plus a
+    membership set on the node-id key (``is_in([...])`` or a list of ids) resolved to a
+    sorted tuple of ints -- the node-id index lookup takes a list of ids as readily as one,
+    and the canonical filter is re-applied on the hits. Mirrors the indexed bindings kernel's
+    seed admission (#2117 ``_seed_filter_dict``); anything else bails as before."""
+    from graphistry.compute.gfql.index.bindings import _membership_seed_ids
+    if not fd:
+        return {}
+    members = _membership_seed_ids(fd.get(node_id)) if node_id in fd else None
+    rest = {k: v for k, v in fd.items() if not (k == node_id and members is not None)}
+    scalars = _seeded_scalar_filters(rest, df)
+    if scalars is None:
+        return None
+    out: SeedFilterDict = dict(scalars)
+    if members is not None:
+        if node_id not in set(df.columns):
+            return None
+        out[node_id] = tuple(members)
+    return out
 
 
 def _seeded_scalar_filters(fd: Optional[FilterDict], df: DataFrameT) -> Optional[ScalarFilterDict]:
@@ -305,7 +327,7 @@ SeededReturn = Tuple[DataFrameT, DataFrameT, DataFrameT, bool]
 
 
 def _seed_node_rows(
-    g: Plottable, nodes_df: DataFrameT, n0f: ScalarFilterDict, node: str,
+    g: Plottable, nodes_df: DataFrameT, n0f: Mapping[str, SeedFilterValue], node: str,
     nid_ctx: Optional[Tuple["NodeIdIndex", ArrayNamespace, "Engine"]],
     filter_dict: Optional[FilterDict] = None,
 ) -> Tuple[DataFrameT, SeedRowsHow]:
@@ -320,11 +342,11 @@ def _seed_node_rows(
     engine = _frame_engine(nodes_df)
     if engine is None:
         raise TypeError(f"unsupported node frame type {type(nodes_df).__name__}")
-    return _filter_frame(nodes_df, filter_dict if filter_dict is not None else n0f, engine), "scan"
+    return _filter_frame(nodes_df, filter_dict if filter_dict is not None else dict(n0f), engine), "scan"
 
 
 def _seed_node_rows_from_index(
-    g: Plottable, nodes_df: DataFrameT, n0f: ScalarFilterDict, node: str,
+    g: Plottable, nodes_df: DataFrameT, n0f: Mapping[str, SeedFilterValue], node: str,
     nid_ctx: Optional[Tuple["NodeIdIndex", ArrayNamespace, "Engine"]],
     filter_dict: Optional[FilterDict] = None,
 ) -> Optional[Tuple[DataFrameT, SeedRowsHow]]:
@@ -336,16 +358,18 @@ def _seed_node_rows_from_index(
     how: SeedRowsHow = "scan"
     if nid_ctx is not None and node in n0f:
         nid, xp, idx_engine = nid_ctx
-        seed = _index_node_rows(nid, [n0f[node]], xp, idx_engine, nodes_df)
+        seed_val = n0f[node]
+        seed = _index_node_rows(nid, list(seed_val) if isinstance(seed_val, tuple) else [seed_val], xp, idx_engine, nodes_df)
         if seed is not None:
             how = "node_id_index"
-    if seed is None:
-        seed = _seed_rows_via_prop_index_frame(g, nodes_df, n0f, engine)
+    if seed is None and not isinstance(n0f.get(node), tuple):  # a membership seed is served by the node-id index or the scan
+        scalars: ScalarFilterDict = {k: v for k, v in n0f.items() if not isinstance(v, tuple)}
+        seed = _seed_rows_via_prop_index_frame(g, nodes_df, scalars, engine)
         if seed is not None:
             how = "property_index"
     if seed is None:
         return None
-    effective = filter_dict if filter_dict is not None else n0f
+    effective: FilterDict = filter_dict if filter_dict is not None else dict(n0f)
     if _index_answered_whole_filter(effective, n0f):
         return seed, how
     verified = _verify_scalar_filters_on_hit(seed, n0f, engine)
@@ -355,7 +379,7 @@ def _seed_node_rows_from_index(
 
 
 def _verify_scalar_filters_on_hit(
-    seed: DataFrameT, n0f: ScalarFilterDict, engine: "Engine",
+    seed: DataFrameT, n0f: Mapping[str, SeedFilterValue], engine: "Engine",
 ) -> Optional[DataFrameT]:
     """Check residual equalities on index hits, preserving typed filter errors."""
     from graphistry.Engine import Engine
@@ -404,7 +428,7 @@ def _verify_scalar_filters_on_hit(
     return seed[mask]
 
 
-def _index_answered_whole_filter(effective: FilterDict, n0f: ScalarFilterDict) -> bool:
+def _index_answered_whole_filter(effective: FilterDict, n0f: Mapping[str, SeedFilterValue]) -> bool:
     """Whether one unrewritten equality was fully answered by the index."""
     if len(effective) != 1 or len(n0f) != 1:
         return False
@@ -414,14 +438,15 @@ def _index_answered_whole_filter(effective: FilterDict, n0f: ScalarFilterDict) -
 
 def _record_native_seed_lane(
     nodes_df: DataFrameT, *, seam: str, reason: str, hop_count: int, public_seed_scan: bool,
+    served: bool = True,
 ) -> None:
-    """gfql_explain step for a native op-list lane that a resident index served."""
+    """gfql_explain step for a native op-list lane: served from a resident index, or declined to the scan."""
     from graphistry.compute.gfql.index.api import _record_indexed_traversal
     engine = _frame_engine(nodes_df)
     if engine is None:
         return
     _record_indexed_traversal(
-        seam=seam, engine=engine, served=True, reason=reason, hop_count=hop_count,
+        seam=seam, engine=engine, served=served, reason=reason, hop_count=hop_count,
         public_seed_scan=public_seed_scan,
         hop_details=[{"hop": 1}] if hop_count else None)
 

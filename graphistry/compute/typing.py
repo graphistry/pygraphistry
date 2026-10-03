@@ -59,6 +59,10 @@ FilterDict = Dict[str, FilterValue]
 ScalarFilterValue = Union[int, float, str, bool]
 ScalarFilterDict = Dict[str, ScalarFilterValue]
 
+# Seed filter for the native lanes: scalars plus a membership tuple of ids on the node-id key.
+SeedFilterValue = Union[ScalarFilterValue, Tuple[int, ...]]
+SeedFilterDict = Dict[str, SeedFilterValue]
+
 # Type variable for return type preservation in predicates
 T = TypeVar('T')
 
