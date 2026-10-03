@@ -102,9 +102,9 @@ A complete, runnable example:
    assert g_indexed.gfql_explain("MATCH (m {id: 0})-[e]->(p) RETURN p")["used_index"]
 
 Both forms take the index path for a lookup from one known node, as ``gfql_explain``
-reports. Building and querying also fit in one string: leading ``CREATE GFQL INDEX``
-statements, separated by ``;``, build the indexes and the query that follows runs on them
-(the original ``g`` is unchanged):
+reports. You can also build and query in one string. Put the ``CREATE GFQL INDEX``
+statements first, separated by ``;``. The query that follows runs on the new indexes.
+The original ``g`` does not change:
 
 .. code-block:: python
 

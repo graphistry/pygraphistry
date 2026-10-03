@@ -35,15 +35,16 @@ _DROP_NAME_PATTERN = (
     r"^\s*DROP\s+GFQL\s+INDEX\s+(?P<ifexists>IF\s+EXISTS\s+)?(?P<name>[A-Za-z_][\w:]*)\s*;?\s*$"
 )
 _SHOW_PATTERN = r"^\s*SHOW\s+GFQL\s+INDEXES\s*;?\s*$"
-_DDL_PREFIX_PATTERN = r"^\s*(CREATE|DROP|SHOW)\s+GFQL\s+INDEX"
+_DDL_WORDS = r"(CREATE|DROP|SHOW)\s+GFQL\s+INDEX"
+_DDL_PREFIX_PATTERN = r"^\s*" + _DDL_WORDS
 
 
 @lru_cache(maxsize=1)
 def _ddl_anywhere_re() -> Pattern[str]:
-    return re.compile(r"\b(CREATE|DROP|SHOW)\s+GFQL\s+INDEX", re.IGNORECASE)
+    return re.compile(r"\b" + _DDL_WORDS, re.IGNORECASE)
 
 
-register_process_singleton(_ddl_anywhere_re, "a compiled regex over a literal pattern; function of the code alone")
+register_process_singleton(_ddl_anywhere_re, "a compiled regex over a module-level pattern constant; function of the code alone")
 
 
 @lru_cache(maxsize=1)
@@ -142,14 +143,6 @@ def parse_index_ddl_prefix(query: str) -> Optional[Tuple[List[IndexOp], Optional
     statements = split_top_level_statements(query)
     if len(statements) <= 1:
         return None
-    if not looks_like_index_ddl(statements[0]):
-        trailing = [stmt for stmt in statements[1:] if looks_like_index_ddl(stmt)]
-        if not trailing:
-            return None
-        raise ValueError(
-            f"GFQL INDEX DDL must lead the statement list, found after the query: {trailing[0]!r}. "
-            "Write 'CREATE GFQL INDEX FOR ...; <query>'."
-        )
     ops: List[IndexOp] = []
     i = 0
     while i < len(statements) and looks_like_index_ddl(statements[i]):
@@ -162,10 +155,12 @@ def parse_index_ddl_prefix(query: str) -> Optional[Tuple[List[IndexOp], Optional
         ops.append(op)
         i += 1
     rest = statements[i:]
-    for stmt in rest:
-        if looks_like_index_ddl(stmt):
-            raise ValueError(
-                f"GFQL INDEX DDL must lead the statement list, found after the query: {stmt!r}. "
-                "Write 'CREATE GFQL INDEX FOR ...; <query>'."
-            )
+    trailing = [stmt for stmt in rest if looks_like_index_ddl(stmt)]
+    if trailing:
+        raise ValueError(
+            f"GFQL INDEX DDL must lead the statement list, found after the query: {trailing[0]!r}. "
+            "Write 'CREATE GFQL INDEX FOR ...; <query>'."
+        )
+    if not ops:
+        return None
     return ops, ("; ".join(rest) if rest else None)
