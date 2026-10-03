@@ -2737,11 +2737,7 @@ class RowPipelineMixin:
 
     @staticmethod
     def _gfql_tri_valued_series(table_df: Any, values: List[Any], col: str) -> Any:  # hygiene-ok: explicit-any -- backend frame + tri-valued Python values, evaluator-wide idiom
-        """Materialize a tri-valued (True/False/None) result list as a column on the table's
-        index. An EMPTY list must still come out boolean: pandas infers float64 and cuDF
-        object for ``[]``, which the truth-mask gate declines (``NOT (x IN [...])`` that
-        excludes every row raised "AST evaluator unsupported") and cuDF's ``where`` rejects
-        ("does not support mixed types")."""
+        """A tri-valued (True/False/None) result list as a column on the table's index; an empty list is still boolean."""
         out = table_df.reset_index(drop=True).assign(**{col: values})[col]
         if len(values) == 0:
             out = out.astype(bool)
@@ -2749,10 +2745,7 @@ class RowPipelineMixin:
 
     @staticmethod
     def _gfql_assign_positional(frame: Any, **columns: Any) -> Any:  # hygiene-ok: explicit-any -- backend frame + scalar-or-Series columns, evaluator-wide idiom
-        """``assign`` that lines columns up by position, not label: a work frame built with
-        ``reset_index(drop=True)`` has labels ``0..n-1`` while an evaluator series may carry
-        the table's own labels (the index path's hop returns frames with gaps), and
-        label-aligned ``assign`` would shift rows past the gap and drop the tail."""
+        """``assign`` by position, not label: evaluator series may carry the table's own (gappy) labels."""
         aligned = {}
         for name, value in columns.items():
             if hasattr(value, "set_axis") and hasattr(value, "__len__") and len(value) == len(frame):
@@ -2765,9 +2758,7 @@ class RowPipelineMixin:
 
     @staticmethod
     def _gfql_on_table_index(table_df: Any, series: Any) -> Any:  # hygiene-ok: explicit-any -- scalar-or-Series mask on a backend frame, evaluator-wide idiom
-        """Give a positionally built series the table's own index, so label-aligned
-        consumers (``.loc``, ``assign``, ``.where``) line up on frames whose labels are
-        not ``0..n-1``; the index path's hop returns such frames."""
+        """Give a positionally built series the table's own index so label-aligned consumers line up."""
         index = getattr(table_df, "index", None)
         if index is None or not hasattr(series, "set_axis"):
             return series
@@ -2952,7 +2943,8 @@ class RowPipelineMixin:
         out_col = RowPipelineMixin._gfql_fresh_col_name(table_df.columns, "__gfql_range_out__")
 
         base = table_df.reset_index(drop=True).copy()
-        base = RowPipelineMixin._gfql_assign_positional(base, 
+        base = RowPipelineMixin._gfql_assign_positional(
+            base,
             **{
                 row_col: range(len(base)),
                 start_col: start_series,
@@ -4943,11 +4935,7 @@ class RowPipelineMixin:
             if not isinstance(expr, str) or expr.strip() == "":
                 raise ValueError("where_rows(expr=...) must be a non-empty string")
             if len(out_df) == 0:
-                # Zero rows keep zero rows: validate the predicate, do not evaluate it. The
-                # evaluators type their masks from the values they see, and a frame with no
-                # rows has none (NOT IN over an empty frame declined, list compares broadcast
-                # 0 vs 1), so a prefilter that excluded every row used to raise here.
-                RowPipelineMixin._gfql_parse_row_expr(expr)
+                RowPipelineMixin._gfql_parse_row_expr(expr)  # validate only: the evaluators type masks from values, and there are none
                 return self._gfql_row_table(out_df)
             expr_value = self._gfql_eval_string_expr(out_df, expr)
             mask = self._gfql_bool_mask(out_df, expr_value)
