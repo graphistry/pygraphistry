@@ -750,13 +750,27 @@ class ComputeMixin(Plottable):
         from graphistry.compute.gfql.index.wire import (
             is_index_op, is_index_op_json, index_op_from_json, apply_index_op,
         )
-        from graphistry.compute.gfql.index.cypher_ddl import parse_index_ddl
+        from graphistry.compute.gfql.index.cypher_ddl import parse_index_ddl, parse_index_ddl_prefix
         op = None
         if is_index_op(query):
             op = query
         elif is_index_op_json(query):
             op = index_op_from_json(query)
         elif isinstance(query, str):
+            # 'CREATE GFQL INDEX FOR ...; <query>' builds the indexes, then runs the query on them
+            prefix = parse_index_ddl_prefix(query)
+            if prefix is not None:
+                ops, remainder = prefix
+                g = self
+                for ddl_op in ops:
+                    g = apply_index_op(g, ddl_op, engine=kwargs.get('engine', 'auto'))
+                if remainder is None:
+                    return g
+                if args:
+                    args = (remainder,) + tuple(args[1:])
+                else:
+                    kwargs = {**kwargs, 'query': remainder}
+                return g.gfql(*args, **({**kwargs, 'index_policy': policy} if policy is not None else kwargs))
             op = parse_index_ddl(query)
         if op is not None:
             return apply_index_op(self, op, engine=kwargs.get('engine', 'auto'))

@@ -16,7 +16,7 @@ from graphistry.compute.gfql.cache_registry import register_process_singleton
 
 from functools import lru_cache
 import re
-from typing import Optional, Pattern, Tuple, cast
+from typing import List, Optional, Pattern, Tuple, cast
 
 from .types import IndexKind
 from .wire import CreateIndex, DropIndex, ShowIndexes, IndexOp
@@ -36,6 +36,11 @@ _DROP_NAME_PATTERN = (
 )
 _SHOW_PATTERN = r"^\s*SHOW\s+GFQL\s+INDEXES\s*;?\s*$"
 _DDL_PREFIX_PATTERN = r"^\s*(CREATE|DROP|SHOW)\s+GFQL\s+INDEX"
+
+
+@lru_cache(maxsize=1)
+def _ddl_anywhere_re() -> Pattern[str]:
+    return re.compile(r"\b(CREATE|DROP|SHOW)\s+GFQL\s+INDEX", re.IGNORECASE)
 
 
 @lru_cache(maxsize=1)
@@ -88,3 +93,76 @@ def parse_index_ddl(query: str) -> Optional[IndexOp]:
             "'SHOW GFQL INDEXES'."
         )
     return None
+
+
+def split_top_level_statements(query: str) -> List[str]:
+    """Split on ``;`` outside quotes and brackets; empty statements are dropped."""
+    out: List[str] = []
+    buf: List[str] = []
+    depth = 0
+    quote: Optional[str] = None
+    i = 0
+    while i < len(query):
+        ch = query[i]
+        if quote is not None:
+            buf.append(ch)
+            if ch == "\\" and i + 1 < len(query):
+                buf.append(query[i + 1])
+                i += 1
+            elif ch == quote:
+                quote = None
+        elif ch in ("'", '"', "`"):
+            quote = ch
+            buf.append(ch)
+        elif ch in "([{":
+            depth += 1
+            buf.append(ch)
+        elif ch in ")]}":
+            depth = max(0, depth - 1)
+            buf.append(ch)
+        elif ch == ";" and depth == 0:
+            out.append("".join(buf))
+            buf = []
+        else:
+            buf.append(ch)
+        i += 1
+    out.append("".join(buf))
+    return [stmt.strip() for stmt in out if stmt.strip()]
+
+
+def parse_index_ddl_prefix(query: str) -> Optional[Tuple[List[IndexOp], Optional[str]]]:
+    """``CREATE/DROP GFQL INDEX ...; <query>``: the leading DDL ops and the remaining query
+    (None when the list is DDL only). None when ``query`` is not a statement list that
+    starts with index DDL; a lone DDL statement keeps the whole-string path."""
+    if not isinstance(query, str) or not _ddl_anywhere_re().search(query):
+        return None
+    statements = split_top_level_statements(query)
+    if len(statements) <= 1:
+        return None
+    if not looks_like_index_ddl(statements[0]):
+        trailing = [stmt for stmt in statements[1:] if looks_like_index_ddl(stmt)]
+        if not trailing:
+            return None
+        raise ValueError(
+            f"GFQL INDEX DDL must lead the statement list, found after the query: {trailing[0]!r}. "
+            "Write 'CREATE GFQL INDEX FOR ...; <query>'."
+        )
+    ops: List[IndexOp] = []
+    i = 0
+    while i < len(statements) and looks_like_index_ddl(statements[i]):
+        op = parse_index_ddl(statements[i])
+        if op is None or isinstance(op, ShowIndexes):
+            raise ValueError(
+                f"GFQL INDEX statement {i + 1} cannot be part of a statement list: {statements[i]!r}. "
+                "SHOW GFQL INDEXES returns a table; run it on its own."
+            )
+        ops.append(op)
+        i += 1
+    rest = statements[i:]
+    for stmt in rest:
+        if looks_like_index_ddl(stmt):
+            raise ValueError(
+                f"GFQL INDEX DDL must lead the statement list, found after the query: {stmt!r}. "
+                "Write 'CREATE GFQL INDEX FOR ...; <query>'."
+            )
+    return ops, ("; ".join(rest) if rest else None)
