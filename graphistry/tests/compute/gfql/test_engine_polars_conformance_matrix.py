@@ -869,7 +869,8 @@ def test_size_list_runs_natively_on_polars():
 
 # ---- cross-surface call() consistency (silent-bridge class); shared constant so the ledger
 # derives the exercised call()-safelist from the SAME list the test runs on (no drift) ----
-_CALL_CONSISTENCY_FNS = ["get_degrees", "hypergraph", "limit"]
+_CALL_CONSISTENCY_FNS = ["get_degrees", "hypergraph", "limit", "create_index", "drop_index"]
+_CALL_CONSISTENCY_PARAMS = {"limit": {"value": 2}, "create_index": {"kind": "edge_out_adj"}}
 
 
 def _call_exercised_functions():
@@ -897,7 +898,7 @@ def test_conformance_call_chain_vs_dag_consistent(fn):
     """A call must behave the SAME (parity or NIE) on chain and DAG — no silent bridge where the
     other declines; assert_surfaces_agree also fails non-NIE errors (old inline check let 'err' pass)."""
     g = _graph(3)
-    params = {"value": 2} if fn == "limit" else {}
+    params = _CALL_CONSISTENCY_PARAMS.get(fn, {})
     chain_q = [call(fn, params)] if params else [call(fn)]
     chain = _run(g, chain_q, "polars")
     dag = _run(g, let({"a": (call(fn, params) if params else call(fn))}), "polars")

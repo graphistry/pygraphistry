@@ -165,6 +165,7 @@ from graphistry.compute.gfql.same_path_types import (
 )
 from graphistry.compute.gfql.cypher.reentry import naming as _reentry_naming, scope as _reentry_scope
 from graphistry.compute.gfql.cypher.ast import CypherParams
+from graphistry.compute.gfql.cypher.where_membership import peel_literal_membership_where
 from graphistry.compute.gfql.identifiers import shortest_path_hops_column
 
 
@@ -6803,6 +6804,8 @@ def lower_match_query(
             for op in row_pre_filters
             if isinstance(op.params.get("out_col"), str)
         }
+        if where_expr is not None:
+            where_expr = peel_literal_membership_where(where_expr, alias_targets=alias_targets, params=params)
         if where_expr is not None:
             type_where = _extract_relationship_type_where(
                 where_expr,
