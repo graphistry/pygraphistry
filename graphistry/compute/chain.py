@@ -65,6 +65,8 @@ def _index_ops_as_calls(ops: List[ASTObject]) -> List[ASTObject]:
     if not isinstance(ops, list):
         return ops  # validate() names the offending type
     from graphistry.compute.gfql.index.wire import index_op_to_call, is_index_op
+    if not any(is_index_op(op) for op in ops):
+        return ops  # the caller's own list: a later mutation is still seen and re-validated on execute
     return [index_op_to_call(op) if is_index_op(op) else op for op in ops]
 
 
