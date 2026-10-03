@@ -4,7 +4,7 @@ lanes in ``gfql_fast_paths.py``. This module imports only leaf modules (no back-
 ``chain.py`` or the specialization packages)."""
 # ruff: noqa: E501
 
-from typing import Mapping, Any, Dict, Literal, Optional, Sequence, Tuple, TYPE_CHECKING, Union, cast
+from typing import Any, Dict, Literal, Mapping, Optional, Sequence, Tuple, TYPE_CHECKING, Union, cast
 
 import pandas as pd
 
@@ -118,11 +118,7 @@ def _tag_fast_path_aliases_eager(
 
 
 def _seeded_seed_filters(fd: Optional[FilterDict], df: DataFrameT, node_id: str) -> Optional[SeedFilterDict]:
-    """The first op's filter for the native seeded lanes: the scalar gate below, plus a
-    membership set on the node-id key (``is_in([...])`` or a list of ids) resolved to a
-    sorted tuple of ints -- the node-id index lookup takes a list of ids as readily as one,
-    and the canonical filter is re-applied on the hits. Mirrors the indexed bindings kernel's
-    seed admission (#2117 ``_seed_filter_dict``); anything else bails as before."""
+    """The scalar gate below, plus a membership set on the node-id key as a sorted tuple of ids (mirrors the bindings kernel's seed admission)."""
     from graphistry.compute.gfql.index.bindings import _membership_seed_ids
     if not fd:
         return {}

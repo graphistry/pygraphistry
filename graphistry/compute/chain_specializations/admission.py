@@ -3,7 +3,7 @@ consult the same predicates, so a test that filters a shape corpus with them exe
 what the dispatcher admits."""
 # ruff: noqa: E501
 
-from typing import Mapping, Literal, Optional, Sequence, Tuple, TYPE_CHECKING
+from typing import Literal, Mapping, Optional, Sequence, Tuple, TYPE_CHECKING
 
 from graphistry.compute.ast import ASTObject, ASTNode, ASTEdge, ASTCall
 from graphistry.compute.chain_fast_paths import SeedRowsHow
