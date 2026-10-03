@@ -159,3 +159,36 @@ def test_where_drops_the_null_verdicts_and_keeps_the_true_ones() -> None:
     assert kept == [0, 3]
     kept_plain = g.gfql("MATCH (a) WHERE a.v IN [3] RETURN a.id AS id")._nodes["id"].tolist()
     assert kept_plain == [2]
+
+
+_CUDF_SHAPES = [
+    ("int", [1, 2, 3], [1, 3]),
+    ("int with null", [1, None, 3], [3]),
+    ("text with null", ["a", None, "b"], ["b", None]),
+    ("empty list", [1, None], []),
+    ("only null in list", [1, 2], [None]),
+    ("bool vs bool", [True, False], [True]),
+]
+
+
+@pytest.mark.parametrize("values,rhs", [(v, r) for _, v, r in _CUDF_SHAPES], ids=[s for s, _, _ in _CUDF_SHAPES])
+def test_the_lane_matches_the_element_loop_on_cudf(values: List[Any], rhs: List[Any]) -> None:
+    cudf = pytest.importorskip("cudf")
+    try:
+        cudf.Series([1]).isin([1]).to_arrow()
+    except Exception:
+        pytest.skip("cudf not runnable here")
+    series = cudf.Series(values)
+    expected = [_loop_oracle(v, rhs) for v in series.to_arrow().to_pylist()]
+    got = RowPipelineMixin._gfql_in_literal_list_values(series, rhs)
+    assert got == expected
+
+
+def test_the_lane_declines_bool_against_int_on_cudf_too() -> None:
+    # cuDF's isin says True != 1; the loop (and pandas) say True == 1 — the lane must not decide this
+    cudf = pytest.importorskip("cudf")
+    try:
+        cudf.Series([1]).isin([1]).to_arrow()
+    except Exception:
+        pytest.skip("cudf not runnable here")
+    assert RowPipelineMixin._gfql_in_literal_list_values(cudf.Series([True, False]), [1]) is None
