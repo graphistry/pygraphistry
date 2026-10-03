@@ -25,13 +25,17 @@ except Exception:  # pragma: no cover - depends on test env
 _ENGINES = ["pandas"] + (["cudf"] if _HAS_CUDF else [])
 
 
-def _graph():
+def _graph(engine="pandas"):
     rng = np.random.default_rng(7)
     n_nodes, n_edges = 20000, 100000
     edges = pd.DataFrame({"src": rng.integers(0, n_nodes, n_edges), "dst": rng.integers(0, n_nodes, n_edges)})
     nodes = pd.DataFrame({"id": np.arange(n_nodes), "kind": rng.choice(["a", "b"], n_nodes)})
     seeds = sorted(rng.choice(n_nodes, 50, replace=False).tolist())
-    g = graphistry.edges(edges, "src", "dst").nodes(nodes, "id").gfql_index_all()
+    frames = (edges, nodes)
+    if engine == "cudf":  # the indexes are built for the frames they will serve
+        import cudf
+        frames = (cudf.from_pandas(edges), cudf.from_pandas(nodes))
+    g = graphistry.edges(frames[0], "src", "dst").nodes(frames[1], "id").gfql_index_all()
     return g, edges, nodes, seeds
 
 
@@ -49,7 +53,7 @@ def _n(frame):
 @pytest.mark.parametrize("seed_form", ["is_in", "list"])
 @pytest.mark.route_engaged("native-fast", "index-hop")
 def test_membership_seeded_hop_takes_the_index_and_says_so(engine, seed_form):
-    g, edges, nodes, seeds = _graph()
+    g, edges, nodes, seeds = _graph(engine)
     seed = is_in(seeds) if seed_form == "is_in" else list(seeds)
     ops = [n({"id": seed}), e_forward(), n()]
     truth = int(edges["src"].isin(seeds).sum())
@@ -65,7 +69,7 @@ def test_membership_seeded_hop_takes_the_index_and_says_so(engine, seed_form):
 @pytest.mark.parametrize("engine", _ENGINES)
 @pytest.mark.route_engaged("native-fast", "index-hop")
 def test_residual_filters_are_still_applied_on_the_index_hits(engine):
-    g, edges, nodes, seeds = _graph()
+    g, edges, nodes, seeds = _graph(engine)
     kind = nodes.set_index("id")["kind"]
     a_seeds = [s for s in seeds if kind[s] == "a"]
     ops = [n({"id": is_in(seeds), "kind": "a"}), e_forward(), n({"kind": "b"})]
@@ -78,7 +82,7 @@ def test_residual_filters_are_still_applied_on_the_index_hits(engine):
 @pytest.mark.parametrize("engine", _ENGINES)
 @pytest.mark.route_engaged("native-fast", "index-hop")
 def test_single_node_membership_seed_is_served_by_the_node_id_index(engine):
-    g, edges, nodes, seeds = _graph()
+    g, edges, nodes, seeds = _graph(engine)
     ops = [n({"id": is_in(seeds)})]
     for policy in ("off", "auto", "force"):
         assert _n(g.gfql(ops, engine=engine, index_policy=policy)._nodes) == len(seeds), policy
