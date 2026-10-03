@@ -2478,6 +2478,8 @@ class RowPipelineMixin:
         sample_values = [value for value in RowPipelineMixin._gfql_series_to_pylist(sample) if not is_null_scalar(value)]
         if sample_values and all(isinstance(value, (list, tuple)) for value in sample_values):
             return True
+        if any(isinstance(value, str) for value in sample_values):
+            return False  # an actual string row is forced False below; the all() cannot hold
         text = series.astype(str)
         if not hasattr(text, "str"):
             return False
@@ -2506,6 +2508,8 @@ class RowPipelineMixin:
         sample_values = [value for value in sample_values if not is_null_scalar(value)]
         if sample_values and all(isinstance(value, Mapping) for value in sample_values):
             return True
+        if any(isinstance(value, str) for value in sample_values):
+            return False  # an actual string row is forced False below; the all() cannot hold
         try:
             text = series.astype(str)
         except Exception:
