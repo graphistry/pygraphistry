@@ -43,6 +43,9 @@ def _ddl_anywhere_re() -> Pattern[str]:
     return re.compile(r"\b(CREATE|DROP|SHOW)\s+GFQL\s+INDEX", re.IGNORECASE)
 
 
+register_process_singleton(_ddl_anywhere_re, "a compiled regex over a literal pattern; function of the code alone")
+
+
 @lru_cache(maxsize=1)
 def _ddl_prefix_re() -> Pattern[str]:
     return re.compile(_DDL_PREFIX_PATTERN, re.IGNORECASE)
