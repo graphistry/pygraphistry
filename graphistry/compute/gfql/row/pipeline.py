@@ -769,7 +769,7 @@ class RowPipelineMixin:
         left_col = RowPipelineMixin._gfql_fresh_col_name(table_df.columns, "__gfql_cmp_left_temporal__")
         right_col = RowPipelineMixin._gfql_fresh_col_name(table_df.columns, "__gfql_cmp_right_temporal__")
         work_df = table_df.reset_index(drop=True).copy()
-        work_df = work_df.assign(**{left_col: left_series, right_col: right_series})
+        work_df = RowPipelineMixin._gfql_assign_positional(work_df, **{left_col: left_series, right_col: right_series})
 
         work_df, left_keys = build_temporal_sort_columns(
             work_df,
@@ -1951,7 +1951,7 @@ class RowPipelineMixin:
             total_col = RowPipelineMixin._gfql_fresh_col_name(table_df.columns, "__gfql_q_total_ast__")
 
             base = table_df.reset_index(drop=True).copy()
-            base = base.assign(**{row_col: range(len(base)), list_col: list_series})
+            base = RowPipelineMixin._gfql_assign_positional(base, **{row_col: range(len(base)), list_col: list_series})
             list_null_mask = self._gfql_null_mask(base, base[list_col])
             try:
                 total_series = series_sequence_len(base[list_col])
@@ -2039,7 +2039,7 @@ class RowPipelineMixin:
             out_col = RowPipelineMixin._gfql_fresh_col_name(table_df.columns, "__gfql_lc_out_ast__")
 
             base = table_df.reset_index(drop=True).copy()
-            base = base.assign(**{row_col: range(len(base)), list_col: list_series})
+            base = RowPipelineMixin._gfql_assign_positional(base, **{row_col: range(len(base)), list_col: list_series})
             null_mask = self._gfql_null_mask(base, base[list_col])
             try:
                 lengths = series_sequence_len(base[list_col])
@@ -2736,6 +2736,22 @@ class RowPipelineMixin:
         return RowPipelineMixin._gfql_on_table_index(table_df, out)
 
     @staticmethod
+    def _gfql_assign_positional(frame: Any, **columns: Any) -> Any:  # hygiene-ok: explicit-any -- backend frame + scalar-or-Series columns, evaluator-wide idiom
+        """``assign`` that lines columns up by position, not label: a work frame built with
+        ``reset_index(drop=True)`` has labels ``0..n-1`` while an evaluator series may carry
+        the table's own labels (the index path's hop returns frames with gaps), and
+        label-aligned ``assign`` would shift rows past the gap and drop the tail."""
+        aligned = {}
+        for name, value in columns.items():
+            if hasattr(value, "set_axis") and hasattr(value, "__len__") and len(value) == len(frame):
+                try:
+                    value = value.set_axis(frame.index)
+                except Exception:
+                    pass
+            aligned[name] = value
+        return frame.assign(**aligned)
+
+    @staticmethod
     def _gfql_on_table_index(table_df: Any, series: Any) -> Any:  # hygiene-ok: explicit-any -- scalar-or-Series mask on a backend frame, evaluator-wide idiom
         """Give a positionally built series the table's own index, so label-aligned
         consumers (``.loc``, ``assign``, ``.where``) line up on frames whose labels are
@@ -2924,7 +2940,7 @@ class RowPipelineMixin:
         out_col = RowPipelineMixin._gfql_fresh_col_name(table_df.columns, "__gfql_range_out__")
 
         base = table_df.reset_index(drop=True).copy()
-        base = base.assign(
+        base = RowPipelineMixin._gfql_assign_positional(base, 
             **{
                 row_col: range(len(base)),
                 start_col: start_series,
