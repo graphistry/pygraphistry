@@ -23,7 +23,7 @@ import warnings
 from collections import OrderedDict, deque
 from typing import TYPE_CHECKING, Callable, Deque, Dict, List, Optional, Tuple
 
-from graphistry.compute.typing import SeriesT
+from graphistry.compute.typing import ArrayLike, ArrayNamespace, SeriesT
 
 if TYPE_CHECKING:
     import numpy as np
@@ -46,6 +46,24 @@ def _cache_budget_bytes() -> int:
     return _CACHE_BUDGET_BYTES
 
 
+def _is_cudf(s: SeriesT) -> bool:
+    return "cudf" in type(s).__module__
+
+
+def _array_module(s: SeriesT) -> ArrayNamespace:
+    """numpy for pandas, cupy for cuDF: the index lives where the column lives."""
+    if _is_cudf(s):
+        import cupy
+        return cupy  # type: ignore[return-value]
+    import numpy
+    return numpy  # type: ignore[return-value]
+
+
+def _values(s: SeriesT) -> ArrayLike:
+    """The column's array on its own device."""
+    return s.values if _is_cudf(s) else s.to_numpy()  # type: ignore[return-value]
+
+
 class DatetimeIndexCacheThrashWarning(RuntimeWarning):
     """A column's index was rebuilt right after being evicted: the budget is below the working set."""
 
@@ -60,32 +78,42 @@ class DatetimeSearchIndex:
     _COMPARE_UPTO = 11
 
     def __init__(self, s: SeriesT, tz: str) -> None:
-        import numpy as np
-        import pandas as pd
-
-        localized = (
-            s.dt.tz_localize("UTC").dt.tz_convert(tz) if s.dt.tz is None else s.dt.tz_convert(tz)
-        )
+        xp = _array_module(s)
+        on_gpu = _is_cudf(s)
+        if on_gpu and tz != "UTC":
+            # libcudf strftime ignores tz_convert: no zone but UTC can be named on the GPU
+            from graphistry.compute.gfql.wysiwyg import CudfTemporalTzUnsupported
+            raise CudfTemporalTzUnsupported(tz)
+        if on_gpu:
+            localized = s
+        else:
+            localized = (
+                s.dt.tz_localize("UTC").dt.tz_convert(tz) if s.dt.tz is None else s.dt.tz_convert(tz)
+            )
         self.n = len(s)
-        self.present = localized.notna().to_numpy()
-        if not self.present.all():
-            filler = (localized[self.present].iloc[0] if self.present.any()
-                      else pd.Timestamp(0, tz="UTC"))
+        self.present = _values(localized.notna())
+        if not bool(self.present.all()):
+            import pandas as pd
+            filler = (localized[self.present].iloc[0] if bool(self.present.any())
+                      else pd.Timestamp(0, tz=None if on_gpu else "UTC"))
             localized = localized.fillna(filler)
 
-        hour_24 = localized.dt.hour.to_numpy()
-        self.day = localized.dt.day.to_numpy().astype(np.int16)
-        years = localized.dt.year.to_numpy()
+        hour_24 = _values(localized.dt.hour)
+        self.day = _values(localized.dt.day).astype(xp.int16)
+        years = _values(localized.dt.year)
         self.year_base = int(years.min()) if self.n else 0
-        self.year = (years - self.year_base).astype(np.int16)
-        self.hour12 = np.where(hour_24 % 12 == 0, 12, hour_24 % 12).astype(np.int8)
-        self.minute = localized.dt.minute.to_numpy().astype(np.int8)
-        self.second = localized.dt.second.to_numpy().astype(np.int8)
-        self.zone, self.zones = _zone_codes(localized)
+        self.year = (years - self.year_base).astype(xp.int16)
+        self.hour12 = xp.where(hour_24 % 12 == 0, 12, hour_24 % 12).astype(xp.int8)
+        self.minute = _values(localized.dt.minute).astype(xp.int8)
+        self.second = _values(localized.dt.second).astype(xp.int8)
+        if on_gpu:
+            self.zone, self.zones = xp.zeros(self.n, dtype=xp.int16), ["UTC"]
+        else:
+            self.zone, self.zones = _zone_codes(localized)
         self.nbytes = int(sum(a.nbytes for a in (
             self.day, self.year, self.hour12, self.minute, self.second, self.present, self.zone)))
 
-    def _fields(self) -> List[Tuple["np.ndarray", int, Callable[[int], str]]]:
+    def _fields(self) -> List[Tuple[ArrayLike, int, Callable[[int], str]]]:
         """The per-row code array, alphabet size and value renderer for each rendered field."""
         year_span = int(self.year.max()) + 1 if self.n else 0
         return [
@@ -98,8 +126,8 @@ class DatetimeSearchIndex:
             (self.zone, len(self.zones), lambda v: self.zones[v]),
         ]
 
-    def matches(self, term: str) -> "np.ndarray":
-        """Rows whose rendered text would contain ``term``.
+    def matches(self, term: str) -> ArrayLike:
+        """Rows whose rendered text would contain ``term``, as an array on the column's device.
 
         Each field contributes the rows whose value renders to text containing the term. Three
         things keep that from touching every row once per field:
@@ -115,9 +143,9 @@ class DatetimeSearchIndex:
         ``_COMPARE_UPTO`` is where those meet on this machine, so it is measured rather than
         derived from the format.
         """
-        import numpy as np
+        np = _module_of(self.present)
 
-        live: List[Tuple["np.ndarray", int, List[int]]] = []
+        live: List[Tuple[ArrayLike, int, List[int]]] = []
         for codes, size, render in self._fields():
             selected = [value for value in range(size) if term in render(value)]
             if not selected:
@@ -142,13 +170,22 @@ class DatetimeSearchIndex:
                 np.take(table, codes, out=scratch)
                 np.logical_or(hits, scratch, out=hits)
             # only worth asking while there is still a field that could add rows
-            if position != last and hits.all():
+            if position != last and bool(hits.all()):
                 break
         np.logical_and(hits, self.present, out=hits)
         return hits
 
 
-def _zone_codes(localized: SeriesT) -> Tuple["np.ndarray", List[str]]:
+def _module_of(array: ArrayLike) -> ArrayNamespace:
+    """The array module an existing array belongs to."""
+    if type(array).__module__.startswith("cupy"):
+        import cupy
+        return cupy  # type: ignore[return-value]
+    import numpy
+    return numpy  # type: ignore[return-value]
+
+
+def _zone_codes(localized: SeriesT) -> Tuple[ArrayLike, List[str]]:
     """Per-row zone label as a code plus its table, asked once per UTC offset not per row."""
     import numpy as np
     import pandas as pd
@@ -164,7 +201,7 @@ def _zone_codes(localized: SeriesT) -> Tuple["np.ndarray", List[str]]:
     return codes.astype(np.int16), labels
 
 
-_CacheKey = Tuple[bytes, str, str, int]
+_CacheKey = Tuple[bytes, str, str, int, str]
 _CACHE: "OrderedDict[_CacheKey, DatetimeSearchIndex]" = OrderedDict()
 _CACHE_LOCK = threading.Lock()
 #: Keys evicted most recently; re-inserting one of these is the signature of a thrashing cache.
@@ -185,7 +222,7 @@ def thrash_events() -> int:
     return _THRASH.get("events", 0)
 
 
-def _cache_key(s: SeriesT, tz: str) -> Optional[Tuple[bytes, str, str, int]]:
+def _cache_key(s: SeriesT, tz: str) -> Optional[_CacheKey]:
     """Content digest of the column, so an in-place edit cannot serve a stale index.
 
     Identity is deliberately not used: keying a memo on ``id()`` serves a stale answer once the
@@ -211,11 +248,16 @@ def _cache_key(s: SeriesT, tz: str) -> Optional[Tuple[bytes, str, str, int]]:
     import numpy as np
 
     try:
-        raw = np.ascontiguousarray(s.to_numpy()).view(np.int64)
+        if _is_cudf(s):
+            # digested on a host copy; a device digest would need a table larger than the index
+            raw = np.ascontiguousarray(s.values.view("int64").get())
+        else:
+            raw = np.ascontiguousarray(s.to_numpy()).view(np.int64)
         digest = hashlib.sha256(memoryview(raw)).digest()[:16]
     except (TypeError, ValueError, AttributeError):
         return None
-    return (digest, str(s.dtype), tz, len(s))
+    # same bytes on host and device are the same instants but not the same arrays
+    return (digest, str(s.dtype), tz, len(s), "cudf" if _is_cudf(s) else "pandas")
 
 
 def index_for(s: SeriesT, tz: str) -> DatetimeSearchIndex:
