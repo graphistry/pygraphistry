@@ -171,6 +171,8 @@ POLARS_TEST_FILES=(
     # and the polars params only run here
     graphistry/tests/compute/gfql/test_duration_month_division_1937.py
     graphistry/tests/compute/gfql/index/test_indexed_bindings.py
+    graphistry/tests/compute/gfql/index/test_indexed_bindings_membership_seed.py
+    graphistry/tests/compute/gfql/cypher/test_in_list_seeds_the_pattern.py
     graphistry/tests/compute/gfql/index/test_indexed_bindings_hop_overhead.py
     graphistry/tests/compute/gfql/index/test_array_bindings_select.py
     graphistry/tests/compute/gfql/index/test_category_index.py

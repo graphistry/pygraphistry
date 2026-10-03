@@ -87,6 +87,36 @@ def _plain_scalar_filter(value: Any) -> bool:
     )
 
 
+def _membership_seed_ids(value: object) -> Optional[List[int]]:
+    """The integral ids a membership filter on the node-id column names, else None."""
+    from graphistry.compute.filter_by_dict import _is_membership_filter_value
+    from graphistry.compute.predicates.is_in import IsIn
+
+    if isinstance(value, IsIn):
+        options = list(value.options)
+    elif _is_membership_filter_value(value) and not isinstance(value, dict):
+        options = list(value)  # type: ignore[call-overload]  # _is_membership_filter_value admits only iterables
+    else:
+        return None
+    ids: List[int] = []
+    for option in options:
+        if isinstance(option, bool) or not isinstance(option, Integral):
+            return None
+        ids.append(int(option))
+    return sorted(set(ids))
+
+
+def _seed_filter_dict(value: object, node_id: str) -> bool:
+    """The first op's filter: non-empty plain scalars, where the node-id key may also be a membership set."""
+    if not isinstance(value, Mapping) or not value:
+        return False
+    return all(
+        isinstance(key, str)
+        and (_plain_scalar_filter(item) or (key == node_id and _membership_seed_ids(item) is not None))
+        for key, item in value.items()
+    )
+
+
 def _simple_filter_dict(value: Any, *, allow_empty: bool = True) -> bool:
     if value is None:
         return allow_empty
@@ -412,7 +442,7 @@ def _try_indexed_connected_bindings_state(
                 not isinstance(op, ASTNode)
                 or op.query is not None
                 or op._name == node_id
-                or not _simple_filter_dict(op.filter_dict)
+                or not (_seed_filter_dict(op.filter_dict, node_id) if index == 0 else _simple_filter_dict(op.filter_dict))
             ):
                 return None
         else:
@@ -450,10 +480,7 @@ def _try_indexed_connected_bindings_state(
             return None
 
     first_op = ops[0]
-    if (
-        not isinstance(first_op, ASTNode)
-        or not _simple_filter_dict(first_op.filter_dict, allow_empty=False)
-    ):
+    if not isinstance(first_op, ASTNode) or not _seed_filter_dict(first_op.filter_dict, node_id):
         return None
 
     if any(
@@ -490,12 +517,16 @@ def _try_indexed_connected_bindings_state(
     first_filter = cast(dict, first_op.filter_dict)
     xp, _ = array_namespace(engine)
     if node_id in first_filter:
-        if (
+        seed_members = _membership_seed_ids(first_filter[node_id])
+        if seed_members is not None:
+            seed_ids = xp.asarray(seed_members)
+        elif (
             not isinstance(first_filter[node_id], Integral)
             or isinstance(first_filter[node_id], bool)
         ):
             return None
-        seed_ids = xp.asarray([first_filter[node_id]])
+        else:
+            seed_ids = xp.asarray([first_filter[node_id]])
         seed_rows = xp.sort(lookup_node_rows(node_index, seed_ids, xp))
         first_nodes = take_rows(nodes, seed_rows, engine)
         first_nodes = _filter_frame(first_nodes, first_filter, engine)
