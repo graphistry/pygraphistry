@@ -125,17 +125,22 @@ def _graph(ids: List[Any]) -> tuple:
     return g, joined
 
 
-def _engines() -> List[Any]:
-    out: List[Any] = ["pandas", "polars"]
-    try:
-        import cudf
-        import cupy
-        cudf.Series([1]).sum()
-        cupy.arange(3).sum().item()  # the index kernels JIT through cupy; importable is not runnable: a CPU-only box has the package and no driver
-        out.append("cudf")
-    except Exception:
-        out.append(pytest.param("cudf", marks=pytest.mark.skip(reason="cudf not runnable here")))
-    return out
+ENGINES = ["pandas", "polars", "cudf"]
+
+
+def _require(engine: str) -> None:
+    """Per-test gate, like test_indexed_bindings.py: polars is installed only in the polars lane, and a
+    CPU-only box can import cuDF yet not run the index kernels (they JIT through cupy)."""
+    if engine == "polars":
+        pytest.importorskip("polars")
+    if engine == "cudf":
+        cudf = pytest.importorskip("cudf")
+        cupy = pytest.importorskip("cupy")
+        try:
+            cudf.Series([1]).sum()
+            cupy.arange(3).sum().item()
+        except Exception:
+            pytest.skip("cudf not runnable here")
 
 
 def _b_ids(result: Any) -> List[Any]:
@@ -144,9 +149,10 @@ def _b_ids(result: Any) -> List[Any]:
     return sorted(frame["b.id"].tolist())
 
 
-@pytest.mark.parametrize("engine", _engines())
+@pytest.mark.parametrize("engine", ENGINES)
 @pytest.mark.parametrize("ids", [list(range(1_000)), [f"v{i}" for i in range(1_000)]], ids=["int ids", "str ids"])
 def test_seeded_results_equal_the_row_filter_results(ids: List[Any], engine: str) -> None:
+    _require(engine)
     g, m = _graph(ids)
     seeds = [ids[i] for i in (4, 42, 420, 999)]
 

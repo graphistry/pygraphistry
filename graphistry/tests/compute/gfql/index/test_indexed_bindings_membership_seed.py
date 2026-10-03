@@ -16,17 +16,22 @@ from graphistry.compute.gfql.index.bindings import _membership_seed_ids
 from graphistry.compute.predicates.is_in import is_in
 
 
-def _engines() -> List[Any]:
-    out: List[Any] = ["pandas", "polars"]
-    try:
-        import cudf
-        import cupy
-        cudf.Series([1]).sum()
-        cupy.arange(3).sum().item()  # the index kernels JIT through cupy; importable is not runnable on a CPU-only box
-        out.append("cudf")
-    except Exception:
-        out.append(pytest.param("cudf", marks=pytest.mark.skip(reason="cudf not runnable here")))
-    return out
+ENGINES = ["pandas", "polars", "cudf"]
+
+
+def _require(engine: str) -> None:
+    """Per-test gate, like test_indexed_bindings.py: polars is installed only in the polars lane, and a
+    CPU-only box can import cuDF yet not run the index kernels (they JIT through cupy)."""
+    if engine == "polars":
+        pytest.importorskip("polars")
+    if engine == "cudf":
+        cudf = pytest.importorskip("cudf")
+        cupy = pytest.importorskip("cupy")
+        try:
+            cudf.Series([1]).sum()
+            cupy.arange(3).sum().item()
+        except Exception:
+            pytest.skip("cudf not runnable here")
 
 
 KERNEL_DISPATCHED = {"pandas", "cudf"}  # _plan_indexed_middle hands the middle to the kernel on these engines
@@ -52,8 +57,9 @@ def _served(report: Any) -> List[str]:
 
 
 @pytest.mark.route_engaged("indexed-kernel")
-@pytest.mark.parametrize("engine", _engines())
+@pytest.mark.parametrize("engine", ENGINES)
 def test_a_cypher_in_list_is_served_by_the_bindings_kernel(engine: str) -> None:
+    _require(engine)
     g, edges = _graph(list(range(4_000)))
     seeds = [3, 77, 1234, 3999]
     query = f"MATCH (a)-[e]->(b) WHERE a.id IN {seeds} RETURN b"
@@ -65,8 +71,9 @@ def test_a_cypher_in_list_is_served_by_the_bindings_kernel(engine: str) -> None:
 
 
 @pytest.mark.route_engaged("indexed-kernel")
-@pytest.mark.parametrize("engine", _engines())
+@pytest.mark.parametrize("engine", ENGINES)
 def test_two_hops_from_a_seed_set_are_served_too(engine: str) -> None:
+    _require(engine)
     g, edges = _graph(list(range(4_000)))
     seeds = [3, 77]
     query = f"MATCH (a)-[e1]->(b)-[e2]->(c) WHERE a.id IN {seeds} RETURN c"
@@ -77,8 +84,9 @@ def test_two_hops_from_a_seed_set_are_served_too(engine: str) -> None:
 
 
 @pytest.mark.route_engaged("indexed-kernel")
-@pytest.mark.parametrize("engine", _engines())
+@pytest.mark.parametrize("engine", ENGINES)
 def test_a_seed_set_covering_most_of_the_graph_takes_the_scan_and_still_agrees(engine: str) -> None:
+    _require(engine)
     g, edges = _graph(list(range(4_000)))
     seeds = list(range(0, 3_600))
     query = f"MATCH (a)-[e]->(b) WHERE a.id IN {seeds} RETURN count(b) AS c"
