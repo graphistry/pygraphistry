@@ -285,9 +285,10 @@ Build it with Cypher
    out = g.gfql("MATCH (a {id: 'a'})-[e]->(b) RETURN b")  # gfql_explain: used_index=True
    g.gfql("SHOW GFQL INDEXES")                           # what is resident
 
-The DDL forms are ``CREATE GFQL INDEX FOR <kind>``, ``DROP GFQL INDEX``, and ``SHOW GFQL
-INDEXES`` — the mandatory ``GFQL`` token distinguishes them from standard property
-``CREATE INDEX``. The same intent travels over the JSON wire protocol
+The DDL forms are ``CREATE GFQL INDEX [name] [IF NOT EXISTS] FOR <kind> [ON (col)]``,
+``DROP GFQL INDEX name [IF EXISTS]`` (or ``DROP GFQL INDEX [IF EXISTS] FOR <kind>``), and
+``SHOW GFQL INDEXES`` — the mandatory ``GFQL`` token distinguishes them from standard property
+``CREATE INDEX``; the optional parts follow the Cypher spelling. The same intent travels over the JSON wire protocol
 (``{"type": "CreateIndex", ...}`` ops plus ``index_policy`` in the request envelope), so a
 remote ``gfql_remote`` call can carry it.
 
