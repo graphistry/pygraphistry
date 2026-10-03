@@ -111,7 +111,8 @@ def test_seed_filter_resolver_contract():
     assert _seeded_seed_filters({}, df, "id") == {}
     assert _seeded_seed_filters({"id": is_in([1, "x"])}, df, "id") is None      # not all integral
     assert _seeded_seed_filters({"id": is_in([True, 1])}, df, "id") is None      # bool is not an id
-    assert _seeded_seed_filters({"kind": is_in(["a"])}, df, "id") is None        # membership off the id key
+    assert _seeded_seed_filters({"kind": is_in(["a"])}, df, "id") is None        # members must be ids
+    assert _seeded_seed_filters({"score": is_in([3, 1])}, df.assign(score=[1, 2, 3]), "id") == {"score": (1, 3)}
     assert _seeded_seed_filters({"id": is_in([1])}, df.drop(columns=["id"]), "id") is None  # id column absent
 
 
@@ -166,3 +167,27 @@ def test_property_index_seed_lookup_accepts_only_integral_members():
     assert rows is not None and sorted(g._nodes.iloc[rows]["id"].tolist()) == sorted(seeds[:3])
     for bad in ({"id": (seeds[0], "x")}, {"id": (True, seeds[0])}, {"id": ()}):
         assert _seed_rows_via_property_index(registry, g._nodes, bad, Engine.PANDAS, xp, policy="use") is None
+
+
+@pytest.mark.route_engaged("native-fast", "index-hop")
+def test_a_membership_seed_on_an_indexed_property_column_is_served():
+    # the SNB sentinel binds the node column under another name and seeds on the `id` property
+    rng = np.random.default_rng(3)
+    n_persons, n_messages = 2000, 30000
+    nodes = pd.DataFrame({
+        "nid": np.arange(n_persons + n_messages), "id": np.arange(n_persons + n_messages) * 7,
+        "label__Person": [True] * n_persons + [np.nan] * n_messages,
+        "label__Message": [np.nan] * n_persons + [True] * n_messages,
+    })
+    edges = pd.DataFrame({
+        "src": rng.integers(n_persons, n_persons + n_messages, 60000), "dst": rng.integers(0, n_persons, 60000),
+        "type": ["HAS_CREATOR"] * 60000,
+    })
+    g = graphistry.edges(edges, "src", "dst").nodes(nodes, "nid").gfql_index_all()
+    members = [(n_persons + 500 + i) * 7 for i in range(10)]
+    ops = [n({"id": is_in(members), "label__Message": True}, name="m"), e_forward({"type": "HAS_CREATOR"}), n({"label__Person": True}, name="p")]
+    truth = _n(g.gfql(ops, engine="pandas", index_policy="off")._edges)
+    g = g.gfql_index_node_props(["id"])
+    assert _n(g.gfql(ops, engine="pandas")._edges) == truth
+    used, code, seams = _explain(g, ops, "pandas", "use")
+    assert (used, code) == (True, "index_selected") and "native_seeded_hop" in seams

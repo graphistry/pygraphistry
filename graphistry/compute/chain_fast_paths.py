@@ -118,20 +118,19 @@ def _tag_fast_path_aliases_eager(
 
 
 def _seeded_seed_filters(fd: Optional[FilterDict], df: DataFrameT, node_id: str) -> Optional[SeedFilterDict]:
-    """The scalar gate below, plus a membership set on the node-id key as a sorted tuple of ids (mirrors the bindings kernel's seed admission)."""
+    """The scalar gate below, plus membership sets of ids as sorted tuples: on the node-id key the node-id index serves them, on any other column a resident property index does."""
     from graphistry.compute.gfql.index.bindings import _membership_seed_ids
     if not fd:
         return {}
-    members = _membership_seed_ids(fd.get(node_id)) if node_id in fd else None
-    rest = {k: v for k, v in fd.items() if not (k == node_id and members is not None)}
-    scalars = _seeded_scalar_filters(rest, df)
+    members = {k: ids for k, v in fd.items() if (ids := _membership_seed_ids(v)) is not None}
+    scalars = _seeded_scalar_filters({k: v for k, v in fd.items() if k not in members}, df)
     if scalars is None:
         return None
+    cols = set(df.columns)
+    if any(k not in cols for k in members):
+        return None
     out: SeedFilterDict = dict(scalars)
-    if members is not None:
-        if node_id not in set(df.columns):
-            return None
-        out[node_id] = tuple(members)
+    out.update({k: tuple(ids) for k, ids in members.items()})
     return out
 
 
