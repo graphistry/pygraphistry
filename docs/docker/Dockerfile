@@ -36,6 +36,7 @@ RUN --mount=type=cache,target=/root/.cache/pip \
 COPY docs/docker/build-docs.sh /build-docs.sh
 COPY docs/.rstcheck.cfg /docs/.rstcheck.cfg
 COPY docs/validate-docs.sh /docs/validate-docs.sh
+COPY docs/test_bench_numbers.py /docs/test_bench_numbers.py
 COPY docs/test_doc_examples.py /docs/test_doc_examples.py
 COPY docs/source /docs/source
 COPY demos /docs/source/demos
