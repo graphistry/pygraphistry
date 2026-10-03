@@ -19,6 +19,21 @@ policy knobs, the Cypher DDL forms, and when the index engages.
    g = g.gfql("CREATE GFQL INDEX FOR node_id")
    g.gfql("MATCH (m {id: 0})-[e]->(p) RETURN p")      # ... later lookups from a known node use it
 
+The DDL can also travel with the query that uses it, in one call — leading ``CREATE GFQL INDEX``
+statements build first and the rest runs on the indexed graph:
+
+.. code-block:: python
+
+   g.gfql("CREATE GFQL INDEX FOR edge_out_adj; CREATE GFQL INDEX FOR node_id; "
+          "MATCH (m {id: 0})-[e]->(p) RETURN p")
+
+   # the same in the native API: index ops at the front of a chain, or as a let() binding
+   from graphistry import n, e_forward, is_in, call, let, ref
+   from graphistry.compute.gfql.index.wire import CreateIndex
+   g.gfql([CreateIndex("edge_out_adj"), CreateIndex("node_id"), n({"id": is_in([0, 1])}), e_forward(), n()])
+   g.gfql([call("create_index", {"kind": "edge_out_adj"}), n({"id": 0}), e_forward(), n()])
+   g.gfql(let({"indexed": [CreateIndex("edge_out_adj")], "out": ref("indexed", [n({"id": 0}), e_forward(), n()])}))
+
 What a resident index is
 ------------------------
 
