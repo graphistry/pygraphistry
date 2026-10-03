@@ -769,7 +769,7 @@ class RowPipelineMixin:
         left_col = RowPipelineMixin._gfql_fresh_col_name(table_df.columns, "__gfql_cmp_left_temporal__")
         right_col = RowPipelineMixin._gfql_fresh_col_name(table_df.columns, "__gfql_cmp_right_temporal__")
         work_df = table_df.reset_index(drop=True).copy()
-        work_df = work_df.assign(**{left_col: left_series, right_col: right_series})
+        work_df = RowPipelineMixin._gfql_assign_positional(work_df, **{left_col: left_series, right_col: right_series})
 
         work_df, left_keys = build_temporal_sort_columns(
             work_df,
@@ -849,7 +849,7 @@ class RowPipelineMixin:
                 else:
                     out_values.append(is_equal)
             out_col = RowPipelineMixin._gfql_fresh_col_name(table_df.columns, "__gfql_list_cmp_eq__")
-            return table_df.reset_index(drop=True).assign(**{out_col: out_values})[out_col]
+            return RowPipelineMixin._gfql_tri_valued_series(table_df, out_values, out_col)
 
         if op in GFQL_ORDERED_COMPARISON_BINARY_OPS:
             left_values = self._gfql_series_to_pylist(left_series)
@@ -871,7 +871,7 @@ class RowPipelineMixin:
                 except Exception:
                     ordered_out_values.append(None)
             out_col = RowPipelineMixin._gfql_fresh_col_name(table_df.columns, "__gfql_list_cmp_py__")
-            return table_df.reset_index(drop=True).assign(**{out_col: ordered_out_values})[out_col]
+            return RowPipelineMixin._gfql_tri_valued_series(table_df, ordered_out_values, out_col)
 
         row_col = RowPipelineMixin._gfql_fresh_col_name(table_df.columns, "__gfql_list_cmp_row__")
         lhs_col = RowPipelineMixin._gfql_fresh_col_name(table_df.columns, "__gfql_list_cmp_lhs__")
@@ -1951,7 +1951,7 @@ class RowPipelineMixin:
             total_col = RowPipelineMixin._gfql_fresh_col_name(table_df.columns, "__gfql_q_total_ast__")
 
             base = table_df.reset_index(drop=True).copy()
-            base = base.assign(**{row_col: range(len(base)), list_col: list_series})
+            base = RowPipelineMixin._gfql_assign_positional(base, **{row_col: range(len(base)), list_col: list_series})
             list_null_mask = self._gfql_null_mask(base, base[list_col])
             try:
                 total_series = series_sequence_len(base[list_col])
@@ -2039,7 +2039,7 @@ class RowPipelineMixin:
             out_col = RowPipelineMixin._gfql_fresh_col_name(table_df.columns, "__gfql_lc_out_ast__")
 
             base = table_df.reset_index(drop=True).copy()
-            base = base.assign(**{row_col: range(len(base)), list_col: list_series})
+            base = RowPipelineMixin._gfql_assign_positional(base, **{row_col: range(len(base)), list_col: list_series})
             null_mask = self._gfql_null_mask(base, base[list_col])
             try:
                 lengths = series_sequence_len(base[list_col])
@@ -2284,7 +2284,7 @@ class RowPipelineMixin:
             fill_col = getattr(out, "name", None)
             if not isinstance(fill_col, str) or fill_col in table_df.columns:
                 fill_col = RowPipelineMixin._gfql_fresh_col_name(table_df.columns, "__gfql_seq_fill__")
-            return table_df.reset_index(drop=True).assign(**{fill_col: filled_values})[fill_col]
+            return RowPipelineMixin._gfql_on_table_index(table_df, table_df.reset_index(drop=True).assign(**{fill_col: filled_values})[fill_col])
 
     @staticmethod
     def _gfql_restore_row_order(table_df: Any, row_col: str) -> Any:
@@ -2733,12 +2733,41 @@ class RowPipelineMixin:
                     pass
             return pd.Series(values, dtype="object")
 
-        if hasattr(out, "reset_index"):
-            try:
-                out = out.reset_index(drop=True)
-            except Exception:
-                pass
-        return out
+        return RowPipelineMixin._gfql_on_table_index(table_df, out)
+
+    @staticmethod
+    def _gfql_tri_valued_series(table_df: Any, values: List[Any], col: str) -> Any:  # hygiene-ok: explicit-any -- backend frame + tri-valued Python values, evaluator-wide idiom
+        """A tri-valued (True/False/None) result list as a column on the table's index; an empty list is still boolean."""
+        out = table_df.reset_index(drop=True).assign(**{col: values})[col]
+        if len(values) == 0:
+            out = out.astype(bool)
+        return RowPipelineMixin._gfql_on_table_index(table_df, out)
+
+    @staticmethod
+    def _gfql_assign_positional(frame: Any, **columns: Any) -> Any:  # hygiene-ok: explicit-any -- backend frame + scalar-or-Series columns, evaluator-wide idiom
+        """``assign`` by position, not label: evaluator series may carry the table's own (gappy) labels."""
+        aligned = {}
+        for name, value in columns.items():
+            if hasattr(value, "set_axis") and hasattr(value, "__len__") and len(value) == len(frame):
+                try:
+                    value = value.set_axis(frame.index)
+                except Exception:
+                    pass
+            aligned[name] = value
+        return frame.assign(**aligned)
+
+    @staticmethod
+    def _gfql_on_table_index(table_df: Any, series: Any) -> Any:  # hygiene-ok: explicit-any -- scalar-or-Series mask on a backend frame, evaluator-wide idiom
+        """Give a positionally built series the table's own index so label-aligned consumers line up."""
+        index = getattr(table_df, "index", None)
+        if index is None or not hasattr(series, "set_axis"):
+            return series
+        try:
+            if len(series) == len(index):
+                return series.set_axis(index)
+        except Exception:
+            pass
+        return series
 
     def _gfql_truth_masks(self, table_df: Any, value: Any) -> Optional[Tuple[Any, Any, Any]]:
         if not hasattr(value, "astype"):
@@ -2914,7 +2943,8 @@ class RowPipelineMixin:
         out_col = RowPipelineMixin._gfql_fresh_col_name(table_df.columns, "__gfql_range_out__")
 
         base = table_df.reset_index(drop=True).copy()
-        base = base.assign(
+        base = RowPipelineMixin._gfql_assign_positional(
+            base,
             **{
                 row_col: range(len(base)),
                 start_col: start_series,
@@ -3524,7 +3554,7 @@ class RowPipelineMixin:
                     break
             out_values.append(True if saw_true else (None if saw_unknown else False))
         out_col = RowPipelineMixin._gfql_fresh_col_name(table_df.columns, "__gfql_in_temporal__")
-        return table_df.reset_index(drop=True).assign(**{out_col: out_values})[out_col]
+        return RowPipelineMixin._gfql_tri_valued_series(table_df, out_values, out_col)
 
     def _gfql_eval_in_expr(
         self,
@@ -3565,9 +3595,11 @@ class RowPipelineMixin:
             else:
                 out_values.append(False)
         out_col = RowPipelineMixin._gfql_fresh_col_name(table_df.columns, "__gfql_in_tri__")
-        return table_df.reset_index(drop=True).assign(**{out_col: out_values})[out_col]
+        return RowPipelineMixin._gfql_tri_valued_series(table_df, out_values, out_col)
 
-    def _gfql_eval_string_expr(self, table_df: Any, expr: str) -> Any:
+    @staticmethod
+    def _gfql_parse_row_expr(expr: str) -> Any:  # hygiene-ok: explicit-any -- parser AST node union
+        """Parse and capability-check a row expression without evaluating it."""
         txt = expr.strip()
         parser_bundle = _gfql_expr_runtime_parser_bundle()
         if parser_bundle is None:
@@ -3586,6 +3618,10 @@ class RowPipelineMixin:
             raise ValueError(
                 f"unsupported row expression: {', '.join(capability_errors)} in {expr!r}"
             )
+        return ast_node
+
+    def _gfql_eval_string_expr(self, table_df: Any, expr: str) -> Any:
+        ast_node = RowPipelineMixin._gfql_parse_row_expr(expr)
 
         try:
             ast_ok, ast_value = self._gfql_eval_expr_ast(table_df, ast_node)
@@ -4898,6 +4934,9 @@ class RowPipelineMixin:
         if expr is not None:
             if not isinstance(expr, str) or expr.strip() == "":
                 raise ValueError("where_rows(expr=...) must be a non-empty string")
+            if len(out_df) == 0:
+                RowPipelineMixin._gfql_parse_row_expr(expr)  # validate only: the evaluators type masks from values, and there are none
+                return self._gfql_row_table(out_df)
             expr_value = self._gfql_eval_string_expr(out_df, expr)
             mask = self._gfql_bool_mask(out_df, expr_value)
             out_df = out_df.loc[mask]

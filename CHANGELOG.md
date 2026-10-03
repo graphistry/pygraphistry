@@ -8,6 +8,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [Development]
 <!-- Do Not Erase This Section - Used for tracking unreleased changes -->
 
+### Fixed
+- **GFQL Cypher: a `WHERE` that excludes every row now returns no rows instead of raising** (#2116 item 3b). `NOT (alias.col IN [...])` covering every value raised "AST evaluator unsupported" on pandas; `alias.col IN [...]` matching nothing raised "cudf does not support mixed types" on cuDF; an empty list comparison raised "Lengths must match". The evaluator now validates the predicate and returns the empty frame without evaluating it; pinned for `IN`, `NOT IN`, temporal `IN`, and list comparisons on pandas and cuDF.
+- **GFQL Cypher: `NOT (alias.col IN [...])` no longer drops rows when the query runs through a resident index** (`index_policy='force'` returned 96 rows where the scan returned 111, and temporal `IN` returned none). Masks built inside the evaluator are now aligned to the frame the index path returns; pinned with force/use/off parity tests for `NOT IN`, temporal `IN`/`NOT IN`, and list `=`/`<>`/`<`.
+
 ## [0.59.1 - 2026-10-03]
 
 ### Added
