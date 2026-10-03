@@ -849,7 +849,7 @@ class RowPipelineMixin:
                 else:
                     out_values.append(is_equal)
             out_col = RowPipelineMixin._gfql_fresh_col_name(table_df.columns, "__gfql_list_cmp_eq__")
-            return table_df.reset_index(drop=True).assign(**{out_col: out_values})[out_col]
+            return RowPipelineMixin._gfql_on_table_index(table_df, table_df.reset_index(drop=True).assign(**{out_col: out_values})[out_col])
 
         if op in GFQL_ORDERED_COMPARISON_BINARY_OPS:
             left_values = self._gfql_series_to_pylist(left_series)
@@ -871,7 +871,7 @@ class RowPipelineMixin:
                 except Exception:
                     ordered_out_values.append(None)
             out_col = RowPipelineMixin._gfql_fresh_col_name(table_df.columns, "__gfql_list_cmp_py__")
-            return table_df.reset_index(drop=True).assign(**{out_col: ordered_out_values})[out_col]
+            return RowPipelineMixin._gfql_on_table_index(table_df, table_df.reset_index(drop=True).assign(**{out_col: ordered_out_values})[out_col])
 
         row_col = RowPipelineMixin._gfql_fresh_col_name(table_df.columns, "__gfql_list_cmp_row__")
         lhs_col = RowPipelineMixin._gfql_fresh_col_name(table_df.columns, "__gfql_list_cmp_lhs__")
@@ -2284,7 +2284,7 @@ class RowPipelineMixin:
             fill_col = getattr(out, "name", None)
             if not isinstance(fill_col, str) or fill_col in table_df.columns:
                 fill_col = RowPipelineMixin._gfql_fresh_col_name(table_df.columns, "__gfql_seq_fill__")
-            return table_df.reset_index(drop=True).assign(**{fill_col: filled_values})[fill_col]
+            return RowPipelineMixin._gfql_on_table_index(table_df, table_df.reset_index(drop=True).assign(**{fill_col: filled_values})[fill_col])
 
     @staticmethod
     def _gfql_restore_row_order(table_df: Any, row_col: str) -> Any:
@@ -2733,12 +2733,22 @@ class RowPipelineMixin:
                     pass
             return pd.Series(values, dtype="object")
 
-        if hasattr(out, "reset_index"):
-            try:
-                out = out.reset_index(drop=True)
-            except Exception:
-                pass
-        return out
+        return RowPipelineMixin._gfql_on_table_index(table_df, out)
+
+    @staticmethod
+    def _gfql_on_table_index(table_df: Any, series: Any) -> Any:  # hygiene-ok: explicit-any -- scalar-or-Series mask on a backend frame, evaluator-wide idiom
+        """Give a positionally built series the table's own index, so label-aligned
+        consumers (``.loc``, ``assign``, ``.where``) line up on frames whose labels are
+        not ``0..n-1``; the index path's hop returns such frames."""
+        index = getattr(table_df, "index", None)
+        if index is None or not hasattr(series, "set_axis"):
+            return series
+        try:
+            if len(series) == len(index):
+                return series.set_axis(index)
+        except Exception:
+            pass
+        return series
 
     def _gfql_truth_masks(self, table_df: Any, value: Any) -> Optional[Tuple[Any, Any, Any]]:
         if not hasattr(value, "astype"):
@@ -3524,7 +3534,7 @@ class RowPipelineMixin:
                     break
             out_values.append(True if saw_true else (None if saw_unknown else False))
         out_col = RowPipelineMixin._gfql_fresh_col_name(table_df.columns, "__gfql_in_temporal__")
-        return table_df.reset_index(drop=True).assign(**{out_col: out_values})[out_col]
+        return RowPipelineMixin._gfql_on_table_index(table_df, table_df.reset_index(drop=True).assign(**{out_col: out_values})[out_col])
 
     def _gfql_eval_in_expr(
         self,
@@ -3565,7 +3575,7 @@ class RowPipelineMixin:
             else:
                 out_values.append(False)
         out_col = RowPipelineMixin._gfql_fresh_col_name(table_df.columns, "__gfql_in_tri__")
-        return table_df.reset_index(drop=True).assign(**{out_col: out_values})[out_col]
+        return RowPipelineMixin._gfql_on_table_index(table_df, table_df.reset_index(drop=True).assign(**{out_col: out_values})[out_col])
 
     def _gfql_eval_string_expr(self, table_df: Any, expr: str) -> Any:
         txt = expr.strip()
