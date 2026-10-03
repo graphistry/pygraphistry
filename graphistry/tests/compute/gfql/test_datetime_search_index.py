@@ -166,3 +166,65 @@ def test_typing_a_term_one_character_at_a_time_agrees_with_the_render(sequence, 
     idx = index_for(s, tz)
     for term in sequence:
         assert np.array_equal(idx.matches(term), rendered_answer(s, tz, term)), term
+
+
+class TestTheShortcutsAreActuallyTaken:
+    """The three shortcuts are invisible in the ANSWER: a version that quietly stopped taking
+    them would still be exact, and every differential test above would still pass. These pin
+    the route instead, by counting the whole-column passes ``matches`` performs.
+    """
+
+    @staticmethod
+    def passes(monkeypatch, index, term):
+        counts = {"equal": 0, "take": 0, "logical_and": 0}
+        real = {name: getattr(np, name) for name in counts}
+
+        def counting(name):
+            def wrapper(*args, **kwargs):
+                counts[name] += 1
+                return real[name](*args, **kwargs)
+            return wrapper
+
+        for name in counts:
+            monkeypatch.setattr(np, name, counting(name))
+        index.matches(term)
+        return counts
+
+    def test_a_field_every_value_of_which_matches_reads_no_rows(self, monkeypatch):
+        """Every year in this column contains '2', so every present row matches whatever the
+        other fields hold -- the answer is the present mask and no field is evaluated."""
+        column = stamps(300, 9 * 365 * 86_400, "2020-01-01")
+        index = DatetimeSearchIndex(column, "UTC")
+        assert self.passes(monkeypatch, index, "2") == {
+            "equal": 0, "take": 0, "logical_and": 0}
+        assert index.matches("2").all()
+
+    def test_a_term_no_value_can_contain_reads_no_rows(self, monkeypatch):
+        index = DatetimeSearchIndex(stamps(300, 10 ** 7), "UTC")
+        # no scratch buffer and no final AND either: the empty answer is allocated and returned
+        assert self.passes(monkeypatch, index, "202411") == {
+            "equal": 0, "take": 0, "logical_and": 0}
+        assert not index.matches("202411").any()
+
+    def test_one_selected_value_is_a_comparison_not_a_gather(self, monkeypatch):
+        """'2024' can only be a year, and only one year renders it, so the whole search is a
+        single comparison against that year's code."""
+        column = stamps(300, 700 * 86_400, "2023-06-01")
+        index = DatetimeSearchIndex(column, "UTC")
+        assert self.passes(monkeypatch, index, "2024") == {
+            "equal": 1, "take": 0, "logical_and": 1}
+
+    def test_many_selected_values_switch_to_a_gather(self, monkeypatch):
+        """Fourteen of the sixty minutes render a '5', which is past the measured crossover, so
+        that field is served by a lookup table instead of fourteen comparisons."""
+        column = stamps(300, 300 * 86_400, "2024-01-01")
+        index = DatetimeSearchIndex(column, "UTC")
+        counts = self.passes(monkeypatch, index, "5")
+        assert counts["take"] >= 1
+        assert counts["equal"] < 14
+
+    def test_the_crossover_is_a_threshold_both_sides_of_which_are_reachable(self, monkeypatch):
+        """Guards against a threshold edited to a value that disables one branch entirely."""
+        column = stamps(300, 700 * 86_400, "2023-06-01")
+        index = DatetimeSearchIndex(column, "UTC")
+        assert 0 < index._COMPARE_UPTO < 60
