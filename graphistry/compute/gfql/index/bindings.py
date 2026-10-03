@@ -368,11 +368,16 @@ def _seed_rows_via_property_index(
     best_count: Optional[int] = None
     for column in registry.node_prop_cols():
         value = first_filter.get(column)
-        ids = _membership_seed_ids(value) if isinstance(value, tuple) else None
-        if ids is not None and not ids:
-            continue  # an empty member set seeds nothing; the caller's filter yields no rows
-        if ids is None and (value is None or isinstance(value, bool) or not isinstance(value, Integral)):
+        members: List[int]
+        if isinstance(value, tuple):
+            ids = _membership_seed_ids(value)
+            if not ids:
+                continue  # non-integral or empty member set: seeds nothing through this index
+            members = ids
+        elif value is None or isinstance(value, bool) or not isinstance(value, Integral):
             continue
+        else:
+            members = [int(value)]
         index = registry.get_node_prop_valid(column, nodes, engine)
         if index is None and engine in (Engine.POLARS, Engine.POLARS_GPU):
             # Both Polars targets index the same host frame with NumPy arrays.
@@ -380,7 +385,7 @@ def _seed_rows_via_property_index(
             index = registry.get_node_prop_valid(column, nodes, other)
         if index is None:
             continue
-        values = xp.asarray(ids if ids is not None else [value])
+        values = xp.asarray(members)
         count = prop_match_count(index, values, xp)
         if best_count is not None and count >= best_count:
             continue
