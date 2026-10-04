@@ -43,13 +43,26 @@ def _ids(result: Any, column: str) -> List[Any]:
     return sorted(int(v) for v in frame[column].tolist())
 
 
-def _graph(ids: List[Any]) -> tuple:
+def _native(frame: pd.DataFrame, engine: str) -> Any:
+    """The engine's own frame type: an index is built for the frame it sees, so a cuDF arm must
+    hold cuDF frames before CREATE GFQL INDEX, or the registry rightly treats the index as foreign."""
+    if engine == "cudf":
+        import cudf
+        return cudf.from_pandas(frame)
+    if engine == "polars":
+        import polars as pl
+        return pl.from_pandas(frame)
+    return frame
+
+
+def _graph(ids: List[Any], engine: str = "pandas") -> tuple:
     rng = np.random.default_rng(5)
     n = len(ids)
     nodes = pd.DataFrame({"id": ids, "kind": rng.choice(["person", "company"], n)})
     edges = pd.DataFrame({"src": [ids[i] for i in rng.integers(0, n, 15 * n)], "dst": [ids[i] for i in rng.integers(0, n, 15 * n)]})
-    g = graphistry.edges(edges, "src", "dst").nodes(nodes, "id")
-    return g.gfql("CREATE GFQL INDEX FOR edge_out_adj").gfql("CREATE GFQL INDEX FOR node_id"), edges
+    g = graphistry.edges(_native(edges, engine), "src", "dst").nodes(_native(nodes, engine), "id")
+    g = g.gfql("CREATE GFQL INDEX FOR edge_out_adj", engine=engine).gfql("CREATE GFQL INDEX FOR node_id", engine=engine)
+    return g, edges
 
 
 def _served(report: Any) -> List[str]:
@@ -60,7 +73,7 @@ def _served(report: Any) -> List[str]:
 @pytest.mark.parametrize("engine", ENGINES)
 def test_a_cypher_in_list_is_served_by_the_bindings_kernel(engine: str) -> None:
     _require(engine)
-    g, edges = _graph(list(range(4_000)))
+    g, edges = _graph(list(range(4_000)), engine)
     seeds = [3, 77, 1234, 3999]
     query = f"MATCH (a)-[e]->(b) WHERE a.id IN {seeds} RETURN b"
     if engine in KERNEL_DISPATCHED:
@@ -74,7 +87,7 @@ def test_a_cypher_in_list_is_served_by_the_bindings_kernel(engine: str) -> None:
 @pytest.mark.parametrize("engine", ENGINES)
 def test_two_hops_from_a_seed_set_are_served_too(engine: str) -> None:
     _require(engine)
-    g, edges = _graph(list(range(4_000)))
+    g, edges = _graph(list(range(4_000)), engine)
     seeds = [3, 77]
     query = f"MATCH (a)-[e1]->(b)-[e2]->(c) WHERE a.id IN {seeds} RETURN c"
     if engine in KERNEL_DISPATCHED:
@@ -87,7 +100,7 @@ def test_two_hops_from_a_seed_set_are_served_too(engine: str) -> None:
 @pytest.mark.parametrize("engine", ENGINES)
 def test_a_seed_set_covering_most_of_the_graph_takes_the_scan_and_still_agrees(engine: str) -> None:
     _require(engine)
-    g, edges = _graph(list(range(4_000)))
+    g, edges = _graph(list(range(4_000)), engine)
     seeds = list(range(0, 3_600))
     query = f"MATCH (a)-[e]->(b) WHERE a.id IN {seeds} RETURN count(b) AS c"
     assert _served(g.gfql_explain(query, engine=engine)) == []
@@ -106,6 +119,7 @@ def test_string_ids_decline_the_kernel_and_still_agree() -> None:
     assert sorted(g.gfql(query)._nodes["b.id"].tolist()) == sorted(edges[edges["src"].isin(seeds)]["dst"].tolist())
 
 
+@pytest.mark.route_engaged("indexed-kernel")
 def test_seed_ids_absent_from_the_graph_are_simply_unmatched() -> None:
     g, edges = _graph(list(range(4_000)))
     query = "MATCH (a)-[e]->(b) WHERE a.id IN [3, 999999, -7] RETURN b"
@@ -113,6 +127,7 @@ def test_seed_ids_absent_from_the_graph_are_simply_unmatched() -> None:
     assert _ids(g.gfql(query), "b.id") == sorted(edges[edges["src"] == 3]["dst"].tolist())
 
 
+@pytest.mark.route_engaged("indexed-kernel")
 def test_a_label_beside_the_seed_set_still_goes_through_the_kernel() -> None:
     rng = np.random.default_rng(9)
     nodes = pd.DataFrame({"id": range(3_000), "type": rng.choice(["person", "company"], 3_000)})

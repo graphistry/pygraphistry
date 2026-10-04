@@ -750,22 +750,38 @@ class ComputeMixin(Plottable):
         from graphistry.compute.gfql.index.wire import (
             is_index_op, is_index_op_json, index_op_from_json, apply_index_op,
         )
-        from graphistry.compute.gfql.index.cypher_ddl import parse_index_ddl
+        from graphistry.compute.gfql.index.cypher_ddl import looks_like_index_ddl, parse_index_ddl, split_leading_index_ddl
         op = None
         if is_index_op(query):
             op = query
         elif is_index_op_json(query):
             op = index_op_from_json(query)
-        elif isinstance(query, str):
-            op = parse_index_ddl(query)
+        g = self
+        if isinstance(query, str) and looks_like_index_ddl(query):
+            # leading DDL statements build first and the rest runs on the result; one statement keeps the one-op path
+            from graphistry.compute.gfql.index.wire import ShowIndexes
+            ops, rest = split_leading_index_ddl(query)
+            if ops and (rest or len(ops) > 1):
+                for ddl in ops:
+                    if isinstance(ddl, ShowIndexes):
+                        raise ValueError("SHOW GFQL INDEXES answers a table and cannot be combined with other statements")
+                    g = apply_index_op(g, ddl, engine=kwargs.get('engine', 'auto'))
+                if not rest:
+                    return g
+                query = rest
+                if args:
+                    args = (rest, *args[1:])
+                else:
+                    kwargs = {**kwargs, 'query': rest}
+            else:
+                op = parse_index_ddl(query)
         if op is not None:
             return apply_index_op(self, op, engine=kwargs.get('engine', 'auto'))
 
-        g = self
         if policy is not None:
             from graphistry.compute.gfql.index.policy import validate_index_policy
             import copy as _copy
-            g = _copy.copy(self)
+            g = _copy.copy(g)  # keep the registry a leading DDL statement just attached
             g._gfql_index_policy = validate_index_policy(policy)
         return gfql_base(g, *args, **kwargs)
     gfql.__doc__ = (gfql_base.__doc__ or "") + """
