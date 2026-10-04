@@ -8,6 +8,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [Development]
 <!-- Do Not Erase This Section - Used for tracking unreleased changes -->
 
+## [0.59.2 - 2026-10-04]
+
 ### Added
 
 - **GFQL index DDL accepts the Cypher optional spellings**: `CREATE GFQL INDEX [name] [IF NOT EXISTS] FOR <kind> [ON (col)]` and `DROP GFQL INDEX name [IF EXISTS]` parse to the same ops as the existing `ON col` / `DROP GFQL INDEX [IF EXISTS] name` forms; misplaced options (`IF EXISTS` on CREATE, `IF NOT EXISTS` on DROP, unbalanced parentheses) stay malformed.
