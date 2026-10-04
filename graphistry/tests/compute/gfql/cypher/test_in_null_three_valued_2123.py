@@ -58,21 +58,28 @@ def test_a_null_row_is_never_true_or_false_under_in(engine):
     assert _answer(engine, "t.score IN [1, 2] OR t.score IS NULL") in (["b", "c"], "declined")
 
 
-@pytest.mark.parametrize("engine", ["pandas", "polars"])
+@pytest.mark.parametrize("engine", ENGINES)
 def test_a_null_element_lets_a_match_win_and_leaves_a_miss_unknown(engine):
     assert _answer(engine, "t.score IN [2, null]") in (["b"], "declined")       # match beats unknown
     assert _answer(engine, "t.score IN [9, null]") in ([], "declined")          # no match -> unknown
+    assert _answer(engine, "t.score IN [null]") in ([], "declined")             # every row unknown
 
 
-def test_a_null_element_in_the_list_is_a_typed_error_on_cudf_today():
-    # Pre-existing and unchanged by this fix: measured on a GB10 with cudf 26.02, master and this
-    # branch both raise here, while pandas answers ['b']. Pinned so the day cuDF lowers it we know.
-    pytest.importorskip("cudf")
-    pytest.importorskip("cupy")
-    from graphistry.compute.exceptions import GFQLTypeError
-    g = _graph("cudf")
-    with pytest.raises(GFQLTypeError):
-        g.gfql("MATCH (a)-[e]->(t) WHERE t.score IN [2, null] RETURN t.id AS id", engine="cudf")
+@pytest.mark.parametrize("engine", ["pandas", "cudf"])
+def test_an_all_unknown_mask_keeps_no_row(engine):
+    # cuDF crashed here ("cudf does not support mixed types") when EVERY row's answer was null: the
+    # mask coercion filled an all-null object column. Unknown rows are excluded, so the mask is
+    # simply all-False, on both engines.
+    from graphistry.compute.gfql.row.pipeline import RowPipelineMixin
+    table = pd.DataFrame({"x": [1, 2, 3]})
+    mask = pd.Series([None, None, None], dtype=object)
+    if engine == "cudf":
+        cudf = pytest.importorskip("cudf")
+        pytest.importorskip("cupy")
+        table, mask = cudf.from_pandas(table), cudf.Series(mask)
+    out = RowPipelineMixin()._gfql_bool_mask(table, mask)
+    out = out.to_pandas() if hasattr(out, "to_pandas") else out
+    assert out.tolist() == [False, False, False] and str(out.dtype) == "bool"
 
 
 @pytest.mark.parametrize("engine", ENGINES)

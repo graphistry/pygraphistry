@@ -2892,8 +2892,8 @@ class RowPipelineMixin:
     def _gfql_bool_mask(self, table_df: Any, value: Any) -> Any:
         if hasattr(value, "astype"):
             mask = value
-            if len(mask) == 0:
-                return mask.astype(bool)  # no row to fill; cuDF rejects where(object, False)
+            if len(mask) == 0 or bool(mask.isna().all()):
+                return self._gfql_broadcast_scalar(table_df, False).astype(bool)  # nothing to keep; cuDF rejects where(object, False)
             # Avoid pandas object-dtype fillna() downcast FutureWarning while
             # keeping NA -> False semantics in a vectorized backend-agnostic way.
             if hasattr(mask, "isna") and hasattr(mask, "where"):
