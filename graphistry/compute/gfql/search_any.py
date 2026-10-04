@@ -141,8 +141,7 @@ def search_any_mask(
         s = df[c]
         m: SeriesT
         if _is_datetime_dtype(s.dtype):
-            if not regex and not case_sensitive and is_numeric_term(term) \
-                    and "cudf" not in type(s).__module__:
+            if not regex and not case_sensitive and is_numeric_term(term):
                 # a numeric term cannot straddle the render's fields, so skip the text
                 from graphistry.compute.gfql.datetime_search_index import index_for
                 m = df[c].__class__(index_for(s, temporal_tz).matches(term), index=s.index)

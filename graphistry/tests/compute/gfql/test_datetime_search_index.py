@@ -5,13 +5,16 @@ allowed to reach the same answer by another route, never a different one.
 """
 
 import itertools
+import warnings
 
 import numpy as np
 import pandas as pd
 import pytest
 
+from graphistry.compute.gfql import datetime_search_index as dsi
 from graphistry.compute.gfql.datetime_search_index import (
-    DatetimeSearchIndex, clear_cache, index_for)
+    DatetimeIndexCacheThrashWarning, DatetimeSearchIndex, clear_cache, index_for,
+    thrash_events)
 from graphistry.compute.gfql.search_any import search_any_mask
 from graphistry.compute.gfql.wysiwyg import render_datetime_pandas
 
@@ -166,3 +169,211 @@ def test_typing_a_term_one_character_at_a_time_agrees_with_the_render(sequence, 
     idx = index_for(s, tz)
     for term in sequence:
         assert np.array_equal(idx.matches(term), rendered_answer(s, tz, term)), term
+
+
+class TestTheShortcutsAreActuallyTaken:
+    """The three shortcuts are invisible in the ANSWER: a version that quietly stopped taking
+    them would still be exact, and every differential test above would still pass. These pin
+    the route instead, by counting the whole-column passes ``matches`` performs.
+    """
+
+    @staticmethod
+    def passes(monkeypatch, index, term):
+        counts = {"equal": 0, "take": 0, "logical_and": 0}
+        real = {name: getattr(np, name) for name in counts}
+
+        def counting(name):
+            def wrapper(*args, **kwargs):
+                counts[name] += 1
+                return real[name](*args, **kwargs)
+            return wrapper
+
+        for name in counts:
+            monkeypatch.setattr(np, name, counting(name))
+        index.matches(term)
+        return counts
+
+    def test_a_field_every_value_of_which_matches_reads_no_rows(self, monkeypatch):
+        """Every year in this column contains '2', so every present row matches whatever the
+        other fields hold -- the answer is the present mask and no field is evaluated."""
+        column = stamps(300, 9 * 365 * 86_400, "2020-01-01")
+        index = DatetimeSearchIndex(column, "UTC")
+        assert self.passes(monkeypatch, index, "2") == {
+            "equal": 0, "take": 0, "logical_and": 0}
+        assert index.matches("2").all()
+
+    def test_a_term_no_value_can_contain_reads_no_rows(self, monkeypatch):
+        index = DatetimeSearchIndex(stamps(300, 10 ** 7), "UTC")
+        # no scratch buffer and no final AND either: the empty answer is allocated and returned
+        assert self.passes(monkeypatch, index, "202411") == {
+            "equal": 0, "take": 0, "logical_and": 0}
+        assert not index.matches("202411").any()
+
+    def test_one_selected_value_is_a_comparison_not_a_gather(self, monkeypatch):
+        """'2024' can only be a year, and only one year renders it, so the whole search is a
+        single comparison against that year's code."""
+        column = stamps(300, 700 * 86_400, "2023-06-01")
+        index = DatetimeSearchIndex(column, "UTC")
+        assert self.passes(monkeypatch, index, "2024") == {
+            "equal": 1, "take": 0, "logical_and": 1}
+
+    def test_many_selected_values_switch_to_a_gather(self, monkeypatch):
+        """Fourteen of the sixty minutes render a '5', which is past the measured crossover, so
+        that field is served by a lookup table instead of fourteen comparisons."""
+        column = stamps(300, 300 * 86_400, "2024-01-01")
+        index = DatetimeSearchIndex(column, "UTC")
+        counts = self.passes(monkeypatch, index, "5")
+        assert counts["take"] >= 1
+        assert counts["equal"] < 14
+
+    def test_the_crossover_is_a_threshold_both_sides_of_which_are_reachable(self, monkeypatch):
+        """Guards against a threshold edited to a value that disables one branch entirely."""
+        column = stamps(300, 700 * 86_400, "2023-06-01")
+        index = DatetimeSearchIndex(column, "UTC")
+        assert 0 < index._COMPARE_UPTO < 60
+
+class TestCacheBudgetAndThrash:
+    """Two columns whose indexes together exceed the budget evict each other on every search,
+    so each keystroke rebuilds both. That is invisible in the answers -- only in the time -- so
+    the cache has to say so itself, and the budget has to be something an operator can raise
+    without a code change.
+    """
+
+    @staticmethod
+    def two_columns():
+        a = stamps(2_000, 10 ** 7)
+        return a, a + pd.Timedelta(seconds=1)
+
+    def test_the_budget_is_read_from_the_environment(self, monkeypatch):
+        monkeypatch.setenv(dsi._CACHE_BUDGET_ENV, "12345")
+        assert dsi._cache_budget_bytes() == 12345
+
+    def test_an_unusable_budget_falls_back_to_the_default(self, monkeypatch):
+        for bad in ("", "  ", "lots", "-1", "0"):
+            monkeypatch.setenv(dsi._CACHE_BUDGET_ENV, bad)
+            assert dsi._cache_budget_bytes() == dsi._CACHE_BUDGET_BYTES
+        monkeypatch.delenv(dsi._CACHE_BUDGET_ENV)
+        assert dsi._cache_budget_bytes() == dsi._CACHE_BUDGET_BYTES
+
+    def test_alternating_columns_under_budget_is_reported_as_thrash(self, monkeypatch):
+        a, b = self.two_columns()
+        clear_cache()
+        one = DatetimeSearchIndex(a, "UTC").nbytes
+        monkeypatch.setenv(dsi._CACHE_BUDGET_ENV, str(one + one // 2))   # room for one, not two
+        with pytest.warns(DatetimeIndexCacheThrashWarning):
+            for _ in range(3):
+                index_for(a, "UTC")
+                index_for(b, "UTC")
+        assert thrash_events() >= 1
+        assert len(dsi._CACHE) == 1
+
+    def test_the_warning_fires_once_but_the_count_keeps_going(self, monkeypatch):
+        a, b = self.two_columns()
+        clear_cache()
+        one = DatetimeSearchIndex(a, "UTC").nbytes
+        monkeypatch.setenv(dsi._CACHE_BUDGET_ENV, str(one + one // 2))
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            for _ in range(4):
+                index_for(a, "UTC")
+                index_for(b, "UTC")
+        ours = [w for w in caught if issubclass(w.category, DatetimeIndexCacheThrashWarning)]
+        assert len(ours) == 1
+        assert thrash_events() > 1
+
+    def test_a_budget_that_fits_both_keeps_both_and_stays_quiet(self, monkeypatch):
+        a, b = self.two_columns()
+        clear_cache()
+        one = DatetimeSearchIndex(a, "UTC").nbytes
+        monkeypatch.setenv(dsi._CACHE_BUDGET_ENV, str(3 * one))
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", DatetimeIndexCacheThrashWarning)
+            first_a = index_for(a, "UTC")
+            first_b = index_for(b, "UTC")
+            for _ in range(3):
+                assert index_for(a, "UTC") is first_a
+                assert index_for(b, "UTC") is first_b
+        assert thrash_events() == 0
+        assert len(dsi._CACHE) == 2
+
+    def test_clearing_resets_the_detector(self, monkeypatch):
+        a, b = self.two_columns()
+        clear_cache()
+        one = DatetimeSearchIndex(a, "UTC").nbytes
+        monkeypatch.setenv(dsi._CACHE_BUDGET_ENV, str(one + one // 2))
+        with pytest.warns(DatetimeIndexCacheThrashWarning):
+            for _ in range(2):
+                index_for(a, "UTC")
+                index_for(b, "UTC")
+        clear_cache()
+        assert thrash_events() == 0
+        with pytest.warns(DatetimeIndexCacheThrashWarning):      # can fire again
+            for _ in range(2):
+                index_for(a, "UTC")
+                index_for(b, "UTC")
+
+
+class TestOnCuDF:
+    """The index lives where the column lives. On a cuDF column it is cupy arrays, built and
+    matched on the device, and it must answer exactly what the cuDF render answers. cuDF is
+    UTC-only here for the same reason the render is: libcudf's ``strftime`` ignores
+    ``tz_convert``, so no other zone can be named on the GPU -- and the index declines the same
+    way rather than indexing a false zone.
+    """
+
+    GPU_SHAPES = {k: v for k, v in SHAPES.items()}
+    GPU_TERMS = [t for t in TERMS if t not in ("+01", "+1245")]   # zone-label terms; UTC only
+
+    @staticmethod
+    def rendered_gpu_answer(gs, term):
+        from graphistry.compute.gfql.wysiwyg import render_datetime_cudf
+        text = render_datetime_cudf(gs, "UTC")
+        return (text.notna() & text.fillna("").str.contains(term, regex=False)).to_numpy()
+
+    @pytest.mark.parametrize("shape", list(SHAPES))
+    def test_the_gpu_index_answers_what_the_gpu_render_answers(self, shape):
+        cudf = pytest.importorskip("cudf", reason="cuDF lane needs a GPU box")
+        gs = cudf.Series(SHAPES[shape])
+        clear_cache()
+        index = index_for(gs, "UTC")
+        assert type(index.present).__module__.startswith("cupy"), "index must live on the device"
+        for term in self.GPU_TERMS:
+            got = index.matches(term).get()
+            want = self.rendered_gpu_answer(gs, term)
+            assert np.array_equal(got, want), (shape, term)
+
+    def test_searchany_on_a_cudf_frame_takes_the_index_and_agrees_with_pandas(self, monkeypatch):
+        cudf = pytest.importorskip("cudf", reason="cuDF lane needs a GPU box")
+        from graphistry.compute.gfql import datetime_search_index as dsi
+        s = stamps(400, 3 * 10 ** 8)
+        pdf = pd.DataFrame({"when": s})
+        gdf = cudf.DataFrame({"when": cudf.Series(s)})
+        calls = []
+        real = dsi.index_for
+        monkeypatch.setattr(dsi, "index_for", lambda *a, **k: calls.append(1) or real(*a, **k))
+        clear_cache()
+        for term in ("2", "20", "2024", "05", "9999"):
+            g = search_any_mask(gdf, term).to_numpy()
+            p = search_any_mask(pdf, term).to_numpy()
+            assert np.array_equal(g, p), term
+        assert len(calls) >= 5, "a numeric term on a cuDF datetime column must reach the index"
+
+    def test_a_non_utc_zone_declines_on_cudf_instead_of_indexing_a_false_one(self):
+        cudf = pytest.importorskip("cudf", reason="cuDF lane needs a GPU box")
+        from graphistry.compute.gfql.wysiwyg import CudfTemporalTzUnsupported
+        gs = cudf.Series(stamps(50, 10 ** 7))
+        clear_cache()
+        with pytest.raises(CudfTemporalTzUnsupported):
+            index_for(gs, "America/New_York")
+        with pytest.raises(CudfTemporalTzUnsupported):
+            search_any_mask(cudf.DataFrame({"when": gs}), "2024", temporal_tz="America/New_York")
+
+    def test_host_and_device_columns_with_the_same_bytes_do_not_share_an_entry(self):
+        cudf = pytest.importorskip("cudf", reason="cuDF lane needs a GPU box")
+        from graphistry.compute.gfql.datetime_search_index import _cache_key
+        s = stamps(200, 10 ** 7)
+        host_key, device_key = _cache_key(s, "UTC"), _cache_key(cudf.Series(s), "UTC")
+        assert host_key[:4] == device_key[:4], "same instants: same digest, dtype, zone, length"
+        assert host_key[4] != device_key[4], "different device: different entry"
+        clear_cache()
+        assert index_for(s, "UTC") is not index_for(cudf.Series(s), "UTC")
