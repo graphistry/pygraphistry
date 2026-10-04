@@ -2480,6 +2480,8 @@ class RowPipelineMixin:
             return True
         if any(isinstance(value, str) for value in sample_values):
             return False  # an actual string row is forced False below; the all() cannot hold
+        if not RowPipelineMixin._gfql_sample_renders_as(sample, r"^(?:\[.*\]|\(.*\))$"):
+            return False
         text = series.astype(str)
         if not hasattr(text, "str"):
             return False
@@ -2489,6 +2491,17 @@ class RowPipelineMixin:
             actual_string = non_null & False
         list_like = series_str_match(text.str.strip(), r"^(?:\[.*\]|\(.*\))$", na=False)
         return bool(list_like.where(~null_mask, True).where(~actual_string, False).all())
+
+    @staticmethod
+    def _gfql_sample_renders_as(sample: Any, pattern: str) -> bool:  # hygiene-ok: explicit-any -- backend series sample, evaluator-wide idiom
+        """Whether every sampled value renders to text matching ``pattern``. The column rule is an
+        all-rows conjunction, so a sample that fails it rules the column out before rendering it."""
+        if not hasattr(sample, "astype"):
+            return True
+        text = sample.astype(str)
+        if not hasattr(text, "str"):
+            return True
+        return bool(series_str_match(text.str.strip(), pattern, na=False).all())
 
     @staticmethod
     def _gfql_series_is_mapping_like(series: Any) -> bool:
@@ -2510,6 +2523,8 @@ class RowPipelineMixin:
             return True
         if any(isinstance(value, str) for value in sample_values):
             return False  # an actual string row is forced False below; the all() cannot hold
+        if not RowPipelineMixin._gfql_sample_renders_as(sample_source.head(16) if hasattr(sample_source, "head") else sample_source, r"^\{.*\}$"):
+            return False
         try:
             text = series.astype(str)
         except Exception:

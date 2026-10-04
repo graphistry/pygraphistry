@@ -245,11 +245,11 @@ def order_detect_temporal_mode(series: Any) -> Optional[str]:
     non_null = series.dropna()
     if len(non_null) == 0 or not hasattr(non_null, "astype"):
         return None
-    text = non_null.astype(str)
-    if not hasattr(text, "str"):
+    # Rendering is the cost, so the sample is rendered on its own: each mode is an all-rows conjunction.
+    sample_rows = non_null.head(_GFQL_TEMPORAL_SNIFF_SAMPLE) if hasattr(non_null, "head") else non_null
+    sample = sample_rows.astype(str)
+    if not hasattr(sample, "str"):
         return None
-    # Each mode is an all-rows conjunction: a failing 16-value sample rules it out without a column scan.
-    sample = text.head(_GFQL_TEMPORAL_SNIFF_SAMPLE) if hasattr(text, "head") else text
 
     def _all_match(values: SeriesT, patterns: Tuple[str, ...]) -> bool:
         hits = series_str_fullmatch(values, patterns[0], na=False)
@@ -257,8 +257,12 @@ def order_detect_temporal_mode(series: Any) -> Optional[str]:
             hits = hits | series_str_fullmatch(values, pattern, na=False)
         return bool(hits.all())
 
-    for mode, patterns in _GFQL_TEMPORAL_TEXT_MODES:
-        if _all_match(sample, patterns) and _all_match(text, patterns):
+    candidates = [(mode, patterns) for mode, patterns in _GFQL_TEMPORAL_TEXT_MODES if _all_match(sample, patterns)]
+    if not candidates:
+        return None
+    text = non_null.astype(str)
+    for mode, patterns in candidates:
+        if _all_match(text, patterns):
             return mode
     return None
 
