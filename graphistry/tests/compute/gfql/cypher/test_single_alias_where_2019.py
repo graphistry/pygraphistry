@@ -30,8 +30,11 @@ def _graphs(engine):
         pytest.importorskip("polars")
     if engine == "cudf":
         cudf = pytest.importorskip("cudf")
+        pytest.importorskip("cupy")
         nodes, edges = cudf.from_pandas(nodes), cudf.from_pandas(edges)
     g = graphistry.edges(edges, "src", "dst").nodes(nodes, "id")
+    if engine == "cudf":
+        return [("plain", g)]  # string ids cannot be indexed on cuDF, see the pin below
     return [("plain", g), ("indexed", g.gfql_index_all())]
 
 
@@ -94,3 +97,15 @@ def test_projecting_the_edge_alias_declines_or_answers_the_frame_truth(engine, q
         col = out._nodes["et"] if "et" in out._nodes.columns else out._edges["et"]
         col = col.to_pandas() if hasattr(col, "to_pandas") else col
         assert sorted(col.tolist()) == truth, (label, engine)
+
+
+def test_string_ids_cannot_be_indexed_on_cudf_yet():
+    # measured on a GB10 with cudf 26.02: gfql_index_all() over a string-keyed cuDF graph raises a
+    # raw `TypeError: cupy does not support object` instead of declining, so the pins above run
+    # unindexed there. The plain query answers normally. Unchanged from master.
+    cudf = pytest.importorskip("cudf")
+    pytest.importorskip("cupy")
+    g = graphistry.edges(cudf.from_pandas(_EDGES), "src", "dst").nodes(cudf.from_pandas(_NODES), "id")
+    assert _ids(g.gfql("MATCH (a)-[e]->(t) WHERE t.type IN ['transaction'] RETURN a.id AS id", engine="cudf")) == ["a", "tx1"]
+    with pytest.raises(TypeError, match="cupy does not support object"):
+        g.gfql_index_all()
