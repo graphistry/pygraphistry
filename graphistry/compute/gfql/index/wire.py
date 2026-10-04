@@ -15,7 +15,9 @@ JSON convention ``{"type": ClassName, ...fields}``. They round-trip via
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Dict, Optional, Union, cast
+from typing import TYPE_CHECKING, Any, Dict, Optional, Union, cast
+
+from typing_extensions import TypeGuard
 
 from .registry import ALL_KINDS
 from .types import IndexKind
@@ -72,11 +74,15 @@ INDEX_OP_TYPES = ("CreateIndex", "DropIndex", "ShowIndexes")
 IndexOp = Union[CreateIndex, DropIndex, ShowIndexes]
 
 
-def is_index_op(obj: Any) -> bool:
+if TYPE_CHECKING:
+    from graphistry.compute.ast import ASTCall
+
+
+def is_index_op(obj: object) -> TypeGuard[IndexOp]:
     return isinstance(obj, (CreateIndex, DropIndex, ShowIndexes))
 
 
-def is_index_op_json(d: Any) -> bool:
+def is_index_op_json(d: object) -> TypeGuard[Dict[str, Any]]:
     return isinstance(d, dict) and d.get("type") in INDEX_OP_TYPES
 
 
@@ -158,3 +164,40 @@ def apply_index_op(g: Any, op: IndexOp, *, engine: Any = "auto") -> Any:
     if isinstance(op, ShowIndexes):
         return show_indexes(g, engine=engine)
     raise ValueError(f"Unknown index op: {op!r}")
+
+
+def index_op_to_call(op: IndexOp) -> "ASTCall":
+    """The ``call()`` op equivalent of an index DDL op, so DDL can sit in a chain or a ``let`` binding.
+
+    ``CreateIndex`` -> ``call('create_index', ...)``, ``DropIndex`` by kind -> ``call('drop_index', ...)``.
+    ``ShowIndexes`` answers a table, not a graph, and a drop by NAME has no method form; both are
+    rejected with the standalone form they do have.
+    """
+    from graphistry.compute.ast import ASTCall
+    from graphistry.compute.exceptions import ErrorCode, GFQLTypeError
+
+    if isinstance(op, CreateIndex):
+        params: Dict[str, Any] = {"kind": op.kind}
+        if op.column is not None:
+            params["column"] = op.column
+        if op.name is not None:
+            params["name"] = op.name
+        return ASTCall("create_index", params)
+    if isinstance(op, DropIndex):
+        if op.name is not None:
+            raise GFQLTypeError(
+                ErrorCode.E201,
+                "DropIndex by name cannot sit in a chain; drop by kind (DropIndex(kind=...)) or run g.gfql(DropIndex(name=...)) on its own",
+                field="chain", value="DropIndex",
+            )
+        params = {}
+        if op.kind is not None:
+            params["kind"] = op.kind
+        if op.column is not None:
+            params["column"] = op.column
+        return ASTCall("drop_index", params)
+    raise GFQLTypeError(
+        ErrorCode.E201,
+        "ShowIndexes answers a table, not a graph, so it cannot sit in a chain; call g.show_indexes() or g.gfql(ShowIndexes()) on its own",
+        field="chain", value="ShowIndexes",
+    )

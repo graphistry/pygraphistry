@@ -16,7 +16,7 @@ from graphistry.compute.gfql.cache_registry import register_process_singleton
 
 from functools import lru_cache
 import re
-from typing import Optional, Pattern, Tuple, cast
+from typing import List, Optional, Pattern, Tuple, cast
 
 from .types import IndexKind
 from .wire import CreateIndex, DropIndex, ShowIndexes, IndexOp
@@ -91,3 +91,42 @@ def parse_index_ddl(query: str) -> Optional[IndexOp]:
             "'SHOW GFQL INDEXES'."
         )
     return None
+
+
+_DDL_STATEMENT_PATTERN = r"^\s*(?:CREATE|DROP|SHOW)\s+GFQL\s+INDEX[^;]*;"
+
+
+@lru_cache(maxsize=1)
+def _ddl_statement_re() -> Pattern[str]:
+    return re.compile(_DDL_STATEMENT_PATTERN, re.IGNORECASE)
+
+
+register_process_singleton(_ddl_statement_re, "a compiled regex over a module-level pattern constant; function of the code alone")
+
+
+def split_leading_index_ddl(query: str) -> Tuple[List[IndexOp], str]:
+    """``CREATE GFQL INDEX ...; CREATE GFQL INDEX ...; MATCH ...`` -> the DDL ops in order, and the rest.
+
+    Only statements at the FRONT are DDL; the remainder is handed to the ordinary query path
+    untouched, so a ``;`` inside it (a string literal, say) is never split. A malformed leading
+    statement raises the same error the single-statement form does.
+    """
+    ops: List[IndexOp] = []
+    rest = query
+    while True:
+        m = _ddl_statement_re().match(rest)
+        if m is None:
+            break
+        statement = m.group(0)
+        op = parse_index_ddl(statement)
+        if op is None:  # cannot happen: the prefix matched; parse_index_ddl raises on malformed DDL
+            break
+        ops.append(op)
+        rest = rest[m.end():]
+    rest = rest.strip()
+    if ops and rest and looks_like_index_ddl(rest):
+        trailing = parse_index_ddl(rest)  # the last statement needs no ';'; malformed DDL raises here
+        if trailing is not None:
+            ops.append(trailing)
+            rest = ""
+    return ops, rest
