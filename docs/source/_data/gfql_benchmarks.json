@@ -8,10 +8,10 @@
       "disclosures": [],
       "engine": "kuzu",
       "measurement_profile": "graphbench-kuzu-execute-text-per-call",
-      "run": "graphbench-q1q9-100k-master-f283a305e-20260917",
+      "run": "graphbench-q1q9-100k-master-2d64913b5-20261003",
       "status": "ok",
       "unit": "ms",
-      "value": 142.08,
+      "value": 141.36,
       "workload": "graph-benchmark 100k q1"
     },
     "graphbench.100k.q1.memgraph": {
@@ -22,7 +22,7 @@
       "disclosures": [],
       "engine": "memgraph",
       "measurement_profile": "graphbench-memgraph-bolt-text-keyed-plan-cache",
-      "run": "graphbench-q1q9-100k-master-f283a305e-20260917",
+      "run": "graphbench-q1q9-100k-master-2d64913b5-20261003",
       "status": "ok",
       "unit": "ms",
       "value": 655.5,
@@ -36,7 +36,7 @@
       "disclosures": [],
       "engine": "neo4j",
       "measurement_profile": "graphbench-neo4j-bolt-text-keyed-plan-cache",
-      "run": "graphbench-q1q9-100k-master-f283a305e-20260917",
+      "run": "graphbench-q1q9-100k-master-2d64913b5-20261003",
       "status": "ok",
       "unit": "ms",
       "value": 680.72,
@@ -50,10 +50,10 @@
       "disclosures": [],
       "engine": "pandas",
       "measurement_profile": "graphbench-cold-binding",
-      "run": "graphbench-q1q9-100k-master-f283a305e-20260917",
+      "run": "graphbench-q1q9-100k-master-2d64913b5-20261003",
       "status": "ok",
       "unit": "ms",
-      "value": 161.76,
+      "value": 167.52,
       "workload": "graph-benchmark 100k q1"
     },
     "graphbench.100k.q1.polars": {
@@ -64,10 +64,10 @@
       "disclosures": [],
       "engine": "polars",
       "measurement_profile": "graphbench-cold-binding",
-      "run": "graphbench-q1q9-100k-master-f283a305e-20260917",
+      "run": "graphbench-q1q9-100k-master-2d64913b5-20261003",
       "status": "ok",
       "unit": "ms",
-      "value": 25.74,
+      "value": 26.0,
       "workload": "graph-benchmark 100k q1"
     },
     "graphbench.100k.q1.polars_gpu": {
@@ -78,10 +78,10 @@
       "disclosures": [],
       "engine": "polars-gpu",
       "measurement_profile": "graphbench-cold-binding",
-      "run": "graphbench-q1q9-100k-master-f283a305e-20260917",
+      "run": "graphbench-q1q9-100k-master-2d64913b5-20261003",
       "status": "ok",
       "unit": "ms",
-      "value": 17.92,
+      "value": 17.97,
       "workload": "graph-benchmark 100k q1"
     },
     "graphbench.100k.q1.polars_gpu_vs_pandas": {
@@ -95,10 +95,10 @@
         "graphbench.100k.q1.polars_gpu",
         "graphbench.100k.q1.pandas"
       ],
-      "run": "graphbench-q1q9-100k-master-f283a305e-20260917",
+      "run": "graphbench-q1q9-100k-master-2d64913b5-20261003",
       "status": "ok",
       "unit": "x",
-      "value": 9.0,
+      "value": 9.3,
       "workload": "graph-benchmark 100k q1 \u2014 GFQL-polars-gpu vs GFQL-pandas"
     },
     "graphbench.100k.q1.polars_vs_pandas": {
@@ -112,10 +112,10 @@
         "graphbench.100k.q1.polars",
         "graphbench.100k.q1.pandas"
       ],
-      "run": "graphbench-q1q9-100k-master-f283a305e-20260917",
+      "run": "graphbench-q1q9-100k-master-2d64913b5-20261003",
       "status": "ok",
       "unit": "x",
-      "value": 6.3,
+      "value": 6.4,
       "workload": "graph-benchmark 100k q1 \u2014 GFQL-polars vs GFQL-pandas"
     },
     "graphbench.100k.q2.kuzu": {
@@ -126,10 +126,10 @@
       "disclosures": [],
       "engine": "kuzu",
       "measurement_profile": "graphbench-kuzu-execute-text-per-call",
-      "run": "graphbench-q1q9-100k-master-f283a305e-20260917",
+      "run": "graphbench-q1q9-100k-master-2d64913b5-20261003",
       "status": "ok",
       "unit": "ms",
-      "value": 248.21,
+      "value": 247.44,
       "workload": "graph-benchmark 100k q2"
     },
     "graphbench.100k.q2.memgraph": {
@@ -140,7 +140,7 @@
       "disclosures": [],
       "engine": "memgraph",
       "measurement_profile": "graphbench-memgraph-bolt-text-keyed-plan-cache",
-      "run": "graphbench-q1q9-100k-master-f283a305e-20260917",
+      "run": "graphbench-q1q9-100k-master-2d64913b5-20261003",
       "status": "ok",
       "unit": "ms",
       "value": 468.94,
@@ -154,7 +154,7 @@
       "disclosures": [],
       "engine": "neo4j",
       "measurement_profile": "graphbench-neo4j-bolt-text-keyed-plan-cache",
-      "run": "graphbench-q1q9-100k-master-f283a305e-20260917",
+      "run": "graphbench-q1q9-100k-master-2d64913b5-20261003",
       "status": "ok",
       "unit": "ms",
       "value": 632.7,
@@ -168,10 +168,10 @@
       "disclosures": [],
       "engine": "pandas",
       "measurement_profile": "graphbench-cold-binding",
-      "run": "graphbench-q1q9-100k-master-f283a305e-20260917",
+      "run": "graphbench-q1q9-100k-master-2d64913b5-20261003",
       "status": "ok",
       "unit": "ms",
-      "value": 166.45,
+      "value": 172.07,
       "workload": "graph-benchmark 100k q2"
     },
     "graphbench.100k.q2.polars": {
@@ -182,10 +182,10 @@
       "disclosures": [],
       "engine": "polars",
       "measurement_profile": "graphbench-cold-binding",
-      "run": "graphbench-q1q9-100k-master-f283a305e-20260917",
+      "run": "graphbench-q1q9-100k-master-2d64913b5-20261003",
       "status": "ok",
       "unit": "ms",
-      "value": 34.97,
+      "value": 35.1,
       "workload": "graph-benchmark 100k q2"
     },
     "graphbench.100k.q2.polars_gpu": {
@@ -196,10 +196,10 @@
       "disclosures": [],
       "engine": "polars-gpu",
       "measurement_profile": "graphbench-cold-binding",
-      "run": "graphbench-q1q9-100k-master-f283a305e-20260917",
+      "run": "graphbench-q1q9-100k-master-2d64913b5-20261003",
       "status": "ok",
       "unit": "ms",
-      "value": 26.96,
+      "value": 27.02,
       "workload": "graph-benchmark 100k q2"
     },
     "graphbench.100k.q2.polars_gpu_vs_pandas": {
@@ -213,10 +213,10 @@
         "graphbench.100k.q2.polars_gpu",
         "graphbench.100k.q2.pandas"
       ],
-      "run": "graphbench-q1q9-100k-master-f283a305e-20260917",
+      "run": "graphbench-q1q9-100k-master-2d64913b5-20261003",
       "status": "ok",
       "unit": "x",
-      "value": 6.2,
+      "value": 6.4,
       "workload": "graph-benchmark 100k q2 \u2014 GFQL-polars-gpu vs GFQL-pandas"
     },
     "graphbench.100k.q2.polars_vs_pandas": {
@@ -230,10 +230,10 @@
         "graphbench.100k.q2.polars",
         "graphbench.100k.q2.pandas"
       ],
-      "run": "graphbench-q1q9-100k-master-f283a305e-20260917",
+      "run": "graphbench-q1q9-100k-master-2d64913b5-20261003",
       "status": "ok",
       "unit": "x",
-      "value": 4.8,
+      "value": 4.9,
       "workload": "graph-benchmark 100k q2 \u2014 GFQL-polars vs GFQL-pandas"
     },
     "graphbench.100k.q3.kuzu": {
@@ -244,10 +244,10 @@
       "disclosures": [],
       "engine": "kuzu",
       "measurement_profile": "graphbench-kuzu-execute-text-per-call",
-      "run": "graphbench-q1q9-100k-master-f283a305e-20260917",
+      "run": "graphbench-q1q9-100k-master-2d64913b5-20261003",
       "status": "ok",
       "unit": "ms",
-      "value": 23.58,
+      "value": 23.6,
       "workload": "graph-benchmark 100k q3"
     },
     "graphbench.100k.q3.memgraph": {
@@ -258,7 +258,7 @@
       "disclosures": [],
       "engine": "memgraph",
       "measurement_profile": "graphbench-memgraph-bolt-text-keyed-plan-cache",
-      "run": "graphbench-q1q9-100k-master-f283a305e-20260917",
+      "run": "graphbench-q1q9-100k-master-2d64913b5-20261003",
       "status": "ok",
       "unit": "ms",
       "value": 30.17,
@@ -272,7 +272,7 @@
       "disclosures": [],
       "engine": "neo4j",
       "measurement_profile": "graphbench-neo4j-bolt-text-keyed-plan-cache",
-      "run": "graphbench-q1q9-100k-master-f283a305e-20260917",
+      "run": "graphbench-q1q9-100k-master-2d64913b5-20261003",
       "status": "ok",
       "unit": "ms",
       "value": 51.14,
@@ -286,10 +286,10 @@
       "disclosures": [],
       "engine": "pandas",
       "measurement_profile": "graphbench-cold-binding",
-      "run": "graphbench-q1q9-100k-master-f283a305e-20260917",
+      "run": "graphbench-q1q9-100k-master-2d64913b5-20261003",
       "status": "ok",
       "unit": "ms",
-      "value": 69.86,
+      "value": 70.37,
       "workload": "graph-benchmark 100k q3"
     },
     "graphbench.100k.q3.polars": {
@@ -300,10 +300,10 @@
       "disclosures": [],
       "engine": "polars",
       "measurement_profile": "graphbench-cold-binding",
-      "run": "graphbench-q1q9-100k-master-f283a305e-20260917",
+      "run": "graphbench-q1q9-100k-master-2d64913b5-20261003",
       "status": "ok",
       "unit": "ms",
-      "value": 8.58,
+      "value": 8.92,
       "workload": "graph-benchmark 100k q3"
     },
     "graphbench.100k.q3.polars_gpu": {
@@ -314,10 +314,10 @@
       "disclosures": [],
       "engine": "polars-gpu",
       "measurement_profile": "graphbench-cold-binding",
-      "run": "graphbench-q1q9-100k-master-f283a305e-20260917",
+      "run": "graphbench-q1q9-100k-master-2d64913b5-20261003",
       "status": "ok",
       "unit": "ms",
-      "value": 9.55,
+      "value": 9.51,
       "workload": "graph-benchmark 100k q3"
     },
     "graphbench.100k.q3.polars_gpu_vs_pandas": {
@@ -331,10 +331,10 @@
         "graphbench.100k.q3.polars_gpu",
         "graphbench.100k.q3.pandas"
       ],
-      "run": "graphbench-q1q9-100k-master-f283a305e-20260917",
+      "run": "graphbench-q1q9-100k-master-2d64913b5-20261003",
       "status": "ok",
       "unit": "x",
-      "value": 7.3,
+      "value": 7.4,
       "workload": "graph-benchmark 100k q3 \u2014 GFQL-polars-gpu vs GFQL-pandas"
     },
     "graphbench.100k.q3.polars_vs_pandas": {
@@ -348,10 +348,10 @@
         "graphbench.100k.q3.polars",
         "graphbench.100k.q3.pandas"
       ],
-      "run": "graphbench-q1q9-100k-master-f283a305e-20260917",
+      "run": "graphbench-q1q9-100k-master-2d64913b5-20261003",
       "status": "ok",
       "unit": "x",
-      "value": 8.1,
+      "value": 7.9,
       "workload": "graph-benchmark 100k q3 \u2014 GFQL-polars vs GFQL-pandas"
     },
     "graphbench.100k.q4.kuzu": {
@@ -362,10 +362,10 @@
       "disclosures": [],
       "engine": "kuzu",
       "measurement_profile": "graphbench-kuzu-execute-text-per-call",
-      "run": "graphbench-q1q9-100k-master-f283a305e-20260917",
+      "run": "graphbench-q1q9-100k-master-2d64913b5-20261003",
       "status": "ok",
       "unit": "ms",
-      "value": 10.08,
+      "value": 10.42,
       "workload": "graph-benchmark 100k q4"
     },
     "graphbench.100k.q4.memgraph": {
@@ -376,7 +376,7 @@
       "disclosures": [],
       "engine": "memgraph",
       "measurement_profile": "graphbench-memgraph-bolt-text-keyed-plan-cache",
-      "run": "graphbench-q1q9-100k-master-f283a305e-20260917",
+      "run": "graphbench-q1q9-100k-master-2d64913b5-20261003",
       "status": "ok",
       "unit": "ms",
       "value": 37.64,
@@ -390,7 +390,7 @@
       "disclosures": [],
       "engine": "neo4j",
       "measurement_profile": "graphbench-neo4j-bolt-text-keyed-plan-cache",
-      "run": "graphbench-q1q9-100k-master-f283a305e-20260917",
+      "run": "graphbench-q1q9-100k-master-2d64913b5-20261003",
       "status": "ok",
       "unit": "ms",
       "value": 63.76,
@@ -404,10 +404,10 @@
       "disclosures": [],
       "engine": "pandas",
       "measurement_profile": "graphbench-cold-binding",
-      "run": "graphbench-q1q9-100k-master-f283a305e-20260917",
+      "run": "graphbench-q1q9-100k-master-2d64913b5-20261003",
       "status": "ok",
       "unit": "ms",
-      "value": 62.28,
+      "value": 62.84,
       "workload": "graph-benchmark 100k q4"
     },
     "graphbench.100k.q4.polars": {
@@ -418,10 +418,10 @@
       "disclosures": [],
       "engine": "polars",
       "measurement_profile": "graphbench-cold-binding",
-      "run": "graphbench-q1q9-100k-master-f283a305e-20260917",
+      "run": "graphbench-q1q9-100k-master-2d64913b5-20261003",
       "status": "ok",
       "unit": "ms",
-      "value": 7.79,
+      "value": 7.81,
       "workload": "graph-benchmark 100k q4"
     },
     "graphbench.100k.q4.polars_gpu": {
@@ -432,10 +432,10 @@
       "disclosures": [],
       "engine": "polars-gpu",
       "measurement_profile": "graphbench-cold-binding",
-      "run": "graphbench-q1q9-100k-master-f283a305e-20260917",
+      "run": "graphbench-q1q9-100k-master-2d64913b5-20261003",
       "status": "ok",
       "unit": "ms",
-      "value": 9.68,
+      "value": 9.92,
       "workload": "graph-benchmark 100k q4"
     },
     "graphbench.100k.q4.polars_gpu_vs_pandas": {
@@ -449,10 +449,10 @@
         "graphbench.100k.q4.polars_gpu",
         "graphbench.100k.q4.pandas"
       ],
-      "run": "graphbench-q1q9-100k-master-f283a305e-20260917",
+      "run": "graphbench-q1q9-100k-master-2d64913b5-20261003",
       "status": "ok",
       "unit": "x",
-      "value": 6.4,
+      "value": 6.3,
       "workload": "graph-benchmark 100k q4 \u2014 GFQL-polars-gpu vs GFQL-pandas"
     },
     "graphbench.100k.q4.polars_vs_pandas": {
@@ -466,7 +466,7 @@
         "graphbench.100k.q4.polars",
         "graphbench.100k.q4.pandas"
       ],
-      "run": "graphbench-q1q9-100k-master-f283a305e-20260917",
+      "run": "graphbench-q1q9-100k-master-2d64913b5-20261003",
       "status": "ok",
       "unit": "x",
       "value": 8.0,
@@ -480,10 +480,10 @@
       "disclosures": [],
       "engine": "kuzu",
       "measurement_profile": "graphbench-kuzu-execute-text-per-call",
-      "run": "graphbench-q1q9-100k-master-f283a305e-20260917",
+      "run": "graphbench-q1q9-100k-master-2d64913b5-20261003",
       "status": "ok",
       "unit": "ms",
-      "value": 12.65,
+      "value": 12.41,
       "workload": "graph-benchmark 100k q5"
     },
     "graphbench.100k.q5.memgraph": {
@@ -494,7 +494,7 @@
       "disclosures": [],
       "engine": "memgraph",
       "measurement_profile": "graphbench-memgraph-bolt-text-keyed-plan-cache",
-      "run": "graphbench-q1q9-100k-master-f283a305e-20260917",
+      "run": "graphbench-q1q9-100k-master-2d64913b5-20261003",
       "status": "ok",
       "unit": "ms",
       "value": 3.95,
@@ -508,7 +508,7 @@
       "disclosures": [],
       "engine": "neo4j",
       "measurement_profile": "graphbench-neo4j-bolt-text-keyed-plan-cache",
-      "run": "graphbench-q1q9-100k-master-f283a305e-20260917",
+      "run": "graphbench-q1q9-100k-master-2d64913b5-20261003",
       "status": "ok",
       "unit": "ms",
       "value": 8.96,
@@ -522,10 +522,10 @@
       "disclosures": [],
       "engine": "pandas",
       "measurement_profile": "graphbench-cold-binding",
-      "run": "graphbench-q1q9-100k-master-f283a305e-20260917",
+      "run": "graphbench-q1q9-100k-master-2d64913b5-20261003",
       "status": "ok",
       "unit": "ms",
-      "value": 394.65,
+      "value": 403.62,
       "workload": "graph-benchmark 100k q5"
     },
     "graphbench.100k.q5.polars": {
@@ -536,10 +536,10 @@
       "disclosures": [],
       "engine": "polars",
       "measurement_profile": "graphbench-cold-binding",
-      "run": "graphbench-q1q9-100k-master-f283a305e-20260917",
+      "run": "graphbench-q1q9-100k-master-2d64913b5-20261003",
       "status": "ok",
       "unit": "ms",
-      "value": 7.57,
+      "value": 7.66,
       "workload": "graph-benchmark 100k q5"
     },
     "graphbench.100k.q5.polars_gpu": {
@@ -550,10 +550,10 @@
       "disclosures": [],
       "engine": "polars-gpu",
       "measurement_profile": "graphbench-cold-binding",
-      "run": "graphbench-q1q9-100k-master-f283a305e-20260917",
+      "run": "graphbench-q1q9-100k-master-2d64913b5-20261003",
       "status": "ok",
       "unit": "ms",
-      "value": 13.24,
+      "value": 13.67,
       "workload": "graph-benchmark 100k q5"
     },
     "graphbench.100k.q5.polars_gpu_vs_pandas": {
@@ -567,10 +567,10 @@
         "graphbench.100k.q5.polars_gpu",
         "graphbench.100k.q5.pandas"
       ],
-      "run": "graphbench-q1q9-100k-master-f283a305e-20260917",
+      "run": "graphbench-q1q9-100k-master-2d64913b5-20261003",
       "status": "ok",
       "unit": "x",
-      "value": 29.8,
+      "value": 29.5,
       "workload": "graph-benchmark 100k q5 \u2014 GFQL-polars-gpu vs GFQL-pandas"
     },
     "graphbench.100k.q5.polars_vs_pandas": {
@@ -584,10 +584,10 @@
         "graphbench.100k.q5.polars",
         "graphbench.100k.q5.pandas"
       ],
-      "run": "graphbench-q1q9-100k-master-f283a305e-20260917",
+      "run": "graphbench-q1q9-100k-master-2d64913b5-20261003",
       "status": "ok",
       "unit": "x",
-      "value": 52.1,
+      "value": 52.7,
       "workload": "graph-benchmark 100k q5 \u2014 GFQL-polars vs GFQL-pandas"
     },
     "graphbench.100k.q6.kuzu": {
@@ -598,10 +598,10 @@
       "disclosures": [],
       "engine": "kuzu",
       "measurement_profile": "graphbench-kuzu-execute-text-per-call",
-      "run": "graphbench-q1q9-100k-master-f283a305e-20260917",
+      "run": "graphbench-q1q9-100k-master-2d64913b5-20261003",
       "status": "ok",
       "unit": "ms",
-      "value": 16.07,
+      "value": 16.53,
       "workload": "graph-benchmark 100k q6"
     },
     "graphbench.100k.q6.memgraph": {
@@ -612,7 +612,7 @@
       "disclosures": [],
       "engine": "memgraph",
       "measurement_profile": "graphbench-memgraph-bolt-text-keyed-plan-cache",
-      "run": "graphbench-q1q9-100k-master-f283a305e-20260917",
+      "run": "graphbench-q1q9-100k-master-2d64913b5-20261003",
       "status": "ok",
       "unit": "ms",
       "value": 5.14,
@@ -626,7 +626,7 @@
       "disclosures": [],
       "engine": "neo4j",
       "measurement_profile": "graphbench-neo4j-bolt-text-keyed-plan-cache",
-      "run": "graphbench-q1q9-100k-master-f283a305e-20260917",
+      "run": "graphbench-q1q9-100k-master-2d64913b5-20261003",
       "status": "ok",
       "unit": "ms",
       "value": 22.94,
@@ -640,10 +640,10 @@
       "disclosures": [],
       "engine": "pandas",
       "measurement_profile": "graphbench-cold-binding",
-      "run": "graphbench-q1q9-100k-master-f283a305e-20260917",
+      "run": "graphbench-q1q9-100k-master-2d64913b5-20261003",
       "status": "ok",
       "unit": "ms",
-      "value": 397.87,
+      "value": 406.5,
       "workload": "graph-benchmark 100k q6"
     },
     "graphbench.100k.q6.polars": {
@@ -654,10 +654,10 @@
       "disclosures": [],
       "engine": "polars",
       "measurement_profile": "graphbench-cold-binding",
-      "run": "graphbench-q1q9-100k-master-f283a305e-20260917",
+      "run": "graphbench-q1q9-100k-master-2d64913b5-20261003",
       "status": "ok",
       "unit": "ms",
-      "value": 8.65,
+      "value": 8.67,
       "workload": "graph-benchmark 100k q6"
     },
     "graphbench.100k.q6.polars_gpu": {
@@ -668,10 +668,10 @@
       "disclosures": [],
       "engine": "polars-gpu",
       "measurement_profile": "graphbench-cold-binding",
-      "run": "graphbench-q1q9-100k-master-f283a305e-20260917",
+      "run": "graphbench-q1q9-100k-master-2d64913b5-20261003",
       "status": "ok",
       "unit": "ms",
-      "value": 11.89,
+      "value": 14.53,
       "workload": "graph-benchmark 100k q6"
     },
     "graphbench.100k.q6.polars_gpu_vs_pandas": {
@@ -685,10 +685,10 @@
         "graphbench.100k.q6.polars_gpu",
         "graphbench.100k.q6.pandas"
       ],
-      "run": "graphbench-q1q9-100k-master-f283a305e-20260917",
+      "run": "graphbench-q1q9-100k-master-2d64913b5-20261003",
       "status": "ok",
       "unit": "x",
-      "value": 33.5,
+      "value": 28.0,
       "workload": "graph-benchmark 100k q6 \u2014 GFQL-polars-gpu vs GFQL-pandas"
     },
     "graphbench.100k.q6.polars_vs_pandas": {
@@ -702,10 +702,10 @@
         "graphbench.100k.q6.polars",
         "graphbench.100k.q6.pandas"
       ],
-      "run": "graphbench-q1q9-100k-master-f283a305e-20260917",
+      "run": "graphbench-q1q9-100k-master-2d64913b5-20261003",
       "status": "ok",
       "unit": "x",
-      "value": 46.0,
+      "value": 46.9,
       "workload": "graph-benchmark 100k q6 \u2014 GFQL-polars vs GFQL-pandas"
     },
     "graphbench.100k.q7.kuzu": {
@@ -716,10 +716,10 @@
       "disclosures": [],
       "engine": "kuzu",
       "measurement_profile": "graphbench-kuzu-execute-text-per-call",
-      "run": "graphbench-q1q9-100k-master-f283a305e-20260917",
+      "run": "graphbench-q1q9-100k-master-2d64913b5-20261003",
       "status": "ok",
       "unit": "ms",
-      "value": 8.18,
+      "value": 7.83,
       "workload": "graph-benchmark 100k q7"
     },
     "graphbench.100k.q7.memgraph": {
@@ -730,7 +730,7 @@
       "disclosures": [],
       "engine": "memgraph",
       "measurement_profile": "graphbench-memgraph-bolt-text-keyed-plan-cache",
-      "run": "graphbench-q1q9-100k-master-f283a305e-20260917",
+      "run": "graphbench-q1q9-100k-master-2d64913b5-20261003",
       "status": "ok",
       "unit": "ms",
       "value": 3.74,
@@ -744,7 +744,7 @@
       "disclosures": [],
       "engine": "neo4j",
       "measurement_profile": "graphbench-neo4j-bolt-text-keyed-plan-cache",
-      "run": "graphbench-q1q9-100k-master-f283a305e-20260917",
+      "run": "graphbench-q1q9-100k-master-2d64913b5-20261003",
       "status": "ok",
       "unit": "ms",
       "value": 140.18,
@@ -758,10 +758,10 @@
       "disclosures": [],
       "engine": "pandas",
       "measurement_profile": "graphbench-cold-binding",
-      "run": "graphbench-q1q9-100k-master-f283a305e-20260917",
+      "run": "graphbench-q1q9-100k-master-2d64913b5-20261003",
       "status": "ok",
       "unit": "ms",
-      "value": 112.27,
+      "value": 114.2,
       "workload": "graph-benchmark 100k q7"
     },
     "graphbench.100k.q7.polars": {
@@ -772,10 +772,10 @@
       "disclosures": [],
       "engine": "polars",
       "measurement_profile": "graphbench-cold-binding",
-      "run": "graphbench-q1q9-100k-master-f283a305e-20260917",
+      "run": "graphbench-q1q9-100k-master-2d64913b5-20261003",
       "status": "ok",
       "unit": "ms",
-      "value": 5.62,
+      "value": 5.66,
       "workload": "graph-benchmark 100k q7"
     },
     "graphbench.100k.q7.polars_gpu": {
@@ -786,10 +786,10 @@
       "disclosures": [],
       "engine": "polars-gpu",
       "measurement_profile": "graphbench-cold-binding",
-      "run": "graphbench-q1q9-100k-master-f283a305e-20260917",
+      "run": "graphbench-q1q9-100k-master-2d64913b5-20261003",
       "status": "ok",
       "unit": "ms",
-      "value": 13.45,
+      "value": 13.8,
       "workload": "graph-benchmark 100k q7"
     },
     "graphbench.100k.q7.polars_gpu_vs_pandas": {
@@ -803,7 +803,7 @@
         "graphbench.100k.q7.polars_gpu",
         "graphbench.100k.q7.pandas"
       ],
-      "run": "graphbench-q1q9-100k-master-f283a305e-20260917",
+      "run": "graphbench-q1q9-100k-master-2d64913b5-20261003",
       "status": "ok",
       "unit": "x",
       "value": 8.3,
@@ -820,10 +820,10 @@
         "graphbench.100k.q7.polars",
         "graphbench.100k.q7.pandas"
       ],
-      "run": "graphbench-q1q9-100k-master-f283a305e-20260917",
+      "run": "graphbench-q1q9-100k-master-2d64913b5-20261003",
       "status": "ok",
       "unit": "x",
-      "value": 20.0,
+      "value": 20.2,
       "workload": "graph-benchmark 100k q7 \u2014 GFQL-polars vs GFQL-pandas"
     },
     "graphbench.100k.q8.kuzu": {
@@ -834,10 +834,10 @@
       "disclosures": [],
       "engine": "kuzu",
       "measurement_profile": "graphbench-kuzu-execute-text-per-call",
-      "run": "graphbench-q1q9-100k-master-f283a305e-20260917",
+      "run": "graphbench-q1q9-100k-master-2d64913b5-20261003",
       "status": "ok",
       "unit": "ms",
-      "value": 9.03,
+      "value": 9.1,
       "workload": "graph-benchmark 100k q8"
     },
     "graphbench.100k.q8.memgraph": {
@@ -848,7 +848,7 @@
       "disclosures": [],
       "engine": "memgraph",
       "measurement_profile": "graphbench-memgraph-bolt-text-keyed-plan-cache",
-      "run": "graphbench-q1q9-100k-master-f283a305e-20260917",
+      "run": "graphbench-q1q9-100k-master-2d64913b5-20261003",
       "status": "ok",
       "unit": "ms",
       "value": 7316.46,
@@ -862,7 +862,7 @@
       "disclosures": [],
       "engine": "neo4j",
       "measurement_profile": "graphbench-neo4j-bolt-text-keyed-plan-cache",
-      "run": "graphbench-q1q9-100k-master-f283a305e-20260917",
+      "run": "graphbench-q1q9-100k-master-2d64913b5-20261003",
       "status": "ok",
       "unit": "ms",
       "value": 3766.74,
@@ -876,10 +876,10 @@
       "disclosures": [],
       "engine": "pandas",
       "measurement_profile": "graphbench-cold-binding",
-      "run": "graphbench-q1q9-100k-master-f283a305e-20260917",
+      "run": "graphbench-q1q9-100k-master-2d64913b5-20261003",
       "status": "ok",
       "unit": "ms",
-      "value": 75.97,
+      "value": 78.05,
       "workload": "graph-benchmark 100k q8"
     },
     "graphbench.100k.q8.polars": {
@@ -890,10 +890,10 @@
       "disclosures": [],
       "engine": "polars",
       "measurement_profile": "graphbench-cold-binding",
-      "run": "graphbench-q1q9-100k-master-f283a305e-20260917",
+      "run": "graphbench-q1q9-100k-master-2d64913b5-20261003",
       "status": "ok",
       "unit": "ms",
-      "value": 13.1,
+      "value": 13.27,
       "workload": "graph-benchmark 100k q8"
     },
     "graphbench.100k.q8.polars_gpu": {
@@ -904,10 +904,10 @@
       "disclosures": [],
       "engine": "polars-gpu",
       "measurement_profile": "graphbench-cold-binding",
-      "run": "graphbench-q1q9-100k-master-f283a305e-20260917",
+      "run": "graphbench-q1q9-100k-master-2d64913b5-20261003",
       "status": "ok",
       "unit": "ms",
-      "value": 170.56,
+      "value": 177.64,
       "workload": "graph-benchmark 100k q8"
     },
     "graphbench.100k.q8.polars_gpu_vs_pandas": {
@@ -921,7 +921,7 @@
         "graphbench.100k.q8.polars_gpu",
         "graphbench.100k.q8.pandas"
       ],
-      "run": "graphbench-q1q9-100k-master-f283a305e-20260917",
+      "run": "graphbench-q1q9-100k-master-2d64913b5-20261003",
       "status": "ok",
       "unit": "x",
       "value": 0.4,
@@ -938,10 +938,10 @@
         "graphbench.100k.q8.polars",
         "graphbench.100k.q8.pandas"
       ],
-      "run": "graphbench-q1q9-100k-master-f283a305e-20260917",
+      "run": "graphbench-q1q9-100k-master-2d64913b5-20261003",
       "status": "ok",
       "unit": "x",
-      "value": 5.8,
+      "value": 5.9,
       "workload": "graph-benchmark 100k q8 \u2014 GFQL-polars vs GFQL-pandas"
     },
     "graphbench.100k.q9.kuzu": {
@@ -952,10 +952,10 @@
       "disclosures": [],
       "engine": "kuzu",
       "measurement_profile": "graphbench-kuzu-execute-text-per-call",
-      "run": "graphbench-q1q9-100k-master-f283a305e-20260917",
+      "run": "graphbench-q1q9-100k-master-2d64913b5-20261003",
       "status": "ok",
       "unit": "ms",
-      "value": 80.4,
+      "value": 80.25,
       "workload": "graph-benchmark 100k q9"
     },
     "graphbench.100k.q9.memgraph": {
@@ -966,7 +966,7 @@
       "disclosures": [],
       "engine": "memgraph",
       "measurement_profile": "graphbench-memgraph-bolt-text-keyed-plan-cache",
-      "run": "graphbench-q1q9-100k-master-f283a305e-20260917",
+      "run": "graphbench-q1q9-100k-master-2d64913b5-20261003",
       "status": "ok",
       "unit": "ms",
       "value": 6199.8,
@@ -980,7 +980,7 @@
       "disclosures": [],
       "engine": "neo4j",
       "measurement_profile": "graphbench-neo4j-bolt-text-keyed-plan-cache",
-      "run": "graphbench-q1q9-100k-master-f283a305e-20260917",
+      "run": "graphbench-q1q9-100k-master-2d64913b5-20261003",
       "status": "ok",
       "unit": "ms",
       "value": 4843.46,
@@ -994,10 +994,10 @@
       "disclosures": [],
       "engine": "pandas",
       "measurement_profile": "graphbench-cold-binding",
-      "run": "graphbench-q1q9-100k-master-f283a305e-20260917",
+      "run": "graphbench-q1q9-100k-master-2d64913b5-20261003",
       "status": "ok",
       "unit": "ms",
-      "value": 137.4,
+      "value": 141.98,
       "workload": "graph-benchmark 100k q9"
     },
     "graphbench.100k.q9.polars": {
@@ -1008,10 +1008,10 @@
       "disclosures": [],
       "engine": "polars",
       "measurement_profile": "graphbench-cold-binding",
-      "run": "graphbench-q1q9-100k-master-f283a305e-20260917",
+      "run": "graphbench-q1q9-100k-master-2d64913b5-20261003",
       "status": "ok",
       "unit": "ms",
-      "value": 37.95,
+      "value": 37.53,
       "workload": "graph-benchmark 100k q9"
     },
     "graphbench.100k.q9.polars_gpu": {
@@ -1022,10 +1022,10 @@
       "disclosures": [],
       "engine": "polars-gpu",
       "measurement_profile": "graphbench-cold-binding",
-      "run": "graphbench-q1q9-100k-master-f283a305e-20260917",
+      "run": "graphbench-q1q9-100k-master-2d64913b5-20261003",
       "status": "ok",
       "unit": "ms",
-      "value": 23.81,
+      "value": 23.72,
       "workload": "graph-benchmark 100k q9"
     },
     "graphbench.100k.q9.polars_gpu_vs_pandas": {
@@ -1039,10 +1039,10 @@
         "graphbench.100k.q9.polars_gpu",
         "graphbench.100k.q9.pandas"
       ],
-      "run": "graphbench-q1q9-100k-master-f283a305e-20260917",
+      "run": "graphbench-q1q9-100k-master-2d64913b5-20261003",
       "status": "ok",
       "unit": "x",
-      "value": 5.8,
+      "value": 6.0,
       "workload": "graph-benchmark 100k q9 \u2014 GFQL-polars-gpu vs GFQL-pandas"
     },
     "graphbench.100k.q9.polars_vs_pandas": {
@@ -1056,10 +1056,10 @@
         "graphbench.100k.q9.polars",
         "graphbench.100k.q9.pandas"
       ],
-      "run": "graphbench-q1q9-100k-master-f283a305e-20260917",
+      "run": "graphbench-q1q9-100k-master-2d64913b5-20261003",
       "status": "ok",
       "unit": "x",
-      "value": 3.6,
+      "value": 3.8,
       "workload": "graph-benchmark 100k q9 \u2014 GFQL-polars vs GFQL-pandas"
     },
     "graphbench.20k.q1.kuzu": {
@@ -1070,10 +1070,10 @@
       "disclosures": [],
       "engine": "kuzu",
       "measurement_profile": "graphbench-kuzu-execute-text-per-call",
-      "run": "graphbench-q1q9-20k-master-f283a305e-20260917",
+      "run": "graphbench-q1q9-20k-master-2d64913b5-20261003",
       "status": "ok",
       "unit": "ms",
-      "value": 14.69,
+      "value": 14.93,
       "workload": "graph-benchmark 20k q1"
     },
     "graphbench.20k.q1.memgraph": {
@@ -1084,7 +1084,7 @@
       "disclosures": [],
       "engine": "memgraph",
       "measurement_profile": "graphbench-memgraph-bolt-text-keyed-plan-cache",
-      "run": "graphbench-q1q9-20k-master-f283a305e-20260917",
+      "run": "graphbench-q1q9-20k-master-2d64913b5-20261003",
       "status": "ok",
       "unit": "ms",
       "value": 66.08,
@@ -1098,7 +1098,7 @@
       "disclosures": [],
       "engine": "neo4j",
       "measurement_profile": "graphbench-neo4j-bolt-text-keyed-plan-cache",
-      "run": "graphbench-q1q9-20k-master-f283a305e-20260917",
+      "run": "graphbench-q1q9-20k-master-2d64913b5-20261003",
       "status": "ok",
       "unit": "ms",
       "value": 74.5,
@@ -1112,10 +1112,10 @@
       "disclosures": [],
       "engine": "pandas",
       "measurement_profile": "graphbench-cold-binding",
-      "run": "graphbench-q1q9-20k-master-f283a305e-20260917",
+      "run": "graphbench-q1q9-20k-master-2d64913b5-20261003",
       "status": "ok",
       "unit": "ms",
-      "value": 27.34,
+      "value": 27.09,
       "workload": "graph-benchmark 20k q1"
     },
     "graphbench.20k.q1.polars": {
@@ -1126,10 +1126,10 @@
       "disclosures": [],
       "engine": "polars",
       "measurement_profile": "graphbench-cold-binding",
-      "run": "graphbench-q1q9-20k-master-f283a305e-20260917",
+      "run": "graphbench-q1q9-20k-master-2d64913b5-20261003",
       "status": "ok",
       "unit": "ms",
-      "value": 6.74,
+      "value": 6.89,
       "workload": "graph-benchmark 20k q1"
     },
     "graphbench.20k.q1.polars_gpu": {
@@ -1140,10 +1140,10 @@
       "disclosures": [],
       "engine": "polars-gpu",
       "measurement_profile": "graphbench-cold-binding",
-      "run": "graphbench-q1q9-20k-master-f283a305e-20260917",
+      "run": "graphbench-q1q9-20k-master-2d64913b5-20261003",
       "status": "ok",
       "unit": "ms",
-      "value": 6.18,
+      "value": 6.05,
       "workload": "graph-benchmark 20k q1"
     },
     "graphbench.20k.q1.polars_gpu_vs_pandas": {
@@ -1157,10 +1157,10 @@
         "graphbench.20k.q1.polars_gpu",
         "graphbench.20k.q1.pandas"
       ],
-      "run": "graphbench-q1q9-20k-master-f283a305e-20260917",
+      "run": "graphbench-q1q9-20k-master-2d64913b5-20261003",
       "status": "ok",
       "unit": "x",
-      "value": 4.4,
+      "value": 4.5,
       "workload": "graph-benchmark 20k q1 \u2014 GFQL-polars-gpu vs GFQL-pandas"
     },
     "graphbench.20k.q1.polars_vs_pandas": {
@@ -1174,10 +1174,10 @@
         "graphbench.20k.q1.polars",
         "graphbench.20k.q1.pandas"
       ],
-      "run": "graphbench-q1q9-20k-master-f283a305e-20260917",
+      "run": "graphbench-q1q9-20k-master-2d64913b5-20261003",
       "status": "ok",
       "unit": "x",
-      "value": 4.1,
+      "value": 3.9,
       "workload": "graph-benchmark 20k q1 \u2014 GFQL-polars vs GFQL-pandas"
     },
     "graphbench.20k.q2.kuzu": {
@@ -1188,10 +1188,10 @@
       "disclosures": [],
       "engine": "kuzu",
       "measurement_profile": "graphbench-kuzu-execute-text-per-call",
-      "run": "graphbench-q1q9-20k-master-f283a305e-20260917",
+      "run": "graphbench-q1q9-20k-master-2d64913b5-20261003",
       "status": "ok",
       "unit": "ms",
-      "value": 26.89,
+      "value": 27.08,
       "workload": "graph-benchmark 20k q2"
     },
     "graphbench.20k.q2.memgraph": {
@@ -1202,7 +1202,7 @@
       "disclosures": [],
       "engine": "memgraph",
       "measurement_profile": "graphbench-memgraph-bolt-text-keyed-plan-cache",
-      "run": "graphbench-q1q9-20k-master-f283a305e-20260917",
+      "run": "graphbench-q1q9-20k-master-2d64913b5-20261003",
       "status": "ok",
       "unit": "ms",
       "value": 44.41,
@@ -1216,7 +1216,7 @@
       "disclosures": [],
       "engine": "neo4j",
       "measurement_profile": "graphbench-neo4j-bolt-text-keyed-plan-cache",
-      "run": "graphbench-q1q9-20k-master-f283a305e-20260917",
+      "run": "graphbench-q1q9-20k-master-2d64913b5-20261003",
       "status": "ok",
       "unit": "ms",
       "value": 67.74,
@@ -1230,10 +1230,10 @@
       "disclosures": [],
       "engine": "pandas",
       "measurement_profile": "graphbench-cold-binding",
-      "run": "graphbench-q1q9-20k-master-f283a305e-20260917",
+      "run": "graphbench-q1q9-20k-master-2d64913b5-20261003",
       "status": "ok",
       "unit": "ms",
-      "value": 29.29,
+      "value": 28.77,
       "workload": "graph-benchmark 20k q2"
     },
     "graphbench.20k.q2.polars": {
@@ -1244,10 +1244,10 @@
       "disclosures": [],
       "engine": "polars",
       "measurement_profile": "graphbench-cold-binding",
-      "run": "graphbench-q1q9-20k-master-f283a305e-20260917",
+      "run": "graphbench-q1q9-20k-master-2d64913b5-20261003",
       "status": "ok",
       "unit": "ms",
-      "value": 9.68,
+      "value": 9.97,
       "workload": "graph-benchmark 20k q2"
     },
     "graphbench.20k.q2.polars_gpu": {
@@ -1258,10 +1258,10 @@
       "disclosures": [],
       "engine": "polars-gpu",
       "measurement_profile": "graphbench-cold-binding",
-      "run": "graphbench-q1q9-20k-master-f283a305e-20260917",
+      "run": "graphbench-q1q9-20k-master-2d64913b5-20261003",
       "status": "ok",
       "unit": "ms",
-      "value": 9.19,
+      "value": 9.58,
       "workload": "graph-benchmark 20k q2"
     },
     "graphbench.20k.q2.polars_gpu_vs_pandas": {
@@ -1275,10 +1275,10 @@
         "graphbench.20k.q2.polars_gpu",
         "graphbench.20k.q2.pandas"
       ],
-      "run": "graphbench-q1q9-20k-master-f283a305e-20260917",
+      "run": "graphbench-q1q9-20k-master-2d64913b5-20261003",
       "status": "ok",
       "unit": "x",
-      "value": 3.2,
+      "value": 3.0,
       "workload": "graph-benchmark 20k q2 \u2014 GFQL-polars-gpu vs GFQL-pandas"
     },
     "graphbench.20k.q2.polars_vs_pandas": {
@@ -1292,10 +1292,10 @@
         "graphbench.20k.q2.polars",
         "graphbench.20k.q2.pandas"
       ],
-      "run": "graphbench-q1q9-20k-master-f283a305e-20260917",
+      "run": "graphbench-q1q9-20k-master-2d64913b5-20261003",
       "status": "ok",
       "unit": "x",
-      "value": 3.0,
+      "value": 2.9,
       "workload": "graph-benchmark 20k q2 \u2014 GFQL-polars vs GFQL-pandas"
     },
     "graphbench.20k.q3.kuzu": {
@@ -1306,10 +1306,10 @@
       "disclosures": [],
       "engine": "kuzu",
       "measurement_profile": "graphbench-kuzu-execute-text-per-call",
-      "run": "graphbench-q1q9-20k-master-f283a305e-20260917",
+      "run": "graphbench-q1q9-20k-master-2d64913b5-20261003",
       "status": "ok",
       "unit": "ms",
-      "value": 6.03,
+      "value": 5.88,
       "workload": "graph-benchmark 20k q3"
     },
     "graphbench.20k.q3.memgraph": {
@@ -1320,7 +1320,7 @@
       "disclosures": [],
       "engine": "memgraph",
       "measurement_profile": "graphbench-memgraph-bolt-text-keyed-plan-cache",
-      "run": "graphbench-q1q9-20k-master-f283a305e-20260917",
+      "run": "graphbench-q1q9-20k-master-2d64913b5-20261003",
       "status": "ok",
       "unit": "ms",
       "value": 4.16,
@@ -1334,7 +1334,7 @@
       "disclosures": [],
       "engine": "neo4j",
       "measurement_profile": "graphbench-neo4j-bolt-text-keyed-plan-cache",
-      "run": "graphbench-q1q9-20k-master-f283a305e-20260917",
+      "run": "graphbench-q1q9-20k-master-2d64913b5-20261003",
       "status": "ok",
       "unit": "ms",
       "value": 8.31,
@@ -1348,10 +1348,10 @@
       "disclosures": [],
       "engine": "pandas",
       "measurement_profile": "graphbench-cold-binding",
-      "run": "graphbench-q1q9-20k-master-f283a305e-20260917",
+      "run": "graphbench-q1q9-20k-master-2d64913b5-20261003",
       "status": "ok",
       "unit": "ms",
-      "value": 10.12,
+      "value": 10.07,
       "workload": "graph-benchmark 20k q3"
     },
     "graphbench.20k.q3.polars": {
@@ -1362,10 +1362,10 @@
       "disclosures": [],
       "engine": "polars",
       "measurement_profile": "graphbench-cold-binding",
-      "run": "graphbench-q1q9-20k-master-f283a305e-20260917",
+      "run": "graphbench-q1q9-20k-master-2d64913b5-20261003",
       "status": "ok",
       "unit": "ms",
-      "value": 4.54,
+      "value": 4.78,
       "workload": "graph-benchmark 20k q3"
     },
     "graphbench.20k.q3.polars_gpu": {
@@ -1376,10 +1376,10 @@
       "disclosures": [],
       "engine": "polars-gpu",
       "measurement_profile": "graphbench-cold-binding",
-      "run": "graphbench-q1q9-20k-master-f283a305e-20260917",
+      "run": "graphbench-q1q9-20k-master-2d64913b5-20261003",
       "status": "ok",
       "unit": "ms",
-      "value": 4.2,
+      "value": 4.49,
       "workload": "graph-benchmark 20k q3"
     },
     "graphbench.20k.q3.polars_gpu_vs_pandas": {
@@ -1393,10 +1393,10 @@
         "graphbench.20k.q3.polars_gpu",
         "graphbench.20k.q3.pandas"
       ],
-      "run": "graphbench-q1q9-20k-master-f283a305e-20260917",
+      "run": "graphbench-q1q9-20k-master-2d64913b5-20261003",
       "status": "ok",
       "unit": "x",
-      "value": 2.4,
+      "value": 2.2,
       "workload": "graph-benchmark 20k q3 \u2014 GFQL-polars-gpu vs GFQL-pandas"
     },
     "graphbench.20k.q3.polars_vs_pandas": {
@@ -1410,10 +1410,10 @@
         "graphbench.20k.q3.polars",
         "graphbench.20k.q3.pandas"
       ],
-      "run": "graphbench-q1q9-20k-master-f283a305e-20260917",
+      "run": "graphbench-q1q9-20k-master-2d64913b5-20261003",
       "status": "ok",
       "unit": "x",
-      "value": 2.2,
+      "value": 2.1,
       "workload": "graph-benchmark 20k q3 \u2014 GFQL-polars vs GFQL-pandas"
     },
     "graphbench.20k.q4.kuzu": {
@@ -1424,10 +1424,10 @@
       "disclosures": [],
       "engine": "kuzu",
       "measurement_profile": "graphbench-kuzu-execute-text-per-call",
-      "run": "graphbench-q1q9-20k-master-f283a305e-20260917",
+      "run": "graphbench-q1q9-20k-master-2d64913b5-20261003",
       "status": "ok",
       "unit": "ms",
-      "value": 3.07,
+      "value": 3.06,
       "workload": "graph-benchmark 20k q4"
     },
     "graphbench.20k.q4.memgraph": {
@@ -1438,7 +1438,7 @@
       "disclosures": [],
       "engine": "memgraph",
       "measurement_profile": "graphbench-memgraph-bolt-text-keyed-plan-cache",
-      "run": "graphbench-q1q9-20k-master-f283a305e-20260917",
+      "run": "graphbench-q1q9-20k-master-2d64913b5-20261003",
       "status": "ok",
       "unit": "ms",
       "value": 6.38,
@@ -1452,7 +1452,7 @@
       "disclosures": [],
       "engine": "neo4j",
       "measurement_profile": "graphbench-neo4j-bolt-text-keyed-plan-cache",
-      "run": "graphbench-q1q9-20k-master-f283a305e-20260917",
+      "run": "graphbench-q1q9-20k-master-2d64913b5-20261003",
       "status": "ok",
       "unit": "ms",
       "value": 11.54,
@@ -1466,10 +1466,10 @@
       "disclosures": [],
       "engine": "pandas",
       "measurement_profile": "graphbench-cold-binding",
-      "run": "graphbench-q1q9-20k-master-f283a305e-20260917",
+      "run": "graphbench-q1q9-20k-master-2d64913b5-20261003",
       "status": "ok",
       "unit": "ms",
-      "value": 8.75,
+      "value": 8.73,
       "workload": "graph-benchmark 20k q4"
     },
     "graphbench.20k.q4.polars": {
@@ -1480,10 +1480,10 @@
       "disclosures": [],
       "engine": "polars",
       "measurement_profile": "graphbench-cold-binding",
-      "run": "graphbench-q1q9-20k-master-f283a305e-20260917",
+      "run": "graphbench-q1q9-20k-master-2d64913b5-20261003",
       "status": "ok",
       "unit": "ms",
-      "value": 3.13,
+      "value": 3.19,
       "workload": "graph-benchmark 20k q4"
     },
     "graphbench.20k.q4.polars_gpu": {
@@ -1494,10 +1494,10 @@
       "disclosures": [],
       "engine": "polars-gpu",
       "measurement_profile": "graphbench-cold-binding",
-      "run": "graphbench-q1q9-20k-master-f283a305e-20260917",
+      "run": "graphbench-q1q9-20k-master-2d64913b5-20261003",
       "status": "ok",
       "unit": "ms",
-      "value": 4.62,
+      "value": 4.53,
       "workload": "graph-benchmark 20k q4"
     },
     "graphbench.20k.q4.polars_gpu_vs_pandas": {
@@ -1511,7 +1511,7 @@
         "graphbench.20k.q4.polars_gpu",
         "graphbench.20k.q4.pandas"
       ],
-      "run": "graphbench-q1q9-20k-master-f283a305e-20260917",
+      "run": "graphbench-q1q9-20k-master-2d64913b5-20261003",
       "status": "ok",
       "unit": "x",
       "value": 1.9,
@@ -1528,10 +1528,10 @@
         "graphbench.20k.q4.polars",
         "graphbench.20k.q4.pandas"
       ],
-      "run": "graphbench-q1q9-20k-master-f283a305e-20260917",
+      "run": "graphbench-q1q9-20k-master-2d64913b5-20261003",
       "status": "ok",
       "unit": "x",
-      "value": 2.8,
+      "value": 2.7,
       "workload": "graph-benchmark 20k q4 \u2014 GFQL-polars vs GFQL-pandas"
     },
     "graphbench.20k.q5.kuzu": {
@@ -1542,10 +1542,10 @@
       "disclosures": [],
       "engine": "kuzu",
       "measurement_profile": "graphbench-kuzu-execute-text-per-call",
-      "run": "graphbench-q1q9-20k-master-f283a305e-20260917",
+      "run": "graphbench-q1q9-20k-master-2d64913b5-20261003",
       "status": "ok",
       "unit": "ms",
-      "value": 4.97,
+      "value": 4.89,
       "workload": "graph-benchmark 20k q5"
     },
     "graphbench.20k.q5.memgraph": {
@@ -1556,7 +1556,7 @@
       "disclosures": [],
       "engine": "memgraph",
       "measurement_profile": "graphbench-memgraph-bolt-text-keyed-plan-cache",
-      "run": "graphbench-q1q9-20k-master-f283a305e-20260917",
+      "run": "graphbench-q1q9-20k-master-2d64913b5-20261003",
       "status": "ok",
       "unit": "ms",
       "value": 4.63,
@@ -1570,7 +1570,7 @@
       "disclosures": [],
       "engine": "neo4j",
       "measurement_profile": "graphbench-neo4j-bolt-text-keyed-plan-cache",
-      "run": "graphbench-q1q9-20k-master-f283a305e-20260917",
+      "run": "graphbench-q1q9-20k-master-2d64913b5-20261003",
       "status": "ok",
       "unit": "ms",
       "value": 18.33,
@@ -1584,10 +1584,10 @@
       "disclosures": [],
       "engine": "pandas",
       "measurement_profile": "graphbench-cold-binding",
-      "run": "graphbench-q1q9-20k-master-f283a305e-20260917",
+      "run": "graphbench-q1q9-20k-master-2d64913b5-20261003",
       "status": "ok",
       "unit": "ms",
-      "value": 76.93,
+      "value": 77.27,
       "workload": "graph-benchmark 20k q5"
     },
     "graphbench.20k.q5.polars": {
@@ -1598,10 +1598,10 @@
       "disclosures": [],
       "engine": "polars",
       "measurement_profile": "graphbench-cold-binding",
-      "run": "graphbench-q1q9-20k-master-f283a305e-20260917",
+      "run": "graphbench-q1q9-20k-master-2d64913b5-20261003",
       "status": "ok",
       "unit": "ms",
-      "value": 2.83,
+      "value": 2.82,
       "workload": "graph-benchmark 20k q5"
     },
     "graphbench.20k.q5.polars_gpu": {
@@ -1612,10 +1612,10 @@
       "disclosures": [],
       "engine": "polars-gpu",
       "measurement_profile": "graphbench-cold-binding",
-      "run": "graphbench-q1q9-20k-master-f283a305e-20260917",
+      "run": "graphbench-q1q9-20k-master-2d64913b5-20261003",
       "status": "ok",
       "unit": "ms",
-      "value": 6.96,
+      "value": 7.2,
       "workload": "graph-benchmark 20k q5"
     },
     "graphbench.20k.q5.polars_gpu_vs_pandas": {
@@ -1629,10 +1629,10 @@
         "graphbench.20k.q5.polars_gpu",
         "graphbench.20k.q5.pandas"
       ],
-      "run": "graphbench-q1q9-20k-master-f283a305e-20260917",
+      "run": "graphbench-q1q9-20k-master-2d64913b5-20261003",
       "status": "ok",
       "unit": "x",
-      "value": 11.1,
+      "value": 10.7,
       "workload": "graph-benchmark 20k q5 \u2014 GFQL-polars-gpu vs GFQL-pandas"
     },
     "graphbench.20k.q5.polars_vs_pandas": {
@@ -1646,10 +1646,10 @@
         "graphbench.20k.q5.polars",
         "graphbench.20k.q5.pandas"
       ],
-      "run": "graphbench-q1q9-20k-master-f283a305e-20260917",
+      "run": "graphbench-q1q9-20k-master-2d64913b5-20261003",
       "status": "ok",
       "unit": "x",
-      "value": 27.2,
+      "value": 27.4,
       "workload": "graph-benchmark 20k q5 \u2014 GFQL-polars vs GFQL-pandas"
     },
     "graphbench.20k.q6.kuzu": {
@@ -1660,10 +1660,10 @@
       "disclosures": [],
       "engine": "kuzu",
       "measurement_profile": "graphbench-kuzu-execute-text-per-call",
-      "run": "graphbench-q1q9-20k-master-f283a305e-20260917",
+      "run": "graphbench-q1q9-20k-master-2d64913b5-20261003",
       "status": "ok",
       "unit": "ms",
-      "value": 7.44,
+      "value": 7.46,
       "workload": "graph-benchmark 20k q6"
     },
     "graphbench.20k.q6.memgraph": {
@@ -1674,7 +1674,7 @@
       "disclosures": [],
       "engine": "memgraph",
       "measurement_profile": "graphbench-memgraph-bolt-text-keyed-plan-cache",
-      "run": "graphbench-q1q9-20k-master-f283a305e-20260917",
+      "run": "graphbench-q1q9-20k-master-2d64913b5-20261003",
       "status": "ok",
       "unit": "ms",
       "value": 4.85,
@@ -1688,7 +1688,7 @@
       "disclosures": [],
       "engine": "neo4j",
       "measurement_profile": "graphbench-neo4j-bolt-text-keyed-plan-cache",
-      "run": "graphbench-q1q9-20k-master-f283a305e-20260917",
+      "run": "graphbench-q1q9-20k-master-2d64913b5-20261003",
       "status": "ok",
       "unit": "ms",
       "value": 20.99,
@@ -1702,10 +1702,10 @@
       "disclosures": [],
       "engine": "pandas",
       "measurement_profile": "graphbench-cold-binding",
-      "run": "graphbench-q1q9-20k-master-f283a305e-20260917",
+      "run": "graphbench-q1q9-20k-master-2d64913b5-20261003",
       "status": "ok",
       "unit": "ms",
-      "value": 77.73,
+      "value": 78.47,
       "workload": "graph-benchmark 20k q6"
     },
     "graphbench.20k.q6.polars": {
@@ -1716,10 +1716,10 @@
       "disclosures": [],
       "engine": "polars",
       "measurement_profile": "graphbench-cold-binding",
-      "run": "graphbench-q1q9-20k-master-f283a305e-20260917",
+      "run": "graphbench-q1q9-20k-master-2d64913b5-20261003",
       "status": "ok",
       "unit": "ms",
-      "value": 3.33,
+      "value": 3.27,
       "workload": "graph-benchmark 20k q6"
     },
     "graphbench.20k.q6.polars_gpu": {
@@ -1730,10 +1730,10 @@
       "disclosures": [],
       "engine": "polars-gpu",
       "measurement_profile": "graphbench-cold-binding",
-      "run": "graphbench-q1q9-20k-master-f283a305e-20260917",
+      "run": "graphbench-q1q9-20k-master-2d64913b5-20261003",
       "status": "ok",
       "unit": "ms",
-      "value": 6.88,
+      "value": 7.04,
       "workload": "graph-benchmark 20k q6"
     },
     "graphbench.20k.q6.polars_gpu_vs_pandas": {
@@ -1747,10 +1747,10 @@
         "graphbench.20k.q6.polars_gpu",
         "graphbench.20k.q6.pandas"
       ],
-      "run": "graphbench-q1q9-20k-master-f283a305e-20260917",
+      "run": "graphbench-q1q9-20k-master-2d64913b5-20261003",
       "status": "ok",
       "unit": "x",
-      "value": 11.3,
+      "value": 11.1,
       "workload": "graph-benchmark 20k q6 \u2014 GFQL-polars-gpu vs GFQL-pandas"
     },
     "graphbench.20k.q6.polars_vs_pandas": {
@@ -1764,10 +1764,10 @@
         "graphbench.20k.q6.polars",
         "graphbench.20k.q6.pandas"
       ],
-      "run": "graphbench-q1q9-20k-master-f283a305e-20260917",
+      "run": "graphbench-q1q9-20k-master-2d64913b5-20261003",
       "status": "ok",
       "unit": "x",
-      "value": 23.3,
+      "value": 24.0,
       "workload": "graph-benchmark 20k q6 \u2014 GFQL-polars vs GFQL-pandas"
     },
     "graphbench.20k.q7.kuzu": {
@@ -1778,10 +1778,10 @@
       "disclosures": [],
       "engine": "kuzu",
       "measurement_profile": "graphbench-kuzu-execute-text-per-call",
-      "run": "graphbench-q1q9-20k-master-f283a305e-20260917",
+      "run": "graphbench-q1q9-20k-master-2d64913b5-20261003",
       "status": "ok",
       "unit": "ms",
-      "value": 5.5,
+      "value": 6.06,
       "workload": "graph-benchmark 20k q7"
     },
     "graphbench.20k.q7.memgraph": {
@@ -1792,7 +1792,7 @@
       "disclosures": [],
       "engine": "memgraph",
       "measurement_profile": "graphbench-memgraph-bolt-text-keyed-plan-cache",
-      "run": "graphbench-q1q9-20k-master-f283a305e-20260917",
+      "run": "graphbench-q1q9-20k-master-2d64913b5-20261003",
       "status": "ok",
       "unit": "ms",
       "value": 5.39,
@@ -1806,7 +1806,7 @@
       "disclosures": [],
       "engine": "neo4j",
       "measurement_profile": "graphbench-neo4j-bolt-text-keyed-plan-cache",
-      "run": "graphbench-q1q9-20k-master-f283a305e-20260917",
+      "run": "graphbench-q1q9-20k-master-2d64913b5-20261003",
       "status": "ok",
       "unit": "ms",
       "value": 15.14,
@@ -1820,10 +1820,10 @@
       "disclosures": [],
       "engine": "pandas",
       "measurement_profile": "graphbench-cold-binding",
-      "run": "graphbench-q1q9-20k-master-f283a305e-20260917",
+      "run": "graphbench-q1q9-20k-master-2d64913b5-20261003",
       "status": "ok",
       "unit": "ms",
-      "value": 18.1,
+      "value": 18.19,
       "workload": "graph-benchmark 20k q7"
     },
     "graphbench.20k.q7.polars": {
@@ -1834,10 +1834,10 @@
       "disclosures": [],
       "engine": "polars",
       "measurement_profile": "graphbench-cold-binding",
-      "run": "graphbench-q1q9-20k-master-f283a305e-20260917",
+      "run": "graphbench-q1q9-20k-master-2d64913b5-20261003",
       "status": "ok",
       "unit": "ms",
-      "value": 2.53,
+      "value": 2.51,
       "workload": "graph-benchmark 20k q7"
     },
     "graphbench.20k.q7.polars_gpu": {
@@ -1848,10 +1848,10 @@
       "disclosures": [],
       "engine": "polars-gpu",
       "measurement_profile": "graphbench-cold-binding",
-      "run": "graphbench-q1q9-20k-master-f283a305e-20260917",
+      "run": "graphbench-q1q9-20k-master-2d64913b5-20261003",
       "status": "ok",
       "unit": "ms",
-      "value": 7.24,
+      "value": 7.45,
       "workload": "graph-benchmark 20k q7"
     },
     "graphbench.20k.q7.polars_gpu_vs_pandas": {
@@ -1865,10 +1865,10 @@
         "graphbench.20k.q7.polars_gpu",
         "graphbench.20k.q7.pandas"
       ],
-      "run": "graphbench-q1q9-20k-master-f283a305e-20260917",
+      "run": "graphbench-q1q9-20k-master-2d64913b5-20261003",
       "status": "ok",
       "unit": "x",
-      "value": 2.5,
+      "value": 2.4,
       "workload": "graph-benchmark 20k q7 \u2014 GFQL-polars-gpu vs GFQL-pandas"
     },
     "graphbench.20k.q7.polars_vs_pandas": {
@@ -1882,10 +1882,10 @@
         "graphbench.20k.q7.polars",
         "graphbench.20k.q7.pandas"
       ],
-      "run": "graphbench-q1q9-20k-master-f283a305e-20260917",
+      "run": "graphbench-q1q9-20k-master-2d64913b5-20261003",
       "status": "ok",
       "unit": "x",
-      "value": 7.2,
+      "value": 7.3,
       "workload": "graph-benchmark 20k q7 \u2014 GFQL-polars vs GFQL-pandas"
     },
     "graphbench.20k.q8.kuzu": {
@@ -1896,10 +1896,10 @@
       "disclosures": [],
       "engine": "kuzu",
       "measurement_profile": "graphbench-kuzu-execute-text-per-call",
-      "run": "graphbench-q1q9-20k-master-f283a305e-20260917",
+      "run": "graphbench-q1q9-20k-master-2d64913b5-20261003",
       "status": "ok",
       "unit": "ms",
-      "value": 2.71,
+      "value": 2.72,
       "workload": "graph-benchmark 20k q8"
     },
     "graphbench.20k.q8.memgraph": {
@@ -1910,7 +1910,7 @@
       "disclosures": [],
       "engine": "memgraph",
       "measurement_profile": "graphbench-memgraph-bolt-text-keyed-plan-cache",
-      "run": "graphbench-q1q9-20k-master-f283a305e-20260917",
+      "run": "graphbench-q1q9-20k-master-2d64913b5-20261003",
       "status": "ok",
       "unit": "ms",
       "value": 198.8,
@@ -1924,7 +1924,7 @@
       "disclosures": [],
       "engine": "neo4j",
       "measurement_profile": "graphbench-neo4j-bolt-text-keyed-plan-cache",
-      "run": "graphbench-q1q9-20k-master-f283a305e-20260917",
+      "run": "graphbench-q1q9-20k-master-2d64913b5-20261003",
       "status": "ok",
       "unit": "ms",
       "value": 198.71,
@@ -1938,7 +1938,7 @@
       "disclosures": [],
       "engine": "pandas",
       "measurement_profile": "graphbench-cold-binding",
-      "run": "graphbench-q1q9-20k-master-f283a305e-20260917",
+      "run": "graphbench-q1q9-20k-master-2d64913b5-20261003",
       "status": "ok",
       "unit": "ms",
       "value": 7.41,
@@ -1952,10 +1952,10 @@
       "disclosures": [],
       "engine": "polars",
       "measurement_profile": "graphbench-cold-binding",
-      "run": "graphbench-q1q9-20k-master-f283a305e-20260917",
+      "run": "graphbench-q1q9-20k-master-2d64913b5-20261003",
       "status": "ok",
       "unit": "ms",
-      "value": 2.15,
+      "value": 2.11,
       "workload": "graph-benchmark 20k q8"
     },
     "graphbench.20k.q8.polars_gpu": {
@@ -1966,10 +1966,10 @@
       "disclosures": [],
       "engine": "polars-gpu",
       "measurement_profile": "graphbench-cold-binding",
-      "run": "graphbench-q1q9-20k-master-f283a305e-20260917",
+      "run": "graphbench-q1q9-20k-master-2d64913b5-20261003",
       "status": "ok",
       "unit": "ms",
-      "value": 2.28,
+      "value": 2.5,
       "workload": "graph-benchmark 20k q8"
     },
     "graphbench.20k.q8.polars_gpu_vs_pandas": {
@@ -1983,10 +1983,10 @@
         "graphbench.20k.q8.polars_gpu",
         "graphbench.20k.q8.pandas"
       ],
-      "run": "graphbench-q1q9-20k-master-f283a305e-20260917",
+      "run": "graphbench-q1q9-20k-master-2d64913b5-20261003",
       "status": "ok",
       "unit": "x",
-      "value": 3.2,
+      "value": 3.0,
       "workload": "graph-benchmark 20k q8 \u2014 GFQL-polars-gpu vs GFQL-pandas"
     },
     "graphbench.20k.q8.polars_vs_pandas": {
@@ -2000,10 +2000,10 @@
         "graphbench.20k.q8.polars",
         "graphbench.20k.q8.pandas"
       ],
-      "run": "graphbench-q1q9-20k-master-f283a305e-20260917",
+      "run": "graphbench-q1q9-20k-master-2d64913b5-20261003",
       "status": "ok",
       "unit": "x",
-      "value": 3.4,
+      "value": 3.5,
       "workload": "graph-benchmark 20k q8 \u2014 GFQL-polars vs GFQL-pandas"
     },
     "graphbench.20k.q9.kuzu": {
@@ -2014,10 +2014,10 @@
       "disclosures": [],
       "engine": "kuzu",
       "measurement_profile": "graphbench-kuzu-execute-text-per-call",
-      "run": "graphbench-q1q9-20k-master-f283a305e-20260917",
+      "run": "graphbench-q1q9-20k-master-2d64913b5-20261003",
       "status": "ok",
       "unit": "ms",
-      "value": 10.61,
+      "value": 10.64,
       "workload": "graph-benchmark 20k q9"
     },
     "graphbench.20k.q9.memgraph": {
@@ -2028,7 +2028,7 @@
       "disclosures": [],
       "engine": "memgraph",
       "measurement_profile": "graphbench-memgraph-bolt-text-keyed-plan-cache",
-      "run": "graphbench-q1q9-20k-master-f283a305e-20260917",
+      "run": "graphbench-q1q9-20k-master-2d64913b5-20261003",
       "status": "ok",
       "unit": "ms",
       "value": 124.91,
@@ -2042,7 +2042,7 @@
       "disclosures": [],
       "engine": "neo4j",
       "measurement_profile": "graphbench-neo4j-bolt-text-keyed-plan-cache",
-      "run": "graphbench-q1q9-20k-master-f283a305e-20260917",
+      "run": "graphbench-q1q9-20k-master-2d64913b5-20261003",
       "status": "ok",
       "unit": "ms",
       "value": 422.29,
@@ -2056,10 +2056,10 @@
       "disclosures": [],
       "engine": "pandas",
       "measurement_profile": "graphbench-cold-binding",
-      "run": "graphbench-q1q9-20k-master-f283a305e-20260917",
+      "run": "graphbench-q1q9-20k-master-2d64913b5-20261003",
       "status": "ok",
       "unit": "ms",
-      "value": 16.12,
+      "value": 16.1,
       "workload": "graph-benchmark 20k q9"
     },
     "graphbench.20k.q9.polars": {
@@ -2070,10 +2070,10 @@
       "disclosures": [],
       "engine": "polars",
       "measurement_profile": "graphbench-cold-binding",
-      "run": "graphbench-q1q9-20k-master-f283a305e-20260917",
+      "run": "graphbench-q1q9-20k-master-2d64913b5-20261003",
       "status": "ok",
       "unit": "ms",
-      "value": 7.12,
+      "value": 7.08,
       "workload": "graph-benchmark 20k q9"
     },
     "graphbench.20k.q9.polars_gpu": {
@@ -2084,10 +2084,10 @@
       "disclosures": [],
       "engine": "polars-gpu",
       "measurement_profile": "graphbench-cold-binding",
-      "run": "graphbench-q1q9-20k-master-f283a305e-20260917",
+      "run": "graphbench-q1q9-20k-master-2d64913b5-20261003",
       "status": "ok",
       "unit": "ms",
-      "value": 6.58,
+      "value": 6.6,
       "workload": "graph-benchmark 20k q9"
     },
     "graphbench.20k.q9.polars_gpu_vs_pandas": {
@@ -2101,7 +2101,7 @@
         "graphbench.20k.q9.polars_gpu",
         "graphbench.20k.q9.pandas"
       ],
-      "run": "graphbench-q1q9-20k-master-f283a305e-20260917",
+      "run": "graphbench-q1q9-20k-master-2d64913b5-20261003",
       "status": "ok",
       "unit": "x",
       "value": 2.4,
@@ -2118,7 +2118,7 @@
         "graphbench.20k.q9.polars",
         "graphbench.20k.q9.pandas"
       ],
-      "run": "graphbench-q1q9-20k-master-f283a305e-20260917",
+      "run": "graphbench-q1q9-20k-master-2d64913b5-20261003",
       "status": "ok",
       "unit": "x",
       "value": 2.3,
@@ -3454,10 +3454,10 @@
       ],
       "engine": "gfql_pandas_idx",
       "measurement_profile": "snb-interactive-warm-repeated-query-v2",
-      "run": "snb-ship-f283a305e-20260917",
+      "run": "snb-ship-2d64913b5-20261003",
       "status": "ok",
       "unit": "ms",
-      "value": 0.424,
+      "value": 0.415,
       "workload": "SNB-derived matched queries (GFQL, resident indexes) sf0.1 message-content"
     },
     "snb.sf01.message_content.gfql_polars": {
@@ -3469,10 +3469,10 @@
       ],
       "engine": "gfql_polars",
       "measurement_profile": "snb-interactive-warm-repeated-query-v2",
-      "run": "snb-aligned-ship-f283a305e-20260917",
+      "run": "snb-aligned-ship-2d64913b5-20261003",
       "status": "ok",
       "unit": "ms",
-      "value": 0.158,
+      "value": 0.162,
       "workload": "LDBC SNB-derived aligned queries sf0.1 message-content"
     },
     "snb.sf01.message_content.gfql_polars_idx": {
@@ -3487,10 +3487,10 @@
       ],
       "engine": "gfql_polars_idx",
       "measurement_profile": "snb-interactive-warm-repeated-query-v2",
-      "run": "snb-ship-f283a305e-20260917",
+      "run": "snb-ship-2d64913b5-20261003",
       "status": "ok",
       "unit": "ms",
-      "value": 0.158,
+      "value": 0.162,
       "workload": "SNB-derived matched queries (GFQL, resident indexes) sf0.1 message-content"
     },
     "snb.sf01.message_content.kuzu": {
@@ -3503,7 +3503,7 @@
       ],
       "engine": "kuzu",
       "measurement_profile": "snb-interactive-warm-repeated-query-v2",
-      "run": "snb-aligned-ship-f283a305e-20260917",
+      "run": "snb-aligned-ship-2d64913b5-20261003",
       "status": "ok",
       "unit": "ms",
       "value": 0.658,
@@ -3519,7 +3519,7 @@
       ],
       "engine": "memgraph",
       "measurement_profile": "snb-interactive-warm-repeated-query-v2",
-      "run": "snb-aligned-ship-f283a305e-20260917",
+      "run": "snb-aligned-ship-2d64913b5-20261003",
       "status": "ok",
       "unit": "ms",
       "value": 0.489,
@@ -3535,7 +3535,7 @@
       ],
       "engine": "neo4j",
       "measurement_profile": "snb-interactive-warm-repeated-query-v2",
-      "run": "snb-aligned-ship-f283a305e-20260917",
+      "run": "snb-aligned-ship-2d64913b5-20261003",
       "status": "ok",
       "unit": "ms",
       "value": 1.445,
@@ -3553,10 +3553,10 @@
       ],
       "engine": "gfql_pandas_idx",
       "measurement_profile": "snb-interactive-warm-repeated-query-v2",
-      "run": "snb-ship-f283a305e-20260917",
+      "run": "snb-ship-2d64913b5-20261003",
       "status": "ok",
       "unit": "ms",
-      "value": 0.621,
+      "value": 0.616,
       "workload": "SNB-derived matched queries (GFQL, resident indexes) sf0.1 message-creator"
     },
     "snb.sf01.message_creator.gfql_polars": {
@@ -3568,10 +3568,10 @@
       ],
       "engine": "gfql_polars",
       "measurement_profile": "snb-interactive-warm-repeated-query-v2",
-      "run": "snb-aligned-ship-f283a305e-20260917",
+      "run": "snb-aligned-ship-2d64913b5-20261003",
       "status": "ok",
       "unit": "ms",
-      "value": 0.222,
+      "value": 0.22,
       "workload": "LDBC SNB-derived aligned queries sf0.1 message-creator"
     },
     "snb.sf01.message_creator.gfql_polars_idx": {
@@ -3586,10 +3586,10 @@
       ],
       "engine": "gfql_polars_idx",
       "measurement_profile": "snb-interactive-warm-repeated-query-v2",
-      "run": "snb-ship-f283a305e-20260917",
+      "run": "snb-ship-2d64913b5-20261003",
       "status": "ok",
       "unit": "ms",
-      "value": 0.222,
+      "value": 0.22,
       "workload": "SNB-derived matched queries (GFQL, resident indexes) sf0.1 message-creator"
     },
     "snb.sf01.message_creator.kuzu": {
@@ -3602,7 +3602,7 @@
       ],
       "engine": "kuzu",
       "measurement_profile": "snb-interactive-warm-repeated-query-v2",
-      "run": "snb-aligned-ship-f283a305e-20260917",
+      "run": "snb-aligned-ship-2d64913b5-20261003",
       "status": "ok",
       "unit": "ms",
       "value": 1.318,
@@ -3618,7 +3618,7 @@
       ],
       "engine": "memgraph",
       "measurement_profile": "snb-interactive-warm-repeated-query-v2",
-      "run": "snb-aligned-ship-f283a305e-20260917",
+      "run": "snb-aligned-ship-2d64913b5-20261003",
       "status": "ok",
       "unit": "ms",
       "value": 0.462,
@@ -3634,7 +3634,7 @@
       ],
       "engine": "neo4j",
       "measurement_profile": "snb-interactive-warm-repeated-query-v2",
-      "run": "snb-aligned-ship-f283a305e-20260917",
+      "run": "snb-aligned-ship-2d64913b5-20261003",
       "status": "ok",
       "unit": "ms",
       "value": 1.339,
@@ -3652,10 +3652,10 @@
       ],
       "engine": "gfql_pandas_idx",
       "measurement_profile": "snb-interactive-warm-repeated-query-v2",
-      "run": "snb-ship-f283a305e-20260917",
+      "run": "snb-ship-2d64913b5-20261003",
       "status": "ok",
       "unit": "ms",
-      "value": 11.81,
+      "value": 11.872,
       "workload": "SNB-derived matched queries (GFQL, resident indexes) sf0.1 message-replies"
     },
     "snb.sf01.message_replies.gfql_polars": {
@@ -3667,10 +3667,10 @@
       ],
       "engine": "gfql_polars",
       "measurement_profile": "snb-interactive-warm-repeated-query-v2",
-      "run": "snb-aligned-ship-f283a305e-20260917",
+      "run": "snb-aligned-ship-2d64913b5-20261003",
       "status": "ok",
       "unit": "ms",
-      "value": 1.63,
+      "value": 1.326,
       "workload": "LDBC SNB-derived aligned queries sf0.1 message-replies"
     },
     "snb.sf01.message_replies.gfql_polars_idx": {
@@ -3685,10 +3685,10 @@
       ],
       "engine": "gfql_polars_idx",
       "measurement_profile": "snb-interactive-warm-repeated-query-v2",
-      "run": "snb-ship-f283a305e-20260917",
+      "run": "snb-ship-2d64913b5-20261003",
       "status": "ok",
       "unit": "ms",
-      "value": 1.63,
+      "value": 1.326,
       "workload": "SNB-derived matched queries (GFQL, resident indexes) sf0.1 message-replies"
     },
     "snb.sf01.message_replies.kuzu": {
@@ -3701,7 +3701,7 @@
       ],
       "engine": "kuzu",
       "measurement_profile": "snb-interactive-warm-repeated-query-v2",
-      "run": "snb-aligned-ship-f283a305e-20260917",
+      "run": "snb-aligned-ship-2d64913b5-20261003",
       "status": "ok",
       "unit": "ms",
       "value": 23.712,
@@ -3719,10 +3719,10 @@
       ],
       "engine": "gfql_pandas_idx",
       "measurement_profile": "snb-interactive-warm-repeated-query-v2",
-      "run": "snb-ship-f283a305e-20260917",
+      "run": "snb-ship-2d64913b5-20261003",
       "status": "ok",
       "unit": "ms",
-      "value": 72.171,
+      "value": 72.293,
       "workload": "SNB-derived matched queries (GFQL, resident indexes) sf0.1 new-topics"
     },
     "snb.sf01.new_topics.gfql_polars": {
@@ -3734,10 +3734,10 @@
       ],
       "engine": "gfql_polars",
       "measurement_profile": "snb-interactive-warm-repeated-query-v2",
-      "run": "snb-aligned-ship-f283a305e-20260917",
+      "run": "snb-aligned-ship-2d64913b5-20261003",
       "status": "ok",
       "unit": "ms",
-      "value": 42.558,
+      "value": 38.387,
       "workload": "LDBC SNB-derived aligned queries sf0.1 new-topics"
     },
     "snb.sf01.new_topics.gfql_polars_idx": {
@@ -3752,10 +3752,10 @@
       ],
       "engine": "gfql_polars_idx",
       "measurement_profile": "snb-interactive-warm-repeated-query-v2",
-      "run": "snb-ship-f283a305e-20260917",
+      "run": "snb-ship-2d64913b5-20261003",
       "status": "ok",
       "unit": "ms",
-      "value": 42.558,
+      "value": 38.387,
       "workload": "SNB-derived matched queries (GFQL, resident indexes) sf0.1 new-topics"
     },
     "snb.sf01.new_topics.kuzu": {
@@ -3768,7 +3768,7 @@
       ],
       "engine": "kuzu",
       "measurement_profile": "snb-interactive-warm-repeated-query-v2",
-      "run": "snb-aligned-ship-f283a305e-20260917",
+      "run": "snb-aligned-ship-2d64913b5-20261003",
       "status": "ok",
       "unit": "ms",
       "value": 48.082,
@@ -3786,10 +3786,10 @@
       ],
       "engine": "gfql_pandas_idx",
       "measurement_profile": "snb-interactive-warm-repeated-query-v2",
-      "run": "snb-ship-f283a305e-20260917",
+      "run": "snb-ship-2d64913b5-20261003",
       "status": "ok",
       "unit": "ms",
-      "value": 27.222,
+      "value": 27.275,
       "workload": "SNB-derived matched queries (GFQL, resident indexes) sf0.1 recent-replies"
     },
     "snb.sf01.recent_replies.gfql_polars": {
@@ -3801,10 +3801,10 @@
       ],
       "engine": "gfql_polars",
       "measurement_profile": "snb-interactive-warm-repeated-query-v2",
-      "run": "snb-aligned-ship-f283a305e-20260917",
+      "run": "snb-aligned-ship-2d64913b5-20261003",
       "status": "ok",
       "unit": "ms",
-      "value": 5.387,
+      "value": 5.5,
       "workload": "LDBC SNB-derived aligned queries sf0.1 recent-replies"
     },
     "snb.sf01.recent_replies.gfql_polars_idx": {
@@ -3819,10 +3819,10 @@
       ],
       "engine": "gfql_polars_idx",
       "measurement_profile": "snb-interactive-warm-repeated-query-v2",
-      "run": "snb-ship-f283a305e-20260917",
+      "run": "snb-ship-2d64913b5-20261003",
       "status": "ok",
       "unit": "ms",
-      "value": 5.387,
+      "value": 5.5,
       "workload": "SNB-derived matched queries (GFQL, resident indexes) sf0.1 recent-replies"
     },
     "snb.sf01.recent_replies.kuzu": {
@@ -3835,7 +3835,7 @@
       ],
       "engine": "kuzu",
       "measurement_profile": "snb-interactive-warm-repeated-query-v2",
-      "run": "snb-aligned-ship-f283a305e-20260917",
+      "run": "snb-aligned-ship-2d64913b5-20261003",
       "status": "ok",
       "unit": "ms",
       "value": 32.884,
@@ -3851,7 +3851,7 @@
       ],
       "engine": "memgraph",
       "measurement_profile": "snb-interactive-warm-repeated-query-v2",
-      "run": "snb-aligned-ship-f283a305e-20260917",
+      "run": "snb-aligned-ship-2d64913b5-20261003",
       "status": "ok",
       "unit": "ms",
       "value": 6.333,
@@ -3867,7 +3867,7 @@
       ],
       "engine": "neo4j",
       "measurement_profile": "snb-interactive-warm-repeated-query-v2",
-      "run": "snb-aligned-ship-f283a305e-20260917",
+      "run": "snb-aligned-ship-2d64913b5-20261003",
       "status": "ok",
       "unit": "ms",
       "value": 5.425,
@@ -3885,10 +3885,10 @@
       ],
       "engine": "gfql_pandas_idx",
       "measurement_profile": "snb-interactive-warm-repeated-query-v2",
-      "run": "snb-ship-f283a305e-20260917",
+      "run": "snb-ship-2d64913b5-20261003",
       "status": "ok",
       "unit": "ms",
-      "value": 0.913,
+      "value": 0.914,
       "workload": "SNB-derived matched queries (GFQL, resident indexes) sf0.1 seed-lookup"
     },
     "snb.sf01.seed_lookup.gfql_polars": {
@@ -3900,10 +3900,10 @@
       ],
       "engine": "gfql_polars",
       "measurement_profile": "snb-interactive-warm-repeated-query-v2",
-      "run": "snb-aligned-ship-f283a305e-20260917",
+      "run": "snb-aligned-ship-2d64913b5-20261003",
       "status": "ok",
       "unit": "ms",
-      "value": 0.218,
+      "value": 0.222,
       "workload": "LDBC SNB-derived aligned queries sf0.1 seed-lookup"
     },
     "snb.sf01.seed_lookup.gfql_polars_idx": {
@@ -3918,10 +3918,10 @@
       ],
       "engine": "gfql_polars_idx",
       "measurement_profile": "snb-interactive-warm-repeated-query-v2",
-      "run": "snb-ship-f283a305e-20260917",
+      "run": "snb-ship-2d64913b5-20261003",
       "status": "ok",
       "unit": "ms",
-      "value": 0.218,
+      "value": 0.222,
       "workload": "SNB-derived matched queries (GFQL, resident indexes) sf0.1 seed-lookup"
     },
     "snb.sf01.seed_lookup.kuzu": {
@@ -3934,7 +3934,7 @@
       ],
       "engine": "kuzu",
       "measurement_profile": "snb-interactive-warm-repeated-query-v2",
-      "run": "snb-aligned-ship-f283a305e-20260917",
+      "run": "snb-aligned-ship-2d64913b5-20261003",
       "status": "ok",
       "unit": "ms",
       "value": 2.277,
@@ -3950,7 +3950,7 @@
       ],
       "engine": "memgraph",
       "measurement_profile": "snb-interactive-warm-repeated-query-v2",
-      "run": "snb-aligned-ship-f283a305e-20260917",
+      "run": "snb-aligned-ship-2d64913b5-20261003",
       "status": "ok",
       "unit": "ms",
       "value": 0.46,
@@ -3966,7 +3966,7 @@
       ],
       "engine": "neo4j",
       "measurement_profile": "snb-interactive-warm-repeated-query-v2",
-      "run": "snb-aligned-ship-f283a305e-20260917",
+      "run": "snb-aligned-ship-2d64913b5-20261003",
       "status": "ok",
       "unit": "ms",
       "value": 3.166,
@@ -3985,10 +3985,10 @@
       ],
       "engine": "gfql_pandas_idx",
       "measurement_profile": "snb-interactive-warm-repeated-query-v2",
-      "run": "snb-ship-f283a305e-20260917",
+      "run": "snb-ship-2d64913b5-20261003",
       "status": "result_mismatch",
       "unit": "ms",
-      "value": 61.598,
+      "value": 61.613,
       "workload": "SNB-derived matched queries (GFQL, resident indexes) sf0.1 tag-cooccurrence"
     },
     "snb.sf01.tag_cooccurrence.gfql_polars_idx": {
@@ -4004,10 +4004,10 @@
       ],
       "engine": "gfql_polars_idx",
       "measurement_profile": "snb-interactive-warm-repeated-query-v2",
-      "run": "snb-ship-f283a305e-20260917",
+      "run": "snb-ship-2d64913b5-20261003",
       "status": "result_mismatch",
       "unit": "ms",
-      "value": 36.182,
+      "value": 28.766,
       "workload": "SNB-derived matched queries (GFQL, resident indexes) sf0.1 tag-cooccurrence"
     },
     "snb.sf1.message_content.gfql_pandas_idx": {
@@ -4022,10 +4022,10 @@
       ],
       "engine": "gfql_pandas_idx",
       "measurement_profile": "snb-interactive-warm-repeated-query-v2",
-      "run": "snb-ship-f283a305e-20260917",
+      "run": "snb-ship-2d64913b5-20261003",
       "status": "ok",
       "unit": "ms",
-      "value": 0.424,
+      "value": 0.425,
       "workload": "SNB-derived matched queries (GFQL, resident indexes) sf1 message-content"
     },
     "snb.sf1.message_content.gfql_polars": {
@@ -4037,10 +4037,10 @@
       ],
       "engine": "gfql_polars",
       "measurement_profile": "snb-interactive-warm-repeated-query-v2",
-      "run": "snb-aligned-ship-f283a305e-20260917",
+      "run": "snb-aligned-ship-2d64913b5-20261003",
       "status": "ok",
       "unit": "ms",
-      "value": 0.164,
+      "value": 0.163,
       "workload": "LDBC SNB-derived aligned queries sf1 message-content"
     },
     "snb.sf1.message_content.gfql_polars_idx": {
@@ -4055,10 +4055,10 @@
       ],
       "engine": "gfql_polars_idx",
       "measurement_profile": "snb-interactive-warm-repeated-query-v2",
-      "run": "snb-ship-f283a305e-20260917",
+      "run": "snb-ship-2d64913b5-20261003",
       "status": "ok",
       "unit": "ms",
-      "value": 0.164,
+      "value": 0.163,
       "workload": "SNB-derived matched queries (GFQL, resident indexes) sf1 message-content"
     },
     "snb.sf1.message_content.kuzu": {
@@ -4071,7 +4071,7 @@
       ],
       "engine": "kuzu",
       "measurement_profile": "snb-interactive-warm-repeated-query-v2",
-      "run": "snb-aligned-ship-f283a305e-20260917",
+      "run": "snb-aligned-ship-2d64913b5-20261003",
       "status": "ok",
       "unit": "ms",
       "value": 0.336,
@@ -4087,7 +4087,7 @@
       ],
       "engine": "memgraph",
       "measurement_profile": "snb-interactive-warm-repeated-query-v2",
-      "run": "snb-aligned-ship-f283a305e-20260917",
+      "run": "snb-aligned-ship-2d64913b5-20261003",
       "status": "ok",
       "unit": "ms",
       "value": 0.527,
@@ -4103,7 +4103,7 @@
       ],
       "engine": "neo4j",
       "measurement_profile": "snb-interactive-warm-repeated-query-v2",
-      "run": "snb-aligned-ship-f283a305e-20260917",
+      "run": "snb-aligned-ship-2d64913b5-20261003",
       "status": "ok",
       "unit": "ms",
       "value": 2.06,
@@ -4121,10 +4121,10 @@
       ],
       "engine": "gfql_pandas_idx",
       "measurement_profile": "snb-interactive-warm-repeated-query-v2",
-      "run": "snb-ship-f283a305e-20260917",
+      "run": "snb-ship-2d64913b5-20261003",
       "status": "ok",
       "unit": "ms",
-      "value": 0.651,
+      "value": 0.632,
       "workload": "SNB-derived matched queries (GFQL, resident indexes) sf1 message-creator"
     },
     "snb.sf1.message_creator.gfql_polars": {
@@ -4136,10 +4136,10 @@
       ],
       "engine": "gfql_polars",
       "measurement_profile": "snb-interactive-warm-repeated-query-v2",
-      "run": "snb-aligned-ship-f283a305e-20260917",
+      "run": "snb-aligned-ship-2d64913b5-20261003",
       "status": "ok",
       "unit": "ms",
-      "value": 0.232,
+      "value": 0.231,
       "workload": "LDBC SNB-derived aligned queries sf1 message-creator"
     },
     "snb.sf1.message_creator.gfql_polars_idx": {
@@ -4154,10 +4154,10 @@
       ],
       "engine": "gfql_polars_idx",
       "measurement_profile": "snb-interactive-warm-repeated-query-v2",
-      "run": "snb-ship-f283a305e-20260917",
+      "run": "snb-ship-2d64913b5-20261003",
       "status": "ok",
       "unit": "ms",
-      "value": 0.232,
+      "value": 0.231,
       "workload": "SNB-derived matched queries (GFQL, resident indexes) sf1 message-creator"
     },
     "snb.sf1.message_creator.kuzu": {
@@ -4170,7 +4170,7 @@
       ],
       "engine": "kuzu",
       "measurement_profile": "snb-interactive-warm-repeated-query-v2",
-      "run": "snb-aligned-ship-f283a305e-20260917",
+      "run": "snb-aligned-ship-2d64913b5-20261003",
       "status": "ok",
       "unit": "ms",
       "value": 1.49,
@@ -4186,7 +4186,7 @@
       ],
       "engine": "memgraph",
       "measurement_profile": "snb-interactive-warm-repeated-query-v2",
-      "run": "snb-aligned-ship-f283a305e-20260917",
+      "run": "snb-aligned-ship-2d64913b5-20261003",
       "status": "ok",
       "unit": "ms",
       "value": 0.516,
@@ -4202,7 +4202,7 @@
       ],
       "engine": "neo4j",
       "measurement_profile": "snb-interactive-warm-repeated-query-v2",
-      "run": "snb-aligned-ship-f283a305e-20260917",
+      "run": "snb-aligned-ship-2d64913b5-20261003",
       "status": "ok",
       "unit": "ms",
       "value": 1.871,
@@ -4220,10 +4220,10 @@
       ],
       "engine": "gfql_pandas_idx",
       "measurement_profile": "snb-interactive-warm-repeated-query-v2",
-      "run": "snb-ship-f283a305e-20260917",
+      "run": "snb-ship-2d64913b5-20261003",
       "status": "ok",
       "unit": "ms",
-      "value": 576.991,
+      "value": 571.911,
       "workload": "SNB-derived matched queries (GFQL, resident indexes) sf1 new-topics"
     },
     "snb.sf1.new_topics.gfql_polars": {
@@ -4235,10 +4235,10 @@
       ],
       "engine": "gfql_polars",
       "measurement_profile": "snb-interactive-warm-repeated-query-v2",
-      "run": "snb-aligned-ship-f283a305e-20260917",
+      "run": "snb-aligned-ship-2d64913b5-20261003",
       "status": "ok",
       "unit": "ms",
-      "value": 168.253,
+      "value": 155.497,
       "workload": "LDBC SNB-derived aligned queries sf1 new-topics"
     },
     "snb.sf1.new_topics.gfql_polars_idx": {
@@ -4253,10 +4253,10 @@
       ],
       "engine": "gfql_polars_idx",
       "measurement_profile": "snb-interactive-warm-repeated-query-v2",
-      "run": "snb-ship-f283a305e-20260917",
+      "run": "snb-ship-2d64913b5-20261003",
       "status": "ok",
       "unit": "ms",
-      "value": 168.253,
+      "value": 155.497,
       "workload": "SNB-derived matched queries (GFQL, resident indexes) sf1 new-topics"
     },
     "snb.sf1.new_topics.kuzu": {
@@ -4269,7 +4269,7 @@
       ],
       "engine": "kuzu",
       "measurement_profile": "snb-interactive-warm-repeated-query-v2",
-      "run": "snb-aligned-ship-f283a305e-20260917",
+      "run": "snb-aligned-ship-2d64913b5-20261003",
       "status": "ok",
       "unit": "ms",
       "value": 217.133,
@@ -4287,10 +4287,10 @@
       ],
       "engine": "gfql_pandas_idx",
       "measurement_profile": "snb-interactive-warm-repeated-query-v2",
-      "run": "snb-ship-f283a305e-20260917",
+      "run": "snb-ship-2d64913b5-20261003",
       "status": "ok",
       "unit": "ms",
-      "value": 1.147,
+      "value": 1.136,
       "workload": "SNB-derived matched queries (GFQL, resident indexes) sf1 seed-lookup"
     },
     "snb.sf1.seed_lookup.gfql_polars": {
@@ -4302,10 +4302,10 @@
       ],
       "engine": "gfql_polars",
       "measurement_profile": "snb-interactive-warm-repeated-query-v2",
-      "run": "snb-aligned-ship-f283a305e-20260917",
+      "run": "snb-aligned-ship-2d64913b5-20261003",
       "status": "ok",
       "unit": "ms",
-      "value": 0.281,
+      "value": 0.276,
       "workload": "LDBC SNB-derived aligned queries sf1 seed-lookup"
     },
     "snb.sf1.seed_lookup.gfql_polars_idx": {
@@ -4320,10 +4320,10 @@
       ],
       "engine": "gfql_polars_idx",
       "measurement_profile": "snb-interactive-warm-repeated-query-v2",
-      "run": "snb-ship-f283a305e-20260917",
+      "run": "snb-ship-2d64913b5-20261003",
       "status": "ok",
       "unit": "ms",
-      "value": 0.281,
+      "value": 0.276,
       "workload": "SNB-derived matched queries (GFQL, resident indexes) sf1 seed-lookup"
     },
     "snb.sf1.seed_lookup.kuzu": {
@@ -4336,7 +4336,7 @@
       ],
       "engine": "kuzu",
       "measurement_profile": "snb-interactive-warm-repeated-query-v2",
-      "run": "snb-aligned-ship-f283a305e-20260917",
+      "run": "snb-aligned-ship-2d64913b5-20261003",
       "status": "ok",
       "unit": "ms",
       "value": 1.956,
@@ -4352,7 +4352,7 @@
       ],
       "engine": "memgraph",
       "measurement_profile": "snb-interactive-warm-repeated-query-v2",
-      "run": "snb-aligned-ship-f283a305e-20260917",
+      "run": "snb-aligned-ship-2d64913b5-20261003",
       "status": "ok",
       "unit": "ms",
       "value": 0.453,
@@ -4368,7 +4368,7 @@
       ],
       "engine": "neo4j",
       "measurement_profile": "snb-interactive-warm-repeated-query-v2",
-      "run": "snb-aligned-ship-f283a305e-20260917",
+      "run": "snb-aligned-ship-2d64913b5-20261003",
       "status": "ok",
       "unit": "ms",
       "value": 3.082,
@@ -4376,8 +4376,8 @@
     }
   },
   "contract_version": 3,
-  "generated_at": "2026-10-02T08:07:28Z",
-  "generated_by": "graphistry/pyg-bench 01353d84 scripts/export_docs_numbers.py",
+  "generated_at": "2026-10-03T07:12:55Z",
+  "generated_by": "graphistry/pyg-bench 63e1d74f scripts/export_docs_numbers.py",
   "policy": {
     "accepted_regressions": [],
     "drift_waivers": {
@@ -4437,33 +4437,33 @@
       "row_validation": "All 12 selected-node sets had Jaccard 1.0 against the reference (gate 0.95); every slot passed typed result, exact run-contract, and load/self-spike validation; the committed aggregate exactly recomputes from all slots.",
       "runtime": "RAPIDS 26.02 (NVIDIA nvcr.io/nvidia/rapidsai/base:26.02-cuda12-py3.13 image, Python 3.13); GFQL Python 3.13.12, pandas 2.3.3, python-igraph 1.0.0; Neo4j 2026.02.2 + graph-data-science with Python client 3.12.3 on the same host; benchmark image graphistry/test-rapids-official:26.02-gfql-polars"
     },
-    "graphbench-q1q9-100k-master-f283a305e-20260917": {
+    "graphbench-q1q9-100k-master-2d64913b5-20261003": {
       "artifact": "results/graphbench-ship-cpuset-f283a305e-100k-20260917 with historical results/graphbench-memgraph-20260812 and results/graphbench-neo4j-20260812",
       "competitor": "Kuzu, Memgraph, Neo4j",
       "competitor_version": "Kuzu 0.11.3 (embedded, CPU); Memgraph 2.18.1 (Docker); Neo4j 5 community (Docker)",
       "dataset": "prrao87 graph-benchmark, 100,000 persons / 2,417,738 FOLLOWS / 2,775,195 edges",
       "host": "dgx-spark (NVIDIA GB10), 20 CPU",
-      "measured_at": "2026-09-17",
+      "measured_at": "2026-10-03",
       "perf_lock_held": true,
       "pyg_bench_commit": "e6dbf8f8f79e56a717587edd8178147ab4ff032b",
-      "pygraphistry_commit": "f283a305e1d0df1bf46efae0f2d36eff7cc74ae0",
+      "pygraphistry_commit": "2d64913b56a07ce68db5a010e2cc1fec14188e3e",
       "quiet_host": true,
-      "reps": "GFQL and Kuzu: 5 warmups then 51 timed runs per slot, 4 position-balanced slots per engine (K/G/GPU), slot median then median across slots; GFQL binds the graph cold in every timed run (bind time included); the polars-gpu slots run under dgx-guard/safe_run.sh. Memgraph and Neo4j: 4 slots each of 7 timed runs over Bolt on 2026-08-12, values matched to the GFQL board. GFQL/Kuzu slots re-measured at the shipped release tree under the same pinned CPU protocol as the board they replace; Memgraph and Neo4j arms unchanged.",
+      "reps": "GFQL and Kuzu: 5 warmups then 51 timed runs per slot, 4 position-balanced slots per engine (K/G/GPU), slot median then median across slots; GFQL binds the graph cold in every timed run (bind time included); the polars-gpu slots run under dgx-guard/safe_run.sh. Memgraph and Neo4j: 4 slots each of 7 timed runs over Bolt on 2026-08-12, values matched to the GFQL board. GFQL/Kuzu slots re-measured at the pygraphistry #2117 tree (2d64913b5) under the same pinned CPU protocol as the board they replace; Memgraph and Neo4j arms unchanged.",
       "row_validation": "every cell emits a canonical, column-order-independent row set; a GFQL cell is publishable only when its rows equal every competitor's on every slot",
       "runtime": "GFQL: RAPIDS 26.02 image sha256:74544b1b30faa80674ed9ee8def391d6865cc999b1662c8be4ff6f8e8649db75, Polars 1.35.2; Kuzu 0.11.3 on host Python 3.12.3. Historical Memgraph 2.18.1 and Neo4j 5 community Docker arms retain their 2026-08-12 runtime records. CPU/Kuzu: 32 GiB, no swap, a 20-CPU quota ceiling, 4096 processes, 3600-second per-slot limit. All new CPU, GPU and Kuzu slots use CPUs 5-9,15-19 (ten higher-frequency cores), with 20 Polars threads. Actual affinity is verified in every runtime receipt; historical Bolt arms retain their original unrecorded CPU placement. GPU slots use dgx-guard; image, driver, enforced CPU scope and dataset checks are retained in the preflight directory. The harness moves from 47201b4d to e6dbf8f4 for a fix to the load-breach VALIDITY classifier only (a lane's own newborn `runc init` was misread as external interference): every .py and .sh under benchmarks/graphbench/matched_q1_q9 is byte-identical between the two harness trees, so no measurement code changed."
     },
-    "graphbench-q1q9-20k-master-f283a305e-20260917": {
+    "graphbench-q1q9-20k-master-2d64913b5-20261003": {
       "artifact": "results/graphbench-ship-cpuset-f283a305e-20k-20260917 with historical results/graphbench-memgraph-20260812 and results/graphbench-neo4j-20260812",
       "competitor": "Kuzu, Memgraph, Neo4j",
       "competitor_version": "Kuzu 0.11.3 (embedded, CPU); Memgraph 2.18.1 (Docker); Neo4j 5 community (Docker)",
       "dataset": "prrao87 graph-benchmark, 20,000 persons / 199,939 FOLLOWS / 260,107 edges",
       "host": "dgx-spark (NVIDIA GB10), 20 CPU",
-      "measured_at": "2026-09-17",
+      "measured_at": "2026-10-03",
       "perf_lock_held": true,
       "pyg_bench_commit": "e6dbf8f8f79e56a717587edd8178147ab4ff032b",
-      "pygraphistry_commit": "f283a305e1d0df1bf46efae0f2d36eff7cc74ae0",
+      "pygraphistry_commit": "2d64913b56a07ce68db5a010e2cc1fec14188e3e",
       "quiet_host": true,
-      "reps": "GFQL and Kuzu: 5 warmups then 51 timed runs per slot, 4 position-balanced slots per engine (K/G/GPU), slot median then median across slots; GFQL binds the graph cold in every timed run (bind time included); the polars-gpu slots run under dgx-guard/safe_run.sh. Memgraph and Neo4j: 4 slots each of 7 timed runs over Bolt on 2026-08-12, values matched to the GFQL board. GFQL/Kuzu slots re-measured at the shipped release tree under the same pinned CPU protocol as the board they replace; Memgraph and Neo4j arms unchanged.",
+      "reps": "GFQL and Kuzu: 5 warmups then 51 timed runs per slot, 4 position-balanced slots per engine (K/G/GPU), slot median then median across slots; GFQL binds the graph cold in every timed run (bind time included); the polars-gpu slots run under dgx-guard/safe_run.sh. Memgraph and Neo4j: 4 slots each of 7 timed runs over Bolt on 2026-08-12, values matched to the GFQL board. GFQL/Kuzu slots re-measured at the pygraphistry #2117 tree (2d64913b5) under the same pinned CPU protocol as the board they replace; Memgraph and Neo4j arms unchanged.",
       "row_validation": "every cell emits a canonical, column-order-independent row set; a GFQL cell is publishable only when its rows equal every competitor's on every slot",
       "runtime": "GFQL: RAPIDS 26.02 image sha256:74544b1b30faa80674ed9ee8def391d6865cc999b1662c8be4ff6f8e8649db75, Polars 1.35.2; Kuzu 0.11.3 on host Python 3.12.3. Historical Memgraph 2.18.1 and Neo4j 5 community Docker arms retain their 2026-08-12 runtime records. CPU/Kuzu: 32 GiB, no swap, a 20-CPU quota ceiling, 4096 processes, 3600-second per-slot limit. All new CPU, GPU and Kuzu slots use CPUs 5-9,15-19 (ten higher-frequency cores), with 20 Polars threads. Actual affinity is verified in every runtime receipt; historical Bolt arms retain their original unrecorded CPU placement. GPU slots use dgx-guard; image, driver, enforced CPU scope and dataset checks are retained in the preflight directory. Separate device diagnostics show CPU-only execution for q8 even with the polars-gpu engine selection. The harness moves from 47201b4d to e6dbf8f4 for a fix to the load-breach VALIDITY classifier only (a lane's own newborn `runc init` was misread as external interference): every .py and .sh under benchmarks/graphbench/matched_q1_q9 is byte-identical between the two harness trees, so no measurement code changed."
     },
@@ -4499,31 +4499,31 @@
       "row_validation": "every task records the materialized result size (node count of the filter / k-hop ball, scored vertex count for PageRank); a cell is comparable only when every system on that dataset and task reports the same size, else it is published as a direct, diagnostic-only time",
       "runtime": "GFQL in graphistry/test-rapids-official:26.02-gfql-polars (RAPIDS 26.02, Python 3.13, polars 1.35.2, cuDF/cuGraph 26.2) under dgx-guard safe_run (RMM 80 GB, 100 GB for the Friendster rungs; host floor 20 GB); the two CPU PageRank rungs (fix2024/lj-polars-pagerank, orkut-polars-pagerank) in graphistry/test-rapids-official:26.02-gfql-polars-igraph, the same image plus python-igraph 1.0.0 (image id and versions in each rung's IMAGE_RECEIPT.txt, recorded after the run); GraphFrames on host PySpark 3.5.3 + graphframes assembly jar, OpenJDK 1.8.0_492"
     },
-    "snb-aligned-ship-f283a305e-20260917": {
+    "snb-aligned-ship-2d64913b5-20261003": {
       "artifact": "results/snb-master-f7a7253bc",
       "competitor": "Kuzu, Neo4j, Memgraph",
       "competitor_version": "Kuzu 0.11.3; Neo4j 5 community; Memgraph 2.18.1; pinned image digests in run records",
       "dataset": "LDBC SNB Interactive SF0.1 and SF1, derived matched query shapes (SF10 is a capability boundary and is excluded)",
       "host": "dgx-spark (NVIDIA GB10), 20 CPU",
-      "measured_at": "2026-09-17",
+      "measured_at": "2026-10-03",
       "perf_lock_held": true,
       "pyg_bench_commit": "684c0b40945b181d4a1504d1e297db5907694415",
-      "pygraphistry_commit": "f283a305e1d0df1bf46efae0f2d36eff7cc74ae0",
+      "pygraphistry_commit": "2d64913b56a07ce68db5a010e2cc1fec14188e3e",
       "quiet_host": true,
       "reps": "8 discarded warmups, 31 timed executions with full result materialization, 3 independent process runs; median of the three run medians",
       "row_validation": "Exact canonical result hashes and row counts verified in every run and across eligible GFQL, Kuzu, Neo4j, and Memgraph comparisons; pandas also matches Polars.",
       "runtime": "GFQL Polars 1.35.2 (explicit runner pin) and pandas on CPU in Python 3.12.12; GFQL/Kuzu runner image ghcr.io/astral-sh/uv:python3.12-bookworm-slim@sha256:e5b65587bce7de595f299855d7385fe7fca39b8a74baa261ba1b7147afa78e58; Kuzu 0.11.3 embedded CPU; Memgraph 2.18.1 and Neo4j 5 community in pinned Docker images. Memgraph SF0.1: 4 GiB container / 3072 MiB engine; SF1: 16 GiB / 12288 MiB. Per-run records retain exact image digests and execution guards."
     },
-    "snb-ship-f283a305e-20260917": {
+    "snb-ship-2d64913b5-20261003": {
       "artifact": "results/snb-master-f7a7253bc",
       "competitor": "Kuzu, Neo4j, Memgraph",
       "competitor_version": "Kuzu 0.11.3; Neo4j 5 community; Memgraph 2.18.1; pinned image digests in run records",
       "dataset": "LDBC SNB Interactive SF0.1 and SF1, derived matched query shapes (the release board's parameters)",
       "host": "dgx-spark (NVIDIA GB10), 20 CPU",
-      "measured_at": "2026-09-17",
+      "measured_at": "2026-10-03",
       "perf_lock_held": true,
       "pyg_bench_commit": "684c0b40945b181d4a1504d1e297db5907694415",
-      "pygraphistry_commit": "f283a305e1d0df1bf46efae0f2d36eff7cc74ae0",
+      "pygraphistry_commit": "2d64913b56a07ce68db5a010e2cc1fec14188e3e",
       "quiet_host": true,
       "reps": "8 discarded warmups, 31 timed executions with full result materialization, 3 independent process runs; median of the three run medians",
       "row_validation": "Exact canonical result hashes and row counts verified in every run and across eligible GFQL, Kuzu, Neo4j, and Memgraph comparisons; pandas also matches Polars.",

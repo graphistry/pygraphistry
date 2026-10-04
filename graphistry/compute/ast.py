@@ -887,7 +887,10 @@ class ASTLet(ASTObject):
         
         # Process mixed JSON/native objects
         processed_bindings: Dict[str, Any] = {}
+        from graphistry.compute.gfql.index.wire import index_op_to_call, is_index_op
         for name, value in bindings.items():
+            if is_index_op(value):
+                value = index_op_to_call(value)  # DDL as a binding: the graph with that index resident
             if isinstance(value, list):
                 # Treat list bindings as implicit Chain operations
                 from graphistry.compute.chain import Chain  # noqa: F401, F811
@@ -1496,6 +1499,9 @@ def from_json(o: JSONVal, validate: bool = True) -> Union[ASTNode, ASTEdge, ASTL
         out = ASTRef.from_json(o, validate=validate)
     elif o['type'] == 'Call':
         out = ASTCall.from_json(o, validate=validate)
+    elif o['type'] in ('CreateIndex', 'DropIndex', 'ShowIndexes'):
+        from graphistry.compute.gfql.index.wire import index_op_from_json, index_op_to_call
+        out = index_op_to_call(index_op_from_json(dict(o)))
     else:
         raise GFQLSyntaxError(
             ErrorCode.E101,
