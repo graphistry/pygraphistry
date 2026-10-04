@@ -117,13 +117,9 @@ A complete, runnable example:
    assert g_indexed.gfql_explain("MATCH (m {id: 0})-[e]->(p) RETURN p")["used_index"]
 
 Both forms take the index path for a lookup from one known node, as ``gfql_explain``
-reports. Building and querying are two calls today: the DDL statement is its own
-``gfql()`` call, so the one-liner is ``g.gfql_index_all().gfql(query)`` (or the
-``.gfql(ddl).gfql(query)`` chain above); a single string that both creates the index and
-runs the lookup is not accepted yet. A seed *list* is written ``WHERE m.id IN [0, 3]``: in the row-returning form it
-currently takes the scan path and returns the same rows it always did; the ``GRAPH { }``
-form does not accept it yet. The same hop as a native chain, and the direct ``hop()``
-call:
+reports. A seed *list* is written ``WHERE m.id IN [0, 3]``: the row-returning form takes
+the index path too; the ``GRAPH { }`` form accepts it and takes the scan path. The same
+hop as a native chain, and the direct ``hop()`` call:
 
 .. code-block:: python
 
@@ -180,7 +176,7 @@ On 0.58.0, a resident index is consumed automatically by:
   ``WHERE m.id = $x`` spelling, and the single-alias **property RETURN** form
   (``RETURN p.a AS x, p.b``), typed or untyped. The seed lookup, frontier expansion, and
   endpoint materialization all become positional index gathers. A seed *list*
-  (``WHERE m.id IN [...]``) currently takes the scan path.
+  (``WHERE m.id IN [...]``) takes the index path too.
 - **Native chains** such as ``[n({"id": is_in([...])}), e_forward(), n(...)]``: check a
   given shape with ``g.gfql_explain(query)``, which reports ``used_index`` and the
   planner's decision.
@@ -300,9 +296,11 @@ Build it with Cypher
    out = g.gfql("MATCH (a {id: 'a'})-[e]->(b) RETURN b")  # gfql_explain: used_index=True
    g.gfql("SHOW GFQL INDEXES")                           # what is resident
 
-The DDL forms are ``CREATE GFQL INDEX FOR <kind>``, ``DROP GFQL INDEX``, and ``SHOW GFQL
-INDEXES`` — the mandatory ``GFQL`` token distinguishes them from standard property
-``CREATE INDEX``. The same intent travels over the JSON wire protocol
+The DDL forms are ``CREATE GFQL INDEX [name] [IF NOT EXISTS] FOR <kind> [ON (col)]``,
+``DROP GFQL INDEX name [IF EXISTS]`` (or ``DROP GFQL INDEX [IF EXISTS] FOR <kind> [ON (col)]``), and
+``SHOW GFQL INDEXES`` — the mandatory ``GFQL`` token distinguishes them from standard property
+``CREATE INDEX``; the optional parts follow the Cypher spelling, and the earlier GFQL spellings
+(``ON col`` without parentheses, ``IF EXISTS`` before the name) stay accepted. The same intent travels over the JSON wire protocol
 (``{"type": "CreateIndex", ...}`` ops plus ``index_policy`` in the request envelope), so a
 remote ``gfql_remote`` call can carry it.
 
