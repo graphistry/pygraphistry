@@ -49,6 +49,27 @@ from .chain_lean_combine import (
 )
 
 
+
+def _is_index_op_json(op: object) -> bool:
+    from graphistry.compute.gfql.index.wire import is_index_op_json
+    return is_index_op_json(op)
+
+
+def _index_op_json_as_call(op: Dict[str, JSONVal]) -> ASTCall:
+    from graphistry.compute.gfql.index.wire import index_op_from_json, index_op_to_call
+    return index_op_to_call(index_op_from_json(dict(op)))
+
+
+def _index_ops_as_calls(ops: List[ASTObject]) -> List[ASTObject]:
+    """Index DDL wire ops (CreateIndex/DropIndex) in an op list become their call() form."""
+    if not isinstance(ops, list):
+        return ops  # validate() names the offending type
+    from graphistry.compute.gfql.index.wire import index_op_to_call, is_index_op
+    if not any(is_index_op(op) for op in ops):
+        return ops  # the caller's own list: a later mutation is still seen and re-validated on execute
+    return [index_op_to_call(op) if is_index_op(op) else op for op in ops]
+
+
 class Chain(ASTSerializable):
 
     def __init__(
@@ -57,7 +78,7 @@ class Chain(ASTSerializable):
         where: Optional[Sequence[WhereComparison]] = None,
         validate: bool = True,
     ) -> None:
-        self.chain = chain
+        self.chain = _index_ops_as_calls(chain)
         self.where = normalize_where_entries(where or [])
         self._constructor_validated: bool = validate
         self._gfql_validated_in_call: bool = False
@@ -154,7 +175,7 @@ class Chain(ASTSerializable):
         
         where = parse_where_json(d.get('where'))
         out = cls(
-            [ASTObject_from_json(op, validate=validate) for op in d['chain']],
+            [_index_op_json_as_call(op) if isinstance(op, dict) and _is_index_op_json(op) else ASTObject_from_json(op, validate=validate) for op in d['chain']],
             where=where,
             validate=validate,
         )
@@ -1308,7 +1329,14 @@ def _chain_impl(
             g_out = g_stack[-1]
             if added_edge_index:
                 final_edges_df = g_out._edges.drop(columns=[g._edge])
+                called = g_out
                 g_out = self.nodes(g_out._nodes).edges(final_edges_df, edge=original_edge)
+                # A call such as create_index attaches an index registry to ITS result; rebuilding
+                # from `self` would lose it. Migrate it onto the de-indexed edge frame (same rows).
+                from graphistry.compute.gfql.index import get_registry, set_registry
+                _called_registry = get_registry(called)
+                if not _called_registry.is_empty():
+                    g_out = set_registry(g_out, _called_registry.rebind_edges(final_edges_df, called._edges))
             else:
                 from .gfql.exec_context import clear_row_exec_context
                 g_out = clear_row_exec_context(g_out)

@@ -117,7 +117,7 @@ Provenance
 
 Run dates and hardware.
 
-.. bench-provenance:: graphbench-q1q9-20k-master-f283a305e-20260917 graphbench-q1q9-100k-master-f283a305e-20260917 snb-aligned-ship-f283a305e-20260917 snb-ship-f283a305e-20260917
+.. bench-provenance:: graphbench-q1q9-20k-master-2d64913b5-20261003 graphbench-q1q9-100k-master-2d64913b5-20261003 snb-aligned-ship-2d64913b5-20261003 snb-ship-2d64913b5-20261003
    :fields: measured_at,host
    :disclosures:
 
