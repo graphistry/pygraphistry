@@ -202,6 +202,29 @@ python -m pytest -q [targeted_test]
 - If startup/runtime claims are made, verify entrypoints/scripts in `bin/` and workflow behavior.
 - For docs-only PRs, prioritize spec/documentation accuracy and navigability (toctree links, anchors, cross-refs).
 
+### GFQL change boundaries, engines, engagement, perf (compute/**)
+
+- **Both sides of every boundary.** A fix carries a test that fails with the defect reinstated and
+  passes with the fix; the case that must still decline or raise is pinned next to it. A differential
+  with zero rows on both sides, or where another route served the query, tests nothing: assert the
+  expected row count and the serving route.
+- **Sweep the siblings.** A change to one engine, lane or shape is checked on every sibling before it
+  is landable: pandas, cuDF, polars, polars-gpu, and each specialization of the same shape
+  (`chain_specializations/`, `gfql/lazy/engine/polars/chain_specializations/`, the indexed bindings
+  kernel, the row pipeline). Report the siblings that were probed and what each did.
+- **Engagement is a pin, not a timing.** "The index/fast path is used" is proven by a `gfql_explain`
+  assertion (`used_index`, `decision_code`, the seam name) marked `@pytest.mark.route_engaged(...)`
+  so `bin/test-routes-off.sh` can replay the parity half with the route disabled. Parity stays an
+  unmarked result pin. A wall-clock assertion in pygraphistry tests is a finding.
+- **Perf claims live in pyg-bench.** A number in a PR body or CHANGELOG needs a pyg-bench measurement
+  with an A/A control beside the A/B, pinned in that repo's thresholds + contract test; pygraphistry
+  carries results and data contracts only. Local-box numbers do not close a perf PR.
+- **Cypher surface.** A change reachable from a Cypher query (parser, DDL, row pipeline, WHERE/RETURN
+  lowering) runs the tck subset that covers it; engine-parametrize the result pin.
+- **Release notes and docs.** Every user-visible change has a CHANGELOG.md entry under
+  `[Development]`; docs edits are minimal, plain English (ASD-STE100: short sentences, one meaning per
+  word, no internal jargon or issue chatter), and a stale sentence is deleted rather than hedged.
+
 #### Vectorization & engine compatibility (GFQL / row pipeline / compute)
 
 GFQL is vectorization-first and pure-functional. The row pipeline runs on pandas + cuDF; per-row Python loops are a pandas perf cliff and a cuDF break, and in-place mutation creates aliasing surprises. Audit edits in `graphistry/compute/**` (esp. `gfql/**`, `plotter/**`) for the patterns below.
