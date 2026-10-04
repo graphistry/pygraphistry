@@ -191,3 +191,23 @@ def test_a_membership_seed_on_an_indexed_property_column_is_served():
     assert _n(g.gfql(ops, engine="pandas")._edges) == truth
     used, code, seams = _explain(g, ops, "pandas", "use")
     assert (used, code) == (True, "index_selected") and "native_seeded_hop" in seams
+
+
+@pytest.mark.parametrize("engine", _ENGINES)
+def test_the_single_node_lane_records_its_decline_too(engine):
+    # with no index resident the lane scans; the hop lane always said so, this one stayed silent
+    rng = np.random.default_rng(11)
+    nodes = pd.DataFrame({"id": np.arange(5000)})
+    edges = pd.DataFrame({"src": rng.integers(0, 5000, 20000), "dst": rng.integers(0, 5000, 20000)})
+    if engine == "cudf":
+        import cudf
+        nodes, edges = cudf.from_pandas(nodes), cudf.from_pandas(edges)
+    bare = graphistry.edges(edges, "src", "dst").nodes(nodes, "id")
+    ops = [n({"id": is_in([1, 2, 3])})]
+    used, code, seams = _explain(bare, ops, engine, "use")
+    assert (used, code) == (False, "index_path_unavailable") and seams == ["native_seed_lookup"]
+    assert _n(bare.gfql(ops, engine=engine)._nodes) == 3
+
+    indexed = bare.gfql_index_all()
+    used, code, seams = _explain(indexed, ops, engine, "use")
+    assert (used, code) == (True, "index_selected") and seams == ["native_seed_lookup"]

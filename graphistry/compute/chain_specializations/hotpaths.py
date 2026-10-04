@@ -34,9 +34,11 @@ def _single_node_rows_via_index_or_filter(
     if node is not None and n0f:
         nid_ctx = _resident_node_id_index(g, nodes_df, node)
         rows, how = _seed_node_rows(g, nodes_df, n0f, node, nid_ctx, n0.filter_dict)
-        if how != "scan":
-            _record_native_seed_lane(nodes_df, seam="native_seed_lookup", reason=how, hop_count=0,
-                                     public_seed_scan=node not in n0.filter_dict)
+        served = how != "scan"
+        _record_native_seed_lane(nodes_df, seam="native_seed_lookup",
+                                 reason=how if served else "no_valid_resident_index",
+                                 hop_count=0, public_seed_scan=node not in n0.filter_dict,
+                                 served=served)
         return rows
     return filter_by_dict(nodes_df, n0.filter_dict, engine_abs)
 
