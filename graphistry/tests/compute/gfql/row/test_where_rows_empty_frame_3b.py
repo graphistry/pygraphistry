@@ -3,15 +3,16 @@
 The row evaluators type their masks from the values they see; a frame with no rows has
 none, so ``NOT (x IN [...])`` that excluded every row came back as an empty float64 mask the
 truth-mask gate declined ("AST evaluator unsupported"), cuDF rejected the empty object mask
-("does not support mixed types"), and list compares broadcast 0 against 1. ``where_rows``
-now validates the predicate and short-circuits on an empty frame, and tri-valued results
-are typed boolean even when empty.
+("does not support mixed types"), and list compares broadcast 0 against 1. Tri-valued results
+are now typed boolean even when empty and a comparison with a zero-row operand answers a
+zero-row mask, so the predicate is evaluated on the empty frame like on any other: absent
+properties are still reported under ``strict``.
 """
 import pandas as pd
 import pytest
 
 import graphistry
-from graphistry.compute.exceptions import GFQLTypeError
+from graphistry.compute.exceptions import GFQLSchemaError, GFQLTypeError
 from graphistry.compute.gfql.row.pipeline import RowPipelineMixin, _gfql_expr_runtime_parser_bundle
 
 try:
@@ -63,9 +64,15 @@ def test_where_controls_still_select(engine):
 
 
 def test_bad_predicate_is_still_rejected_when_no_row_survives():
-    # the short-circuit skips evaluation, not validation
     with pytest.raises(GFQLTypeError):
         _graph().gfql("MATCH (a)-[e]->(t) WHERE t.type IN ['robot'] AND nosuchfn(t.id) RETURN t.id AS id", engine="pandas")
+
+
+def test_absent_property_on_an_emptied_frame_is_still_reported_under_strict():
+    q = "MATCH (a)-[e]->(t) WHERE t.type IN ['robot'] AND t.nosuch = 1 RETURN t.id AS id"
+    with pytest.raises(GFQLSchemaError):
+        _graph().gfql(q, engine="pandas", strict="strict")
+    assert _ids(_graph().gfql(q, engine="pandas")) == []
 
 
 def test_empty_where_rows_validates_and_keeps_zero_rows():

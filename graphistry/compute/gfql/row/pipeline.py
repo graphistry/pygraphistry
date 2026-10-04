@@ -10,13 +10,14 @@ from typing import TYPE_CHECKING, Any, Callable, Dict, Iterable, List, Literal, 
 
 import pandas as pd
 from graphistry.Engine import (
+    df_to_engine,
     Engine,
     EngineAbstract,
-    df_to_engine,
+    is_series_like,
     resolve_engine,
-    safe_map_series,
     s_cons,
     s_to_numeric,
+    safe_map_series,
 )
 from graphistry.compute.exceptions import ErrorCode, GFQLTypeError, GFQLValidationError
 from graphistry.compute.dataframe_utils import concat_frames
@@ -441,6 +442,8 @@ class RowPipelineMixin:
         structural_cmp = self._gfql_eval_structural_comparison_op(table_df, left, right, op)
         if structural_cmp is not None:
             return structural_cmp
+        if RowPipelineMixin._gfql_is_empty_series(left) or RowPipelineMixin._gfql_is_empty_series(right):
+            return self._gfql_broadcast_scalar(table_df, False).astype(bool)
 
         left_is_list = (
             isinstance(left, (list, tuple))
@@ -983,7 +986,16 @@ class RowPipelineMixin:
             suggestion='Pass strict="warn" (default) to resolve absent properties to null',
         )
 
-    def _gfql_eval_expr_ast(self, table_df: Any, node: Any) -> Tuple[bool, Any]:
+    def _gfql_eval_expr_ast(self, table_df: DataFrameT, node: Any) -> Tuple[bool, Any]:  # hygiene-ok: explicit-any -- parser AST node union
+        """Evaluate an expression AST. Every series result leaves here on the table's own
+        index, so label-aligned builders (NOT, AND/OR) and positionally built operands agree
+        whatever frame the index path handed in."""
+        ok, value = self._gfql_eval_expr_ast_values(table_df, node)
+        if ok and is_series_like(value):
+            value = RowPipelineMixin._gfql_on_table_index(table_df, value)
+        return ok, value
+
+    def _gfql_eval_expr_ast_values(self, table_df: Any, node: Any) -> Tuple[bool, Any]:
         parser_bundle = _gfql_expr_runtime_parser_bundle()
         if parser_bundle is None:
             return False, None
@@ -2745,30 +2757,26 @@ class RowPipelineMixin:
         return RowPipelineMixin._gfql_on_table_index(table_df, out)
 
     @staticmethod
-    def _gfql_assign_positional(frame: Any, **columns: Any) -> Any:  # hygiene-ok: explicit-any -- backend frame + scalar-or-Series columns, evaluator-wide idiom
+    def _gfql_is_empty_series(value: object) -> bool:
+        return is_series_like(value) and len(value) == 0  # type: ignore[arg-type]
+
+    @staticmethod
+    def _gfql_assign_positional(frame: DataFrameT, **columns: object) -> DataFrameT:
         """``assign`` by position, not label: evaluator series may carry the table's own (gappy) labels."""
-        aligned = {}
-        for name, value in columns.items():
-            if hasattr(value, "set_axis") and hasattr(value, "__len__") and len(value) == len(frame):
-                try:
-                    value = value.set_axis(frame.index)
-                except Exception:
-                    pass
-            aligned[name] = value
+        aligned = {
+            name: RowPipelineMixin._gfql_on_table_index(frame, value) if is_series_like(value) else value  # type: ignore[arg-type]
+            for name, value in columns.items()
+        }
         return frame.assign(**aligned)
 
     @staticmethod
-    def _gfql_on_table_index(table_df: Any, series: Any) -> Any:  # hygiene-ok: explicit-any -- scalar-or-Series mask on a backend frame, evaluator-wide idiom
+    def _gfql_on_table_index(table_df: DataFrameT, series: SeriesT) -> SeriesT:
         """Give a positionally built series the table's own index so label-aligned consumers line up."""
-        index = getattr(table_df, "index", None)
-        if index is None or not hasattr(series, "set_axis"):
+        if len(series) != len(table_df.index):
             return series
-        try:
-            if len(series) == len(index):
-                return series.set_axis(index)
-        except Exception:
-            pass
-        return series
+        out = series.copy(deep=False)
+        out.index = table_df.index
+        return out
 
     def _gfql_truth_masks(self, table_df: Any, value: Any) -> Optional[Tuple[Any, Any, Any]]:
         if not hasattr(value, "astype"):
@@ -4990,9 +4998,6 @@ class RowPipelineMixin:
         if expr is not None:
             if not isinstance(expr, str) or expr.strip() == "":
                 raise ValueError("where_rows(expr=...) must be a non-empty string")
-            if len(out_df) == 0:
-                RowPipelineMixin._gfql_parse_row_expr(expr)  # validate only: the evaluators type masks from values, and there are none
-                return self._gfql_row_table(out_df)
             expr_value = self._gfql_eval_string_expr(out_df, expr)
             mask = self._gfql_bool_mask(out_df, expr_value)
             out_df = out_df.loc[mask]
