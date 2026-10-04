@@ -2892,8 +2892,8 @@ class RowPipelineMixin:
     def _gfql_bool_mask(self, table_df: Any, value: Any) -> Any:
         if hasattr(value, "astype"):
             mask = value
-            if len(mask) == 0:
-                return mask.astype(bool)  # no row to fill; cuDF rejects where(object, False)
+            if len(mask) == 0 or bool(mask.isna().all()):
+                return self._gfql_broadcast_scalar(table_df, False).astype(bool)  # nothing to keep; cuDF rejects where(object, False)
             # Avoid pandas object-dtype fillna() downcast FutureWarning while
             # keeping NA -> False semantics in a vectorized backend-agnostic way.
             if hasattr(mask, "isna") and hasattr(mask, "where"):
@@ -3600,17 +3600,24 @@ class RowPipelineMixin:
         if temporal_in is not None:
             return temporal_in
 
-        out_values = self._gfql_in_literal_list_values(left_series, right_value)
+        left_is_column = hasattr(left_value, "astype")  # a cell reads null as `=` does; a literal keeps NaN as a value
+        out_values = self._gfql_in_literal_list_values(left_series, right_value, left_is_column=left_is_column)
         if out_values is None:
             lhs_values = self._gfql_series_to_pylist(left_series)
             rhs_values = self._gfql_series_to_pylist(right_series)
+            lhs_null = (self._gfql_series_to_pylist(self._gfql_null_mask(table_df, left_series)) if left_is_column
+                        else [RowPipelineMixin._gfql_is_cypher_null_scalar(v)
+                              for v in self._gfql_series_to_pylist(left_series)])
             out_values = []
-            for lhs_item, rhs_item in zip(lhs_values, rhs_values):
+            for lhs_item, rhs_item, lhs_is_null in zip(lhs_values, rhs_values, lhs_null):
                 if is_null_scalar(rhs_item):
                     out_values.append(None)
                     continue
                 if not isinstance(rhs_item, (list, tuple)):
                     raise ValueError(f"unsupported row expression: IN rhs must be list-like in {expr!r}")
+                if bool(lhs_is_null) and len(rhs_item):
+                    out_values.append(None)  # the row reads null to `=`, so IN is unknown too
+                    continue
                 saw_unknown = False
                 saw_true = False
                 for rhs_elem in rhs_item:
@@ -3633,15 +3640,18 @@ class RowPipelineMixin:
     def _gfql_in_literal_list_values(
         left_series: Any,  # hygiene-ok: explicit-any -- pandas/cuDF Series, evaluator-wide idiom
         right_value: Any,  # hygiene-ok: explicit-any -- arbitrary cypher list value, evaluator-wide idiom
+        left_is_column: bool = True,
     ) -> Optional[List[Any]]:  # hygiene-ok: explicit-any -- tri-state row values, evaluator-wide idiom
         """``<column> IN [<scalar literals>]`` through ``isin``, or None to leave it to the loop.
 
         Same truth table as the element loop: a row is TRUE when a non-null element equals
-        it, else NULL when the row is Cypher-null or the list holds a null, else FALSE; an
-        empty list is FALSE for every row. Only a constant list of plain scalars qualifies:
+        it, else NULL when the row is null or the list holds a null, else FALSE; an empty
+        list is FALSE for every row. Only a constant list of plain scalars qualifies:
         list/map elements need the structural equality the loop implements, and a per-row
-        list is not a constant. NaN is a value, never equal to anything (``nan == nan`` is
-        False), so NaN elements are dropped from the probe and a NaN row is only TRUE/FALSE.
+        list is not a constant. A COLUMN cell reads null exactly as the comparison operators
+        read it (``isna``), so ``x IN [...]`` and ``x = ...`` are unknown on the same rows;
+        with ``left_is_column=False`` the left side is a scalar literal, where NaN stays a
+        value that equals nothing, which is also what ``=`` does with it.
         """
         if not isinstance(right_value, (list, tuple)) or not hasattr(left_series, "isin"):
             return None
@@ -3666,13 +3676,10 @@ class RowPipelineMixin:
             missing = np.asarray(RowPipelineMixin._gfql_series_to_pylist(left_series.isna()), dtype=bool)
         except Exception:
             return None  # e.g. unhashable row values -> the loop's structural equality decides
-        if missing.any():
-            # ``isna`` also flags float NaN, which Cypher treats as a value; keep only real nulls.
+        if not left_is_column and missing.any():
             sparse = RowPipelineMixin._gfql_series_to_pylist(left_series.iloc[np.flatnonzero(missing)])
-            real_null = np.fromiter(
-                (RowPipelineMixin._gfql_is_cypher_null_scalar(v) for v in sparse), dtype=bool, count=len(sparse),
-            )
-            missing[np.flatnonzero(missing)] = real_null
+            missing[np.flatnonzero(missing)] = np.fromiter(
+                (RowPipelineMixin._gfql_is_cypher_null_scalar(v) for v in sparse), dtype=bool, count=len(sparse))
         # an empty list has nothing to compare against, so even a null row is FALSE
         unknown = (missing | rhs_has_null) if len(right_value) else np.zeros_like(missing)
         return [True if h else (None if u else False) for h, u in zip(hit.tolist(), unknown.tolist())]

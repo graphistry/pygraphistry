@@ -20,6 +20,8 @@ from graphistry.compute.predicates.is_in import is_in
 
 
 def _loop_oracle(lhs: Any, rhs: List[Any]) -> Optional[bool]:
+    if rhs and not isinstance(lhs, (list, tuple, dict)) and pd.isna(lhs):  # a cell reads null as `=` does (#2123)
+        return None
     saw_unknown = False
     for element in rhs:
         verdict = RowPipelineMixin._gfql_cypher_value_equal(lhs, element)
