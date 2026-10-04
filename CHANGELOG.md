@@ -8,6 +8,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [Development]
 <!-- Do Not Erase This Section - Used for tracking unreleased changes -->
 
+### Documentation
+
+- **GFQL docs catch up with what the 0.59.x indexes and search do**: the indexing page said a seed list (`WHERE m.id IN [...]`) inside `GRAPH { }` takes the scan path; it takes the index in the row form, the `GRAPH { }` form and the native `is_in` chain, and the runnable example now shows all of it with its `gfql_explain` check. The same page lists the `gfql_explain` `decision_code` vocabulary, which was only in the 0.59.0 changelog. The Cypher page gains the three-valued contract of `x IN [...]` (#2123) and says how a numeric `searchAny` term over a datetime column is answered without rendering the column, pointing at the pyg-bench lock that measures it.
+
 ## [0.59.2 - 2026-10-04]
 
 ### Added

@@ -116,10 +116,18 @@ A complete, runnable example:
    # Was the index used? gfql_explain says so
    assert g_indexed.gfql_explain("MATCH (m {id: 0})-[e]->(p) RETURN p")["used_index"]
 
+   # A seed LIST takes the index too, in both forms
+   out_many = g_indexed.gfql("MATCH (m)-[e]->(p) WHERE m.id IN [0, 3] RETURN p")
+   print(sorted(out_many._nodes["p.id"].tolist()))   # [1, 2, 4]
+   sub_many = g_indexed.gfql("GRAPH { MATCH (m)-[e]->(p) WHERE m.id IN [0, 3] }")
+   print(sorted(sub_many._nodes["id"].tolist()), len(sub_many._edges))   # [0, 1, 2, 3, 4] 3
+   assert g_indexed.gfql_explain("GRAPH { MATCH (m)-[e]->(p) WHERE m.id IN [0, 3] }")["used_index"]
+
 Both forms take the index path for a lookup from one known node, as ``gfql_explain``
-reports. A seed *list* is written ``WHERE m.id IN [0, 3]``: the row-returning form takes
-the index path too; the ``GRAPH { }`` form accepts it and takes the scan path. The same
-hop as a native chain, and the direct ``hop()`` call:
+reports. A seed *list* is written ``WHERE m.id IN [0, 3]`` and takes the index path in
+the row-returning form, in the ``GRAPH { }`` form, and in the native ``is_in`` chain
+below (a list holding ``null``, or an ``IN`` under ``OR`` / ``NOT``, stays a row filter).
+The same hop as a native chain, and the direct ``hop()`` call:
 
 .. code-block:: python
 
@@ -326,6 +334,28 @@ Controlling the planner
      - Ignore indexes entirely (the plain scan).
 
 Use ``g.gfql_explain(query, index_policy=...)`` to see whether the index path was taken.
+It returns ``used_index`` (bool), ``resident_indexes``, the per-step ``steps`` trace, and
+the planner's final ``decision_reason`` (human-readable) with a stable ``decision_code``
+for programs and tests to match on:
+
+- ``index_selected`` -- the index served the query.
+- ``policy_off`` -- ``index_policy='off'``.
+- ``no_resident_index`` -- nothing is resident and ``index_policy='use'`` never builds.
+- ``index_path_unavailable`` -- the index path could not serve this query as planned, so
+  the scan answered; ``decision_reason`` says what was missing (e.g. ``index_missing``).
+- ``not_index_coverable`` -- the shape is one the index path does not cover; it scans.
+- ``missing_graph_columns`` -- the graph lacks a bound column the index needs.
+- ``index_build_declined`` -- ``index_policy='auto'`` / ``'force'`` ended with no usable
+  index (the build was declined or did not cover the hop).
+- ``scan_cost`` -- the index is resident but the cost gate chose the scan (a seed set
+  covering most of the graph, for example).
+- ``engine_mismatch`` -- the resident index was built for another engine.
+- ``col_stats_absent`` / ``col_stats_stale`` / ``col_stats_insufficient`` /
+  ``col_stats_served`` -- the column-stat fact consult (below) could not help, is out of
+  date after a rebind, cannot prove what the plan needs, or answered the query.
+
+A fast path's contract is "same answer, faster", so a decline is never an error: the
+scan answers, and the code says why the shortcut was not taken.
 
 Column-stat facts
 ~~~~~~~~~~~~~~~~~
