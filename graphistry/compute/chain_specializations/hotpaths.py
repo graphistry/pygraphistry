@@ -10,7 +10,7 @@ from graphistry.Plottable import Plottable
 from graphistry.compute.ast import ASTObject, ASTNode, ASTEdge, Direction
 from graphistry.compute.chain_fast_paths import (
     _ids_to_key_array, _index_edge_rows, _index_node_rows, _record_native_seed_lane,
-    _resident_node_id_index, _resident_seed_indexes, _seed_node_rows, _seeded_scalar_filters,
+    _resident_node_id_index, _resident_seed_indexes, _seed_node_rows, _seeded_scalar_filters, _seeded_seed_filters,
     _tag_fast_path_aliases, SeededReturn,
 )
 from graphistry.compute.typing import ArrayLike, ArrayNamespace, DataFrameT, ScalarFilterDict, SeriesT
@@ -30,13 +30,15 @@ def _single_node_rows_via_index_or_filter(
     if not n0.filter_dict:
         return nodes_df
     node = g._node
-    n0f = _seeded_scalar_filters(n0.filter_dict, nodes_df) if node is not None else None
+    n0f = _seeded_seed_filters(n0.filter_dict, nodes_df, node) if node is not None else None
     if node is not None and n0f:
         nid_ctx = _resident_node_id_index(g, nodes_df, node)
         rows, how = _seed_node_rows(g, nodes_df, n0f, node, nid_ctx, n0.filter_dict)
-        if how != "scan":
-            _record_native_seed_lane(nodes_df, seam="native_seed_lookup", reason=how, hop_count=0,
-                                     public_seed_scan=node not in n0.filter_dict)
+        served = how != "scan"
+        _record_native_seed_lane(nodes_df, seam="native_seed_lookup",
+                                 reason=how if served else "no_valid_resident_index",
+                                 hop_count=0, public_seed_scan=node not in n0.filter_dict,
+                                 served=served)
         return rows
     return filter_by_dict(nodes_df, n0.filter_dict, engine_abs)
 
@@ -60,7 +62,7 @@ def _seeded_typed_hop_pandas_cudf(
     nodes_df, edges_df = g._nodes, g._edges
     if nodes_df is None or edges_df is None:
         return None
-    n0f = _seeded_scalar_filters(n0.filter_dict, nodes_df)
+    n0f = _seeded_seed_filters(n0.filter_dict, nodes_df, node)
     n2f = _seeded_scalar_filters(n2.filter_dict, nodes_df)
     ef = _seeded_scalar_filters(e1.edge_match, edges_df)
     if n0f is None or n2f is None or ef is None:
@@ -89,8 +91,8 @@ def _seeded_typed_hop_pandas_cudf(
     if cand is None:
         if n0f:
             seed_nodes = nodes_df
-            for k, v in sorted(n0f.items(), key=lambda kv: 0 if kv[0] == node else 1):
-                seed_nodes = seed_nodes[seed_nodes[k] == v]
+            for seed_col, seed_val in sorted(n0f.items(), key=lambda kv: 0 if kv[0] == node else 1):
+                seed_nodes = seed_nodes[seed_nodes[seed_col].isin(list(seed_val))] if isinstance(seed_val, tuple) else seed_nodes[seed_nodes[seed_col] == seed_val]
             edges = edges_df[edges_df[from_col].isin(seed_nodes[node].dropna())]
         else:
             edges = edges_df
@@ -103,9 +105,9 @@ def _seeded_typed_hop_pandas_cudf(
             nodes_df[node].isin(edges[src].dropna()) | nodes_df[node].isin(edges[dst].dropna())
         ].drop_duplicates(subset=[node])
     assert edges is not None and cand is not None  # both branches above assign
-    if served_via_index:
-        _record_native_seed_lane(nodes_df, seam="native_seeded_hop", reason="served", hop_count=1,
-                                 public_seed_scan=node not in n0f)
+    if n0f:
+        _record_native_seed_lane(nodes_df, seam="native_seeded_hop", reason="served" if served_via_index else "no_valid_resident_index",
+                                 hop_count=1, public_seed_scan=node not in n0f, served=served_via_index)
     tail = _seeded_hop_tail_numeric(cand, edges, n2f, src, dst, to_col, node)
     if tail is not None:
         cand, edges = tail
@@ -181,7 +183,7 @@ def _seeded_typed_return_dst_pandas_cudf(
     nodes_df, edges_df = g._nodes, g._edges
     if nodes_df is None or edges_df is None:
         return None
-    n0f = _seeded_scalar_filters(n0.filter_dict, nodes_df)
+    n0f = _seeded_scalar_filters(n0.filter_dict, nodes_df)  # Cypher membership seeds stay with the bindings kernel (#2117)
     n2f = _seeded_scalar_filters(n2.filter_dict, nodes_df)
     ef = _seeded_scalar_filters(e1.edge_match, edges_df)
     if n0f is None or n2f is None or ef is None or not n0f:
