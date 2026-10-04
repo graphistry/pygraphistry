@@ -222,8 +222,22 @@ python -m pytest -q [targeted_test]
 - **Cypher surface.** A change reachable from a Cypher query (parser, DDL, row pipeline, WHERE/RETURN
   lowering) runs the tck subset that covers it; engine-parametrize the result pin.
 - **Release notes and docs.** Every user-visible change has a CHANGELOG.md entry under
-  `[Development]`; docs edits are minimal, plain English (ASD-STE100: short sentences, one meaning per
-  word, no internal jargon or issue chatter), and a stale sentence is deleted rather than hedged.
+  `[Development]` -- never inside a released `## [x.y.z - date]` section, which is history. Docs edits
+  are minimal, plain English (ASD-STE100: short sentences, one meaning per word, no internal jargon or
+  issue chatter), and a stale sentence is deleted rather than hedged.
+- **An identity claim is a measurement.** "Same answers", "value-identical", "cost only" needs an A/B
+  of old against new over adversarial shapes -- nulls first, a failing value past any sample, all-null,
+  empty, shorter than the sample, mixed element types, each engine dtype family -- and the claim states
+  how many shapes were compared and how many diverged. A surviving divergence is disclosed as a
+  correction in the CHANGELOG and pinned, never dropped from the count.
+- **Close the class, do not narrow the claim.** When a defect has siblings, prefer one chokepoint that
+  fixes every producer over a per-site patch plus a narrowed sentence. Narrowing is the fallback, and
+  it names the shapes left open.
+- **Never pin behavior that differs by environment.** A pin that passes locally and fails on another
+  Python or dependency set is pinning the environment, not the contract. Pin the invariant both
+  outcomes must satisfy (the error code and field, or the rows), and report the divergence.
+- **A comment run is one line.** `bin/lint.sh` counts a two-line comment as a finding, so say it in one
+  line or put it in a name.
 
 #### Vectorization & engine compatibility (GFQL / row pipeline / compute)
 
