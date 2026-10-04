@@ -264,6 +264,13 @@ WHERE Forms
 - Literal and parameter comparisons on node and edge properties.
 - Same-path alias comparisons such as ``WHERE p.team = q.team``.
 - ``IS NULL`` and ``IS NOT NULL`` predicates.
+- List membership ``x IN [...]`` (literals or a ``$param`` list), three-valued as in
+  openCypher: a null ``x`` is unknown (not kept by ``IN`` nor by ``NOT (... IN ...)``), a
+  ``null`` list element makes a non-matching row unknown rather than false, an empty list
+  is false for every row including the null one, and a ``NaN`` literal is a value. The
+  same rows answer on pandas, cuDF and polars. ``alias.prop IN [literals]`` on a node or
+  edge alias also seeds the pattern, so a resident index serves it (see
+  :doc:`indexing`).
 - String predicates ``STARTS WITH``, ``ENDS WITH``, and ``CONTAINS``.
 - Regex match ``=~`` (openCypher/neo4j-standard), e.g.
   ``WHERE n.name =~ '(?i)al.*'``. Uses a **full-string / anchored** match
@@ -347,7 +354,14 @@ and ``RETURN`` expressions:
   multi-entity binding-row support (use ``engine='pandas'``). A datetime column
   is rendered in ``temporal_tz`` (default UTC) because the inspector renders in
   the viewer's zone, which a server cannot know; cuDF serves UTC and declines
-  other zones, since its ``strftime`` ignores the conversion. The regex path
+  other zones, since its ``strftime`` ignores the conversion. A numeric term
+  over a datetime column is not answered by rendering the column: because such
+  a term can never straddle two fields of the date format, it becomes
+  membership tests over per-field integer components built once per column and
+  zone and held in a byte-bounded cache, so a live, as-you-type search stays a
+  keystroke at tens of millions of rows on pandas and (at UTC) cuDF; polars
+  renders. The measurement that pins this lives in pyg-bench
+  (``results/gfql-searchany-datetime-lock-20261003``). The regex path
   obeys the same per-engine decline rules as ``=~``. Python twins:
   :meth:`ComputeMixin.search_nodes` / :meth:`ComputeMixin.search_edges`.
 
