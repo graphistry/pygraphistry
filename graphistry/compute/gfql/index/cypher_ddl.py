@@ -1,8 +1,8 @@
 """Targeted recognizer for GFQL index DDL Cypher statements.
 
-    CREATE GFQL INDEX [<name>] FOR <kind> [ON <column>]
-    DROP   GFQL INDEX [IF EXISTS] <name>
-    DROP   GFQL INDEX [IF EXISTS] FOR <kind> [ON <column>]
+    CREATE GFQL INDEX [<name>] [IF NOT EXISTS] FOR <kind> [ON <column> | ON (<column>)]
+    DROP   GFQL INDEX <name> [IF EXISTS]            (or DROP GFQL INDEX [IF EXISTS] <name>)
+    DROP   GFQL INDEX [IF EXISTS] FOR <kind> [ON <column> | ON (<column>)]
     SHOW   GFQL INDEXES
 
 The mandatory ``GFQL`` token disambiguates from standard property ``CREATE INDEX``
@@ -23,16 +23,17 @@ from .wire import CreateIndex, DropIndex, ShowIndexes, IndexOp
 
 _KIND = r"(?P<kind>edge_out_adj|edge_in_adj|node_id|node_prop)"
 
+_ON_COL = r"(?:\s+ON(?:\s*\(\s*(?P<col>[A-Za-z_]\w*)\s*\)|\s+(?P<col2>[A-Za-z_]\w*)))?"
 _CREATE_PATTERN = (
-    r"^\s*CREATE\s+GFQL\s+INDEX\s+(?:(?P<name>[A-Za-z_]\w*)\s+)?FOR\s+" + _KIND
-    + r"(?:\s+ON\s+(?P<col>[A-Za-z_]\w*))?\s*;?\s*$"
+    r"^\s*CREATE\s+GFQL\s+INDEX\s+(?:(?P<name>(?!IF\b|FOR\b)[A-Za-z_]\w*)\s+)?(?:IF\s+NOT\s+EXISTS\s+)?FOR\s+"
+    + _KIND + _ON_COL + r"\s*;?\s*$"
 )
 _DROP_FOR_PATTERN = (
-    r"^\s*DROP\s+GFQL\s+INDEX\s+(?P<ifexists>IF\s+EXISTS\s+)?FOR\s+" + _KIND
-    + r"(?:\s+ON\s+(?P<col>[A-Za-z_]\w*))?\s*;?\s*$"
+    r"^\s*DROP\s+GFQL\s+INDEX\s+(?P<ifexists>IF\s+EXISTS\s+)?FOR\s+" + _KIND + _ON_COL + r"\s*;?\s*$"
 )
 _DROP_NAME_PATTERN = (
-    r"^\s*DROP\s+GFQL\s+INDEX\s+(?P<ifexists>IF\s+EXISTS\s+)?(?P<name>[A-Za-z_][\w:]*)\s*;?\s*$"
+    r"^\s*DROP\s+GFQL\s+INDEX\s+(?:(?P<ifexists>IF\s+EXISTS\s+)(?P<name>[A-Za-z_][\w:]*)"
+    r"|(?P<name2>(?!IF\b)[A-Za-z_][\w:]*)(?P<ifexists2>\s+IF\s+EXISTS)?)\s*;?\s*$"
 )
 _SHOW_PATTERN = r"^\s*SHOW\s+GFQL\s+INDEXES\s*;?\s*$"
 _DDL_PREFIX_PATTERN = r"^\s*(CREATE|DROP|SHOW)\s+GFQL\s+INDEX"
@@ -72,15 +73,16 @@ def parse_index_ddl(query: str) -> Optional[IndexOp]:
         return ShowIndexes()
     m = create_re.match(query)
     if m:
-        return CreateIndex(kind=cast(IndexKind, m.group("kind").lower()), column=m.group("col"),
+        return CreateIndex(kind=cast(IndexKind, m.group("kind").lower()), column=m.group("col") or m.group("col2"),
                            name=m.group("name"))
     m = drop_for_re.match(query)
     if m:
-        return DropIndex(kind=cast(IndexKind, m.group("kind").lower()), column=m.group("col"),
+        return DropIndex(kind=cast(IndexKind, m.group("kind").lower()), column=m.group("col") or m.group("col2"),
                          missing_ok=bool(m.group("ifexists")))
     m = drop_name_re.match(query)
     if m:
-        return DropIndex(name=m.group("name"), missing_ok=bool(m.group("ifexists")))
+        return DropIndex(name=m.group("name") or m.group("name2"),
+                         missing_ok=bool(m.group("ifexists") or m.group("ifexists2")))
     if looks_like_index_ddl(query):
         raise ValueError(
             f"Malformed GFQL INDEX DDL: {query!r}. Expected e.g. "
