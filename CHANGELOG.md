@@ -8,6 +8,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [Development]
 <!-- Do Not Erase This Section - Used for tracking unreleased changes -->
 
+### Infrastructure
+
+- **CI: `test-polars` and `gfql-routes-off` start without waiting on `test-gfql-core` (#2042)**: the two lanes gate on `test-minimal-python` and `python-lint-types` respectively, which takes the 10-minute core lane off their critical path; the lanes themselves are unchanged.
+
 ### Performance
 
 - **GFQL native op-lists seeded on a set of ids take the resident index** (#2116 item 3a). `[n({"id": is_in(seeds)}), e_forward(), n()]`, or a plain list of ids, ran the scan and `gfql_explain` recorded nothing, while the scalar seed `n({"id": 5})` and the Cypher form took the index. The native lanes now look the ids up in the node-id index, or in a resident property index when the seed is on another column, and `gfql_explain` reports it (`native_seeded_hop` / `native_seed_lookup`, `index_selected`); when no usable index is resident they record that too. Non-integer or boolean members and sets on other columns keep the scan path and its rows.

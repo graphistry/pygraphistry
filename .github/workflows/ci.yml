@@ -1186,6 +1186,8 @@ jobs:
 
   # GFQL-heavy tests split out of the minimal gate to reduce critical path.
   # Runs in parallel with downstream jobs instead of blocking them.
+  # test-polars (gated on test-minimal-python) and gfql-routes-off (gated on python-lint-types)
+  # no longer wait on this lane, which kept it off their critical path (#2042).
   test-gfql-core:
     needs: [changes, python-lint-types, generate-lockfiles]
     if: ${{ ((needs.changes.outputs.python == 'true' && needs.changes.outputs.narrow_python_only != 'true') || needs.changes.outputs.gfql == 'true' || needs.changes.outputs.schema_lane == 'true' || needs.changes.outputs.pandas_compat == 'true' || needs.changes.outputs.core == 'true' || needs.changes.outputs.ai == 'true' || needs.changes.outputs.infra == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule') && !(needs.changes.outputs.docs_only_latest == 'true' && (github.event_name == 'push' || github.event_name == 'pull_request')) }}
@@ -1641,7 +1643,7 @@ jobs:
     # Required replay: run the GFQL suites with one hot path declined per cell
     # (GFQL_ROUTES_OFF); engagement pins are skipped via the route_engaged marker, so the
     # uploaded lists hold route-vs-general result divergences only.
-    needs: [changes, test-gfql-core, generate-lockfiles]
+    needs: [changes, python-lint-types, generate-lockfiles]
     if: ${{ needs.changes.outputs.gfql == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' }}
     runs-on: ubuntu-latest
     timeout-minutes: 45
@@ -1694,7 +1696,7 @@ jobs:
         if-no-files-found: ignore
 
   test-polars:
-    needs: [changes, test-minimal-python, test-gfql-core, generate-lockfiles]
+    needs: [changes, test-minimal-python, generate-lockfiles]
     if: ${{ ((needs.changes.outputs.python == 'true' && needs.changes.outputs.narrow_python_only != 'true') || needs.changes.outputs.gfql == 'true' || needs.changes.outputs.pandas_compat == 'true' || needs.changes.outputs.core == 'true' || needs.changes.outputs.infra == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule') && !(needs.changes.outputs.docs_only_latest == 'true' && (github.event_name == 'push' || github.event_name == 'pull_request')) }}
     runs-on: ubuntu-latest
     # The py3.12 coverage cell takes ~9m40s on a 2-vCPU hosted runner before
