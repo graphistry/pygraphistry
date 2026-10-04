@@ -10,6 +10,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Documentation
 
+- **The 0.59.2 `WHERE a.id IN [...]` number is restated from a benchmark-host receipt**: on 100k nodes / 500k edges with 50 seed ids and the node-id and adjacency indexes resident, the query took 2,713 ms before #2117 and takes 5.24 ms on 0.59.2 (518x; pandas on a GB10, 15 timed queries per arm from three processes, same rows on every arm), and 2,723 -> 33.7 ms without indexes. The subgraph form `GRAPH { MATCH (a)-[e]->(b) WHERE a.id IN [...] }` was rejected with a validation error before and now answers in 0.93 ms index-served. The 0.59.2 entry's 4 s -> 10 ms came from a developer workstation; the receipts are pyg-bench `results/gfql-cypher-in-seed-list-20261004` (graphistry/pyg-bench#288).
+
 - **GFQL docs catch up with what the 0.59.x indexes and search do**: the indexing page said a seed list (`WHERE m.id IN [...]`) inside `GRAPH { }` takes the scan path; it takes the index in the row form, the `GRAPH { }` form and the native `is_in` chain, and the runnable example now shows all of it with its `gfql_explain` check. The same page lists the `gfql_explain` `decision_code` vocabulary, which was only in the 0.59.0 changelog. The Cypher page gains the three-valued contract of `x IN [...]` (#2123) and says how a numeric `searchAny` term over a datetime column is answered without rendering the column, pointing at the pyg-bench lock that measures it.
 
 ## [0.59.2 - 2026-10-04]
