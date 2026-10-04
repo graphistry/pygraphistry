@@ -1186,8 +1186,8 @@ jobs:
 
   # GFQL-heavy tests split out of the minimal gate to reduce critical path.
   # Runs in parallel with downstream jobs instead of blocking them.
-  # test-polars and gfql-routes-off gate on test-minimal-python only (#2042): gating them
-  # on this 10-minute lane put it on the critical path and cost ~10 min of wall-clock per run.
+  # test-polars (gated on test-minimal-python) and gfql-routes-off (gated on python-lint-types)
+  # no longer wait on this lane, which kept it off their critical path (#2042).
   test-gfql-core:
     needs: [changes, python-lint-types, generate-lockfiles]
     if: ${{ ((needs.changes.outputs.python == 'true' && needs.changes.outputs.narrow_python_only != 'true') || needs.changes.outputs.gfql == 'true' || needs.changes.outputs.schema_lane == 'true' || needs.changes.outputs.pandas_compat == 'true' || needs.changes.outputs.core == 'true' || needs.changes.outputs.ai == 'true' || needs.changes.outputs.infra == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule') && !(needs.changes.outputs.docs_only_latest == 'true' && (github.event_name == 'push' || github.event_name == 'pull_request')) }}
@@ -1643,7 +1643,7 @@ jobs:
     # Required replay: run the GFQL suites with one hot path declined per cell
     # (GFQL_ROUTES_OFF); engagement pins are skipped via the route_engaged marker, so the
     # uploaded lists hold route-vs-general result divergences only.
-    needs: [changes, generate-lockfiles]
+    needs: [changes, python-lint-types, generate-lockfiles]
     if: ${{ needs.changes.outputs.gfql == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' }}
     runs-on: ubuntu-latest
     timeout-minutes: 45

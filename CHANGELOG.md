@@ -8,6 +8,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [Development]
 <!-- Do Not Erase This Section - Used for tracking unreleased changes -->
 
+### Infrastructure
+
+- **CI: `test-polars` and `gfql-routes-off` start without waiting on `test-gfql-core` (#2042)**: the two lanes gate on `test-minimal-python` and `python-lint-types` respectively, which takes the 10-minute core lane off their critical path; the lanes themselves are unchanged.
+
 ## [0.59.1 - 2026-10-03]
 
 ### Added
