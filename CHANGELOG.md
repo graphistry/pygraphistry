@@ -8,9 +8,15 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [Development]
 <!-- Do Not Erase This Section - Used for tracking unreleased changes -->
 
+## [0.59.2 - 2026-10-04]
+
 ### Added
 
 - **GFQL index DDL accepts the Cypher optional spellings**: `CREATE GFQL INDEX [name] [IF NOT EXISTS] FOR <kind> [ON (col)]` and `DROP GFQL INDEX name [IF EXISTS]` parse to the same ops as the existing `ON col` / `DROP GFQL INDEX [IF EXISTS] name` forms; misplaced options (`IF EXISTS` on CREATE, `IF NOT EXISTS` on DROP, unbalanced parentheses) stay malformed.
+### Documentation
+
+- **The 0.59.1 `searchAny` datetime number is restated from the receipt pyg-bench holds for the shipped tree**: on 30M rows the opening keystroke answers in 101 ms where rendering the column takes 40.3 s (398x; pandas on a GB10, nine runs from three lane files, every arm checked equal to the rendered answer, `results/gfql-searchany-datetime-lock-20261003`). The 43.7 s -> 412 ms figure in the 0.59.1 entry came from a one-off harness that was never committed, and pyg-bench could not reproduce it; the lock that replaced it is re-checked in its CI on every pull request.
+
 ### Infrastructure
 
 - **CI: `test-polars` and `gfql-routes-off` start without waiting on `test-gfql-core` (#2042)**: the two lanes gate on `test-minimal-python` and `python-lint-types` respectively, which takes the 10-minute core lane off their critical path; the lanes themselves are unchanged.
