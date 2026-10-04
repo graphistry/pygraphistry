@@ -8,6 +8,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [Development]
 <!-- Do Not Erase This Section - Used for tracking unreleased changes -->
 
+### Infrastructure
+
+- **CI: `test-polars` and `gfql-routes-off` start without waiting on `test-gfql-core` (#2042)**: the two lanes gate on `test-minimal-python` and `python-lint-types` respectively, which takes the 10-minute core lane off their critical path; the lanes themselves are unchanged.
+
 ### Performance
 
 - **GFQL Cypher: string comparisons on large text columns no longer scan every value to guess the column's type** (#2116 item 3c). A predicate such as `WHERE a.id IN [...] OR b.kind = 'x'` compares across two aliases, so it runs over the whole join table; there the evaluator spent most of its time testing every value against date, time, list and map patterns before the comparison itself (545 ms on pandas, 402 ms on cuDF at 100k edges locally, against 26 ms for the plain `IN`). Each type rule is an all-rows conjunction, so a sample that fails it rules the column out before the column is rendered or scanned: on 100k rows an object column of timestamps goes from 331 ms to 6 ms for the temporal check and from 230 ms to 6 ms for the list check, and a plain string column from 157 ms to 5 ms. Answers are unchanged on 30 adversarial column shapes (nulls first, a failing value past the sample, all-null, empty, shorter than the sample, category, string dtype, bytes, Decimal, nested and mixed element types), with one correction: a column mixing array values with list-looking *text* is no longer read as a list column, which it was only because the string-detection comparison raised on the array and the error was swallowed.
