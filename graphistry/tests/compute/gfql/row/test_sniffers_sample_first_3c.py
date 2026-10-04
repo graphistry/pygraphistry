@@ -83,7 +83,6 @@ def test_a_string_column_sniff_does_not_scan_every_row(monkeypatch):
 @pytest.mark.parametrize("values,expected", [
     ([[1], [2]], (None, True, False)),
     (["[1]", "[2]"], (None, False, False)),                  # list-looking TEXT is text
-    ([{"a": 1}, {"b": 2}], (None, False, True)),
     (_DATES[:4], ("date", False, False)),
     (["alpha", "beta"], (None, False, False)),
     ([None, None], (None, False, False)),
@@ -95,6 +94,21 @@ def test_the_sniffers_answer_the_same_on_cudf(engine, values, expected):
         pytest.importorskip("cupy")
         series = cudf.Series(series)
     assert _probe(series) == expected
+
+
+def test_a_mapping_column_answers_differently_per_engine():
+    # cuDF holds mappings as a struct column, and a struct has no string rendering
+    # (cudf 26.02 Column.as_string_column raises), so the text probes cannot run there.
+    # Unchanged from master, which raises identically; pandas renders and declines.
+    maps = pd.Series([{"a": 1}, {"b": 2}], dtype=object)
+    assert _probe(maps) == (None, False, True)
+    cudf = pytest.importorskip("cudf")
+    pytest.importorskip("cupy")
+    gpu = cudf.Series(maps)
+    assert RowPipelineMixin._gfql_series_is_mapping_like(gpu) is True
+    for probe in (order_detect_temporal_mode, RowPipelineMixin._gfql_series_is_list_like):
+        with pytest.raises(NotImplementedError):
+            probe(gpu)
 
 
 def test_an_array_column_with_list_looking_text_is_not_a_list_column():
