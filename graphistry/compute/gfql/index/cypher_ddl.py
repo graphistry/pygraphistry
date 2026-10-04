@@ -1,8 +1,8 @@
 """Targeted recognizer for GFQL index DDL Cypher statements.
 
-    CREATE GFQL INDEX [<name>] FOR <kind> [ON <column>]
-    DROP   GFQL INDEX [IF EXISTS] <name>
-    DROP   GFQL INDEX [IF EXISTS] FOR <kind> [ON <column>]
+    CREATE GFQL INDEX [<name>] [IF NOT EXISTS] FOR <kind> [ON <column> | ON (<column>)]
+    DROP   GFQL INDEX <name> [IF EXISTS]            (or DROP GFQL INDEX [IF EXISTS] <name>)
+    DROP   GFQL INDEX [IF EXISTS] FOR <kind> [ON <column> | ON (<column>)]
     SHOW   GFQL INDEXES
 
 The mandatory ``GFQL`` token disambiguates from standard property ``CREATE INDEX``
@@ -23,8 +23,7 @@ from .wire import CreateIndex, DropIndex, ShowIndexes, IndexOp
 
 _KIND = r"(?P<kind>edge_out_adj|edge_in_adj|node_id|node_prop)"
 
-# Optional parts follow the Cypher spellings: `[name] [IF NOT EXISTS]`, `ON (col)`, `DROP ... name [IF EXISTS]`.
-_ON_COL = r"(?:\s+ON\s+(?:\(\s*(?P<col>[A-Za-z_]\w*)\s*\)|(?P<col2>[A-Za-z_]\w*)))?"
+_ON_COL = r"(?:\s+ON(?:\s*\(\s*(?P<col>[A-Za-z_]\w*)\s*\)|\s+(?P<col2>[A-Za-z_]\w*)))?"
 _CREATE_PATTERN = (
     r"^\s*CREATE\s+GFQL\s+INDEX\s+(?:(?P<name>(?!IF\b|FOR\b)[A-Za-z_]\w*)\s+)?(?:IF\s+NOT\s+EXISTS\s+)?FOR\s+"
     + _KIND + _ON_COL + r"\s*;?\s*$"
