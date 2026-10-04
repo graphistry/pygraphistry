@@ -11,6 +11,9 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ### Added
 
 - **GFQL index DDL accepts the Cypher optional spellings**: `CREATE GFQL INDEX [name] [IF NOT EXISTS] FOR <kind> [ON (col)]` and `DROP GFQL INDEX name [IF EXISTS]` parse to the same ops as the existing `ON col` / `DROP GFQL INDEX [IF EXISTS] name` forms; misplaced options (`IF EXISTS` on CREATE, `IF NOT EXISTS` on DROP, unbalanced parentheses) stay malformed.
+### Infrastructure
+
+- **CI: `test-polars` and `gfql-routes-off` start without waiting on `test-gfql-core` (#2042)**: the two lanes gate on `test-minimal-python` and `python-lint-types` respectively, which takes the 10-minute core lane off their critical path; the lanes themselves are unchanged.
 
 ### Performance
 
