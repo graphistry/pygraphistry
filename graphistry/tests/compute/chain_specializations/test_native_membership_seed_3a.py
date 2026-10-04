@@ -193,6 +193,7 @@ def test_a_membership_seed_on_an_indexed_property_column_is_served():
     assert (used, code) == (True, "index_selected") and "native_seeded_hop" in seams
 
 
+@pytest.mark.route_engaged("native-fast")
 @pytest.mark.parametrize("engine", _ENGINES)
 def test_the_single_node_lane_records_its_decline_too(engine):
     # with no index resident the lane scans; the hop lane always said so, this one stayed silent
