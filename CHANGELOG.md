@@ -8,6 +8,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [Development]
 <!-- Do Not Erase This Section - Used for tracking unreleased changes -->
 
+### Infrastructure
+
+- **CI: `test-polars` and `gfql-routes-off` start without waiting on `test-gfql-core` (#2042)**: the two lanes gate on `test-minimal-python` and `python-lint-types` respectively, which takes the 10-minute core lane off their critical path; the lanes themselves are unchanged.
+
 ### Performance
 
 - **GFQL Cypher `MATCH (a)-[e]->(b) WHERE a.id IN [...]` runs in 10 ms instead of 4 s** on 100k nodes / 500k edges (pandas, 50 seeds, resident `node_id` + `edge_out_adj` indexes; 62 ms without them), through three changes that compose: `x IN [literals]` is one vectorized membership test in the row pipeline instead of a Python loop over rows x elements (4,004 -> 101 ms); the row pipeline migrates the resident adjacency index onto the edge frame it tags with a per-edge identity, so a hop inside a Cypher query reaches the index the way a native hop does (-> 67 ms, `gfql_explain` now reports the hop as `index`); and `WHERE alias.prop IN [scalar literals]` seeds the MATCH pattern as an `is_in` filter the way `alias.prop = literal` already does, so the seeded lanes see the seed (-> 20 ms); and the indexed bindings kernel accepts a membership seed on the node-id column, so the seeded pattern is served from the indexes without first running it unseeded (-> 10.5 ms). Lists holding null keep their three-valued WHERE evaluation; the null/NaN/empty-list rules are pinned against the loop they replace. Found verifying the multi-seed example for the `index_adjacency` docs (#2116).
