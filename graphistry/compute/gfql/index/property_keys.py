@@ -34,6 +34,16 @@ def is_string_property(frame: DataFrameT, column: str, engine: Engine) -> bool:
     )
 
 
+def is_integer_property(frame: DataFrameT, column: str, engine: Engine) -> bool:
+    """Classify integer storage before excluding nullable rows."""
+    if column not in frame.columns:
+        return False
+    if engine in POLARS_ENGINES:
+        eager = as_eager_polars_frame(frame)
+        return eager is not None and eager.schema[column].is_integer()
+    return frame[column].dtype.kind in ("i", "u")
+
+
 def string_property_keys(
     frame: DataFrameT, column: str, engine: Engine,
 ) -> Tuple[ArrayLike, SeriesT]:

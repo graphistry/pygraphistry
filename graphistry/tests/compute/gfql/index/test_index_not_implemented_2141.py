@@ -72,8 +72,8 @@ def test_unknown_kind_through_the_python_api_stays_a_plain_value_error():
     assert not isinstance(excinfo.value, NotImplementedError)
 
 
-@pytest.mark.parametrize("column", ["score", "maybe"])
-def test_non_integer_or_nullable_property_columns_are_not_implemented(column):
+@pytest.mark.parametrize("column", ["score"])
+def test_unsupported_property_columns_are_not_implemented(column):
     with pytest.raises(GfqlIndexNotImplementedError) as excinfo:
         create_index(_graph(), NODE_PROP, column=column)
     _assert_tracked(excinfo)
@@ -85,7 +85,7 @@ def test_supported_property_columns_build_and_the_builder_skips_the_rest():
     g = create_index(_graph(), NODE_PROP, column="account_number")
     assert get_registry(g).node_prop_cols() == ("account_number",)
     g2 = _graph().gfql_index_node_props(["email", "score", "maybe", "account_number"])
-    assert get_registry(g2).node_prop_cols() == ("account_number", "email")
+    assert get_registry(g2).node_prop_cols() == ("account_number", "email", "maybe")
 
 
 def test_the_tracking_url_is_the_issue():

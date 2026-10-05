@@ -60,14 +60,14 @@ carrying them:
        predicate like ``MATCH (m {id: 42})`` on a column that is not the node-id
        binding becomes a positional gather instead of an ``O(N)`` scan. Duplicate
        values are fine (all matching rows are gathered). String columns and
-       integer columns without nulls are supported. Null string rows are excluded.
+       integer columns are supported. Null property rows are excluded.
        Other dtypes decline to the scan. Opt-in per column.
 
    * - ``edge_prop``
      - Sorted lookup on an edge **property** column, such as a transaction or
        message id. String and integer equality and membership predicates gather
        matching edge rows; duplicate values are retained. Null string rows are
-       excluded; integer columns currently require no nulls. Opt-in per column,
+       excluded, as are null integer rows. Opt-in per column,
        like ``node_prop``.
 
 They are **sidecars over row positions**: your ``.edges`` / ``.nodes`` frames are never
@@ -182,6 +182,14 @@ When several indexed columns appear in one seed predicate, the planner gathers o
 the remaining predicates to those candidates, so results never depend on which index
 happens to be resident. As with every kind, a missing, stale, or cost-gated-out index
 falls back to the scan.
+
+Nullable integer keys
+~~~~~~~~~~~~~~~~~~~~~
+
+Integer property indexes exclude null rows and preserve the original row
+positions of every non-null value. Nullable signed and unsigned integer storage
+is supported without a floating-point conversion; an all-null integer column
+builds an empty index. Null lookup predicates retain canonical filter semantics.
 
 String business keys
 ~~~~~~~~~~~~~~~~~~~~
