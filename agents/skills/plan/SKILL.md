@@ -19,6 +19,7 @@ Unless explicitly requested ("create a plan.md", "use the plan template"), prefe
 2. Replace `[placeholders]`
 3. Fill Context sections
 4. Mark Step 1 `🔄`
+5. For multiple checkouts, record the absolute plan path, each worktree root, and base/head SHAs. Link existing handoff plans and preserve completed work; append to shared plans without overwriting concurrent updates.
 
 ⚠️ **gitignore**: `plans/` is local only — never commit unless user explicitly requests (`git add -f`).
 
@@ -48,6 +49,7 @@ This plan MUST be:
 ### Rules
 - 🚫 **No assumptions** — plan is truth
 - 🚫 **No offroading** — if not in plan, don't do it
+- **Changing external state**: before a dependent write or resumed step, revalidate issue comments, PR heads/checks, and other changing facts. Record current evidence and reuse verified completed actions instead of repeating stale TODOs.
 - 🔐 **No secrets** — never write passwords, tokens, API keys, or credentials; use `$ENV_VAR`, `<redacted>`, or pointer to env file (e.g. `source .env.local`)
 - **Parallel subagents**: before spawning, mark claimed step `🔄(🤖agent_<id>_step_<N>)` and record subagent plan path. Subagents **must NOT edit this file** — main agent updates it from their output.
 - **Subagent plans**: each subagent has its own full plan at `plans/[task]/subagents/agent_<id>_step_<N>/plan.md`, same protocol. Subordinate to this file.

@@ -2,7 +2,7 @@
 name: review
 description: |
   Structured PR review for pygraphistry. Input: PR number/branch (default current branch PR).
-  Output: findings and convergence artifacts under plans/<task>/.
+  Output: findings and convergence artifacts under the local task plans directory.
   Method: multi-wave, evidence-first review across spec, correctness, tests, security,
   code quality, DRY, concurrency, performance, architecture, operability, and conventions.
 ---
@@ -151,6 +151,8 @@ Apply only relevant dimensions per PR:
 Guidance:
 - Keep dimensions independent (avoid blended "general review" prompts).
 - For file-heavy diffs, parallelize by `(dimension, file)` and aggregate.
+- Runtime comparisons must hold query/data, engine, index policy, and environment constant against the base. A successful `policy="off"` scan does not establish that a `force` failure is new.
+- Pin standalone and remote probe imports to the intended worktree; record the imported source path and revision before accepting results. An installed package or stale mount can otherwise invalidate a baseline comparison.
 - Verify pre-existing patterns are not misreported as regressions:
 
 ```bash
@@ -296,6 +298,8 @@ column.
 | Param typed `pd.DataFrame` instead of `DataFrameT` | Use `DataFrameT` |
 
 **Hot row path** = row pipeline executor, edge/node materialization, anything called per-query in `_execute_*` / `_compile_*` / `_lower_*` / row-pipeline ops. **Control plane** = one-shot config builders, error formatters, parser glue (lower bar).
+
+**Index engagement**: for property-index changes, verify an actual candidate gather through representative public queries and specialized execution paths that bypass canonical filters. Row parity alone can pass while every query still scans; explain receipts must describe the gather that really occurred.
 
 **Paired cuDF coverage required** for changes in `compute/gfql/row/`, `compute/gfql/cypher/`, `compute/gfql_unified.py`, `compute/chain.py`, `compute/hop.py`, `compute/materialize_nodes.py`. Sibling pattern: `pytest.importorskip("cudf")` + engine-parametrized fixture. New DataFrame-touching helpers also need cuDF smoke if on a hot path.
 
