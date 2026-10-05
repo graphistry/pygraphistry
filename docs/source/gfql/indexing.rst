@@ -185,14 +185,18 @@ An edge property can seed a query in the same way:
 
 .. code-block:: python
 
-   g = g.create_index("edge_prop", column="txn_id")
-   query = "MATCH (a)-[e {txn_id: 9123456}]->(b) RETURN a, b"
-   report = g.gfql_explain(query)
+   transfers = pd.DataFrame({
+       "src": range(400), "dst": range(1, 401), "txn_id": range(400),
+   })
+   g_transfers = graphistry.edges(transfers, "src", "dst").materialize_nodes()
+   g_transfers = g_transfers.create_index("edge_prop", column="txn_id")
+   query = "MATCH (a)-[e {txn_id: 7}]->(b) RETURN a, b"
+   report = g_transfers.gfql_explain(query)
    assert report["used_index"] and report["decision_code"] == "index_selected"
 
    # DDL and per-column lifecycle are also available
-   g = g.gfql("CREATE GFQL INDEX FOR edge_prop ON (txn_id)")
-   g = g.drop_index("edge_prop", column="txn_id")
+   g_transfers = g_transfers.gfql("CREATE GFQL INDEX FOR edge_prop ON (txn_id)")
+   g_transfers = g_transfers.drop_index("edge_prop", column="txn_id")
 
 Equality and ``is_in`` edge filters use a live edge-property index on native
 chains and Cypher queries. The most selective indexed column supplies candidate
