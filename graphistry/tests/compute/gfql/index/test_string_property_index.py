@@ -95,3 +95,16 @@ def test_mixed_object_column_is_not_coerced_to_text():
     base = graphistry.nodes(pd.DataFrame({"id": [0, 1], "mixed": ["1", 1]}), "id")
     with pytest.raises(NotImplementedError):
         base.create_index("node_prop", column="mixed")
+
+
+def test_missing_business_key_preserves_invalid_residual_error(engine):
+    from graphistry.compute.exceptions import GFQLSchemaError
+
+    indexed = graph(engine).create_index("node_prop", column="email", engine=engine)
+    query = "MATCH (a {email: 'missing', keep: 'bad'}) RETURN a.id AS id"
+    outcomes = []
+    for policy in ["off", "use", "force"]:
+        with pytest.raises(GFQLSchemaError) as caught:
+            indexed.gfql(query, engine=engine, index_policy=policy)
+        outcomes.append((caught.value.code, caught.value.context["field"]))
+    assert outcomes[0] == outcomes[1] == outcomes[2]
