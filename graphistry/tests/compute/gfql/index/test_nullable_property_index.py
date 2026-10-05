@@ -76,20 +76,25 @@ def test_nullable_membership_null_and_absent_match_canonical_scan(engine, predic
             pd.testing.assert_frame_equal(actual_pd, expected_pd)
 
 
+@pytest.mark.parametrize("check_engagement", [
+    False,
+    pytest.param(True, marks=pytest.mark.route_engaged("native-fast", "polars-single-node", "cypher-fast")),
+])
 @pytest.mark.parametrize("pattern,expected", [
     ("MATCH (a {account: 7}) RETURN a.id AS id", [7, 9, 107, 207, 307]),
     ("MATCH (a {account: 7, keep: 1}) RETURN a.id AS id", [7, 307]),
     ("MATCH (a {account: 7})-[e]->(b) RETURN b.id AS id", [7, 9, 107, 207, 307]),
     ("MATCH (a)-[e {account: 7}]->(b) RETURN a.id AS id", [7, 9, 107, 207, 307]),
 ])
-def test_nullable_public_cypher_seeds(engine, pattern, expected):
+def test_nullable_public_cypher_seeds(engine, pattern, expected, check_engagement):
     indexed = graph(engine).create_index("node_prop", column="account", engine=engine).create_index(
         "edge_prop", column="account", engine=engine,
     )
     scan = frame_records(indexed.gfql(pattern, engine=engine, index_policy="off")._nodes)
     assert [r["id"] for r in scan] == expected
     assert frame_records(indexed.gfql(pattern, engine=engine)._nodes) == scan
-    assert indexed.gfql_explain(pattern, engine=engine)["used_index"]
+    if check_engagement:
+        assert indexed.gfql_explain(pattern, engine=engine)["used_index"]
 
 
 @pytest.mark.parametrize("dtype", ["Int8", "Int64", "UInt64"])
