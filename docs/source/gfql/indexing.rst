@@ -293,6 +293,9 @@ tables. Build an index after narrowing when later stages need seeded lookups:
 
 .. code-block:: python
 
+   g_pipeline = graphistry.nodes(pd.DataFrame({
+       "id": [7, 9, 10], "region": [3, 3, 3],
+   }), "id").edges(pd.DataFrame({"s": [7, 9], "d": [9, 10]}), "s", "d")
    query = """
    GRAPH sub = GRAPH { MATCH (a {region: 3})-[e]->(b {region: 3}) }
    GRAPH adjacency = GRAPH {
@@ -303,7 +306,8 @@ tables. Build an index after narrowing when later stages need seeded lookups:
    }
    USE indexed MATCH (u)-[e]->(v) WHERE u.id IN [7, 9] RETURN v
    """
-   g.gfql(query, index_policy="use")
+   out_pipeline = g_pipeline.gfql(query, index_policy="use")
+   assert sorted(out_pipeline._nodes["v.id"].tolist()) == [9, 10]
 
 The native equivalent accepts ``CreateIndex`` and kind-based ``DropIndex`` inside
 ``ref()`` chains, with the same supported forms as top-level chains:
@@ -318,7 +322,8 @@ The native equivalent accepts ``CreateIndex`` and kind-based ``DropIndex`` insid
        "indexed": ref("sub", [CreateIndex("edge_out_adj"), CreateIndex("node_id")]),
        "out": ref("indexed", [n({"id": is_in([7, 9])}), e_forward(), n()]),
    })
-   g.gfql(q, index_policy="use")
+   out_native = g_pipeline.gfql(q, index_policy="use")
+   assert sorted(out_native._nodes["id"].tolist()) == [7, 9, 10]
 
 ``CALL graphistry.drop_index.write({kind: 'edge_out_adj'})`` removes the resident
 index from a new graph; an empty options map drops all indexes. These procedures
