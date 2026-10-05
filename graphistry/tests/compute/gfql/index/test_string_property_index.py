@@ -5,6 +5,7 @@ import pytest
 
 import graphistry
 from graphistry.Engine import Engine, df_to_engine
+from graphistry.compute.ast import n
 from graphistry.compute.gfql.index import get_registry, index_trace
 from graphistry.tests.compute.gfql.index.test_edge_property_index import frame_records
 
@@ -129,3 +130,12 @@ def test_arrow_key_queries_do_not_export_whole_columns(dtype, monkeypatch):
     out = indexed.filter_nodes_by_dict({"email": "alice@example.test"})
     assert out._nodes["id"].tolist() == [7, 9]
     assert out._nodes["email"].dtype == indexed._nodes["email"].dtype
+
+
+def test_native_business_key_lookup_preserves_consumer_trace(engine):
+    indexed = graph(engine).gfql_index_all(engine=engine).create_index("node_prop", column="email", engine=engine)
+    report = indexed.gfql_explain([n({"email": "alice@example.test"})], engine=engine)
+    assert report["used_index"]
+    assert [(s["seam"], s["reason"], s["hops"]) for s in report["steps"]] == [
+        ("native_seed_lookup", "property_index", 0),
+    ]

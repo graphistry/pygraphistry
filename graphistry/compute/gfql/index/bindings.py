@@ -347,6 +347,7 @@ def _seed_rows_via_property_index(
     xp: Any,
     *,
     policy: str,
+    record_decision: bool = False,
 ) -> Optional[Any]:
     """Node row positions for the most selective indexed scalar seed predicate.
 
@@ -358,7 +359,8 @@ def _seed_rows_via_property_index(
 
     Returns None (keep scanning) when nothing is indexed, no predicate is a supported
     equality/membership seed, or the estimated candidate count is not selective enough to
-    beat the scan (``force`` skips the cost gate).
+    beat the scan (``force`` skips the cost gate). The consumer records the
+    complete traversal decision by default; other callers may request a property receipt.
     """
     from .property_lookup import property_candidate_positions_from_registry
 
@@ -366,7 +368,9 @@ def _seed_rows_via_property_index(
         column: predicate for column, predicate in first_filter.items()
         if not (isinstance(predicate, tuple) and not predicate)
     }
-    return property_candidate_positions_from_registry(registry, "nodes", nodes, seed_filter, engine, policy)
+    return property_candidate_positions_from_registry(
+        registry, "nodes", nodes, seed_filter, engine, policy, record_decision=record_decision,
+    )
 
 
 def _try_indexed_connected_bindings_state(

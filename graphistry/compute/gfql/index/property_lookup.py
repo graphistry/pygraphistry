@@ -31,6 +31,7 @@ def property_candidate_positions(
 def property_candidate_positions_from_registry(
     registry: GfqlIndexRegistry, role: ColStatsRole, frame: DataFrameT,
     filter_dict: Optional[Mapping[str, object]], engine: Engine, policy: str,
+    *, record_decision: bool = True,
 ) -> Optional[ArrayLike]:
     """Shared selector for graph filtering and specialized node-seed consumers."""
     if policy == "off" or not filter_dict or not registry.property_indexes(role):
@@ -66,13 +67,14 @@ def property_candidate_positions_from_registry(
         else:
             from graphistry.compute.filter_by_dict import _prepare_filter_dict
             _prepare_filter_dict(frame, filter_dict)
-    _record({
-        "op": "property_lookup", "role": role, "column": column,
-        "engine": engine.value, "policy": policy, "est_result_rows": count,
-        "path": "index" if use_index else "scan",
-        "decision_code": "index_selected" if use_index else "scan_cost",
-        "decision_reason": "property candidates gathered" if use_index else "property gather cost exceeds scan",
-    })
+    if record_decision:
+        _record({
+            "op": "property_lookup", "role": role, "column": column,
+            "engine": engine.value, "policy": policy, "est_result_rows": count,
+            "path": "index" if use_index else "scan",
+            "decision_code": "index_selected" if use_index else "scan_cost",
+            "decision_reason": "property candidates gathered" if use_index else "property gather cost exceeds scan",
+        })
     if not use_index:
         return None
     return xp.sort(lookup_prop_rows(index, values, xp))

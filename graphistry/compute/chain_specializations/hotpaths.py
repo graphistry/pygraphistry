@@ -196,7 +196,9 @@ def _seeded_typed_return_dst_pandas_cudf(
     # id filter first, then the object filters on the survivors; membership sets are dropna()'d so null ids never link
     ctx = _resident_seed_indexes(g, nodes_df, edges_df, node, src, dst, direction)
     nid_ctx = (ctx[0], ctx[2], ctx[3]) if ctx is not None else _resident_node_id_index(g, nodes_df, node)
-    seed_nodes, how = _seed_node_rows(g, nodes_df, n0f, node, nid_ctx, n0.filter_dict)
+    seed_nodes, how = _seed_node_rows(
+        g, nodes_df, n0f, node, nid_ctx, n0.filter_dict, record_property_decision=True,
+    )
     edges = dstn = None
     kernel_admits = False
     if ctx is not None:

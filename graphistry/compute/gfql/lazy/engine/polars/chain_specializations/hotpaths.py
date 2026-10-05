@@ -119,6 +119,7 @@ def _seeded_typed_return_dst_polars(
     src: str, dst: str, node: str, direction: Direction,
     preserve_input_order: bool = False,
     index_ctx: Optional[Tuple["NodeIdIndex", "AdjacencyIndex", ArrayNamespace, "Engine"]] = None,
+    *, record_property_decision: bool = True,
 ) -> Optional[SeededReturn]:
     """Polars analog of _seeded_typed_return_dst_pandas_cudf: same seed-first
     reduction (seed out-edges -> typed-edge filter -> destination nodes) expressed
@@ -146,7 +147,9 @@ def _seeded_typed_return_dst_polars(
     ctx = index_ctx if index_ctx is not None else _resident_seed_indexes(
         g, nodes_df, edges_df, node, src, dst, direction)
     nid_ctx = (ctx[0], ctx[2], ctx[3]) if ctx is not None else _resident_node_id_index(g, nodes_df, node)
-    seed_nodes, how = _seed_node_rows(g, nodes_df, n0f, node, nid_ctx, n0.filter_dict)
+    seed_nodes, how = _seed_node_rows(
+        g, nodes_df, n0f, node, nid_ctx, n0.filter_dict, record_property_decision=record_property_decision,
+    )
     edges = dstn = None
     kernel_admits = False
     if ctx is not None:
@@ -217,7 +220,7 @@ def _try_seeded_chain_polars(g: Plottable, ops: Sequence[ASTObject]) -> Optional
     if ctx is None:
         return None
     reduced = _seeded_typed_return_dst_polars(
-        g, n0, n2, e1, src, dst, node, e1.direction, preserve_input_order=True, index_ctx=ctx)
+        g, n0, n2, e1, src, dst, node, e1.direction, preserve_input_order=True, index_ctx=ctx, record_property_decision=False)
     if reduced is None:
         return None
     _, kept_edges, _, _ = reduced
