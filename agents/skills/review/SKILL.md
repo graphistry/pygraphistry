@@ -299,7 +299,7 @@ column.
 
 **Hot row path** = row pipeline executor, edge/node materialization, anything called per-query in `_execute_*` / `_compile_*` / `_lower_*` / row-pipeline ops. **Control plane** = one-shot config builders, error formatters, parser glue (lower bar).
 
-**Index engagement**: for property-index changes, verify an actual candidate gather through representative public queries and specialized execution paths that bypass canonical filters. Row parity alone can pass while every query still scans; explain receipts must describe the gather that really occurred.
+**Index engagement**: for property-index changes, verify an actual candidate gather through representative public queries and specialized execution paths that bypass canonical filters. Row parity alone can pass while every query still scans; explain receipts must describe the gather that really occurred. When adding shared-helper traces, check existing consumer-owned receipt fields and counts; preserve those contracts without hiding new gathers.
 
 **Paired cuDF coverage required** for changes in `compute/gfql/row/`, `compute/gfql/cypher/`, `compute/gfql_unified.py`, `compute/chain.py`, `compute/hop.py`, `compute/materialize_nodes.py`. Sibling pattern: `pytest.importorskip("cudf")` + engine-parametrized fixture. New DataFrame-touching helpers also need cuDF smoke if on a hot path.
 
