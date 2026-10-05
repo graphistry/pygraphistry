@@ -552,7 +552,8 @@ def show_indexes(
         })
     for kind, role in PROPERTY_ROLES:
         frame = g._nodes if role == "nodes" else g._edges
-        for column, prop in registry.property_indexes(role).items():
+        for column in sorted(registry.property_indexes(role)):
+            prop = registry.property_indexes(role)[column]
             prop_valid = registry.get_property_valid(role, column, frame, prop.engine) is not None
             usable, reason = _index_usability(kind, prop.engine, prop_valid, query_engine)
             rows.append({

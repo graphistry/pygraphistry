@@ -2197,7 +2197,7 @@ def binding_rows_polars(
             if positions is not None:
                 # Identity is the ORIGINAL edge position, shared across all hops.
                 candidates_lf = take_rows_polars(edges, positions).with_columns(
-                    pl.Series(_ident_col, np.asarray(positions, dtype=np.uint32)),
+                    pl.Series(_ident_col, np.asarray(positions), dtype=pl.get_index_type()),
                 ).lazy()
                 if _endpoint_casts:
                     candidates_lf = candidates_lf.with_columns(_endpoint_casts)

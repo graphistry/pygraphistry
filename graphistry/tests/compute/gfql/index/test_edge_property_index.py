@@ -9,9 +9,11 @@ from graphistry.compute.ast import e_forward, is_in, n
 from graphistry.compute.gfql.index import CreateIndex, DropIndex, get_registry, index_trace
 
 
-@pytest.fixture(params=["pandas", "polars", "cudf"])
+@pytest.fixture(params=["pandas", "polars", "cudf", "polars-gpu"])
 def engine(request):
-    if request.param != "pandas":
+    if request.param == "polars-gpu":
+        pytest.importorskip("cudf_polars")
+    elif request.param != "pandas":
         pytest.importorskip(request.param)
     return request.param
 
@@ -161,7 +163,7 @@ def test_most_selective_column_is_used_and_residual_reapplied(engine):
 def test_synthetic_column_rebind_preserves_only_valid_lineage(engine):
     indexed = graph(engine).create_index("edge_prop", column="txn", engine=engine)
     original = indexed._edges
-    if engine == "polars":
+    if engine in ("polars", "polars-gpu"):
         augmented = original.with_columns(synthetic=np.arange(400))
     else:
         augmented = original.assign(synthetic=np.arange(400))
