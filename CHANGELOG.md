@@ -8,6 +8,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [Development]
 <!-- Do Not Erase This Section - Used for tracking unreleased changes -->
 
+### Documentation
+
+- **The indexing page's index-kind table shows how to create each kind and what it corresponds to in SQL**: each of `edge_out_adj`, `edge_in_adj`, `node_id` and `node_prop` now lists its Cypher DDL, its Python call (`g.create_index(...)`) and its JSON wire op, each checked to build the index on master, and says which SQL index it is analogous to: foreign key indexes on the edge table's source and destination columns, the node table's primary key index, and an ordinary column index.
+
 ## [0.59.3 - 2026-10-05]
 
 ### Changed
