@@ -219,3 +219,21 @@ def test_arrow_timestamp_query_stays_bounded_after_index_build(unit, monkeypatch
         actual = indexed.filter_nodes_by_dict({"value": pd.Timestamp("2025-01-01 07:00:00")})._nodes
     assert actual["id"].tolist() == [7]
     assert any(s.get("path") == "index" for s in steps)
+
+
+@pytest.mark.parametrize("as_ast", [False, True])
+def test_category_nan_membership_preserves_distinct_literal_and_ast_null_semantics(engine, as_ast):
+    from graphistry.compute.predicates.is_in import IsIn
+    if engine.startswith("polars"):
+        pytest.skip("Polars categorical labels are text")
+    frame = df_to_engine(pd.DataFrame({"id": [0, 1, 2], "value": pd.Series([1.5, 2.5, None], dtype="category")}), Engine(engine))
+    base = graphistry.nodes(frame, "id")
+    indexed = with_index_policy(base.create_index("node_prop", column="value", engine=engine), "force")
+    predicate = IsIn([float("nan")]) if as_ast else [float("nan")]
+    expected = base.filter_nodes_by_dict({"value": predicate}, engine=engine)._nodes
+    actual = indexed.filter_nodes_by_dict({"value": predicate}, engine=engine)._nodes
+    if engine == "cudf":
+        pd.testing.assert_frame_equal(actual.to_pandas(), expected.to_pandas())
+    else:
+        pd.testing.assert_frame_equal(actual, expected)
+    assert len(actual) == (1 if as_ast else 0)

@@ -236,6 +236,8 @@ def property_query_values(index: NodePropIndex, predicate: object, xp: ArrayName
             return None
         if not members:
             return xp.zeros(0, dtype=xp.int64)
+        if any(isinstance(value, float) and np.isnan(value) for value in members):
+            return None  # AST IsIn can match null rows; the index excludes them.
         kinds = {
             "str" if isinstance(value, str) else "bool" if isinstance(value, bool)
             else "int" if isinstance(value, Integral) else "float"
