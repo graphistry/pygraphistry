@@ -199,6 +199,8 @@ python -m pytest -q [targeted_test]
 - For GPU-affecting PRs, require GPU-path validation evidence:
   - Local GPU path: `cd docker && ./test-gpu-local.sh [targeted_test_or_path]`
   - No local GPU available: run equivalent GPU validation on `dgx-spark` and record exact command + output artifact path in wave evidence.
+- For optional-engine tests, check the declared CI dependency environment as well as installed-engine
+  integration; skip unavailable dependencies and explicitly exercise supported installed-engine cases.
 - For RAPIDS/cuDF changes, prefer dual-version validation (`RAPIDS_VERSION=25.02` and `26.02`) and include at least one amplified pass beyond early-stop defaults (for example, avoid relying only on `--maxfail=1` harness behavior when triaging regression surface).
 - When shared GPU pressure blocks full-matrix execution, require explicit evidence of the constrained condition (for example `nvidia-smi` + failing stack site), then run targeted amplified subsets and document exactly which tests were excluded and why.
 - If startup/runtime claims are made, verify entrypoints/scripts in `bin/` and workflow behavior.
@@ -221,6 +223,8 @@ python -m pytest -q [targeted_test]
   test paths in `SUITES` before publication: another specialization can serve an
   individual route decline and hide mixed result/engagement assertions. A wall-clock
   assertion in pygraphistry tests is a finding.
+  A new route also updates the hosted replay matrix and runs `graphistry/tests/compute/gfql/routes/test_replay.py`;
+  focused local replay does not check hosted matrix coverage.
 - **Perf claims live in pyg-bench.** A number in a PR body or CHANGELOG needs a pyg-bench measurement
   with an A/A control beside the A/B, pinned in that repo's thresholds + contract test; pygraphistry
   carries results and data contracts only. Local-box numbers do not close a perf PR.
