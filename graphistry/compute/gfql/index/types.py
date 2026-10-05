@@ -89,6 +89,7 @@ class IndexTraceStep(TypedDict, total=False):
     path: IndexPath
     decision_reason: str
     decision_code: IndexDecisionCode
+    index_kind: IndexKind
     n_keys: int
     seed_deg_sum: Optional[int]
     est_result_rows: Optional[int]

@@ -6,12 +6,25 @@ from typing import Mapping, Optional, Tuple
 from graphistry.Engine import Engine, POLARS_ENGINES
 from graphistry.Plottable import Plottable
 from graphistry.compute.typing import ArrayLike, DataFrameT
-from .api import _record, get_index_policy, get_registry
+from .api import _record, _trace_active, get_index_policy, get_registry
 from .cost import cost_gate_frac
 from .engine_arrays import array_namespace, as_eager_polars_frame, take_rows
 from .lookup import lookup_prop_rows, prop_match_count
-from .property_keys import property_query_values
+from .property_keys import property_query_values, uncovered_property_column
 from .registry import ColStatsRole, GfqlIndexRegistry, NodePropIndex
+from .types import IndexKind
+
+
+def _record_uncovered_property(
+    role: ColStatsRole, column: str, index_kind: IndexKind, engine: Engine, policy: str,
+) -> None:
+    if _trace_active():
+        _record({
+            "op": "property_lookup", "role": role, "column": column,
+            "index_kind": index_kind, "engine": engine.value, "policy": policy,
+            "path": "scan", "decision_code": "not_index_coverable",
+            "decision_reason": "property predicate has no supported index encoding",
+        })
 
 
 def property_candidate_positions(
@@ -25,20 +38,31 @@ def property_candidate_positions(
     """
     return property_candidate_positions_from_registry(
         get_registry(g), role, frame, filter_dict, engine, get_index_policy(g),
+        binding_column=g._node if role == "nodes" else None,
     )
 
 
 def property_candidate_positions_from_registry(
     registry: GfqlIndexRegistry, role: ColStatsRole, frame: DataFrameT,
     filter_dict: Optional[Mapping[str, object]], engine: Engine, policy: str,
-    *, record_decision: bool = True,
+    *, record_decision: bool = True, binding_column: Optional[str] = None,
 ) -> Optional[ArrayLike]:
     """Shared selector for graph filtering and specialized node-seed consumers."""
-    if policy == "off" or not filter_dict or not registry.property_indexes(role):
+    if policy == "off" or not filter_dict:
+        return None
+    index_kind: IndexKind = "node_prop" if role == "nodes" else "edge_prop"
+    indexes = registry.property_indexes(role)
+    if not indexes and not (record_decision and _trace_active()):
+        return None
+    if not indexes:
+        if record_decision and _trace_active():
+            column = uncovered_property_column(frame, filter_dict, engine, binding_column=binding_column)
+            if column is not None:
+                _record_uncovered_property(role, column, index_kind, engine, policy)
         return None
     xp, _ = array_namespace(engine)
     best: Optional[Tuple[str, NodePropIndex, ArrayLike, int]] = None
-    for column in sorted(registry.property_indexes(role)):
+    for column in sorted(indexes):
         if column not in filter_dict:
             continue
         index = registry.get_property_valid(role, column, frame, engine)
@@ -54,6 +78,10 @@ def property_candidate_positions_from_registry(
         if best is None or count < best[3]:
             best = column, index, values, count
     if best is None:
+        if record_decision and _trace_active():
+            column = uncovered_property_column(frame, filter_dict, engine, registry=registry, role=role, binding_column=binding_column)
+            if column is not None:
+                _record_uncovered_property(role, column, index_kind, engine, policy)
         return None
     column, index, values, count = best
     use_index = policy == "force" or count < cost_gate_frac(engine) * len(frame)
@@ -70,7 +98,7 @@ def property_candidate_positions_from_registry(
     if record_decision:
         _record({
             "op": "property_lookup", "role": role, "column": column,
-            "engine": engine.value, "policy": policy, "est_result_rows": count,
+            "index_kind": index_kind, "engine": engine.value, "policy": policy, "est_result_rows": count,
             "path": "index" if use_index else "scan",
             "decision_code": "index_selected" if use_index else "scan_cost",
             "decision_reason": "property candidates gathered" if use_index else "property gather cost exceeds scan",

@@ -38,7 +38,7 @@ def _single_node_rows_via_index_or_filter(
         _record_native_seed_lane(nodes_df, seam="native_seed_lookup",
                                  reason=how if served else "no_valid_resident_index",
                                  hop_count=0, public_seed_scan=node not in n0.filter_dict,
-                                 served=served)
+                                 served=served, seed_graph=g, seed_filter=n0.filter_dict)
         return rows
     from graphistry.compute.gfql.index.property_lookup import property_candidate_frame
     candidates = property_candidate_frame(g, "nodes", nodes_df, n0.filter_dict, resolve_engine(engine_abs, nodes_df))

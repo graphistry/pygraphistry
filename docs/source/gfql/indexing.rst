@@ -431,11 +431,15 @@ for programs and tests to match on:
 - ``no_resident_index`` -- nothing is resident and ``index_policy='use'`` never builds.
 - ``index_path_unavailable`` -- the index path could not serve this query as planned, so
   the scan answered; ``decision_reason`` says what was missing (e.g. ``index_missing``).
-- ``not_index_coverable`` -- the shape is one the index path does not cover; it scans.
+- ``not_index_coverable`` -- the shape or predicate has no supported index encoding;
+  it scans. This includes unsupported column storage, such as Boolean, even when
+  no index is resident. Property decisions identify the column and index kind
+  being assessed; supported missing/stale indexes retain their separate reasons.
 - ``missing_graph_columns`` -- the graph lacks a bound column the index needs.
 - ``index_build_declined`` -- ``index_policy='auto'`` / ``'force'`` ended with no usable
   index (the build was declined or did not cover the hop).
-- ``scan_cost`` -- the index is resident but the cost gate chose the scan (a seed set
+- ``scan_cost`` -- an applicable resident index was actually costed and the gate
+  chose the scan; ``index_kind`` identifies that index (a seed set
   covering most of the graph, for example).
 - ``engine_mismatch`` -- the resident index was built for another engine.
 - ``col_stats_absent`` / ``col_stats_stale`` / ``col_stats_insufficient`` /

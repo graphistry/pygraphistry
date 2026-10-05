@@ -177,6 +177,7 @@ POLARS_TEST_FILES=(
     graphistry/tests/compute/gfql/index/test_nullable_property_index.py
     graphistry/tests/compute/gfql/index/test_typed_property_index.py
     graphistry/tests/compute/gfql/index/test_float_property_index.py
+    graphistry/tests/compute/gfql/index/test_explain_property_coverage.py
     graphistry/tests/compute/gfql/index/test_indexed_bindings.py
     graphistry/tests/compute/gfql/index/test_indexed_bindings_membership_seed.py
     graphistry/tests/compute/gfql/index/test_index_ddl_in_one_call.py

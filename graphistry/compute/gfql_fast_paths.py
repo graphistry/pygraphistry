@@ -3562,6 +3562,7 @@ def _execute_seeded_node_lookup_fast_path(
         reason="served" if how != "scan" else _node_lookup_scan_reason(base_graph, node, n0f, nid_ctx),
         hop_count=0,
         public_seed_scan=node not in n0f,
+        seed_graph=base_graph, seed_filter=n0.filter_dict,
     )
     if select_items is not None:
         if is_polars:

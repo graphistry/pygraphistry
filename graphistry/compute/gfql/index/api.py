@@ -8,7 +8,7 @@ stale indexes (treated as absent, never a wrong answer).
 from __future__ import annotations
 
 import copy
-from typing import Dict, List, Literal, Optional, Sequence, Set, Tuple, cast
+from typing import Dict, List, Literal, Mapping, Optional, Sequence, Set, Tuple, cast
 
 import pandas as pd
 
@@ -141,12 +141,14 @@ def _record_indexed_traversal(
     hop_count: int,
     public_seed_scan: bool,
     hop_details: Optional[List[Dict[str, object]]] = None,
+    seed_graph: Optional[Plottable] = None,
+    seed_filter: Optional[Mapping[str, object]] = None,
 ) -> None:
     """Record one backward-compatible indexed traversal decision when tracing."""
     if not _trace_active():
         return
     path = "index" if served else "scan"
-    _record(cast(IndexTraceStep, {
+    decision = cast(IndexTraceStep, {
         "op": "indexed_traversal",
         "operation": "indexed_traversal",
         "seam": seam,
@@ -160,7 +162,26 @@ def _record_indexed_traversal(
         "path": path,
         "decision_reason": reason,
         "decision_code": "index_selected" if served else "index_path_unavailable",
-    }))
+    })
+    if (
+        not served and hop_count == 0 and reason in ("index_missing", "no_valid_resident_index", "cost_gate")
+        and seed_graph is not None and seed_graph._nodes is not None and seed_filter
+        and get_index_policy(seed_graph) != "off"
+    ):
+        from .property_keys import uncovered_property_column
+        column = uncovered_property_column(
+            seed_graph._nodes, seed_filter, engine,
+            registry=get_registry(seed_graph), binding_column=seed_graph._node,
+        )
+        if column is not None:
+            decision.update({
+                "decision_code": "not_index_coverable",
+                "decision_reason": "property predicate has no supported index encoding",
+                "column": column, "role": "nodes", "index_kind": "node_prop",
+            })
+            if reason == "cost_gate":
+                decision["reason"] = "unsupported_predicate"
+    _record(decision)
 
 
 ColStatsOutcome = ColStatsOutcomeName  # single definition, in types.py
@@ -1127,6 +1148,7 @@ def maybe_index_hop(
         # signal the report wants EXPLAIN to surface (not just used-index yes/no).
         seed_ids = seed_id_array(nodes, node_col)
         deg_sum = seed_deg_sum(idx0, seed_ids) if seed_ids is not None else None
+        diag["index_kind"] = idx0.kind
         diag["n_keys"] = int(idx0.n_keys)
         diag["seed_deg_sum"] = deg_sum
         diag["est_result_rows"] = deg_sum
