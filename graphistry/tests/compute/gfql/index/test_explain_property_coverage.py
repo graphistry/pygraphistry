@@ -194,6 +194,7 @@ def test_unsupported_storage_diagnostics_do_not_run_on_untraced_queries(engine, 
     def unexpected_classifier(*args, **kwargs):
         pytest.fail("Coverage classification must only run while tracing")
     monkeypatch.setattr(property_keys, "uncovered_property_column", unexpected_classifier)
+    monkeypatch.setattr("graphistry.compute.gfql_fast_paths._node_lookup_scan_reason", unexpected_classifier)
     monkeypatch.setattr("graphistry.compute.gfql.index.property_lookup.uncovered_property_column", unexpected_classifier)
     ids = np.arange(400)
     g = graph(engine).nodes(df_to_engine(pd.DataFrame({"id": ids, "active": ids % 2 == 0}), Engine(engine)), "id")
@@ -323,3 +324,26 @@ def test_direct_trace_preserves_mismatched_requested_engine_filter(actual_engine
     assert len(traced) == 200
     assert_same_frame(traced, ordinary, requested_engine)
     assert not steps and g._nodes is source
+
+
+@pytest.mark.parametrize("check_receipt", [False, pytest.param(True, marks=pytest.mark.route_engaged("native-fast", "polars-single-node", "polars-plain", "cypher-fast"))])
+@pytest.mark.parametrize("cypher", [False, True])
+@pytest.mark.parametrize("stale", [False, True])
+def test_shared_polars_gpu_sidecar_decline_matches_real_lookup_validity(cypher, stale, check_receipt):
+    pl = pytest.importorskip("polars")
+    g = graph("polars").create_index("node_prop", column="value", engine="polars-gpu")
+    if stale:
+        g = g.nodes(pl.DataFrame({"id": np.arange(400), "value": np.arange(400)}), "id")
+    query = "MATCH (a {value: 7.0}) RETURN a.id AS id" if cypher else [n({"value": 7.0})]
+    for policy in ["use", "force"]:
+        actual = g.gfql(query, engine="polars", index_policy=policy)._nodes
+        assert len(actual) == 1
+        assert_same_frame(actual, g.gfql(query, engine="polars", index_policy="off")._nodes, "polars")
+        report = g.gfql_explain(query, engine="polars", index_policy=policy)
+        assert report["error"] is None and not report["used_index"]
+        if check_receipt:
+            assert report["decision_code"] == ("index_path_unavailable" if stale else "not_index_coverable")
+            if stale and cypher:
+                assert report["decision_reason"] == "index_stale"
+            else:
+                assert report["decision_reason"] != "index_stale"

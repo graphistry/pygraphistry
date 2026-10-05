@@ -10,7 +10,7 @@ from .api import _record, _trace_active, get_index_policy, get_registry
 from .cost import cost_gate_frac
 from .engine_arrays import array_namespace, as_eager_polars_frame, take_rows
 from .lookup import lookup_prop_rows, prop_match_count
-from .property_keys import property_query_values, uncovered_property_column
+from .property_keys import property_query_values, uncovered_property_column, valid_property_index
 from .registry import ColStatsRole, GfqlIndexRegistry, NodePropIndex
 from .types import IndexKind
 
@@ -65,10 +65,7 @@ def property_candidate_positions_from_registry(
     for column in sorted(indexes):
         if column not in filter_dict:
             continue
-        index = registry.get_property_valid(role, column, frame, engine)
-        if index is None and engine in POLARS_ENGINES:
-            other = Engine.POLARS_GPU if engine == Engine.POLARS else Engine.POLARS
-            index = registry.get_property_valid(role, column, frame, other)
+        index = valid_property_index(registry, role, frame, column, engine)
         if index is None:
             continue
         values = property_query_values(index, filter_dict[column], xp)

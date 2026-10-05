@@ -114,6 +114,18 @@ def is_timestamp_property(frame: DataFrameT, column: str, engine: Engine) -> boo
     return dtype.kind == "M"
 
 
+def valid_property_index(
+    registry: GfqlIndexRegistry, role: ColStatsRole, frame: DataFrameT,
+    column: str, engine: Engine,
+) -> Optional[NodePropIndex]:
+    """Valid resident property encoding, including the shared eager Polars sidecar."""
+    index = registry.get_property_valid(role, column, frame, engine)
+    if index is None and engine in POLARS_ENGINES:
+        other = Engine.POLARS_GPU if engine == Engine.POLARS else Engine.POLARS
+        index = registry.get_property_valid(role, column, frame, other)
+    return index
+
+
 def uncovered_property_column(
     frame: DataFrameT, filters: Mapping[str, object], engine: Engine,
     *, registry: Optional[GfqlIndexRegistry] = None, role: ColStatsRole = "nodes",
@@ -153,10 +165,7 @@ def uncovered_property_column(
             return None  # Numeric node-id lookup admits scalars that node_prop can decline.
         if registry is None:
             return None
-        index = registry.get_property_valid(role, column, frame, engine)
-        if index is None and engine in POLARS_ENGINES:
-            other = Engine.POLARS_GPU if engine == Engine.POLARS else Engine.POLARS
-            index = registry.get_property_valid(role, column, frame, other)
+        index = valid_property_index(registry, role, frame, column, engine)
         if index is None:
             return None  # Supported storage with missing/stale encoding is not a capability gap.
         xp, _ = array_namespace(engine)
