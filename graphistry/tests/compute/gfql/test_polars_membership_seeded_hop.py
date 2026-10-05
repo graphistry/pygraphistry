@@ -19,6 +19,8 @@ def engine(request):
 
 
 def graph(engine, reverse=False):
+    if engine != "pandas":
+        pytest.importorskip("cudf_polars" if engine == "polars-gpu" else engine)
     ids = np.arange(5000)
     nodes = pd.DataFrame({"key": ids, "id": ids + 10000, "label__Message": ids < 1000,
                           "label__Person": ids >= 1000, "score": np.where(ids % 5, 1.5, np.nan)})
@@ -106,7 +108,7 @@ def test_empty_missing_and_duplicate_members_preserve_polars_frames(values):
 def test_membership_lane_respects_policy_and_stale_or_missing_indexes(engine, change, monkeypatch):
     if engine == "polars-gpu":
         pytest.importorskip("cudf_polars")
-    import polars as pl
+    pl = pytest.importorskip("polars")
     import graphistry.compute.gfql.lazy.engine.polars.chain as chain
     g = graph(engine)
     if change == "no-index":
@@ -144,7 +146,7 @@ def test_membership_lane_respects_policy_and_stale_or_missing_indexes(engine, ch
 def test_membership_seed_preserves_large_unsigned_integer_ids(engine, column, offset):
     if engine == "polars-gpu":
         pytest.importorskip("cudf_polars")
-    import polars as pl
+    pl = pytest.importorskip("polars")
     g = graph(engine)
     g = g.nodes(g._nodes.with_columns((pl.col(column).cast(pl.UInt64) + pl.lit(offset, dtype=pl.UInt64)).alias(column)))
     if column == "key":
@@ -163,7 +165,7 @@ def test_membership_seed_preserves_large_unsigned_integer_ids(engine, column, of
 
 @pytest.mark.parametrize("values", [[True], [0.0, 1.0], [0, "1"], [None], [0, None], [np.nan], [2**65]])
 def test_membership_query_boundaries_keep_canonical_polars_results_or_errors(values, monkeypatch):
-    import polars as pl
+    pl = pytest.importorskip("polars")
     import graphistry.compute.gfql.lazy.engine.polars.chain as chain
     from graphistry.compute.exceptions import GFQLValidationError
     g = graph("polars")
