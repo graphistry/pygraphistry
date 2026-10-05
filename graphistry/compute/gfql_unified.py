@@ -1525,9 +1525,18 @@ def _execute_compiled_query_via_physical_plan(
                 engine=engine, policy=policy, context=context, start_nodes=start_nodes))
         if fast_lookup is not None:
             return fast_lookup
+        from graphistry.compute.gfql.index.or_bindings import prepare_indexed_or_bindings
+        indexed_dispatch = None
+        if policy is None and start_nodes is None and compiled_query.empty_result_row is None:
+            indexed_dispatch, _ = _run_fast_path_on_requested_target(
+                engine, lambda: prepare_indexed_or_bindings(
+                    base_graph, compiled_query.chain, resolve_engine(
+                        EngineAbstract(engine) if isinstance(engine, str) else engine, base_graph)),
+            )
         return _execute_compiled_query_chain_non_union(
             base_graph,
             compiled_query=compiled_query,
+            dispatch_graph=indexed_dispatch,
             engine=engine,
             policy=policy,
             context=context,

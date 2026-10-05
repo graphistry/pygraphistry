@@ -28,6 +28,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- **GFQL indexed cross-alias OR** (#2157): selective node equality or membership branches of a directed single-hop Cypher query union original edge candidates before canonical binding materialization, preserving branch overlap and parallel edges.
+
 - **GFQL native Polars membership hops** (#2156): directed single hops with integral seed memberships reuse the shared seed admission and resident indexes, preserving typed filters, aliases, and input table order.
 
 - **GFQL intermediate graph indexes** (#2148): graph-preserving Cypher `graphistry.create_index.write` / `graphistry.drop_index.write` stages and index operations inside native `ref()` chains; Polars index calls build on native frames for later stages to reuse.
