@@ -181,6 +181,7 @@ POLARS_TEST_FILES=(
     graphistry/tests/compute/gfql/index/test_explain_property_coverage.py
     graphistry/tests/compute/gfql/index/test_intermediate_graph_indexes.py
     graphistry/tests/compute/gfql/index/test_cross_alias_or_index.py
+    graphistry/tests/compute/gfql/test_unseeded_binding_limit.py
     graphistry/tests/compute/gfql/index/test_indexed_bindings.py
     graphistry/tests/compute/gfql/index/test_indexed_bindings_membership_seed.py
     graphistry/tests/compute/gfql/index/test_index_ddl_in_one_call.py

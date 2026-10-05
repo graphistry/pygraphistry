@@ -718,6 +718,12 @@ def _plan_indexed_middle(
     if engine_concrete not in (Engine.PANDAS, Engine.CUDF):
         return None
 
+    from .gfql.limit_bindings import record_binding_limit, try_limited_bindings_state
+    limited_state = try_limited_bindings_state(g, middle, suffix, engine_concrete)
+    if limited_state is not None:
+        record_binding_limit(engine_concrete)
+        return IndexedBindingsHandoff(binding_ops=plan, state=limited_state)
+
     from .gfql.index.bindings import try_indexed_connected_bindings_state
 
     state = try_indexed_connected_bindings_state(g, middle, engine=engine_concrete)
@@ -783,7 +789,7 @@ def _handle_boundary_calls(
 
     # Function-scope import: `gfql.index` transitively imports this module, so a
     # module-scope import would be a cycle.
-    from .gfql.index.handoff import attach_handoff
+    from .gfql.index.handoff import attach_handoff, clear_handoff, read_handoff
     from .gfql.exec_context import attach_row_exec_context, clear_row_exec_context
 
     g_temp = self
@@ -814,6 +820,9 @@ def _handle_boundary_calls(
     if served:
         assert handoff is not None  # narrowed by `served`
         g_temp = attach_handoff(self, handoff)
+        assert handoff.state is not None
+        if handoff.state.edge_template is not None:
+            g_temp = g_temp.edges(handoff.state.edge_template)
     else:
         if middle:
             logger.debug('Executing middle operations: %s', middle)
@@ -892,7 +901,11 @@ def _handle_boundary_calls(
 
     # Each site that attaches the row context also detaches it: the suffix chain has run,
     # so the context is spent, and a caller who queries THIS result must not inherit it.
-    return clear_row_exec_context(g_temp)
+    result = clear_row_exec_context(g_temp)
+    if read_handoff(result) is not None:
+        result = result.bind()
+        clear_handoff(result)
+    return result
 
 
 def _chain_otel_attrs(

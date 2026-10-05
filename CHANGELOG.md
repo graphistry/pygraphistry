@@ -28,6 +28,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- **GFQL unseeded LIMIT** (#2129): unfiltered directed single-hop pandas/cuDF queries limit wide property gathers after a canonical walk over endpoint columns, preserving binding order and parallel edges.
+
 - **GFQL indexed cross-alias OR** (#2157): selective node equality or membership branches of a directed single-hop Cypher query union original edge candidates before canonical binding materialization, preserving branch overlap and parallel edges.
 
 - **GFQL native Polars membership hops** (#2156): directed single hops with integral seed memberships reuse the shared seed admission and resident indexes, preserving typed filters, aliases, and input table order.
