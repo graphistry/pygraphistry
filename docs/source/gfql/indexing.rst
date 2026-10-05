@@ -34,6 +34,49 @@ statements build first and the rest runs on the indexed graph:
    g.gfql([call("create_index", {"kind": "edge_out_adj"}), n({"id": "a"}), e_forward(), n()])
    g.gfql(let({"indexed": [CreateIndex("edge_out_adj")], "out": ref("indexed", [n({"id": "a"}), e_forward(), n()])}))
 
+Indexing an intermediate graph
+------------------------------
+
+Narrowing a graph produces new tables, so indexes on the input cannot serve those
+tables. Build an index after narrowing when later stages need seeded lookups:
+
+.. code-block:: python
+
+   query = """
+   GRAPH sub = GRAPH { MATCH (a {region: 3})-[e]->(b {region: 3}) }
+   GRAPH adjacency = GRAPH {
+       USE sub CALL graphistry.create_index.write({kind: 'edge_out_adj'})
+   }
+   GRAPH indexed = GRAPH {
+       USE adjacency CALL graphistry.create_index.write({kind: 'node_id'})
+   }
+   USE indexed MATCH (u)-[e]->(v) WHERE u.id IN [7, 9] RETURN v
+   """
+   g.gfql(query, index_policy="use")
+
+The native equivalent accepts ``CreateIndex`` and kind-based ``DropIndex`` inside
+``ref()`` chains, with the same supported forms as top-level chains:
+
+.. code-block:: python
+
+   q = let({
+       "sub": [n({"region": 3}), e_forward(), n({"region": 3})],
+       "indexed": ref("sub", [CreateIndex("edge_out_adj"), CreateIndex("node_id")]),
+       "out": ref("indexed", [n({"id": is_in([7, 9])}), e_forward(), n()]),
+   })
+   g.gfql(q, index_policy="use")
+
+``CALL graphistry.drop_index.write({kind: 'edge_out_adj'})`` removes the resident
+index from a new graph; an empty options map drops all indexes. These procedures
+preserve graph tables and schema and do not return rows through ``YIELD``. Property
+indexes accept ``column``; creation also accepts ``name`` and ``engine``. Index
+operations leave their input graphs unchanged on pandas, cuDF, and Polars.
+
+Each pipeline invocation rebuilds its intermediate indexes. There is no automatic
+cache across invocations. Several later references can reuse the same indexed
+binding during one invocation, but build cost may exceed the benefit of a single
+hop. Measure the full multi-stage pipeline before making a speed claim.
+
 What a resident index is
 ------------------------
 

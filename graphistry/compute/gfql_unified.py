@@ -1037,7 +1037,7 @@ def _execute_graph_constructor_compiled(
 ) -> Plottable:
     """Execute a compiled graph constructor (MATCH-based or CALL-based)."""
     if procedure_call is not None:
-        result = execute_cypher_call(base_graph, procedure_call)
+        result = execute_cypher_call(base_graph, procedure_call, engine=engine, policy=policy, context=context)
         requested_engine = resolve_engine(
             engine if isinstance(engine, EngineAbstract) else EngineAbstract(engine),
             base_graph,
@@ -1544,7 +1544,9 @@ def _execute_compiled_query_via_physical_plan(
                 suggestion="Compile CALL queries with procedure metadata before physical dispatch.",
                 language="cypher",
             )
-        dispatch_graph = execute_cypher_call(base_graph, compiled_query.procedure_call)
+        dispatch_graph = execute_cypher_call(
+            base_graph, compiled_query.procedure_call, engine=engine, policy=policy, context=context,
+        )
         return _execute_compiled_query_chain_non_union(
             base_graph,
             compiled_query=compiled_query,

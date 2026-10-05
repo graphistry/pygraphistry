@@ -1185,7 +1185,8 @@ class ASTRef(ASTObject):
         """
         super().__init__()
         self.ref = ref
-        self.chain = chain
+        from .chain import _index_ops_as_calls
+        self.chain = _index_ops_as_calls(chain)
     
     def _validate_fields(self) -> None:
         """Validate Ref fields."""

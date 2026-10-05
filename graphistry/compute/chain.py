@@ -1335,8 +1335,7 @@ def _chain_impl(
                 # from `self` would lose it. Migrate it onto the de-indexed edge frame (same rows).
                 from graphistry.compute.gfql.index import get_registry, set_registry
                 _called_registry = get_registry(called)
-                if not _called_registry.is_empty():
-                    g_out = set_registry(g_out, _called_registry.rebind_edges(final_edges_df, called._edges))
+                g_out = set_registry(g_out, _called_registry.rebind_edges(final_edges_df, called._edges))
             else:
                 from .gfql.exec_context import clear_row_exec_context
                 g_out = clear_row_exec_context(g_out)
