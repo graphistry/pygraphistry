@@ -59,14 +59,16 @@ carrying them:
      - Sorted lookup on a node **property** column (a secondary index): a seed
        predicate like ``MATCH (m {id: 42})`` on a column that is not the node-id
        binding becomes a positional gather instead of an ``O(N)`` scan. Duplicate
-       values are fine (all matching rows are gathered). Integer columns without
-       nulls only — anything else declines to the scan. Opt-in per column.
+       values are fine (all matching rows are gathered). String columns and
+       integer columns without nulls are supported. Null string rows are excluded.
+       Other dtypes decline to the scan. Opt-in per column.
 
    * - ``edge_prop``
      - Sorted lookup on an edge **property** column, such as a transaction or
-       message id. Integer equality and membership predicates gather matching
-       edge rows; duplicate values are retained. Integer columns without nulls
-       only. Opt-in per column, like ``node_prop``.
+       message id. String and integer equality and membership predicates gather
+       matching edge rows; duplicate values are retained. Null string rows are
+       excluded; integer columns currently require no nulls. Opt-in per column,
+       like ``node_prop``.
 
 They are **sidecars over row positions**: your ``.edges`` / ``.nodes`` frames are never
 reordered or copied, and the resident footprint is visible per index via
@@ -180,6 +182,21 @@ When several indexed columns appear in one seed predicate, the planner gathers o
 the remaining predicates to those candidates, so results never depend on which index
 happens to be resident. As with every kind, a missing, stale, or cost-gated-out index
 falls back to the scan.
+
+String business keys
+~~~~~~~~~~~~~~~~~~~~
+
+Emails, usernames, and external IDs can be indexed without changing the graph's
+node-id binding. Text uses native string dictionaries and integer row-position
+arrays; comparisons preserve exact text, including Unicode and empty strings.
+Null text rows match no non-null key. Duplicate keys gather every matching row,
+and the remaining query predicates are still applied.
+
+.. code-block:: python
+
+   g = g.create_index("node_prop", column="email")
+   g.gfql("MATCH (p {email: 'alice@example.test'}) RETURN p")
+   g.gfql("MATCH (p) WHERE p.email IN ['alice@example.test', 'bob@example.test'] RETURN p")
 
 An edge property can seed a query in the same way:
 

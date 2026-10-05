@@ -35,8 +35,6 @@ from .lookup import (
     lookup_degree,
     lookup_edge_rows,
     lookup_node_rows,
-    lookup_prop_rows,
-    prop_match_count,
 )
 from .registry import (
     EDGE_IN_ADJ,
@@ -358,47 +356,17 @@ def _seed_rows_via_property_index(
     covers such a column, gather its candidates instead; the caller re-applies the
     WHOLE filter to them, so the result is identical to the scan either way.
 
-    Returns None (keep scanning) when nothing is indexed, no predicate is a plain
-    integer scalar, or the estimated candidate count is not selective enough to
+    Returns None (keep scanning) when nothing is indexed, no predicate is a supported
+    equality/membership seed, or the estimated candidate count is not selective enough to
     beat the scan (``force`` skips the cost gate).
     """
-    if not first_filter:
-        return None
-    best_rows = None
-    best_count: Optional[int] = None
-    for column in registry.node_prop_cols():
-        value = first_filter.get(column)
-        members: List[int]
-        if isinstance(value, tuple):
-            ids = _membership_seed_ids(value)
-            if not ids:
-                continue  # non-integral or empty member set: seeds nothing through this index
-            members = ids
-        elif value is None or isinstance(value, bool) or not isinstance(value, Integral):
-            continue
-        else:
-            members = [int(value)]
-        index = registry.get_node_prop_valid(column, nodes, engine)
-        if index is None and engine in (Engine.POLARS, Engine.POLARS_GPU):
-            # Both Polars targets index the same host frame with NumPy arrays.
-            other = Engine.POLARS_GPU if engine == Engine.POLARS else Engine.POLARS
-            index = registry.get_node_prop_valid(column, nodes, other)
-        if index is None:
-            continue
-        values = xp.asarray(members)
-        count = prop_match_count(index, values, xp)
-        if best_count is not None and count >= best_count:
-            continue
-        best_count = count
-        best_rows = (index, values)
-    if best_rows is None or best_count is None:
-        return None
-    if policy != "force":
-        n_nodes = int(nodes.shape[0])
-        if best_count >= cost_gate_frac(engine) * n_nodes:
-            return None  # not selective enough to beat one vectorized scan
-    index, values = best_rows
-    return xp.sort(lookup_prop_rows(index, values, xp))
+    from .property_lookup import property_candidate_positions_from_registry
+
+    seed_filter = {
+        column: predicate for column, predicate in first_filter.items()
+        if not (isinstance(predicate, tuple) and not predicate)
+    }
+    return property_candidate_positions_from_registry(registry, "nodes", nodes, seed_filter, engine, policy)
 
 
 def _try_indexed_connected_bindings_state(

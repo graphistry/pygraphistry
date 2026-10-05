@@ -14,7 +14,7 @@ from dataclasses import dataclass, field, replace
 from typing import Any, Dict, Literal, Mapping, Optional, Tuple, Union, cast
 
 from graphistry.Engine import Engine
-from graphistry.compute.typing import DataFrameT
+from graphistry.compute.typing import DataFrameT, SeriesT
 from .types import AdjacencyIndexKind, ArrayLike, IndexBackend, IndexKind
 
 # Index kinds (v1). Property/label/type indexes share this registry shape later.
@@ -101,6 +101,7 @@ class NodePropIndex:
     engine: Engine
     fingerprint: FrameFingerprint = field(compare=False, default=(-1, (), ""))
     source_ref: Optional[DataFrameT] = field(compare=False, default=None)
+    string_keys: Optional[SeriesT] = field(compare=False, default=None)  # native sorted text dictionary
     n_nodes: int = 0  # historical field name: row count of the node OR edge frame
     n_keys: int = 0
     name: Optional[str] = None
@@ -579,6 +580,15 @@ def index_nbytes(
         arr = getattr(idx, attr, None)
         if arr is not None:
             total += int(getattr(arr, "nbytes", 0))
+    if isinstance(idx, NodePropIndex) and idx.string_keys is not None:
+        if idx.engine in (Engine.POLARS, Engine.POLARS_GPU):
+            import polars as pl
+            native_keys = cast(  # hygiene-ok: explicit-cast -- index.engine proves this engine-polymorphic SeriesT is a Polars Series
+                "pl.Series", idx.string_keys,
+            )
+            total += int(native_keys.estimated_size())
+        else:
+            total += int(idx.string_keys.memory_usage(index=False, deep=True))
     return total
 
 

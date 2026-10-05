@@ -1,20 +1,17 @@
 """Candidate gathers for property predicates; canonical filtering stays authoritative."""
 from __future__ import annotations
 
-from numbers import Integral
 from typing import Mapping, Optional, Tuple
-
-import numpy as np
 
 from graphistry.Engine import Engine, POLARS_ENGINES
 from graphistry.Plottable import Plottable
-from graphistry.compute.predicates.is_in import IsIn
 from graphistry.compute.typing import ArrayLike, DataFrameT
 from .api import _record, get_index_policy, get_registry
 from .cost import cost_gate_frac
 from .engine_arrays import array_namespace, as_eager_polars_frame, take_rows
 from .lookup import lookup_prop_rows, prop_match_count
-from .registry import ColStatsRole, NodePropIndex
+from .property_keys import property_query_values
+from .registry import ColStatsRole, GfqlIndexRegistry, NodePropIndex
 
 
 def property_candidate_positions(
@@ -26,8 +23,16 @@ def property_candidate_positions(
     Unsupported predicates and stale indexes decline to canonical filtering.
     Callers must apply the entire canonical filter to these candidates.
     """
-    policy = get_index_policy(g)
-    registry = get_registry(g)
+    return property_candidate_positions_from_registry(
+        get_registry(g), role, frame, filter_dict, engine, get_index_policy(g),
+    )
+
+
+def property_candidate_positions_from_registry(
+    registry: GfqlIndexRegistry, role: ColStatsRole, frame: DataFrameT,
+    filter_dict: Optional[Mapping[str, object]], engine: Engine, policy: str,
+) -> Optional[ArrayLike]:
+    """Shared selector for graph filtering and specialized node-seed consumers."""
     if policy == "off" or not filter_dict or not registry.property_indexes(role):
         return None
     xp, _ = array_namespace(engine)
@@ -35,24 +40,15 @@ def property_candidate_positions(
     for column in sorted(registry.property_indexes(role)):
         if column not in filter_dict:
             continue
-        predicate = filter_dict[column]
-        members = predicate.options if isinstance(predicate, IsIn) else (
-            predicate if isinstance(predicate, (list, tuple)) else [predicate]
-        )
-        if not all(isinstance(value, Integral) and not isinstance(value, bool) for value in members):
-            continue
         index = registry.get_property_valid(role, column, frame, engine)
         if index is None and engine in POLARS_ENGINES:
             other = Engine.POLARS_GPU if engine == Engine.POLARS else Engine.POLARS
             index = registry.get_property_valid(role, column, frame, other)
         if index is None:
             continue
-        bounds = np.iinfo(index.keys_sorted.dtype)
-        # Bounds prove this cast is lossless, even for mixed signed/unsigned keys.
-        values = xp.unique(xp.asarray(
-            [int(value) for value in members if isinstance(value, Integral) and bounds.min <= int(value) <= bounds.max],
-            dtype=index.keys_sorted.dtype,
-        ))
+        values = property_query_values(index, filter_dict[column], xp)
+        if values is None:
+            continue
         count = prop_match_count(index, values, xp)
         if best is None or count < best[3]:
             best = column, index, values, count

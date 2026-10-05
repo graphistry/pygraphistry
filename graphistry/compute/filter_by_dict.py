@@ -256,7 +256,12 @@ def filter_nodes_by_dict(self: Plottable, filter_dict: Optional[dict] = None, en
     """
     filter nodes to those that match all values in filter_dict
     """
-    nodes2 = filter_by_dict(self._nodes, filter_dict, engine)
+    from graphistry.compute.gfql.index.property_lookup import property_candidate_frame
+
+    nodes = self._nodes
+    if nodes is not None:
+        nodes = property_candidate_frame(self, "nodes", nodes, filter_dict, resolve_engine(EngineAbstract(engine), nodes))
+    nodes2 = filter_by_dict(nodes, filter_dict, engine)
     return self.nodes(nodes2)
 
 

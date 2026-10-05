@@ -40,7 +40,9 @@ def _single_node_rows_via_index_or_filter(
                                  hop_count=0, public_seed_scan=node not in n0.filter_dict,
                                  served=served)
         return rows
-    return filter_by_dict(nodes_df, n0.filter_dict, engine_abs)
+    from graphistry.compute.gfql.index.property_lookup import property_candidate_frame
+    candidates = property_candidate_frame(g, "nodes", nodes_df, n0.filter_dict, resolve_engine(engine_abs, nodes_df))
+    return filter_by_dict(candidates, n0.filter_dict, engine_abs)
 
 
 
