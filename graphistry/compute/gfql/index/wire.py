@@ -110,16 +110,17 @@ def apply_index_op(g: Any, op: IndexOp, *, engine: Any = "auto") -> Any:
         _is_resident_index_valid, resolve_index_engine,
     )
 
-    from .registry import NODE_PROP
+    from .registry import NODE_PROP, EDGE_PROP, PROPERTY_ROLES
 
     if isinstance(op, CreateIndex):
         if not op.replace:
             reg = get_registry(g)
-            if op.kind == NODE_PROP:
+            if op.kind in (NODE_PROP, EDGE_PROP):
                 # Property indexes are keyed by COLUMN, not kind: reuse only the
                 # index for THIS column, and only while it is still valid.
-                if op.column is not None and reg.get_node_prop_valid(
-                    op.column, getattr(g, "_nodes", None),
+                if op.column is not None and reg.get_property_valid(
+                    "nodes" if op.kind == NODE_PROP else "edges", op.column,
+                    g._nodes if op.kind == NODE_PROP else g._edges,
                     resolve_index_engine(engine, g),
                 ) is not None:
                     return g
@@ -137,17 +138,17 @@ def apply_index_op(g: Any, op: IndexOp, *, engine: Any = "auto") -> Any:
                          if getattr(ix, "name", None) == op.name), None)
             column = op.column
             if kind is None:
-                # Property indexes are column-keyed, so resolve names there too.
-                prop_col = next((c for c in reg.node_prop_cols()
-                                 if reg.node_props[c].name == op.name), None)
-                if prop_col is not None:
-                    kind, column = NODE_PROP, prop_col
+                for prop_kind, role in PROPERTY_ROLES:
+                    prop_col = next((c for c, ix in reg.property_indexes(role).items() if ix.name == op.name), None)
+                    if prop_col is not None:
+                        kind, column = prop_kind, prop_col
+                        break
             if kind is None:
                 if op.missing_ok:
                     return g  # IF EXISTS semantics: dropping a missing index is a no-op
                 resident = sorted(
                     [getattr(ix, 'name', k) for k, ix in reg.indexes.items()]
-                    + [reg.node_props[c].name or c for c in reg.node_prop_cols()]
+                    + [ix.name or c for _, role in PROPERTY_ROLES for c, ix in reg.property_indexes(role).items()]
                 )
                 raise ValueError(
                     f"DROP GFQL INDEX: no resident index named {op.name!r} "
@@ -156,11 +157,11 @@ def apply_index_op(g: Any, op: IndexOp, *, engine: Any = "auto") -> Any:
             return drop_index(g, kind, column=column)
         if kind is not None and not op.missing_ok:
             reg = get_registry(g)
-            is_resident = (
-                (op.column in reg.node_prop_cols() if op.column is not None
-                 else bool(reg.node_prop_cols()))
-                if kind == NODE_PROP else reg.has(kind)
-            )
+            if kind in (NODE_PROP, EDGE_PROP):
+                props = reg.property_indexes("nodes" if kind == NODE_PROP else "edges")
+                is_resident = op.column in props if op.column is not None else bool(props)
+            else:
+                is_resident = reg.has(kind)
             if not is_resident:
                 raise ValueError(f"DROP GFQL INDEX: no resident index of kind {kind!r}")
         return drop_index(g, kind, column=op.column)

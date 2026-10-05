@@ -646,7 +646,7 @@ class ComputeMixin(Plottable):
     def create_index(self, kind, *, column=None, name=None, engine='auto'):
         """Build a GFQL physical index for O(degree) seeded traversal.
 
-        :param kind: 'edge_out_adj' (forward hops), 'edge_in_adj' (reverse hops), or 'node_id' (node lookup)
+        :param kind: 'edge_out_adj' (forward), 'edge_in_adj' (reverse), 'node_id', 'node_prop', or 'edge_prop'
         :param column: column to index (defaults to the binding for the kind, e.g. the edge source column)
         :param name: optional custom index name (defaults to 'kind:column')
         :param engine: 'auto' | 'pandas' | 'cudf' | 'polars' — array backend for the index

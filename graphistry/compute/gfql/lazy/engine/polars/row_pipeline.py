@@ -2186,7 +2186,22 @@ def binding_rows_polars(
             if not isinstance(edge_op, ASTEdge):
                 return None
             sem = EdgeSemantics.from_edge(edge_op)
-            edges_f = filter_by_dict_polars(edges_lf, edge_op.edge_match)
+            from graphistry.compute.gfql.index.property_lookup import property_candidate_positions
+            from graphistry.compute.gfql.index.engine_arrays import take_rows_polars
+            import numpy as np
+
+            positions = property_candidate_positions(
+                base_graph, "edges", edges, edge_op.edge_match, engine_concrete,
+            )
+            candidates_lf = edges_lf
+            if positions is not None:
+                # Identity is the ORIGINAL edge position, shared across all hops.
+                candidates_lf = take_rows_polars(edges, positions).with_columns(
+                    pl.Series(_ident_col, np.asarray(positions, dtype=np.uint32)),
+                ).lazy()
+                if _endpoint_casts:
+                    candidates_lf = candidates_lf.with_columns(_endpoint_casts)
+            edges_f = filter_by_dict_polars(candidates_lf, edge_op.edge_match)
             edge_alias = edge_op._name
             if not sem.is_multihop and isinstance(edge_alias, str):
                 # pandas' per-hop edge prefilter twin; src/dst = join keys, never searched

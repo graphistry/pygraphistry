@@ -5,7 +5,7 @@ predicate (``admission.py``); ``chain.py`` only dispatches."""
 
 from typing import Dict, List, Optional, Sequence, Tuple, TYPE_CHECKING, cast
 
-from graphistry.Engine import Engine, EngineAbstract, df_concat
+from graphistry.Engine import Engine, EngineAbstract, df_concat, resolve_engine
 from graphistry.Plottable import Plottable
 from graphistry.compute.ast import ASTObject, ASTNode, ASTEdge, Direction
 from graphistry.compute.chain_fast_paths import (
@@ -89,13 +89,15 @@ def _seeded_typed_hop_pandas_cudf(
             cand = _index_node_rows(nid, endpoint_ids, xp, idx_engine, nodes_df)
     served_via_index = cand is not None
     if cand is None:
+        from graphistry.compute.gfql.index.property_lookup import property_candidate_frame
+        candidates = property_candidate_frame(g, "edges", edges_df, e1.edge_match, resolve_engine(EngineAbstract.AUTO, edges_df))
         if n0f:
             seed_nodes = nodes_df
             for seed_col, seed_val in sorted(n0f.items(), key=lambda kv: 0 if kv[0] == node else 1):
                 seed_nodes = seed_nodes[seed_nodes[seed_col].isin(list(seed_val))] if isinstance(seed_val, tuple) else seed_nodes[seed_nodes[seed_col] == seed_val]
-            edges = edges_df[edges_df[from_col].isin(seed_nodes[node].dropna())]
+            edges = candidates[candidates[from_col].isin(seed_nodes[node].dropna())]
         else:
-            edges = edges_df
+            edges = candidates
         if ef:  # typed edge (edge_match) — now on the reduced frontier
             for k, v in ef.items():
                 edges = edges[edges[k] == v]
@@ -206,7 +208,9 @@ def _seeded_typed_return_dst_pandas_cudf(
                     edges = edges[edges[k] == v]
             dstn = _index_node_rows(nid, edges[to_col], xp, idx_engine, nodes_df)
     if dstn is None:
-        edges = edges_df[edges_df[from_col].isin(seed_nodes[node].dropna())]
+        from graphistry.compute.gfql.index.property_lookup import property_candidate_frame
+        candidates = property_candidate_frame(g, "edges", edges_df, e1.edge_match, resolve_engine(EngineAbstract.AUTO, edges_df))
+        edges = candidates[candidates[from_col].isin(seed_nodes[node].dropna())]
         if ef:
             for k, v in ef.items():
                 edges = edges[edges[k] == v]
@@ -299,7 +303,9 @@ def _try_chain_fast_path(
     concat = df_concat(engine_concrete)
     if unconstrained:
         node_ids = g._nodes[node].dropna()  # validate both endpoints; NaN ids never match
-        edges = g._edges[g._edges[src].isin(node_ids) & g._edges[dst].isin(node_ids)]
+        from graphistry.compute.gfql.index.property_lookup import property_candidate_frame
+        candidates = property_candidate_frame(g, "edges", g._edges, e1.edge_match, engine_concrete)
+        edges = candidates[candidates[src].isin(node_ids) & candidates[dst].isin(node_ids)]
         if e1.edge_match:
             edges = filter_by_dict(edges, e1.edge_match, engine_abs)
     else:
@@ -309,7 +315,8 @@ def _try_chain_fast_path(
                 return _tag_fast_path_aliases(
                     _fast_res, alias_n0, alias_e1, alias_n2, src, dst, node, direction)
         from_col, to_col = (src, dst) if direction == "forward" else (dst, src)
-        edges = g._edges
+        from graphistry.compute.gfql.index.property_lookup import property_candidate_frame
+        edges = property_candidate_frame(g, "edges", g._edges, e1.edge_match, engine_concrete)
         if n0.filter_dict:
             from_ids = filter_by_dict(g._nodes, n0.filter_dict, engine_abs)[node]
             edges = edges[edges[from_col].isin(from_ids)]

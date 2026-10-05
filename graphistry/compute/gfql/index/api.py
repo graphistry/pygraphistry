@@ -17,9 +17,9 @@ from graphistry.compute.typing import DataFrameT
 from graphistry.Plottable import Plottable
 from .registry import (
     AdjacencyIndex, ColStatsFact, PartitionValue, ColStatsRole, GfqlIndexRegistry, EMPTY_REGISTRY, NodeIdIndex,
-    EDGE_OUT_ADJ, EDGE_IN_ADJ, NODE_ID, NODE_PROP, ADJ_KINDS, ALL_KINDS,
+    EDGE_OUT_ADJ, EDGE_IN_ADJ, NODE_ID, NODE_PROP, EDGE_PROP, ADJ_KINDS, ALL_KINDS, PROPERTY_ROLES,
 )
-from .build import build_adjacency_index, build_node_id_index, build_node_prop_index
+from .build import build_adjacency_index, build_node_id_index, build_property_index
 from .traverse import index_seeded_hop
 from .cost import cost_gate_frac, seed_deg_sum, seed_id_array
 from .policy import IndexPolicy, validate_index_policy
@@ -357,7 +357,8 @@ def create_index(
 ) -> Plottable:
     """Eagerly build a GFQL physical index and return a new Plottable carrying it.
 
-    ``kind``: 'edge_out_adj' | 'edge_in_adj' | 'node_id'. ``column`` (if given) must
+    ``kind``: adjacency, node-id, or per-column node/edge property. ``column`` for
+    a property index names its property; for structural indexes it must
     match the index's natural binding (src/dst/node) — a mismatch raises rather than
     silently no-op. ``name`` overrides the display handle. Pay-as-you-go: cost is
     O(E log E) once, amortized over later seeded queries.
@@ -401,29 +402,25 @@ def create_index(
         registry = registry.with_index(NODE_ID, node_idx)
         return _attach(g2, registry)
 
-    if kind == NODE_PROP:
+    if kind in (NODE_PROP, EDGE_PROP):
+        role: ColStatsRole = "nodes" if kind == NODE_PROP else "edges"
         if not column:
-            raise ValueError(
-                f"A {NODE_PROP!r} index indexes one node PROPERTY column; pass "
-                f"column='<name>'."
-            )
-        g2 = g.materialize_nodes() if g._nodes is None else g
-        assert g2._nodes is not None
-        if column not in g2._nodes.columns:
-            raise ValueError(
-                f"Cannot build a {NODE_PROP!r} index: node column {column!r} not found."
-            )
-        prop_idx = build_node_prop_index(g2._nodes, column, eng)
+            raise ValueError(f"A {kind!r} index indexes one {role} PROPERTY column; pass column='<name>'.")
+        g2 = g.materialize_nodes() if role == "nodes" and g._nodes is None else g
+        frame = g2._nodes if role == "nodes" else g2._edges
+        if frame is None or column not in frame.columns:
+            raise ValueError(f"Cannot build a {kind!r} index: {role} column {column!r} not found.")
+        prop_idx = build_property_index(frame, column, eng)
         if prop_idx is None:
             raise GfqlIndexNotImplementedError(
-                f"Cannot build a {NODE_PROP!r} index on {column!r} "
-                f"(dtype {g2._nodes[column].dtype}): only integer columns without nulls "
+                f"Cannot build a {kind!r} index on {column!r} "
+                f"(dtype {frame[column].dtype}): only integer columns without nulls "
                 f"are indexable today; other column types are not implemented yet "
                 f"(tracked in {INDEX_SUPPORT_ISSUE_URL}). Seeded queries still work via "
                 f"the un-indexed scan path."
             )
         prop_idx = replace(prop_idx, name=name or index_name(kind, column))
-        registry = registry.with_node_prop(column, prop_idx)
+        registry = registry.with_property(role, column, prop_idx)
         return _attach(g2, registry)
 
     if is_not_yet_implemented_kind(kind):
@@ -440,8 +437,8 @@ def drop_index(
     registry = get_registry(g)
     if kind is None:
         return _attach(g, EMPTY_REGISTRY)
-    if kind == NODE_PROP and column is not None:
-        return _attach(g, registry.without_node_prop(column))
+    if kind in (NODE_PROP, EDGE_PROP) and column is not None:
+        return _attach(g, registry.without_property("nodes" if kind == NODE_PROP else "edges", column))
     return _attach(g, registry.without(kind))
 
 
@@ -553,24 +550,25 @@ def show_indexes(
             "usable": usable,
             "reason": reason,
         })
-    for column in registry.node_prop_cols():
-        prop = registry.node_props[column]
-        prop_valid = registry.get_node_prop_valid(column, g._nodes, prop.engine) is not None
-        usable, reason = _index_usability(NODE_PROP, prop.engine, prop_valid, query_engine)
-        rows.append({
-            "name": prop.name or index_name(NODE_PROP, column),
-            "kind": NODE_PROP,
-            "key_col": column,
-            "engine": prop.engine.value,
-            "backend": prop.backend,
-            "n_keys": prop.n_keys,
-            "n_rows": prop.n_nodes,
-            "nbytes": index_nbytes(prop),
-            "valid": prop_valid,
-            "query_engine": query_engine.value,
-            "usable": usable,
-            "reason": reason,
-        })
+    for kind, role in PROPERTY_ROLES:
+        frame = g._nodes if role == "nodes" else g._edges
+        for column, prop in registry.property_indexes(role).items():
+            prop_valid = registry.get_property_valid(role, column, frame, prop.engine) is not None
+            usable, reason = _index_usability(kind, prop.engine, prop_valid, query_engine)
+            rows.append({
+                "name": prop.name or index_name(kind, column),
+                "kind": kind,
+                "key_col": column,
+                "engine": prop.engine.value,
+                "backend": prop.backend,
+                "n_keys": prop.n_keys,
+                "n_rows": prop.n_nodes,
+                "nbytes": index_nbytes(prop),
+                "valid": prop_valid,
+                "query_engine": query_engine.value,
+                "usable": usable,
+                "reason": reason,
+            })
     rows.extend(_sidecar_fact_rows(g, registry, query_engine))
     cols = [
         "name", "kind", "key_col", "engine", "backend", "n_keys", "n_rows", "nbytes",

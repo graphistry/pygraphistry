@@ -255,7 +255,12 @@ def filter_edges_by_dict(self: Plottable, filter_dict: Optional[dict] = None, en
     """
     filter edges to those that match all values in filter_dict
     """
-    edges2 = filter_by_dict(self._edges, filter_dict, engine)
+    from graphistry.compute.gfql.index.property_lookup import property_candidate_frame
+
+    edges = self._edges
+    if edges is not None:
+        edges = property_candidate_frame(self, "edges", edges, filter_dict, resolve_engine(EngineAbstract(engine), edges))
+    edges2 = filter_by_dict(edges, filter_dict, engine)
     return self.edges(edges2)
 
 

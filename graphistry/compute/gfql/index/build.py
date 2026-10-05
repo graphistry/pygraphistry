@@ -133,12 +133,12 @@ def build_node_id_index(
     )
 
 
-def build_node_prop_index(
+def build_property_index(
     nodes: DataFrameT,
     column: str,
     engine: Engine,
 ) -> Optional[NodePropIndex]:
-    """Sorted property value -> node row positions (CSR), or None when unindexable.
+    """Sorted property value -> frame row positions (CSR), or None when unindexable.
 
     Duplicates are fine (CSR keeps every row per value) — this is the secondary
     index, so the caller still applies the remaining predicates to the gathered
@@ -168,6 +168,11 @@ def build_node_prop_index(
         n_nodes=int(keys.shape[0]),
         n_keys=int(unique_keys.shape[0]),
     )
+
+
+def build_node_prop_index(nodes: DataFrameT, column: str, engine: Engine) -> Optional[NodePropIndex]:
+    """Backward-compatible node property builder; edge properties use the same CSR."""
+    return build_property_index(nodes, column, engine)
 
 
 def build_col_stats_fact(

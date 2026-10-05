@@ -62,6 +62,12 @@ carrying them:
        values are fine (all matching rows are gathered). Integer columns without
        nulls only — anything else declines to the scan. Opt-in per column.
 
+   * - ``edge_prop``
+     - Sorted lookup on an edge **property** column, such as a transaction or
+       message id. Integer equality and membership predicates gather matching
+       edge rows; duplicate values are retained. Integer columns without nulls
+       only. Opt-in per column, like ``node_prop``.
+
 They are **sidecars over row positions**: your ``.edges`` / ``.nodes`` frames are never
 reordered or copied, and the resident footprint is visible per index via
 ``g.show_indexes()`` (the ``nbytes`` column). The model is **pay-as-you-go**: one
@@ -174,6 +180,24 @@ When several indexed columns appear in one seed predicate, the planner gathers o
 the remaining predicates to those candidates, so results never depend on which index
 happens to be resident. As with every kind, a missing, stale, or cost-gated-out index
 falls back to the scan.
+
+An edge property can seed a query in the same way:
+
+.. code-block:: python
+
+   g = g.create_index("edge_prop", column="txn_id")
+   query = "MATCH (a)-[e {txn_id: 9123456}]->(b) RETURN a, b"
+   report = g.gfql_explain(query)
+   assert report["used_index"] and report["decision_code"] == "index_selected"
+
+   # DDL and per-column lifecycle are also available
+   g = g.gfql("CREATE GFQL INDEX FOR edge_prop ON (txn_id)")
+   g = g.drop_index("edge_prop", column="txn_id")
+
+Equality and ``is_in`` edge filters use a live edge-property index on native
+chains and Cypher queries. The most selective indexed column supplies candidate
+rows; the full filter still applies, preserving row order and duplicate edges.
+A dense lookup can be costed out; inspect ``gfql_explain`` for the actual decision.
 
 What uses the index today
 -------------------------
