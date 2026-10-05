@@ -40,6 +40,10 @@ def graph(engine, dtype="object"):
     )
 
 
+@pytest.mark.parametrize("check_engagement", [
+    False,
+    pytest.param(True, marks=pytest.mark.route_engaged("native-fast", "polars-single-node", "cypher-fast")),
+])
 @pytest.mark.parametrize("dtype", ["object", "string", "string[pyarrow]", "arrow-string", "arrow-large-string"])
 @pytest.mark.parametrize("query,expected", [
     ("MATCH (a {email: 'alice@example.test'}) RETURN a.id AS id", [7, 9]),
@@ -50,7 +54,7 @@ def graph(engine, dtype="object"):
     ("MATCH (a {email: 'alice@example.test'})-[e]->(b) RETURN b.id AS id", [8, 10]),
     ("MATCH (a) WHERE a.email IN ['alice@example.test', 'alice@example.test', 'é用户🙂'] RETURN a.id AS id", [7, 9, 13]),
 ])
-def test_string_business_key_query_parity_and_engagement(engine, dtype, query, expected):
+def test_string_business_key_query_parity_and_engagement(engine, dtype, query, expected, check_engagement):
     base = graph(engine, dtype)
     indexed = base.gfql("CREATE GFQL INDEX FOR node_prop ON (email)", engine=engine)
     assert get_registry(base).is_empty()
@@ -60,7 +64,8 @@ def test_string_business_key_query_parity_and_engagement(engine, dtype, query, e
     assert [r["id"] for r in actual] == expected
     report = indexed.gfql_explain(query, engine=engine)
     assert report["error"] is None
-    assert report["used_index"]
+    if check_engagement:
+        assert report["used_index"]
 
 
 @pytest.mark.parametrize("kind,role,column", [("node_prop", "nodes", "email"), ("edge_prop", "edges", "external_id")])
@@ -137,9 +142,20 @@ def test_arrow_key_queries_do_not_export_whole_columns(dtype, monkeypatch):
     assert out._nodes["email"].dtype == indexed._nodes["email"].dtype
 
 
-def test_native_business_key_lookup_preserves_consumer_trace(engine):
+@pytest.mark.parametrize("check_engagement", [
+    False,
+    pytest.param(True, marks=pytest.mark.route_engaged("native-fast", "polars-single-node")),
+])
+def test_native_business_key_lookup_preserves_consumer_trace(engine, check_engagement):
     indexed = graph(engine).gfql_index_all(engine=engine).create_index("node_prop", column="email", engine=engine)
-    report = indexed.gfql_explain([n({"email": "alice@example.test"})], engine=engine)
+    query = [n({"email": "alice@example.test"})]
+    actual = indexed.gfql(query, engine=engine)._nodes
+    assert [r["id"] for r in frame_records(actual)] == [7, 9]
+    assert frame_records(actual) == frame_records(indexed.gfql(query, engine=engine, index_policy="off")._nodes)
+    report = indexed.gfql_explain(query, engine=engine)
+    assert report["error"] is None
+    if not check_engagement:
+        return
     assert report["used_index"]
     assert [(s["seam"], s["reason"], s["hops"]) for s in report["steps"]] == [
         ("native_seed_lookup", "property_index", 0),
