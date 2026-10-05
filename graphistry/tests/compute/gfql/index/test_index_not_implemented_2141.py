@@ -24,6 +24,8 @@ def _graph() -> graphistry.Plottable:
         "account_number": [48211, 48213, 48215],
         "email": ["a@x", "b@x", "c@x"],
         "score": [0.5, 1.5, 2.5],
+        "active": [True, False, True],
+        "binary": [b"a", b"b", b"c"],
         "maybe": pd.Series([1, None, 3], dtype="Int64"),
     })
     edges = pd.DataFrame({"s": [0, 1], "d": [1, 2], "txn_id": [9001, 9002]})
@@ -72,7 +74,7 @@ def test_unknown_kind_through_the_python_api_stays_a_plain_value_error():
     assert not isinstance(excinfo.value, NotImplementedError)
 
 
-@pytest.mark.parametrize("column", ["score"])
+@pytest.mark.parametrize("column", ["active", "binary"])
 def test_unsupported_property_columns_are_not_implemented(column):
     with pytest.raises(GfqlIndexNotImplementedError) as excinfo:
         create_index(_graph(), NODE_PROP, column=column)
@@ -84,8 +86,8 @@ def test_unsupported_property_columns_are_not_implemented(column):
 def test_supported_property_columns_build_and_the_builder_skips_the_rest():
     g = create_index(_graph(), NODE_PROP, column="account_number")
     assert get_registry(g).node_prop_cols() == ("account_number",)
-    g2 = _graph().gfql_index_node_props(["email", "score", "maybe", "account_number"])
-    assert get_registry(g2).node_prop_cols() == ("account_number", "email", "maybe")
+    g2 = _graph().gfql_index_node_props(["email", "score", "maybe", "account_number", "active", "binary"])
+    assert get_registry(g2).node_prop_cols() == ("account_number", "email", "maybe", "score")
 
 
 def test_the_tracking_url_is_the_issue():

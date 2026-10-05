@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from numbers import Integral
+from numbers import Integral, Real
 from typing import TYPE_CHECKING, Optional, Sequence, Tuple, cast
 
 import numpy as np
@@ -47,6 +47,44 @@ def is_integer_property(frame: DataFrameT, column: str, engine: Engine) -> bool:
         eager = as_eager_polars_frame(frame)
         return eager is not None and eager.schema[column].is_integer()
     return frame[column].dtype.kind in ("i", "u")
+
+
+def is_float_property(frame: DataFrameT, column: str, engine: Engine) -> bool:
+    if column not in frame.columns:
+        return False
+    if engine in POLARS_ENGINES:
+        eager = as_eager_polars_frame(frame)
+        return eager is not None and eager.schema[column].is_float()
+    return frame[column].dtype.kind == "f"
+
+
+def float_property_keys(frame: DataFrameT, column: str, engine: Engine) -> ArrayLike:
+    """Extract non-null, non-NaN native floating storage without an object bridge."""
+    if engine in POLARS_ENGINES:
+        eager = as_eager_polars_frame(frame)
+        assert eager is not None
+        values = eager.get_column(column).to_numpy()
+    elif engine == Engine.CUDF:
+        values = frame[column].values
+    else:
+        column_values = frame[column]
+        values = column_values.to_numpy(dtype=f"f{column_values.dtype.itemsize}")
+    return cast(  # hygiene-ok: explicit-cast -- native float NumPy/CuPy arrays implement the shared bounded array protocol
+        ArrayLike, values,
+    )
+
+
+def _float_query_values(index: NodePropIndex, members: Sequence[object], xp: ArrayNamespace) -> Optional[ArrayLike]:
+    """Float casts produce candidate supersets; canonical comparisons stay exact."""
+    if not all(isinstance(value, Real) and not isinstance(value, bool) for value in members):
+        return None
+    try:
+        if any(np.isnan(float(value)) for value in members if isinstance(value, Real)):
+            return None  # AST membership can select null/NaN rows excluded at build.
+        values = xp.asarray(members, dtype=index.keys_sorted.dtype)
+    except (TypeError, ValueError, OverflowError):
+        return None  # Canonical filtering owns incomparable/out-of-range query behavior.
+    return xp.unique(values)
 
 
 def is_categorical_property(frame: DataFrameT, column: str, engine: Engine) -> bool:
@@ -260,6 +298,8 @@ def property_query_values(index: NodePropIndex, predicate: object, xp: ArrayName
         if not all(isinstance(value, str) for value in members):
             return None
         return _string_query_codes(index, [value for value in members if isinstance(value, str)], xp)
+    if index.keys_sorted.dtype.kind == "f":
+        return _float_query_values(index, members, xp)
     if not all(isinstance(value, Integral) and not isinstance(value, bool) for value in members):
         return None
     bounds = np.iinfo(index.keys_sorted.dtype)

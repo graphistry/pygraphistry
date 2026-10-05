@@ -60,7 +60,7 @@ carrying them:
        predicate like ``MATCH (m {id: 42})`` on a column that is not the node-id
        binding becomes a positional gather instead of an ``O(N)`` scan. Duplicate
        values are fine (all matching rows are gathered). String columns and
-       integer, categorical, and timestamp columns are supported. Null property rows
+       integer, categorical, timestamp, and float columns are supported. Null property rows
        are excluded.
        Other dtypes decline to the scan. Opt-in per column.
 
@@ -191,6 +191,18 @@ Integer property indexes exclude null rows and preserve the original row
 positions of every non-null value. Nullable signed and unsigned integer storage
 is supported without a floating-point conversion; an all-null integer column
 builds an empty index. Null lookup predicates retain canonical filter semantics.
+
+Floating-point keys
+~~~~~~~~~~~~~~~~~~~
+
+Float32 and Float64 columns, including supported nullable and Arrow storage,
+index non-null, non-NaN rows. Signed zeros share a lookup key; infinities remain
+valid keys. Query values form candidate keys in the column's native precision,
+and the canonical predicate determines the exact result. There is no tolerance
+or approximate equality. Scalar and membership coercion can differ by engine;
+indexed filtering preserves those differences. NaN/null and ambiguous query
+encodings use canonical filtering, including its existing errors and AST null
+semantics. Empty and all-null columns build empty indexes.
 
 Categorical and timestamp keys
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

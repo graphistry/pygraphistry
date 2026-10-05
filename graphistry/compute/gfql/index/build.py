@@ -42,12 +42,16 @@ def _csr_from_keys(keys: ArrayLike, xp: ArrayNamespace) -> Tuple[ArrayLike, Arra
 
 def _non_null_id_rows(
     frame: DataFrameT, columns: Sequence[str], engine: Engine, xp: ArrayNamespace,
+    *, exclude_nan: bool = False,
 ) -> Tuple[DataFrameT, Optional[ArrayLike]]:
     """Remove unlinked null ids before conversion; retain original row positions."""
     if engine in (Engine.POLARS, Engine.POLARS_GPU):
         import polars as pl
 
-        valid = frame.select(pl.all_horizontal(pl.col(column).is_not_null() for column in columns)).to_series()
+        valid = frame.select(pl.all_horizontal(
+            pl.col(column).is_not_null() & pl.col(column).is_not_nan() if exclude_nan
+            else pl.col(column).is_not_null() for column in columns
+        )).to_series()
         if bool(valid.all()):
             return frame, None
         positions = xp.nonzero(valid.to_numpy())[0]
@@ -145,10 +149,11 @@ def build_property_index(
     candidates. Text uses a native sorted dictionary with integer CSR codes,
     including only non-null rows. Integer columns use their non-null values
     directly. Categorical keys use native codes; timestamps use physical integer
-    candidates with their key dtype. Other dtypes decline.
+    candidates with their key dtype. Floats exclude NaNs and retain native
+    precision candidates with canonical residual comparisons. Other dtypes decline.
     """
     from .property_keys import (
-        categorical_property_keys, is_categorical_property, is_integer_property,
+        categorical_property_keys, float_property_keys, is_categorical_property, is_float_property, is_integer_property,
         is_string_property, is_timestamp_property, string_property_keys, timestamp_property_keys,
     )
 
@@ -163,6 +168,9 @@ def build_property_index(
     elif is_timestamp_property(nodes, column, engine):
         valid_nodes, original_rows = _non_null_id_rows(nodes, (column,), engine, xp)
         keys, timestamp_dtype = timestamp_property_keys(valid_nodes, column, engine)
+    elif is_float_property(nodes, column, engine):
+        valid_nodes, original_rows = _non_null_id_rows(nodes, (column,), engine, xp, exclude_nan=True)
+        keys = float_property_keys(valid_nodes, column, engine)
     elif is_string_property(nodes, column, engine):
         valid_nodes, original_rows = _non_null_id_rows(nodes, (column,), engine, xp)
         keys, dictionary = string_property_keys(valid_nodes, column, engine)
@@ -174,7 +182,7 @@ def build_property_index(
             keys = col_to_array(valid_nodes, column, engine)
         except (AttributeError, KeyError, TypeError, ValueError):
             return None
-    if str(keys.dtype.kind) not in ("i", "u"):  # numpy/cupy arrays always carry dtype.kind
+    if str(keys.dtype.kind) not in ("i", "u", "f"):  # numpy/cupy arrays always carry dtype.kind
         return None
     unique_keys, group_offsets, row_positions = _csr_from_keys(keys, xp)
     if original_rows is not None:
