@@ -194,9 +194,15 @@ and the remaining query predicates are still applied.
 
 .. code-block:: python
 
-   g = g.create_index("node_prop", column="email")
-   g.gfql("MATCH (p {email: 'alice@example.test'}) RETURN p")
-   g.gfql("MATCH (p) WHERE p.email IN ['alice@example.test', 'bob@example.test'] RETURN p")
+   accounts = pd.DataFrame({
+       "id": range(400),
+       "email": ["alice@example.test", "bob@example.test"]
+           + [f"account-{i}@example.test" for i in range(398)],
+   })
+   g_accounts = graphistry.nodes(accounts, "id").create_index("node_prop", column="email")
+   g_accounts.gfql("MATCH (p {email: 'alice@example.test'}) RETURN p")
+   query = "MATCH (p) WHERE p.email IN ['alice@example.test', 'bob@example.test'] RETURN p"
+   assert g_accounts.gfql_explain(query)["used_index"]
 
 An edge property can seed a query in the same way:
 
