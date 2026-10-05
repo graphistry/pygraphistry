@@ -25,11 +25,12 @@ def graph(engine, dtype="object"):
         dtype = pd.ArrowDtype(arrow.string() if dtype == "arrow-string" else arrow.large_string())
     elif dtype == "string[pyarrow]":
         pytest.importorskip("pyarrow")
-    emails = pd.Series([f"user{i}@example.test" for i in range(400)], dtype=dtype)
-    emails.iloc[7] = emails.iloc[9] = "alice@example.test"
-    emails.iloc[11] = ""
-    emails.iloc[13] = "é用户🙂"
-    emails.iloc[15] = None
+    values = [f"user{i}@example.test" for i in range(400)]
+    values[7] = values[9] = "alice@example.test"
+    values[11] = ""
+    values[13] = "é用户🙂"
+    values[15] = None
+    emails = pd.Series(values, dtype=dtype)
     nodes = pd.DataFrame({"id": np.arange(400), "email": emails, "keep": np.arange(400) % 3})
     nodes.index = np.arange(400)[::-1]
     edges = pd.DataFrame({"s": np.arange(399), "d": np.arange(399) + 1, "external_id": emails.iloc[:399].array})
@@ -88,9 +89,13 @@ def test_string_index_stale_rebinding_declines(engine):
     assert not any(s.get("path") == "index" for s in steps)
 
 
+@pytest.mark.parametrize("dtype", ["string", "arrow-string", "arrow-large-string"])
 @pytest.mark.parametrize("values", [[], [None, None]])
-def test_empty_and_all_null_text_indexes(engine, values):
-    nodes = pd.DataFrame({"id": np.arange(len(values)), "email": pd.Series(values, dtype="string")})
+def test_empty_and_all_null_text_indexes(engine, values, dtype):
+    if dtype.startswith("arrow-"):
+        pa = pytest.importorskip("pyarrow")
+        dtype = pd.ArrowDtype(pa.string() if dtype == "arrow-string" else pa.large_string())
+    nodes = pd.DataFrame({"id": np.arange(len(values)), "email": pd.Series(values, dtype=dtype)})
     base = graphistry.nodes(df_to_engine(nodes, Engine(engine)), "id")
     indexed = base.create_index("node_prop", column="email", engine=engine)
     assert get_registry(indexed).node_props["email"].n_keys == 0
@@ -139,3 +144,12 @@ def test_native_business_key_lookup_preserves_consumer_trace(engine):
     assert [(s["seam"], s["reason"], s["hops"]) for s in report["steps"]] == [
         ("native_seed_lookup", "property_index", 0),
     ]
+
+
+@pytest.mark.parametrize("large", [False, True])
+def test_native_arrow_binary_is_not_coerced_to_string(large):
+    pa = pytest.importorskip("pyarrow")
+    dtype = pd.ArrowDtype(pa.large_binary() if large else pa.binary())
+    nodes = pd.DataFrame({"id": [0, 1], "value": pd.Series([b"alice", b"bob"], dtype=dtype)})
+    with pytest.raises(NotImplementedError):
+        graphistry.nodes(nodes, "id").create_index("node_prop", column="value")

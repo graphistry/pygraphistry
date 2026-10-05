@@ -28,6 +28,10 @@ def is_string_property(frame: DataFrameT, column: str, engine: Engine) -> bool:
     series = frame[column]
     if engine == Engine.CUDF:
         return series.dtype == np.dtype("object")
+    if isinstance(series.dtype, pd.ArrowDtype):
+        import pyarrow as pa
+        logical_type = series.dtype.pyarrow_dtype
+        return pa.types.is_string(logical_type) or pa.types.is_large_string(logical_type)
     return isinstance(series.dtype, pd.StringDtype) or series.dtype.kind == "U" or (
         series.dtype == np.dtype("object")
         and pd.api.types.infer_dtype(series, skipna=True) == "string"
