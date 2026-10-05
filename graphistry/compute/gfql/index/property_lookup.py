@@ -23,8 +23,8 @@ def property_candidate_positions(
 ) -> Optional[ArrayLike]:
     """Gather the most selective live property index, retaining input row order.
 
-    Unsupported predicates, stale indexes, or expensive gathers leave the frame
-    unchanged. Callers must apply the entire canonical filter to these candidates.
+    Unsupported predicates and stale indexes decline to canonical filtering.
+    Callers must apply the entire canonical filter to these candidates.
     """
     policy = get_index_policy(g)
     registry = get_registry(g)
