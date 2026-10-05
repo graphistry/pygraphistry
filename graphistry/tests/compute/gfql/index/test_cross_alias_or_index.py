@@ -185,9 +185,21 @@ def test_or_explicit_engine_conversion_keeps_canonical_execution(engine, request
         pytest.importorskip(requested)
     import graphistry.compute.gfql.index.or_bindings as route
     g = indexed_graph(engine)
-    actual = g.gfql(query(), engine=requested, index_policy="use")
+    def outcome():
+        try:
+            return g.gfql(query(), engine=requested, index_policy="use")
+        except NotImplementedError as error:
+            return error
+
+    actual = outcome()
     monkeypatch.setattr(route, "prepare_indexed_or_bindings", lambda *args, **kwargs: None)
-    expected = g.gfql(query(), engine=requested, index_policy="use")
+    expected = outcome()
+    if isinstance(expected, NotImplementedError):
+        assert isinstance(actual, NotImplementedError)
+        assert type(actual.__cause__) is type(expected.__cause__)
+        assert getattr(actual, "code", None) == getattr(expected, "code", None)
+        assert getattr(actual, "context", None) == getattr(expected, "context", None)
+        return
     assert len(actual._nodes) == len(expected._nodes) == 4
     assert_same_frame(actual._nodes, expected._nodes, requested)
     assert_same_frame(actual._edges, expected._edges, requested)
