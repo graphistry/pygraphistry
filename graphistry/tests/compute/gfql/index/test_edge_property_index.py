@@ -207,3 +207,121 @@ def test_empty_edge_candidates_preserve_residual_type_errors(engine):
             with_index_policy(indexed, policy).filter_edges_by_dict(filters, engine=engine)
         outcomes.append((caught.value.code, caught.value.context["field"]))
     assert outcomes[0] == outcomes[1] == outcomes[2]
+
+
+@pytest.mark.parametrize("policy", ["use", "force"])
+def test_empty_property_candidates_preserve_temporal_residual(engine, policy):
+    from graphistry.compute.gfql.index.api import with_index_policy
+
+    base = graph(engine)
+    nodes = pd.DataFrame({"id": np.arange(500), "time": pd.date_range("2026-01-01", periods=500)})
+    edges = pd.DataFrame({"s": np.arange(400), "d": np.arange(400) + 1,
+                          "txn": np.arange(400), "time": pd.date_range("2026-01-01", periods=400)})
+    indexed = base.nodes(df_to_engine(nodes, Engine(engine))).edges(df_to_engine(edges, Engine(engine)))
+    indexed = indexed.create_index("edge_prop", column="txn", engine=engine)
+    filters = {"txn": 999, "time": "2026-01-01T00:00:00"}
+
+    reference = with_index_policy(indexed, "off").filter_edges_by_dict(filters, engine=engine)
+    with index_trace() as steps:
+        actual = with_index_policy(indexed, policy).filter_edges_by_dict(filters, engine=engine)
+    for name in ("_nodes", "_edges"):
+        expected_frame, actual_frame = getattr(reference, name), getattr(actual, name)
+        assert frame_records(actual_frame) == frame_records(expected_frame)
+        assert list(actual_frame.columns) == list(expected_frame.columns)
+        assert list(actual_frame.dtypes) == list(expected_frame.dtypes)
+    assert len(actual._edges) == 0
+    assert frame_records(indexed._nodes) == frame_records(df_to_engine(nodes, Engine(engine)))
+    assert frame_records(indexed._edges) == frame_records(df_to_engine(edges, Engine(engine)))
+    if engine in ("polars", "polars-gpu"):
+        assert any(s.get("decision_code") == "index_path_unavailable" for s in steps)
+        assert not any(s.get("op") == "property_lookup" and s.get("decision_code") == "scan_cost" for s in steps)
+
+
+@pytest.mark.parametrize("filters", [{"txn": 999}, {"txn": 7, "time": "2026-01-08T00:00:00"}])
+def test_polars_temporal_decline_does_not_disable_safe_property_gathers(filters):
+    pl = pytest.importorskip("polars")
+    base = graph("polars")
+    edges = base._edges.with_columns((
+        pl.datetime(2026, 1, 1) + pl.duration(days=pl.int_range(0, pl.len()))
+    ).alias("time"))
+    indexed = base.edges(edges).create_index("edge_prop", column="txn", engine="polars")
+    with index_trace() as steps:
+        actual = indexed.filter_edges_by_dict(filters, engine="polars")
+    from graphistry.compute.gfql.index.api import with_index_policy
+    reference = with_index_policy(indexed, "off").filter_edges_by_dict(filters, engine="polars")
+    assert actual._edges.equals(reference._edges)
+    assert any(s.get("decision_code") == "index_selected" for s in steps)
+
+
+def test_polars_original_empty_temporal_filter_keeps_canonical_error():
+    pl = pytest.importorskip("polars")
+    from graphistry.compute.gfql.index.api import with_index_policy
+
+    base = graph("polars")
+    edges = base._edges.clear().with_columns(pl.lit(None).cast(pl.Datetime).alias("time"))
+    indexed = base.edges(edges).create_index("edge_prop", column="txn", engine="polars")
+    for policy in ("off", "use", "force"):
+        with pytest.raises(pl.exceptions.InvalidOperationError):
+            with_index_policy(indexed, policy).filter_edges_by_dict(
+                {"txn": 999, "time": "2026-01-01T00:00:00"}, engine="polars",
+            )
+
+
+@pytest.mark.parametrize("kind,text", [
+    ("Datetime", "2026-01-01T00:00:00"), ("Date", "2026-01-01"),
+    ("Time", "00:00:00"), ("Duration", "1 day"),
+])
+def test_polars_empty_candidates_preserve_all_temporal_scalar_types(kind, text):
+    pl = pytest.importorskip("polars")
+    from graphistry.compute.exceptions import ErrorCode, GFQLSchemaError
+    from graphistry.compute.gfql.index.api import with_index_policy
+
+    indexed = graph("polars")
+    edges = indexed._edges.with_columns(pl.lit(0).cast(getattr(pl, kind)).alias("time"))
+    indexed = indexed.edges(edges).create_index("edge_prop", column="txn", engine="polars")
+    for policy in ("off", "use", "force"):
+        result = with_index_policy(indexed, policy).filter_edges_by_dict({"txn": 999, "time": text}, engine="polars")
+        assert result._edges.height == 0
+        assert result._edges.schema == edges.schema
+        with pytest.raises(GFQLSchemaError) as caught:
+            with_index_policy(indexed, policy).filter_edges_by_dict(
+                {"txn": 999, "time": "invalid-temporal"}, engine="polars",
+            )
+        assert caught.value.code == ErrorCode.E302
+        assert caught.value.context["field"] == "time"
+
+
+def test_polars_empty_temporal_guard_preserves_absent_filter_short_circuit():
+    pl = pytest.importorskip("polars")
+    from graphistry.compute.gfql.index.api import with_index_policy
+    from graphistry.compute.gfql.strictness import strictness_scope
+
+    base = graph("polars")
+    edges = base._edges.with_columns(pl.lit(0).cast(pl.Datetime).alias("time"))
+    indexed = base.edges(edges).create_index("edge_prop", column="txn", engine="polars")
+    filters = {"txn": 999, "absent": 1, "time": "invalid-temporal"}
+    with strictness_scope(level="quiet"):
+        for policy in ("off", "use", "force"):
+            with index_trace() as steps:
+                result = with_index_policy(indexed, policy).filter_edges_by_dict(filters, engine="polars")
+            assert result._edges.height == 0
+            if policy != "off":
+                assert any(s.get("decision_code") == "index_selected" for s in steps)
+
+
+def test_polars_empty_temporal_guard_resolves_label_alias_and_warns_once():
+    pl = pytest.importorskip("polars")
+    from graphistry.compute.ast import isna
+    from graphistry.compute.gfql.index.api import with_index_policy
+    from graphistry.compute.gfql.strictness import strictness_scope
+
+    base = graph("polars")
+    edges = base._edges.with_columns(pl.lit(0).cast(pl.Date).alias("labels"))
+    indexed = base.edges(edges).create_index("edge_prop", column="txn", engine="polars")
+    for policy in ("off", "use", "force"):
+        filters = {"txn": 999, "absent": isna(), "label__2026-01-01": True}
+        with strictness_scope(level="warn"), pytest.warns(UserWarning) as warnings:
+            result = with_index_policy(indexed, policy).filter_edges_by_dict(filters, engine="polars")
+        assert len(warnings) == 1
+        assert result._edges.height == 0
+        assert result._edges.schema == edges.schema

@@ -2,7 +2,10 @@
 from __future__ import annotations
 
 from numbers import Integral
-from typing import Mapping, Optional, Tuple
+from typing import TYPE_CHECKING, Mapping, Optional, Tuple
+
+if TYPE_CHECKING:
+    import polars as pl
 
 import numpy as np
 
@@ -15,6 +18,28 @@ from .cost import cost_gate_frac
 from .engine_arrays import array_namespace, as_eager_polars_frame, take_rows
 from .lookup import lookup_prop_rows, prop_match_count
 from .registry import ColStatsRole, NodePropIndex
+from .types import IndexDecisionCode
+
+
+def _empty_gather_changes_temporal_filter(
+    frame: "pl.DataFrame", filter_dict: Mapping[str, object],
+) -> bool:
+    """An empty eager frame skips canonical scalar temporal-string parsing."""
+    from graphistry.compute.filter_by_dict import resolve_filter_column_or_absent
+    from graphistry.compute.gfql.lazy.engine.polars.predicates import _dtype_is_temporal
+    from graphistry.compute.gfql.strictness import absent_column_matches
+
+    needs_original_frame = False
+    schema = frame.schema
+    for column, value in filter_dict.items():
+        resolved = resolve_filter_column_or_absent(frame, column, value)
+        if resolved is None:
+            if not absent_column_matches(value):
+                return False  # Canonical filtering stops before later predicates.
+            continue
+        resolved_column, resolved_value = resolved
+        needs_original_frame |= isinstance(resolved_value, str) and _dtype_is_temporal(schema.get(resolved_column))
+    return needs_original_frame
 
 
 def property_candidate_positions(
@@ -60,6 +85,8 @@ def property_candidate_positions(
         return None
     column, index, values, count = best
     use_index = policy == "force" or count < cost_gate_frac(engine) * len(frame)
+    decision_code: IndexDecisionCode = "index_selected" if use_index else "scan_cost"
+    decision_reason = "property candidates gathered" if use_index else "property gather cost exceeds scan"
     if use_index:
         if engine in POLARS_ENGINES:
             from graphistry.compute.gfql.lazy.engine.polars.predicates import filter_expr_by_dict_polars
@@ -67,6 +94,10 @@ def property_candidate_positions(
             if eager is None:
                 return None
             filter_expr_by_dict_polars(eager, dict(filter_dict))
+            if count == 0 and eager.height > 0 and _empty_gather_changes_temporal_filter(eager, filter_dict):
+                use_index = False
+                decision_code = "index_path_unavailable"
+                decision_reason = "empty property candidates would change canonical temporal filtering"
         else:
             from graphistry.compute.filter_by_dict import _prepare_filter_dict
             _prepare_filter_dict(frame, filter_dict)
@@ -74,8 +105,8 @@ def property_candidate_positions(
         "op": "property_lookup", "role": role, "column": column,
         "engine": engine.value, "policy": policy, "est_result_rows": count,
         "path": "index" if use_index else "scan",
-        "decision_code": "index_selected" if use_index else "scan_cost",
-        "decision_reason": "property candidates gathered" if use_index else "property gather cost exceeds scan",
+        "decision_code": decision_code,
+        "decision_reason": decision_reason,
     })
     if not use_index:
         return None
