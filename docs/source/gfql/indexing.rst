@@ -47,20 +47,40 @@ carrying them:
    * - Index
      - What it accelerates
    * - ``edge_out_adj``
-     - CSR adjacency over outgoing edges: a forward hop becomes an ``O(degree)``
+     - Analogous to a foreign key index on the edge table's source column, laid out for traversal.
+       CSR adjacency over outgoing edges: a forward hop becomes an ``O(degree)``
        positional gather instead of an ``O(E)`` scan over every edge.
+
+       | Cypher: ``CREATE GFQL INDEX FOR edge_out_adj``
+       | Python: ``g.create_index("edge_out_adj")``
+       | JSON: ``{"type": "CreateIndex", "kind": "edge_out_adj"}``
    * - ``edge_in_adj``
-     - The same for incoming edges (reverse hops; undirected needs both).
+     - Analogous to a foreign key index on the edge table's destination column.
+       The same for incoming edges (reverse hops; undirected needs both).
+
+       | Cypher: ``CREATE GFQL INDEX FOR edge_in_adj``
+       | Python: ``g.create_index("edge_in_adj")``
+       | JSON: ``{"type": "CreateIndex", "kind": "edge_in_adj"}``
    * - ``node_id``
-     - Sorted node-id lookup: seed-row and endpoint materialization become positional
+     - Analogous to a primary key index on the node table.
+       Sorted node-id lookup: seed-row and endpoint materialization become positional
        gathers instead of ``O(N)`` scans. Requires unique node ids —
        ``gfql_index_all()`` silently skips it otherwise (adjacency is still built).
+
+       | Cypher: ``CREATE GFQL INDEX FOR node_id``
+       | Python: ``g.create_index("node_id")``
+       | JSON: ``{"type": "CreateIndex", "kind": "node_id"}``
    * - ``node_prop``
-     - Sorted lookup on a node **property** column (a secondary index): a seed
+     - Analogous to an ordinary column (secondary) index on the node table.
+       Sorted lookup on a node **property** column: a seed
        predicate like ``MATCH (m {id: 42})`` on a column that is not the node-id
        binding becomes a positional gather instead of an ``O(N)`` scan. Duplicate
        values are fine (all matching rows are gathered). Integer columns without
        nulls only — anything else declines to the scan. Opt-in per column.
+
+       | Cypher: ``CREATE GFQL INDEX FOR node_prop ON (account_number)``
+       | Python: ``g.create_index("node_prop", column="account_number")``
+       | JSON: ``{"type": "CreateIndex", "kind": "node_prop", "column": "account_number"}``
 
 They are **sidecars over row positions**: your ``.edges`` / ``.nodes`` frames are never
 reordered or copied, and the resident footprint is visible per index via
