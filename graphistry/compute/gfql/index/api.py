@@ -23,6 +23,10 @@ from .build import build_adjacency_index, build_node_id_index, build_node_prop_i
 from .traverse import index_seeded_hop
 from .cost import cost_gate_frac, seed_deg_sum, seed_id_array
 from .policy import IndexPolicy, validate_index_policy
+from .errors import (
+    GfqlIndexNotImplementedError, GfqlIndexUnsupportedError, INDEX_SUPPORT_ISSUE_URL,
+    is_not_yet_implemented_kind, not_implemented_kind_error,
+)
 from .types import (
     AdjacencyIndexKind, EdgeIndexDirection, HopDirection, IndexKind,
     ColStatsOutcomeName, FastPathName, IndexDecisionCode, IndexTrace, IndexTraceStep,
@@ -33,16 +37,6 @@ from .types import (
 POLICY_ATTR = "_gfql_index_policy"
 REGISTRY_ATTR = "_gfql_index_registry"
 
-
-class GfqlIndexUnsupportedError(ValueError):
-    """The DATA cannot support this index (duplicate node ids, an unindexable
-    property dtype). Distinct from a caller mistake — a missing column, an unknown
-    kind, unbound edges — which stays a plain ``ValueError`` and must propagate.
-
-    Subclasses ``ValueError`` so existing ``except ValueError`` callers keep
-    working; the convenience builders catch only THIS type, so a real failure is
-    never silently skipped.
-    """
 
 # --- lightweight, thread-local index decision trace (for gfql_explain) -------
 import threading as _threading
@@ -421,15 +415,19 @@ def create_index(
             )
         prop_idx = build_node_prop_index(g2._nodes, column, eng)
         if prop_idx is None:
-            raise GfqlIndexUnsupportedError(
-                f"Cannot build a {NODE_PROP!r} index on {column!r}: only integer "
-                f"columns without nulls are indexable today. Seeded queries still "
-                f"work via the un-indexed scan path."
+            raise GfqlIndexNotImplementedError(
+                f"Cannot build a {NODE_PROP!r} index on {column!r} "
+                f"(dtype {g2._nodes[column].dtype}): only integer columns without nulls "
+                f"are indexable today; other column types are not implemented yet "
+                f"(tracked in {INDEX_SUPPORT_ISSUE_URL}). Seeded queries still work via "
+                f"the un-indexed scan path."
             )
         prop_idx = replace(prop_idx, name=name or index_name(kind, column))
         registry = registry.with_node_prop(column, prop_idx)
         return _attach(g2, registry)
 
+    if is_not_yet_implemented_kind(kind):
+        raise not_implemented_kind_error(kind, ALL_KINDS)
     raise ValueError(f"Unknown GFQL index kind: {kind!r}. Expected one of {ALL_KINDS}.")
 
 
