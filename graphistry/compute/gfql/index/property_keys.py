@@ -100,13 +100,13 @@ def timestamp_property_keys(frame: DataFrameT, column: str, engine: Engine) -> T
     if engine in POLARS_ENGINES:
         eager = as_eager_polars_frame(frame)
         assert eager is not None
+        import polars as pl
         values = eager.get_column(column)
-        if values.dtype.time_unit == "ns":
-            import polars as pl
-            # Canonical Python datetime/string equality compares after Polars'
-            # microsecond cast. Index that superset, then apply the original
-            # predicate, including exact numpy datetime64[ns] equality.
-            values = values.cast(pl.Datetime("us", values.dtype.time_zone))
+        timestamp_type = values.dtype
+        assert isinstance(timestamp_type, pl.Datetime)
+        if timestamp_type.time_unit == "ns":
+            # Canonical scalar casts require microsecond candidates; residuals retain exact ns equality.
+            values = values.cast(pl.Datetime("us", timestamp_type.time_zone))
         return cast(  # hygiene-ok: explicit-cast -- Polars physical integer storage is a NumPy array compatible with the shared array protocol
             ArrayLike, values.to_physical().to_numpy(),
         ), values.dtype
@@ -134,8 +134,7 @@ def _timestamp_query_values(
         native_dtype = cast(  # hygiene-ok: explicit-cast -- the engine and timestamp builder establish a concrete Polars Datetime dtype
             "pl.Datetime", dtype,
         )
-        # Raw membership has a separate canonical lowering. Its temporal coercion
-        # is intentionally not inferred from scalar equality.
+        # Canonical temporal membership coercion differs from scalar equality.
         if isinstance(predicate, (IsIn, list, tuple)):
             return None
         value = members[0]
@@ -158,7 +157,7 @@ def _timestamp_query_values(
         unit, timezone = dtype.unit, dtype.tz
     else:
         unit, timezone = np.datetime_data(dtype)[0], None
-    encoded = []
+    timestamp_ticks = []
     for value in members:  # bounded query literals, never source rows
         try:
             stamp = pd.Timestamp(value)
@@ -166,8 +165,8 @@ def _timestamp_query_values(
             return None
         if pd.isna(stamp) or (stamp.tz is None) != (timezone is None):
             return None
-        encoded.append(stamp.asm8.astype(f"datetime64[{unit}]").astype(np.int64))
-    return xp.unique(xp.asarray(encoded, dtype=xp.int64))
+        timestamp_ticks.append(stamp.asm8.astype(f"datetime64[{unit}]").astype(np.int64))
+    return xp.unique(xp.asarray(timestamp_ticks, dtype=xp.int64))
 
 
 def string_property_keys(
