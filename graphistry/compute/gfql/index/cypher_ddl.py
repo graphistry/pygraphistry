@@ -20,6 +20,8 @@ from typing import List, Optional, Pattern, Tuple, cast
 
 from .types import IndexKind
 from .wire import CreateIndex, DropIndex, ShowIndexes, IndexOp
+from .errors import is_not_yet_implemented_kind, not_implemented_kind_error
+from .registry import ALL_KINDS
 
 _KIND = r"(?P<kind>edge_out_adj|edge_in_adj|node_id|node_prop)"
 
@@ -37,6 +39,7 @@ _DROP_NAME_PATTERN = (
 )
 _SHOW_PATTERN = r"^\s*SHOW\s+GFQL\s+INDEXES\s*;?\s*$"
 _DDL_PREFIX_PATTERN = r"^\s*(CREATE|DROP|SHOW)\s+GFQL\s+INDEX"
+_DDL_KIND_PATTERN = r"\bFOR\s+(?P<kind>[A-Za-z_]\w*)"
 
 
 @lru_cache(maxsize=1)
@@ -58,6 +61,14 @@ def _ddl_res() -> Tuple[Pattern[str], Pattern[str], Pattern[str], Pattern[str]]:
 
 
 register_process_singleton(_ddl_res, "compiled regexes over module-level pattern constants; function of the code alone")
+
+
+@lru_cache(maxsize=1)
+def _ddl_kind_re() -> Pattern[str]:
+    return re.compile(_DDL_KIND_PATTERN, re.IGNORECASE)
+
+
+register_process_singleton(_ddl_kind_re, "a compiled regex over a module-level pattern constant; function of the code alone")
 
 
 def looks_like_index_ddl(query: str) -> bool:
@@ -84,6 +95,10 @@ def parse_index_ddl(query: str) -> Optional[IndexOp]:
         return DropIndex(name=m.group("name") or m.group("name2"),
                          missing_ok=bool(m.group("ifexists") or m.group("ifexists2")))
     if looks_like_index_ddl(query):
+        kind_m = _ddl_kind_re().search(query)
+        kind = kind_m.group("kind").lower() if kind_m else None
+        if is_not_yet_implemented_kind(kind):
+            raise not_implemented_kind_error(kind, ALL_KINDS)
         raise ValueError(
             f"Malformed GFQL INDEX DDL: {query!r}. Expected e.g. "
             "'CREATE GFQL INDEX FOR edge_out_adj', 'DROP GFQL INDEX FOR edge_in_adj', "

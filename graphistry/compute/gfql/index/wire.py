@@ -20,6 +20,7 @@ from typing import TYPE_CHECKING, Any, Dict, Optional, Union, cast
 from typing_extensions import TypeGuard
 
 from .registry import ALL_KINDS
+from .errors import is_not_yet_implemented_kind, not_implemented_kind_error
 from .types import IndexKind
 
 
@@ -37,6 +38,8 @@ class CreateIndex:
     @staticmethod
     def from_json(d: Dict[str, Any]) -> "CreateIndex":
         kind = d.get("kind")
+        if is_not_yet_implemented_kind(kind):
+            raise not_implemented_kind_error(kind, ALL_KINDS)
         if kind not in ALL_KINDS:
             raise ValueError(f"CreateIndex.kind must be one of {ALL_KINDS}, got {kind!r}")
         return CreateIndex(kind=cast(IndexKind, kind), column=d.get("column"), name=d.get("name"),
