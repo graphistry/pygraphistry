@@ -126,6 +126,34 @@ def test_missing_business_key_preserves_invalid_residual_error(engine):
     assert outcomes[0] == outcomes[1] == outcomes[2]
 
 
+@pytest.mark.parametrize("surface", ["direct", "native", "cypher"])
+def test_missing_business_key_preserves_temporal_residual(engine, surface):
+    from graphistry.compute.gfql.index.api import with_index_policy
+
+    base = graph(engine)
+    nodes = pd.DataFrame({"id": np.arange(400), "email": [f"user{i}@example.test" for i in range(400)],
+                          "time": pd.date_range("2026-01-01", periods=400)})
+    indexed = base.nodes(df_to_engine(nodes, Engine(engine))).create_index("node_prop", column="email", engine=engine)
+    filters = {"email": "missing", "time": "2026-01-01T00:00:00"}
+    query = ([n(filters)] if surface == "native" else
+             "MATCH (a {email: 'missing', time: '2026-01-01T00:00:00'}) RETURN a.id AS id")
+
+    def run(policy):
+        if surface == "direct":
+            return with_index_policy(indexed, policy).filter_nodes_by_dict(filters, engine=engine)
+        return indexed.gfql(query, engine=engine, index_policy=policy)
+
+    reference = run("off")
+    for policy in ("use", "force"):
+        actual = run(policy)
+        assert len(actual._nodes) == 0
+        for name in ("_nodes", "_edges"):
+            expected_frame, actual_frame = getattr(reference, name), getattr(actual, name)
+            assert frame_records(actual_frame) == frame_records(expected_frame)
+            assert list(actual_frame.columns) == list(expected_frame.columns)
+            assert list(actual_frame.dtypes) == list(expected_frame.dtypes)
+
+
 @pytest.mark.parametrize("dtype", ["string[pyarrow]", "arrow-string", "arrow-large-string"])
 def test_arrow_key_queries_do_not_export_whole_columns(dtype, monkeypatch):
     indexed = graph("pandas", dtype).create_index("node_prop", column="email")
