@@ -10,6 +10,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Documentation
 
+- **The GFQL indexing page is rewritten in plain language and brought up to date**: each section now leads with what a reader needs, and the page no longer cites release numbers or implementation details that may change. Three statements were out of date and are corrected, each re-checked on master: building indexes on Polars frames with the default engine keeps them Polars (the page said to pass `engine='polars'`); multi-hop, multi-alias and `IN`-list queries use indexes on Polars as well as pandas (the page said the Polars chain engine was not covered); and a query that starts from a column with a `node_prop` index uses it (the page said the seed falls back to a scan). The page now also says that in-place edits to a bound table may not be detected and need a rebuild, and that `index_policy='force'` can build indexes as well as `'auto'`.
+
+### Documentation
+
 - **The indexing page's index-kind table shows how to create each kind and what it corresponds to in SQL**: each of `edge_out_adj`, `edge_in_adj`, `node_id` and `node_prop` now lists its Cypher DDL, its Python call (`g.create_index(...)`) and its JSON wire op, each checked to build the index on master, and says which SQL index it is analogous to: foreign key indexes on the edge table's source and destination columns, the node table's primary key index, and an ordinary column index.
 
 ## [0.59.3 - 2026-10-05]
