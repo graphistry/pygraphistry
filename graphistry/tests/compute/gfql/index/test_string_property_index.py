@@ -19,6 +19,11 @@ def engine(request):
 
 
 def graph(engine, dtype="object"):
+    if dtype in ("arrow-string", "arrow-large-string"):
+        arrow = pytest.importorskip("pyarrow")
+        dtype = pd.ArrowDtype(arrow.string() if dtype == "arrow-string" else arrow.large_string())
+    elif dtype == "string[pyarrow]":
+        pytest.importorskip("pyarrow")
     emails = pd.Series([f"user{i}@example.test" for i in range(400)], dtype=dtype)
     emails.iloc[7] = emails.iloc[9] = "alice@example.test"
     emails.iloc[11] = ""
@@ -33,7 +38,7 @@ def graph(engine, dtype="object"):
     )
 
 
-@pytest.mark.parametrize("dtype", ["object", "string"])
+@pytest.mark.parametrize("dtype", ["object", "string", "string[pyarrow]", "arrow-string", "arrow-large-string"])
 @pytest.mark.parametrize("query,expected", [
     ("MATCH (a {email: 'alice@example.test'}) RETURN a.id AS id", [7, 9]),
     ("MATCH (a {email: 'alice@example.test', keep: 1}) RETURN a.id AS id", [7]),

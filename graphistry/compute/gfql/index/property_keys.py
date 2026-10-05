@@ -28,7 +28,7 @@ def is_string_property(frame: DataFrameT, column: str, engine: Engine) -> bool:
     series = frame[column]
     if engine == Engine.CUDF:
         return series.dtype == np.dtype("object")
-    return isinstance(series.dtype, pd.StringDtype) or (
+    return isinstance(series.dtype, pd.StringDtype) or series.dtype.kind == "U" or (
         series.dtype == np.dtype("object")
         and pd.api.types.infer_dtype(series, skipna=True) == "string"
     )
