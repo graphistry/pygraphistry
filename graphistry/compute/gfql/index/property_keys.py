@@ -89,9 +89,9 @@ def categorical_property_keys(
         )
         return codes, dictionary, None
     values = frame[column]
-    codes = values.cat.codes
+    native_codes = values.cat.codes
     return cast(  # hygiene-ok: explicit-cast -- native NumPy/CuPy category codes implement the bounded array protocol
-        ArrayLike, codes.values if engine == Engine.CUDF else codes.to_numpy(),
+        ArrayLike, native_codes.values if engine == Engine.CUDF else native_codes.to_numpy(),
     ), None, values.cat.categories
 
 
