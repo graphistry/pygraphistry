@@ -8,6 +8,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [Development]
 <!-- Do Not Erase This Section - Used for tracking unreleased changes -->
 
+## [0.59.3 - 2026-10-05]
+
 ### Changed
 
 - **GFQL index support that does not exist yet now says so and points at the tracking issue (#2141)**: `CREATE GFQL INDEX FOR edge_prop ...` used to fail as "Malformed GFQL INDEX DDL", and a `node_prop` index on a string, float, boolean, categorical, timestamp or nullable column failed with a message that did not say whether support was coming. Both now raise `GfqlIndexNotImplementedError`, naming the kind or the column's dtype, listing the supported kinds, and linking https://github.com/graphistry/pygraphistry/issues/2141. The same error comes from the Cypher DDL (alone or leading a query), the `CreateIndex` wire op, and `create_index`. It subclasses both `NotImplementedError` and the existing `GfqlIndexUnsupportedError` (a `ValueError`), so existing `except ValueError` handlers keep working and `gfql_index_node_props` still skips unindexable columns. Genuinely unknown kinds and broken statements still raise as before.
