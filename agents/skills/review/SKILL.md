@@ -217,7 +217,10 @@ python -m pytest -q [targeted_test]
 - **Engagement is a pin, not a timing.** "The index/fast path is used" is proven by a `gfql_explain`
   assertion (`used_index`, `decision_code`, the seam name) marked `@pytest.mark.route_engaged(...)`
   so `bin/test-routes-off.sh` can replay the parity half with the route disabled. Parity stays an
-  unmarked result pin. A wall-clock assertion in pygraphistry tests is a finding.
+  unmarked result pin. Run `bin/test-routes-off.sh` with `MODES=all-off` and focused
+  test paths in `SUITES` before publication: another specialization can serve an
+  individual route decline and hide mixed result/engagement assertions. A wall-clock
+  assertion in pygraphistry tests is a finding.
 - **Perf claims live in pyg-bench.** A number in a PR body or CHANGELOG needs a pyg-bench measurement
   with an A/A control beside the A/B, pinned in that repo's thresholds + contract test; pygraphistry
   carries results and data contracts only. Local-box numbers do not close a perf PR.
