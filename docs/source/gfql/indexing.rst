@@ -160,7 +160,7 @@ The lifecycle calls. Each returns a new ``g``, like the rest of the API:
    g = g.gfql_index_edges("forward")    # or one direction: 'forward'|'reverse'|'both'
    g = g.create_index("edge_out_adj")   # or one kind: 'edge_out_adj'|'edge_in_adj'|'node_id'
    g = g.gfql_index_node_props(["id"])  # property indexes on node columns
-   g = g.gfql_index_edge_props(["amount"])  # property indexes on edge columns
+   g = g.create_index("edge_prop", column="amount")  # property indexes on edge columns
    g.show_indexes()                     # pandas DataFrame: kind, engine, ..., valid, usable, reason
    g = g.drop_index()                   # drop all (or drop_index("edge_out_adj"))
 
