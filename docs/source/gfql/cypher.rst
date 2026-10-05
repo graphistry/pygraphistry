@@ -164,6 +164,10 @@ This enables single-expression pipelines that filter, enrich, and query:
         "ORDER BY degree DESC LIMIT 10"
     )
 
+Indexes on the input graph serve the stages that run on it. A stage that runs on a graph
+bound earlier in the query (``GRAPH g = ...`` then ``USE g``) scans, because Cypher cannot
+yet index that graph inside the query; see :ref:`gfql-indexing`.
+
 Inside ``GRAPH { }``, only ``MATCH``, ``WHERE``, ``USE``, and graph-preserving
 ``CALL graphistry.*.write()`` are allowed. Row-oriented clauses (``RETURN``,
 ``ORDER BY``, ``SKIP``, ``LIMIT``, ``DISTINCT``, ``UNWIND``, ``WITH``) and

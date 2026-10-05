@@ -194,6 +194,34 @@ check a specific query, use ``g.gfql_explain(query)`` (see `Controlling the plan
 When an index cannot serve a query, the scan answers it, so the slowest case is the
 speed you had without the index.
 
+Graph pipelines
+~~~~~~~~~~~~~~~
+
+In a multi-stage ``GRAPH { }`` query, stages that run on the indexed graph use its indexes.
+A stage that runs on a graph derived earlier in the same query does not. The derived graph
+has new tables, so the original indexes do not apply to it, and Cypher cannot yet build an
+index on a derived graph inside the query. That stage scans. This is tracked in
+`issue 2148 <https://github.com/graphistry/pygraphistry/issues/2148>`_.
+
+In a pipeline, ``used_index`` is ``True`` when any stage used an index. To see which stages
+did, read the ``steps`` list that ``gfql_explain`` returns.
+
+The native Python API can index a derived graph inside a ``let()`` pipeline. The index is
+built again on every call, so this helps only when several later stages reuse it:
+
+.. code-block:: python
+
+   from graphistry import n, e_forward, is_in, call, let, ref
+
+   pipeline = let({
+       "low": [n({"risk": "low"}), e_forward(), n({"risk": "low"})],          # derived graph
+       "low_idx": ref("low", [call("create_index", {"kind": "edge_out_adj"}),
+                              call("create_index", {"kind": "node_id"})]),   # index it
+       "out": ref("low_idx", [n({"id": is_in([0, 2])}), e_forward(), n()]),   # later stage uses it
+   })
+   out = g_indexed.gfql(pipeline)
+   print(sorted(out._nodes["id"].tolist()))   # [0, 2, 4]
+
 When indexes go stale
 ---------------------
 
