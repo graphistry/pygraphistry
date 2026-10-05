@@ -12,7 +12,7 @@ from graphistry.compute.predicates.is_in import IsIn
 from graphistry.compute.typing import ArrayLike, DataFrameT
 from .api import _record, get_index_policy, get_registry
 from .cost import cost_gate_frac
-from .engine_arrays import array_namespace, take_rows
+from .engine_arrays import array_namespace, as_eager_polars_frame, take_rows
 from .lookup import lookup_prop_rows, prop_match_count
 from .registry import ColStatsRole, NodePropIndex
 
@@ -60,6 +60,16 @@ def property_candidate_positions(
         return None
     column, index, values, count = best
     use_index = policy == "force" or count < cost_gate_frac(engine) * len(frame)
+    if use_index:
+        if engine in POLARS_ENGINES:
+            from graphistry.compute.gfql.lazy.engine.polars.predicates import filter_expr_by_dict_polars
+            eager = as_eager_polars_frame(frame)
+            if eager is None:
+                return None
+            filter_expr_by_dict_polars(eager, dict(filter_dict))
+        else:
+            from graphistry.compute.filter_by_dict import _prepare_filter_dict
+            _prepare_filter_dict(frame, filter_dict)
     _record({
         "op": "property_lookup", "role": role, "column": column,
         "engine": engine.value, "policy": policy, "est_result_rows": count,

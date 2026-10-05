@@ -7,7 +7,7 @@ from graphistry.util import setup_logger
 from graphistry.Plottable import Plottable
 from graphistry.compute.gfql.node_dtypes_memo import memo_get, memo_put
 from .predicates.ASTPredicate import ASTPredicate
-from .typing import DataFrameT, DType, NodeDtypes, SeriesT
+from .typing import DataFrameT, DType, FilterValue, NodeDtypes, SeriesT
 
 
 logger = setup_logger(__name__)
@@ -141,13 +141,10 @@ def filter_by_dict(df: DataFrameT, filter_dict: Optional[dict] = None, engine: U
     return df[hits]
 
 
-def filter_mask_by_dict(df: DataFrameT, filter_dict: Dict[str, Any]) -> SeriesT:  # hygiene-ok: explicit-any -- filter values are heterogeneous by contract (scalars, lists, ASTPredicate)
-    """Boolean row mask ``filter_by_dict`` would apply to an already engine-native
-    ``df`` — same column resolution, same typed validation errors, same 3VL
-    membership semantics. Exposed so callers that read only a column subset can
-    gather it directly (``df.loc[mask, cols]``) without materializing the
-    full-width filtered frame.
-    """
+def _prepare_filter_dict(
+    df: DataFrameT, filter_dict: Mapping[str, FilterValue],
+) -> Tuple[Dict[str, Tuple[str, ASTPredicate]], Dict[str, Tuple[str, FilterValue]], bool]:
+    """Resolve columns and validate canonical filter types before any row gather."""
     from graphistry.compute.exceptions import ErrorCode, GFQLSchemaError
 
     from graphistry.compute.gfql.strictness import absent_column_matches
@@ -221,6 +218,18 @@ def filter_mask_by_dict(df: DataFrameT, filter_dict: Dict[str, Any]) -> SeriesT:
                 )
 
             predicates[col] = (resolved_col, resolved_val)
+
+    return predicates, concrete_filters, absent_never_matches
+
+
+def filter_mask_by_dict(df: DataFrameT, filter_dict: Dict[str, Any]) -> SeriesT:  # hygiene-ok: explicit-any -- filter values are heterogeneous by contract (scalars, lists, ASTPredicate)
+    """Boolean row mask ``filter_by_dict`` would apply to an already engine-native
+    ``df`` — same column resolution, same typed validation errors, same 3VL
+    membership semantics. Exposed so callers that read only a column subset can
+    gather it directly (``df.loc[mask, cols]``) without materializing the
+    full-width filtered frame.
+    """
+    predicates, concrete_filters, absent_never_matches = _prepare_filter_dict(df, filter_dict)
 
     hits = df[[]].assign(x=False if absent_never_matches else True).x
     if absent_never_matches:

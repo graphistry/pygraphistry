@@ -193,3 +193,17 @@ def test_multihop_cannot_repeat_a_self_loop_relationship(engine):
     query = "MATCH (a)-[x {txn: 7}]->(b)-[y {txn: 7}]->(c) RETURN a.id AS a"
     assert len(indexed.gfql(query, engine=engine, index_policy="force")._nodes) == 0
     assert len(indexed.gfql(query, engine=engine, index_policy="off")._nodes) == 0
+
+
+def test_empty_edge_candidates_preserve_residual_type_errors(engine):
+    from graphistry.compute.exceptions import GFQLSchemaError
+    from graphistry.compute.gfql.index.api import with_index_policy
+
+    indexed = graph(engine).create_index("edge_prop", column="txn", engine=engine)
+    filters = {"txn": 999, "keep": "bad"}
+    outcomes = []
+    for policy in ["off", "use", "force"]:
+        with pytest.raises(GFQLSchemaError) as caught:
+            with_index_policy(indexed, policy).filter_edges_by_dict(filters, engine=engine)
+        outcomes.append((caught.value.code, caught.value.context["field"]))
+    assert outcomes[0] == outcomes[1] == outcomes[2]
