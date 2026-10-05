@@ -14,7 +14,7 @@ from dataclasses import dataclass, field, replace
 from typing import Any, Dict, Literal, Mapping, Optional, Tuple, Union, cast
 
 from graphistry.Engine import Engine
-from graphistry.compute.typing import DataFrameT, SeriesT
+from graphistry.compute.typing import DataFrameT, DType, IndexT, SeriesT
 from .types import AdjacencyIndexKind, ArrayLike, IndexBackend, IndexKind
 
 # Index kinds (v1). Property/label/type indexes share this registry shape later.
@@ -102,6 +102,8 @@ class NodePropIndex:
     fingerprint: FrameFingerprint = field(compare=False, default=(-1, (), ""))
     source_ref: Optional[DataFrameT] = field(compare=False, default=None)
     string_keys: Optional[SeriesT] = field(compare=False, default=None)  # native sorted text dictionary
+    category_keys: Optional[IndexT] = field(compare=False, default=None)  # native category code dictionary
+    timestamp_dtype: Optional[DType] = field(compare=False, default=None)
     n_nodes: int = 0  # historical field name: row count of the node OR edge frame
     n_keys: int = 0
     name: Optional[str] = None
@@ -589,6 +591,8 @@ def index_nbytes(
             total += int(native_keys.estimated_size())
         else:
             total += int(idx.string_keys.memory_usage(index=False, deep=True))
+    if isinstance(idx, NodePropIndex) and idx.category_keys is not None:
+        total += int(idx.category_keys.memory_usage(deep=True))
     return total
 
 

@@ -60,14 +60,15 @@ carrying them:
        predicate like ``MATCH (m {id: 42})`` on a column that is not the node-id
        binding becomes a positional gather instead of an ``O(N)`` scan. Duplicate
        values are fine (all matching rows are gathered). String columns and
-       integer columns are supported. Null property rows are excluded.
+       integer, categorical, and timestamp columns are supported. Null property rows
+       are excluded.
        Other dtypes decline to the scan. Opt-in per column.
 
    * - ``edge_prop``
      - Sorted lookup on an edge **property** column, such as a transaction or
-       message id. String and integer equality and membership predicates gather
-       matching edge rows; duplicate values are retained. Null string rows are
-       excluded, as are null integer rows. Opt-in per column,
+       message id. Supported property equality and membership predicates gather
+       matching edge rows; duplicate values are retained. Null property rows are
+       excluded. Opt-in per column,
        like ``node_prop``.
 
 They are **sidecars over row positions**: your ``.edges`` / ``.nodes`` frames are never
@@ -190,6 +191,22 @@ Integer property indexes exclude null rows and preserve the original row
 positions of every non-null value. Nullable signed and unsigned integer storage
 is supported without a floating-point conversion; an all-null integer column
 builds an empty index. Null lookup predicates retain canonical filter semantics.
+
+Categorical and timestamp keys
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Categorical columns keep their labels and ordering. Native category codes locate
+all rows for a label; unused labels produce no rows. Ambiguous mixed-type query
+lists use the canonical scan so inference and errors remain unchanged. Polars
+categorical and enum columns use native text dictionaries.
+
+Timestamp columns retain their dtype, unit, and timezone in the result. Non-null
+physical timestamp keys locate candidates, and the original predicate determines
+exact matches. Polars nanosecond storage uses microsecond candidate buckets to
+cover its canonical Python datetime/string comparison casts; NumPy nanosecond
+queries still receive the exact residual comparison. Temporal predicates without
+a proven native key encoding use the scan, including Polars temporal membership.
+Existing engine errors for incompatible timezones remain authoritative.
 
 String business keys
 ~~~~~~~~~~~~~~~~~~~~
