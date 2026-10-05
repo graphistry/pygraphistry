@@ -113,3 +113,19 @@ def test_missing_business_key_preserves_invalid_residual_error(engine):
             indexed.gfql(query, engine=engine, index_policy=policy)
         outcomes.append((caught.value.code, caught.value.context["field"]))
     assert outcomes[0] == outcomes[1] == outcomes[2]
+
+
+@pytest.mark.parametrize("dtype", ["string[pyarrow]", "arrow-string", "arrow-large-string"])
+def test_arrow_key_queries_do_not_export_whole_columns(dtype, monkeypatch):
+    indexed = graph("pandas", dtype).create_index("node_prop", column="email")
+    array_type = type(indexed._nodes["email"].array)
+    original = array_type.to_numpy
+
+    def bounded_export(array, *args, **kwargs):
+        assert len(array) <= 8, "query exported a whole Arrow column"
+        return original(array, *args, **kwargs)
+
+    monkeypatch.setattr(array_type, "to_numpy", bounded_export)
+    out = indexed.filter_nodes_by_dict({"email": "alice@example.test"})
+    assert out._nodes["id"].tolist() == [7, 9]
+    assert out._nodes["email"].dtype == indexed._nodes["email"].dtype

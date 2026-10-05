@@ -48,6 +48,8 @@ def string_property_keys(
         )
     values = frame[column]
     keys = values.drop_duplicates().sort_values().reset_index(drop=True)
+    if engine == Engine.PANDAS:
+        keys = pd.Series(keys.to_numpy(dtype=object), dtype=object)
     return keys.searchsorted(values), keys
 
 
