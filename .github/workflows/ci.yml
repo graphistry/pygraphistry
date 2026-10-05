@@ -1651,7 +1651,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        mode: [polars-point-rows, point-rows, native-fast, polars-single-node, polars-seeded, polars-plain, index-hop, indexed-kernel, polars-bindings-select, cypher-fast, cross-alias-or, all-off]
+        mode: [polars-point-rows, point-rows, native-fast, polars-single-node, polars-seeded, polars-plain, index-hop, indexed-kernel, polars-bindings-select, cypher-fast, cross-alias-or, binding-limit, all-off]
 
     steps:
 
