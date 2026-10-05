@@ -11,7 +11,7 @@ from graphistry.compute.ast import ASTObject, ASTNode, ASTEdge, Direction
 from graphistry.compute.chain_specializations.admission import _indexed_kernel_admits
 from graphistry.compute.chain_fast_paths import (
     _ids_to_key_array, _index_edge_rows, _index_node_rows, _record_native_seed_lane,
-    _resident_node_id_index, _resident_seed_indexes, _seed_node_rows, _seeded_scalar_filters,
+    _resident_node_id_index, _resident_seed_indexes, _seed_node_rows, _seeded_scalar_filters, _seeded_seed_filters,
     SeededReturn,
 )
 from graphistry.compute.endpoint_utils import drop_null_endpoint_edges
@@ -123,10 +123,10 @@ def _seeded_typed_return_dst_polars(
 ) -> Optional[SeededReturn]:
     """Polars analog of _seeded_typed_return_dst_pandas_cudf: same seed-first
     reduction (seed out-edges -> typed-edge filter -> destination nodes) expressed
-    with polars filters, so a seeded cypher RETURN on polars/polars-gpu also lands
-    sub-ms. Returns ``(dst_node_rows, edges)`` (polars frames) or None to fall back
+    with native Polars filters. Returns ``(dst_node_rows, edges)`` (polars frames) or None to fall back
     to the full lazy pipeline. Value-identical node set to the full path for the
-    covered shape (scalar filters, directed, single hop); row order may differ."""
+    covered shape (scalar or integral-membership seed, scalar residuals, directed,
+    single hop); row order may differ."""
     import polars as pl
     from graphistry.compute.gfql.lazy.engine.polars.predicates import filter_by_dict_polars
     if direction == "undirected":
@@ -136,7 +136,7 @@ def _seeded_typed_return_dst_polars(
     if not isinstance(nodes_df, pl.DataFrame) or not isinstance(edges_df, pl.DataFrame):
         return None
 
-    n0f = _seeded_scalar_filters(n0.filter_dict, nodes_df)
+    n0f = _seeded_seed_filters(n0.filter_dict, nodes_df, node)
     n2f = _seeded_scalar_filters(n2.filter_dict, nodes_df)
     ef = _seeded_scalar_filters(e1.edge_match, edges_df)
     if n0f is None or n2f is None or ef is None or not n0f:
@@ -194,7 +194,7 @@ def _seeded_typed_return_dst_polars(
 
 
 def _try_seeded_chain_polars(g: Plottable, ops: Sequence[ASTObject]) -> Optional[Plottable]:
-    """Serve a native directed scalar hop through the resident seed indexes, preserving
+    """Serve a native directed scalar or integral-membership hop through resident indexes, preserving
     Polars table order and aliases; declines (None) without valid resident indexes."""
     import polars as pl
     from graphistry.compute.gfql.index.api import _record_indexed_traversal

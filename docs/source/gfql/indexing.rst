@@ -505,6 +505,26 @@ follow the same fingerprint validity contract as the physical indexes, and
 additional integer columns — explicitly named columns raise if they can't be fact-ed,
 while the binding defaults skip silently.
 
+Native membership hops
+~~~~~~~~~~~~~~~~~~~~~~
+
+A directed native single hop on eager Polars frames can use the native seeded
+lane with an integral membership seed and scalar edge/destination filters. Both
+binding-id seeds and indexed integer property seeds are supported. For example:
+
+.. code-block:: python
+
+   membership_query = [n({"id": is_in([0, 3])}, name="start"),
+                       e_forward(name="transfer"), n(name="end")]
+   membership_out = g_indexed.gfql(membership_query, engine="pandas")
+   assert sorted(membership_out._nodes["id"].tolist()) == [0, 1, 2, 3, 4]
+
+The same query runs with ``engine="polars"`` on a graph with eager Polars frames
+and resident node-id and outgoing adjacency indexes. String memberships and
+unsupported shapes keep the general path. Missing or stale indexes and
+``index_policy="off"`` also keep the general path; results and canonical errors
+remain unchanged. Native lane selection alone does not establish a speed gain.
+
 See also
 --------
 

@@ -90,6 +90,7 @@ POLARS_TEST_FILES=(
     graphistry/tests/compute/gfql/test_native_seed_resolution_2027.py
     graphistry/tests/compute/gfql/test_native_seed_skip_refilter.py
     graphistry/tests/compute/gfql/test_polars_native_seed_resolution.py
+    graphistry/tests/compute/gfql/test_polars_membership_seeded_hop.py
     graphistry/tests/compute/gfql/lazy/engine/polars/chain_specializations/test_polars_admission.py
     graphistry/tests/compute/gfql/lazy/engine/polars/test_predicates.py
     graphistry/tests/compute/gfql/lazy/engine/polars/chain_specializations/test_point_rows.py
