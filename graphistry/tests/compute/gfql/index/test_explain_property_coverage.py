@@ -308,3 +308,18 @@ def test_null_membership_capability_gap_does_not_require_resident_index(engine, 
     if check_receipt:
         assert report["decision_code"] == "not_index_coverable"
         assert all("est_result_rows" not in s for s in report["steps"])
+
+
+@pytest.mark.parametrize("actual_engine", ["pandas", "cudf"])
+@pytest.mark.parametrize("requested_engine", ["pandas", "cudf"])
+def test_direct_trace_preserves_mismatched_requested_engine_filter(actual_engine, requested_engine):
+    if "cudf" in (actual_engine, requested_engine):
+        pytest.importorskip("cudf")
+    source = df_to_engine(pd.DataFrame({"id": np.arange(400), "value": ["x", "y"] * 200}), Engine(actual_engine))
+    g = graphistry.nodes(source, "id")
+    ordinary = g.filter_nodes_by_dict({"value": "x"}, engine=requested_engine)._nodes
+    with index_trace() as steps:
+        traced = g.filter_nodes_by_dict({"value": "x"}, engine=requested_engine)._nodes
+    assert len(traced) == 200
+    assert_same_frame(traced, ordinary, requested_engine)
+    assert not steps and g._nodes is source

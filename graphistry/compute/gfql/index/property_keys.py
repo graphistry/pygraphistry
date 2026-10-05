@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Mapping, Optional, Sequence, Tuple, cast
 import numpy as np
 import pandas as pd
 
-from graphistry.Engine import Engine, POLARS_ENGINES
+from graphistry.Engine import Engine, POLARS_ENGINES, resolve_engine
 from graphistry.compute.predicates.ASTPredicate import ASTPredicate
 from graphistry.compute.predicates.is_in import IsIn
 from graphistry.compute.typing import ArrayLike, ArrayNamespace, DataFrameT, DType, IndexT, SeriesT
@@ -125,6 +125,9 @@ def uncovered_property_column(
     Unknown/missing columns and lazy frames remain canonical execution's concern.
     """
     if not filters or engine not in (Engine.PANDAS, Engine.CUDF, *POLARS_ENGINES):
+        return None
+    actual_engine = resolve_engine("auto", frame)
+    if actual_engine != engine and not (actual_engine in POLARS_ENGINES and engine in POLARS_ENGINES):
         return None
     if engine in POLARS_ENGINES and as_eager_polars_frame(frame) is None:
         return None
