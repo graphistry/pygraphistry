@@ -3,9 +3,9 @@
 Common comparison/membership/string/null predicates lower to native polars expressions.
 NO-CHEATING contract: no pandas bridge — a predicate with no native lowering raises
 NotImplementedError (bridging one column would misrepresent pandas semantics as polars and
-break columnar/GPU assumptions; use engine='pandas'). Filtering uses one vectorized
-``df.filter(expr)``. Small eager CPU frames
-can use scalar equalities when their storage and filter types agree.
+break columnar/GPU assumptions; use engine='pandas'). Filtering uses native expressions
+or Series operations. Small eager CPU frames can use scalar equalities when their storage
+and filter types agree.
 """
 from __future__ import annotations
 
@@ -471,7 +471,7 @@ def _filter_small_equalities(
 def _filter_eager_equalities(
     df: "Union[pl.DataFrame, pl.LazyFrame]", filter_dict: Optional[Mapping[str, object]],
 ) -> "Optional[pl.DataFrame]":
-    """Apply native Series equality to small CPU candidate frames without a plan."""
+    """Apply native Series equality/filtering to small eager CPU candidate frames."""
     import polars as pl
     from graphistry.compute.gfql.lazy import active_target, ExecutionTarget
 
@@ -505,13 +505,13 @@ def _filter_eager_equalities(
         current = df.get_column(column) == expected
         mask = current if mask is None else mask & current
     assert mask is not None  # A nonempty supported filter creates a Boolean Series.
-    if mask.null_count():
-        mask = mask.fill_null(False)
-    if mask.all():
+    if mask.null_count() == 0 and mask.all():
         return df.clone()
     if not mask.any():
         return df.clear()
-    return df[mask.arg_true()]
+    # Native Series filtering discards null mask entries and preserves row order.
+    # Iterate columns, never rows; avoid an eager expression plan or frame gather.
+    return pl.DataFrame([column.filter(mask) for column in df.iter_columns()])
 
 
 def filter_by_dict_polars(df: "PolarsFrameT", filter_dict: "Optional[Dict[str, Any]]") -> "PolarsFrameT":
