@@ -269,7 +269,8 @@ def _filter_property_candidates(
 ) -> DataFrameT:
     """Apply canonical residuals, reusing exact owned property gathers when proven."""
     # Public selectors supply already gathered, validated candidates. Integer/text
-    # encodings are exact; float/temporal encodings still require residuals.
+    # encodings are exact, as is Float64 with an exact Python float literal.
+    # Float32, coercing literals and temporal encodings still require residuals.
     if engine == Engine.POLARS and filter_validated and candidates is not original and filter_dict and len(filter_dict) == 1:
         from graphistry.compute.gfql.lazy import ExecutionTarget, active_target
         from graphistry.compute.gfql.index.engine_arrays import as_eager_polars_frame
@@ -280,7 +281,8 @@ def _filter_property_candidates(
             if column in eager.columns:
                 dtype = eager.schema[column]
                 if (dtype.is_integer() and type(value) is int
-                        or dtype in (pl.String, pl.Categorical, pl.Enum) and type(value) is str):
+                        or dtype in (pl.String, pl.Categorical, pl.Enum) and type(value) is str
+                        or dtype == pl.Float64 and type(value) is float):
                     return candidates
     if engine == Engine.PANDAS and candidates is not original and filter_dict:
         if isinstance(candidates, pd.DataFrame) and len(filter_dict) == 1:
