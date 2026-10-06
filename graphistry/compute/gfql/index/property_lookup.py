@@ -138,5 +138,19 @@ def property_candidate_frame(
     filter_dict: Optional[Mapping[str, object]], engine: Engine,
 ) -> DataFrameT:
     """Candidate frame in original row order, or the original frame on a decline."""
-    positions = property_candidate_positions(g, role, frame, filter_dict, engine)
+    # A live index proves that every stored bucket is beyond the scan crossover.
+    # For an exact native scalar, scan the original columns directly. Keep off,
+    # force, tracing, stale indexes, and coercing predicates on their usual path.
+    registry, policy = get_registry(g), get_index_policy(g)
+    if engine == Engine.POLARS and filter_dict and len(filter_dict) == 1 and policy == "use" and registry.property_indexes(role) and not _trace_active():
+        from graphistry.compute.filter_by_dict import _filter_native_property_scalar, _supports_native_property_scalar
+        column, value = next(iter(filter_dict.items()))
+        index = valid_property_index(registry, role, frame, column, engine)
+        if index is not None and _supports_native_property_scalar(frame, column, value):
+            if index.min_group_count > 0 and index.min_group_count >= cost_gate_frac(engine) * len(frame):
+                return _filter_native_property_scalar(frame, column, value)
+    positions = property_candidate_positions_from_registry(
+        registry, role, frame, filter_dict, engine, policy,
+        binding_column=g._node if role == "nodes" else None,
+    )
     return frame if positions is None else take_rows(frame, positions, engine)
