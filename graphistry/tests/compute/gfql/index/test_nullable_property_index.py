@@ -135,3 +135,10 @@ def test_nullable_signed_extremes_are_not_converted_to_float(engine, offset):
     for policy in ["off", "use", "force"]:
         out = with_index_policy(indexed, policy).filter_nodes_by_dict(filters, engine=engine)
         assert [r["id"] for r in frame_records(out._nodes)] == [7, 9, 107, 207, 307]
+
+
+@pytest.mark.parametrize("role,kind", [("nodes", "node_prop"), ("edges", "edge_prop")])
+@pytest.mark.parametrize("value", [1, 9])
+def test_dense_nullable_scan_preserves_native_order_schema_and_ownership(role, kind, value, monkeypatch):
+    from graphistry.tests.compute.gfql.index.test_native_dense_property_scan import test_dense_integer_scan_preserves_schema_order_nulls_and_native_ownership
+    test_dense_integer_scan_preserves_schema_order_nulls_and_native_ownership(role, kind, True, value, monkeypatch)
