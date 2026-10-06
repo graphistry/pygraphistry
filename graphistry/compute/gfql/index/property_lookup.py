@@ -83,7 +83,7 @@ def property_candidate_positions(
     if best is None:
         return None
     column, index, values, count = best
-    use_index = policy == "force" or count < cost_gate_frac(engine) * len(frame)
+    use_index = policy == "force" or count < cost_gate_frac(engine, kind="node_prop" if role == "nodes" else "edge_prop") * len(frame)
     semantic_decline = False
     if use_index:
         if engine in POLARS_ENGINES:

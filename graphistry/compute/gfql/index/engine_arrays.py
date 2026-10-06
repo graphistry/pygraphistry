@@ -123,6 +123,13 @@ def take_rows(df: DataFrameT, positions: ArrayLike, engine: Engine) -> DataFrame
         else:
             result = df[idx]
         return cast(DataFrameT, result)
+    if engine == Engine.PANDAS:
+        import numpy as np
+        idx = np.asarray(positions)
+        if idx.ndim == 1 and idx.size == 1 and idx.dtype.kind in "iu":
+            position = int(idx[0])
+            if 0 <= position < len(df):
+                return cast(DataFrameT, df.iloc[position:position + 1].copy())
     # pandas / cudf: iloc accepts numpy (pandas) or cupy (cudf) int arrays
     return cast(DataFrameT, df.iloc[positions])
 
