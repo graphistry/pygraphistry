@@ -265,9 +265,24 @@ def filter_mask_by_dict(df: DataFrameT, filter_dict: Dict[str, Any], *, engine: 
 
 def _filter_property_candidates(
     original: DataFrameT, candidates: DataFrameT, filter_dict: Optional[dict], engine: Engine,
+    *, filter_validated: bool = False,
 ) -> DataFrameT:
     """Reuse an isolated pandas gather when its canonical residual accepts every row."""
     if engine == Engine.PANDAS and candidates is not original and filter_dict:
+        if isinstance(candidates, pd.DataFrame) and len(filter_dict) == 1:
+            import numpy as np
+            column, value = next(iter(filter_dict.items()))
+            if column in candidates.columns and type(value) in (int, float, bool, str):
+                series = candidates[column]
+                dtype = series.dtype
+                if isinstance(dtype, pd.CategoricalDtype) or isinstance(dtype, np.dtype) and dtype.kind in "iufbM":
+                    if not filter_validated:
+                        _prepare_filter_dict(candidates, filter_dict)
+                    # The native array owns scalar comparison semantics; avoid
+                    # wrapping an already isolated gather's mask in another Series.
+                    mask = np.asarray(series.array == value)
+                    if mask.dtype.kind == "b":
+                        return candidates if mask.all() else candidates[mask]
         hits = filter_mask_by_dict(candidates, filter_dict, engine=engine)
         # Nullable Boolean.all() ignores NA; sum counts only true rows.
         all_match = pd.api.types.is_bool_dtype(hits.dtype) and hits.sum() == len(hits)
@@ -285,7 +300,10 @@ def filter_nodes_by_dict(self: Plottable, filter_dict: Optional[dict] = None, en
     if nodes is not None:
         concrete_engine = resolve_engine(EngineAbstract(engine), nodes)
         candidates = property_candidate_frame(self, "nodes", nodes, filter_dict, concrete_engine)
-        nodes2 = _filter_property_candidates(nodes, candidates, filter_dict, concrete_engine)
+        nodes2 = _filter_property_candidates(
+            nodes, candidates, filter_dict, concrete_engine,
+            filter_validated=candidates is not nodes,
+        )
     else:
         nodes2 = filter_by_dict(nodes, filter_dict, engine)
     return self.nodes(nodes2)
@@ -301,7 +319,10 @@ def filter_edges_by_dict(self: Plottable, filter_dict: Optional[dict] = None, en
     if edges is not None:
         concrete_engine = resolve_engine(EngineAbstract(engine), edges)
         candidates = property_candidate_frame(self, "edges", edges, filter_dict, concrete_engine)
-        edges2 = _filter_property_candidates(edges, candidates, filter_dict, concrete_engine)
+        edges2 = _filter_property_candidates(
+            edges, candidates, filter_dict, concrete_engine,
+            filter_validated=candidates is not edges,
+        )
     else:
         edges2 = filter_by_dict(edges, filter_dict, engine)
     return self.edges(edges2)

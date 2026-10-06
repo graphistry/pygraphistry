@@ -216,3 +216,35 @@ def test_native_arrow_binary_is_not_coerced_to_string(large):
     nodes = pd.DataFrame({"id": [0, 1], "value": pd.Series([b"alice", b"bob"], dtype=dtype)})
     with pytest.raises(NotImplementedError):
         graphistry.nodes(nodes, "id").create_index("node_prop", column="value")
+
+
+@pytest.mark.parametrize("member", ["key1", "雪", "🦀", "", "absent"])
+def test_native_polars_scalar_dictionary_lookup_avoids_query_plans_and_text_export(member, monkeypatch):
+    from graphistry.compute.gfql.index.property_keys import property_query_values
+
+    pl = pytest.importorskip("polars")
+    values = [f"key{i}" for i in range(10000)] + ["雪", "🦀", "", "雪"]
+    frame = pl.DataFrame({"id": range(len(values)), "email": values})
+    original = frame.clone()
+    base = graphistry.nodes(frame, "id")
+    indexed = base.create_index("node_prop", column="email", engine="polars")
+    expected = base.filter_nodes_by_dict({"email": member}, engine="polars")._nodes
+    original_export = pl.Series.to_numpy
+
+    def bounded_export(series, *args, **kwargs):
+        assert series.dtype != pl.String or len(series) <= 8
+        return original_export(series, *args, **kwargs)
+
+    def forbidden_plan(*args, **kwargs):
+        raise AssertionError("Scalar dictionary metadata must not construct a query plan")
+
+    monkeypatch.setattr(pl.Series, "to_numpy", bounded_export)
+    with monkeypatch.context() as patch:
+        patch.setattr(pl.LazyFrame, "collect", forbidden_plan)
+        if hasattr(pl.LazyFrame, "_collect_eager"):
+            patch.setattr(pl.LazyFrame, "_collect_eager", forbidden_plan)
+        property_query_values(get_registry(indexed).node_props["email"], member, np)
+    result = indexed.filter_nodes_by_dict({"email": member}, engine="polars")._nodes
+    assert result.equals(expected)
+    result.replace_column(0, pl.Series("id", [999] * result.height, dtype=pl.Int64))
+    assert base._nodes.equals(original)
