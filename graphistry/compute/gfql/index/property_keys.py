@@ -85,7 +85,7 @@ def _float_query_values(index: NodePropIndex, members: Sequence[object], xp: Arr
         values = xp.asarray(members, dtype=index.keys_sorted.dtype)
     except (TypeError, ValueError, OverflowError):
         return None  # Canonical filtering owns incomparable/out-of-range query behavior.
-    return xp.unique(values)
+    return values if int(values.shape[0]) <= 1 else xp.unique(values)
 
 
 def is_categorical_property(frame: DataFrameT, column: str, engine: Engine) -> bool:
