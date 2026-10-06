@@ -283,8 +283,11 @@ def filter_nodes_by_dict(self: Plottable, filter_dict: Optional[dict] = None, en
 
     nodes = self._nodes
     if nodes is not None:
-        nodes = property_candidate_frame(self, "nodes", nodes, filter_dict, resolve_engine(EngineAbstract(engine), nodes))
-    nodes2 = filter_by_dict(nodes, filter_dict, engine)
+        concrete_engine = resolve_engine(EngineAbstract(engine), nodes)
+        candidates = property_candidate_frame(self, "nodes", nodes, filter_dict, concrete_engine)
+        nodes2 = _filter_property_candidates(nodes, candidates, filter_dict, concrete_engine)
+    else:
+        nodes2 = filter_by_dict(nodes, filter_dict, engine)
     return self.nodes(nodes2)
 
 

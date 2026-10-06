@@ -75,6 +75,12 @@ def _string_query_codes(index: NodePropIndex, members: Sequence[str], xp: ArrayN
         native_keys = cast(  # hygiene-ok: explicit-cast -- index.engine establishes the concrete type of the native stored dictionary
             "pl.Series", keys,
         )
+        if len(members) == 1:
+            value = members[0]
+            position = native_keys.search_sorted(value)
+            if position < size and native_keys.item(position) == value:
+                return xp.asarray([position], dtype=index.keys_sorted.dtype)
+            return xp.zeros(0, dtype=index.keys_sorted.dtype)
         values = pl.Series(members, dtype=pl.String)
         positions = xp.asarray(_values_to_codes_polars(native_keys, values))
         clipped = xp.minimum(positions, size - 1)
