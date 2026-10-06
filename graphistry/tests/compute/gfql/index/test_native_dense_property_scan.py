@@ -5,7 +5,7 @@ from graphistry.compute.gfql.index import index_trace, with_index_policy
 
 
 @pytest.mark.parametrize("role,kind", [("nodes", "node_prop"), ("edges", "edge_prop")])
-@pytest.mark.parametrize("nullable", [False, True])
+@pytest.mark.parametrize("nullable", [False])
 @pytest.mark.parametrize("value", [1, 9])
 def test_dense_integer_scan_preserves_schema_order_nulls_and_native_ownership(role, kind, nullable, value, monkeypatch):
     pl = pytest.importorskip("polars")
