@@ -20,7 +20,7 @@ def oracle(frame, filters):
     (pl.Int8, 8, True), (pl.Int16, 16, True), (pl.Int32, 32, True), (pl.Int64, 64, True),
     (pl.UInt8, 8, False), (pl.UInt16, 16, False), (pl.UInt32, 32, False), (pl.UInt64, 64, False),
 ])
-@pytest.mark.parametrize("height", [1, 2, 32, 33])
+@pytest.mark.parametrize("height", [1, 2, 32, 33, 1024, 1025])
 def test_integer_boundaries(dtype, bits, signed, height):
     low, high = (-(2 ** (bits - 1)), 2 ** (bits - 1) - 1) if signed else (0, 2**bits - 1)
     for actual in (None, low, high, 0, 1):
@@ -33,6 +33,59 @@ def test_integer_boundaries(dtype, bits, signed, height):
             if verified is not None:
                 assert_frame_equal(verified, oracle(frame, filters))
         assert_frame_equal(frame, original)
+
+
+@pytest.mark.parametrize("height", [1, 33, 1024, 1025])
+@pytest.mark.parametrize("kind", ["category", "enum", "float32", "float64", "ms", "us", "ns"])
+@pytest.mark.parametrize("pattern", ["all", "none", "partial", "nulls"])
+def test_typed_native_equality_preserves_expression_values_order_and_isolation(height, kind, pattern):
+    if kind in ("category", "enum"):
+        dtype = pl.Categorical if kind == "category" else pl.Enum(["雪", "other"])
+        hit, miss, expected = "雪", "other", "雪"
+    elif kind.startswith("float"):
+        dtype = pl.Float32 if kind == "float32" else pl.Float64
+        hit, miss, expected = 0.1, float("nan"), 0.1
+    else:
+        dtype = pl.Datetime(kind)
+        hit = {"ms": 1000, "us": 1000000, "ns": 1000000000}[kind]
+        miss = hit + 1
+        expected = "1970-01-01T00:00:01"
+    values = [
+        hit if pattern == "all" or pattern != "none" and index % 2 == 0
+        else None if pattern == "nulls" else miss
+        for index in range(height)
+    ]
+    column = pl.Series("v", values, dtype=pl.Int64).cast(dtype) if kind in ("ms", "us", "ns") else (
+        pl.Series("v", values, dtype=dtype)
+    )
+    frame = pl.DataFrame([column, pl.Series("order", range(height))])
+    original = frame.clone()
+    result = filter_by_dict_polars(frame, {"v": expected})
+    assert_frame_equal(result, oracle(frame, {"v": expected}))
+    result.replace_column(1, pl.Series("order", [999] * result.height, dtype=pl.Int64))
+    assert_frame_equal(frame, original)
+
+
+def test_typed_native_equality_preserves_later_schema_error_after_no_match():
+    from graphistry.compute.exceptions import GFQLSchemaError
+
+    frame = pl.DataFrame({"v": [0.1] * 33, "s": ["text"] * 33})
+    filters = {"v": 2.0, "s": 123}
+    with pytest.raises(GFQLSchemaError) as expected:
+        oracle(frame, filters)
+    with pytest.raises(GFQLSchemaError) as actual:
+        filter_by_dict_polars(frame, filters)
+    assert actual.value.code == expected.value.code
+    assert actual.value.context == expected.value.context
+
+
+def test_gpu_target_declines_native_typed_series_comparison(monkeypatch):
+    frame = pl.DataFrame({"v": [0.1] * 33})
+    def forbidden(*args, **kwargs):
+        raise AssertionError("GPU target must retain canonical expression execution")
+    monkeypatch.setattr(pl.Series, "__eq__", forbidden)
+    with target_mode(ExecutionTarget.GPU):
+        assert_frame_equal(filter_by_dict_polars(frame, {"v": 0.1}), oracle(frame, {"v": 0.1}))
 
 
 @pytest.mark.parametrize("dtype,value,expected", [
