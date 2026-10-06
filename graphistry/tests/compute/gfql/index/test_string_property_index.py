@@ -154,6 +154,25 @@ def test_missing_business_key_preserves_temporal_residual(engine, surface):
             assert list(actual_frame.dtypes) == list(expected_frame.dtypes)
 
 
+@pytest.mark.parametrize("email", ["missing", "alice@example.test"])
+def test_unfiltered_temporal_column_keeps_string_index_engaged(engine, email):
+    from datetime import datetime
+    from graphistry.compute.gfql.index.api import with_index_policy
+
+    base = graph(engine)
+    if engine in ("polars", "polars-gpu"):
+        import polars as pl
+        nodes = base._nodes.with_columns(pl.lit(datetime(2026, 1, 1)).alias("unrelated_time"))
+    else:
+        nodes = base._nodes.assign(unrelated_time=datetime(2026, 1, 1))
+    indexed = base.nodes(nodes).create_index("node_prop", column="email", engine=engine)
+    with index_trace() as steps:
+        actual = indexed.filter_nodes_by_dict({"email": email}, engine=engine)
+    reference = with_index_policy(indexed, "off").filter_nodes_by_dict({"email": email}, engine=engine)
+    assert frame_records(actual._nodes) == frame_records(reference._nodes)
+    assert any(s.get("decision_code") == "index_selected" for s in steps)
+
+
 @pytest.mark.parametrize("dtype", ["string[pyarrow]", "arrow-string", "arrow-large-string"])
 def test_arrow_key_queries_do_not_export_whole_columns(dtype, monkeypatch):
     indexed = graph("pandas", dtype).create_index("node_prop", column="email")
