@@ -96,3 +96,20 @@ def test_dense_rebound_index_and_gpu_target_decline_native_scan(monkeypatch):
     assert_frame_equal(rebound.filter_edges_by_dict({"v": 1}, engine="polars")._edges, changed)
     with target_mode(ExecutionTarget.GPU):
         assert not filters._supports_native_property_scalar(base._edges, "v", 1)
+
+
+@pytest.mark.parametrize("count", [1, 3, 33])
+@pytest.mark.parametrize("value", [0, 99])
+def test_singleton_dictionary_small_frame_cost_decline_preserves_scan(count, value, monkeypatch):
+    pl = pytest.importorskip("polars")
+    from polars.testing import assert_frame_equal
+    monkeypatch.setenv("GFQL_INDEX_COST_GATE_FRAC_POLARS", "0.001")
+    frame = pl.DataFrame({"id": range(count), "v": range(count)})
+    original = frame.clone()
+    base = graphistry.edges(frame, "id", "id")
+    indexed = base.create_index("edge_prop", column="v", engine="polars")
+    for policy in ("off", "use", "force"):
+        actual = with_index_policy(indexed, policy).filter_edges_by_dict({"v": value}, engine="polars")._edges
+        expected = base.filter_edges_by_dict({"v": value}, engine="polars")._edges
+        assert_frame_equal(actual, expected)
+    assert_frame_equal(frame, original)

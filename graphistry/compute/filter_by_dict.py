@@ -326,12 +326,17 @@ def _filter_property_candidates(
                 dtype = series.dtype
                 if filter_validated and type(value) is int and isinstance(dtype, np.dtype) and dtype.kind in "iu":
                     return candidates
-                if isinstance(dtype, pd.CategoricalDtype) or isinstance(dtype, np.dtype) and dtype.kind in "iufbM":
+                native_string_residual = filter_validated and type(value) is str and pd.api.types.is_string_dtype(dtype)
+                if (isinstance(dtype, pd.CategoricalDtype)
+                        or isinstance(dtype, np.dtype) and dtype.kind in "iufbM"
+                        or native_string_residual):
                     if not filter_validated:
                         _prepare_filter_dict(candidates, filter_dict)
                     # The native array owns scalar comparison semantics; avoid
                     # wrapping an already isolated gather's mask in another Series.
-                    mask = np.asarray(series.array == value)
+                    comparison = series.array == value
+                    mask = (comparison.to_numpy(dtype=bool, na_value=False)
+                            if isinstance(comparison, pd.arrays.BooleanArray) else np.asarray(comparison))
                     if mask.dtype.kind == "b":
                         return candidates if mask.all() else candidates[mask]
         hits = filter_mask_by_dict(candidates, filter_dict, engine=engine)
