@@ -120,6 +120,16 @@ def take_rows(df: DataFrameT, positions: ArrayLike, engine: Engine) -> DataFrame
                     result = df[idx]
             else:
                 result = df[idx]
+        elif (
+            engine == Engine.POLARS and idx.ndim == 1 and 9 <= idx.size <= 1024
+            and idx.dtype.kind in "iu" and df.width <= 32
+            and int(idx.min()) >= 0 and int(idx.max()) < min(len(df), 2**32)
+        ):
+            import polars as pl
+            # Shared bounded position metadata; native column gathers avoid
+            # scheduling a parallel whole-frame gather for a small result.
+            native_idx = pl.Series(idx.astype(np.uint32, copy=False))
+            result = pl.DataFrame([column[native_idx] for column in df.iter_columns()])
         else:
             result = df[idx]
         return cast(DataFrameT, result)
