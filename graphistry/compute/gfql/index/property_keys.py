@@ -184,7 +184,10 @@ def _timestamp_query_values(
         if isinstance(value, pd.Timestamp) and value.nanosecond:
             return None  # Polars literal precision differs across supported versions.
         try:
-            encoded = pl.select(pl.lit(value).cast(native_dtype).to_physical()).to_series().to_numpy()
+            if isinstance(value, datetime) and value.tzinfo is None and native_dtype.time_zone is None:
+                encoded = pl.Series([value], dtype=native_dtype).cast(pl.Int64).to_numpy()
+            else:
+                encoded = pl.select(pl.lit(value).cast(native_dtype).to_physical()).to_series().to_numpy()
         except (TypeError, ValueError, pl.exceptions.PolarsError):
             return None  # No comparable native literal; canonical filter owns errors.
         return xp.asarray(encoded)
@@ -244,6 +247,12 @@ def _string_query_codes(index: NodePropIndex, members: Sequence[str], xp: ArrayN
         native_keys = cast(  # hygiene-ok: explicit-cast -- index.engine establishes the concrete type of the native stored dictionary
             "pl.Series", keys,
         )
+        if len(members) == 1:
+            value = members[0]
+            position = native_keys.search_sorted(value)
+            if position < size and native_keys.item(position) == value:
+                return xp.asarray([position], dtype=index.keys_sorted.dtype)
+            return xp.zeros(0, dtype=index.keys_sorted.dtype)
         values = pl.Series(members, dtype=pl.String)
         positions = xp.asarray(_values_to_codes_polars(native_keys, values))
         clipped = xp.minimum(positions, size - 1)
@@ -282,6 +291,14 @@ def property_query_values(index: NodePropIndex, predicate: object, xp: ArrayName
         }
         if len(kinds) != 1:
             return None  # Native Index inference can coerce mixed keys or reject them.
+        if index.engine == Engine.PANDAS and type(index.category_keys) is pd.Index and kinds == {"str"} and len(members) == 1:
+            # Unique plain category labels have exact scalar lookup semantics.
+            # Specialized Index types can parse string keys or return partial slices.
+            try:
+                position = index.category_keys.get_loc(members[0])
+            except KeyError:
+                return xp.zeros(0, dtype=index.keys_sorted.dtype)
+            return xp.asarray([position], dtype=index.keys_sorted.dtype)
         if index.engine == Engine.CUDF:
             if kinds == {"int"} and any(int(v) < 0 for v in members if isinstance(v, Integral)) and any(
                 int(v) > np.iinfo(np.int64).max for v in members if isinstance(v, Integral)

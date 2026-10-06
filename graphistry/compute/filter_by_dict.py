@@ -1,7 +1,7 @@
 from typing import Any, Dict, Mapping, Optional, Tuple, Union, cast
 import pandas as pd
 
-from graphistry.Engine import EngineAbstract, POLARS_ENGINES, df_to_engine, resolve_engine
+from graphistry.Engine import Engine, EngineAbstract, POLARS_ENGINES, df_to_engine, resolve_engine, s_cons
 from graphistry.util import setup_logger
 
 from graphistry.Plottable import Plottable
@@ -137,7 +137,7 @@ def filter_by_dict(df: DataFrameT, filter_dict: Optional[dict] = None, engine: U
         from graphistry.compute.gfql.lazy.engine.polars.predicates import filter_by_dict_polars
         return filter_by_dict_polars(df, filter_dict)  # mask path below is pandas/cuDF-idiom (#1882)
 
-    hits = filter_mask_by_dict(df, filter_dict)
+    hits = filter_mask_by_dict(df, filter_dict, engine=engine_concrete)
     return df[hits]
 
 
@@ -222,7 +222,7 @@ def _prepare_filter_dict(
     return predicates, concrete_filters, absent_never_matches
 
 
-def filter_mask_by_dict(df: DataFrameT, filter_dict: Dict[str, Any]) -> SeriesT:  # hygiene-ok: explicit-any -- filter values are heterogeneous by contract (scalars, lists, ASTPredicate)
+def filter_mask_by_dict(df: DataFrameT, filter_dict: Dict[str, Any], *, engine: Optional[Engine] = None) -> SeriesT:  # hygiene-ok: explicit-any -- filter values are heterogeneous by contract (scalars, lists, ASTPredicate)
     """Boolean row mask ``filter_by_dict`` would apply to an already engine-native
     ``df`` — same column resolution, same typed validation errors, same 3VL
     membership semantics. Exposed so callers that read only a column subset can
@@ -231,25 +231,48 @@ def filter_mask_by_dict(df: DataFrameT, filter_dict: Dict[str, Any]) -> SeriesT:
     """
     predicates, concrete_filters, absent_never_matches = _prepare_filter_dict(df, filter_dict)
 
-    hits = df[[]].assign(x=False if absent_never_matches else True).x
+    engine = resolve_engine(EngineAbstract.AUTO, df) if engine is None else engine
+    native_pandas = engine == Engine.PANDAS and isinstance(df, pd.DataFrame)
+    def initial_mask(value: bool) -> SeriesT:
+        if native_pandas or engine == Engine.CUDF:
+            return s_cons(engine)(value, index=df.index, name="x", dtype="bool")
+        return df[[]].assign(x=value).x
+
     if absent_never_matches:
-        return hits
+        return initial_mask(False)
+    # Reuse the first native pandas comparison instead of allocating and ANDing True.
+    hits = None if native_pandas else initial_mask(True)
     if concrete_filters:
         for original_col, (resolved_col, resolved_val) in concrete_filters.items():
             if original_col.startswith("label__") and resolved_col == "labels" and isinstance(resolved_val, str):
-                hits = hits & _label_series_contains(df[resolved_col], resolved_val)
+                mask = _label_series_contains(df[resolved_col], resolved_val)
             elif _is_membership_filter_value(resolved_val):
                 # openCypher/SQL 3VL: `null IN [...]` is null -> a NULL cell is NOT a member (and a
                 # NULL in the list cannot make a null cell match). `& notna()` excludes null cells —
                 # a no-op for pandas (its isin already excludes a NaN cell here) but fixes cuDF, which
                 # otherwise matches a null cell against a None/NaN list element.
-                hits = hits & df[resolved_col].isin(list(resolved_val)) & df[resolved_col].notna()
+                mask = df[resolved_col].isin(list(resolved_val)) & df[resolved_col].notna()
             else:
-                hits = hits & (df[resolved_col] == resolved_val)
+                mask = df[resolved_col] == resolved_val
+            hits = mask.rename("x" if mask.name == "x" else None, copy=False) if hits is None else hits & mask
     if predicates:
         for resolved_col, op in predicates.values():
+            if hits is None:
+                hits = initial_mask(True)
             hits = hits & op(df[resolved_col])
-    return hits
+    return initial_mask(True) if hits is None else hits
+
+
+def _filter_property_candidates(
+    original: DataFrameT, candidates: DataFrameT, filter_dict: Optional[dict], engine: Engine,
+) -> DataFrameT:
+    """Reuse an isolated pandas gather when its canonical residual accepts every row."""
+    if engine == Engine.PANDAS and candidates is not original and filter_dict:
+        hits = filter_mask_by_dict(candidates, filter_dict, engine=engine)
+        # Nullable Boolean.all() ignores NA; sum counts only true rows.
+        all_match = pd.api.types.is_bool_dtype(hits.dtype) and hits.sum() == len(hits)
+        return candidates if all_match else candidates[hits]
+    return filter_by_dict(candidates, filter_dict, engine.value)
 
 
 def filter_nodes_by_dict(self: Plottable, filter_dict: Optional[dict] = None, engine: Union[EngineAbstract, str] = EngineAbstract.AUTO) -> Plottable:
@@ -260,8 +283,11 @@ def filter_nodes_by_dict(self: Plottable, filter_dict: Optional[dict] = None, en
 
     nodes = self._nodes
     if nodes is not None:
-        nodes = property_candidate_frame(self, "nodes", nodes, filter_dict, resolve_engine(EngineAbstract(engine), nodes))
-    nodes2 = filter_by_dict(nodes, filter_dict, engine)
+        concrete_engine = resolve_engine(EngineAbstract(engine), nodes)
+        candidates = property_candidate_frame(self, "nodes", nodes, filter_dict, concrete_engine)
+        nodes2 = _filter_property_candidates(nodes, candidates, filter_dict, concrete_engine)
+    else:
+        nodes2 = filter_by_dict(nodes, filter_dict, engine)
     return self.nodes(nodes2)
 
 
@@ -273,8 +299,11 @@ def filter_edges_by_dict(self: Plottable, filter_dict: Optional[dict] = None, en
 
     edges = self._edges
     if edges is not None:
-        edges = property_candidate_frame(self, "edges", edges, filter_dict, resolve_engine(EngineAbstract(engine), edges))
-    edges2 = filter_by_dict(edges, filter_dict, engine)
+        concrete_engine = resolve_engine(EngineAbstract(engine), edges)
+        candidates = property_candidate_frame(self, "edges", edges, filter_dict, concrete_engine)
+        edges2 = _filter_property_candidates(edges, candidates, filter_dict, concrete_engine)
+    else:
+        edges2 = filter_by_dict(edges, filter_dict, engine)
     return self.edges(edges2)
 
 

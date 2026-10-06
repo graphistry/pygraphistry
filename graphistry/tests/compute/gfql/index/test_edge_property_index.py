@@ -122,6 +122,53 @@ def test_force_bypasses_cost_and_off_bypasses_lookup(engine):
     assert any(s.get("op") == "property_lookup" and s.get("decision_code") == "scan_cost" for s in use["steps"])
 
 
+def test_dense_numeric_property_declines_and_respects_explicit_cost_override(engine):
+    from graphistry.compute.gfql.index import reset_cost_gate_frac, set_cost_gate_frac
+    from graphistry.compute.gfql.index.api import with_index_policy
+
+    indexed = graph(engine, np.arange(400) % 4).create_index("edge_prop", column="txn", engine=engine)
+    original = frame_records(indexed._edges)
+    expected = [row for row in original if row["txn"] == 1]
+    with index_trace() as steps:
+        result = indexed.filter_edges_by_dict({"txn": 1}, engine=engine)
+    assert frame_records(result._edges) == expected
+    assert any(step.get("decision_code") == "scan_cost" for step in steps)
+    assert not any(step.get("path") == "index" for step in steps)
+    for policy in ("off", "force"):
+        actual = with_index_policy(indexed, policy).filter_edges_by_dict({"txn": 1}, engine=engine)
+        assert frame_records(actual._edges) == expected
+    try:
+        set_cost_gate_frac(Engine(engine), 0.5)
+        with index_trace() as tuned:
+            actual = indexed.filter_edges_by_dict({"txn": 1}, engine=engine)
+        assert frame_records(actual._edges) == expected
+        assert any(step.get("path") == "index" for step in tuned)
+    finally:
+        reset_cost_gate_frac(Engine(engine))
+    assert frame_records(indexed._edges) == original
+
+
+@pytest.mark.parametrize("engine", ["pandas", "cudf"], indirect=True)
+def test_nullable_residual_membership_preserves_duplicate_named_row_index(engine):
+    from graphistry.compute.gfql.index.api import with_index_policy
+
+    frame = pd.DataFrame({
+        "id": range(6), "v": pd.array([1, None, 2, 1, 1, 2], dtype="Int64"),
+        "keep": pd.array([False, True, True, None, True, True], dtype="boolean"),
+    }, index=pd.Index([4, 4, 9, 1, 1, 2], name="row_key"))
+    original = graphistry.nodes(df_to_engine(frame, Engine(engine)), "id")
+    indexed = original.create_index("node_prop", column="id", engine=engine)
+    filters = {"id": is_in([0, 1, 3, 4]), "v": is_in([1, None]), "keep": True}
+    for policy in ("off", "use", "force"):
+        result = with_index_policy(indexed, policy).filter_nodes_by_dict(filters, engine=engine)
+        assert [row["id"] for row in frame_records(result._nodes)] == [4]
+        if engine in ("pandas", "cudf"):
+            index = result._nodes.index if engine == "pandas" else result._nodes.index.to_pandas()
+            assert index.name == "row_key"
+            assert index.tolist() == [1]
+    assert [row["id"] for row in frame_records(original._nodes)] == list(range(6))
+
+
 def test_multihop_edge_identity_does_not_reuse_one_relationship(engine):
     # The property index gathers edge 0 in one hop and edge 1 in the next. Both
     # would get local row position 0 if identities were assigned AFTER gathering.
