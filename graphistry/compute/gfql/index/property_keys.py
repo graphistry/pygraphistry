@@ -1,6 +1,7 @@
 """Native property dictionaries and conservative query-key preparation."""
 from __future__ import annotations
 
+from bisect import bisect_left
 from datetime import datetime
 from numbers import Integral, Real
 from typing import TYPE_CHECKING, Mapping, Optional, Sequence, Tuple, cast
@@ -85,7 +86,7 @@ def _float_query_values(index: NodePropIndex, members: Sequence[object], xp: Arr
         values = xp.asarray(members, dtype=index.keys_sorted.dtype)
     except (TypeError, ValueError, OverflowError):
         return None  # Canonical filtering owns incomparable/out-of-range query behavior.
-    return xp.unique(values)
+    return values if int(values.shape[0]) <= 1 else xp.unique(values)
 
 
 def is_categorical_property(frame: DataFrameT, column: str, engine: Engine) -> bool:
@@ -245,11 +246,17 @@ def _timestamp_query_values(
         if isinstance(value, pd.Timestamp) and value.nanosecond:
             return None  # Polars literal precision differs across supported versions.
         try:
-            if isinstance(value, datetime) and value.tzinfo is None and native_dtype.time_zone is None:
-                encoded = pl.Series([value], dtype=native_dtype).cast(pl.Int64).to_numpy()
+            if type(value) is datetime and value.tzinfo is None and native_dtype.time_zone is None:
+                # Bounded literal metadata: avoid planning a one-row temporal cast.
+                delta = value - datetime(1970, 1, 1)
+                microseconds = (delta.days * 86400 + delta.seconds) * 1000000 + delta.microseconds
+                ticks = microseconds * 1000 if native_dtype.time_unit == "ns" else (
+                    microseconds // 1000 if native_dtype.time_unit == "ms" else microseconds
+                )
+                return xp.asarray([ticks], dtype=xp.int64)
             else:
                 encoded = pl.select(pl.lit(value).cast(native_dtype).to_physical()).to_series().to_numpy()
-        except (TypeError, ValueError, pl.exceptions.PolarsError):
+        except (TypeError, ValueError, OverflowError, pl.exceptions.PolarsError):
             return None  # No comparable native literal; canonical filter owns errors.
         return xp.asarray(encoded)
     if isinstance(dtype, pd.ArrowDtype):
@@ -310,7 +317,9 @@ def _string_query_codes(index: NodePropIndex, members: Sequence[str], xp: ArrayN
         )
         if len(members) == 1:
             value = members[0]
-            position = native_keys.search_sorted(value)
+            # O(log dictionary) public native scalar reads; no source rows/export
+            # or eager query plan for a single bounded text literal.
+            position = bisect_left(native_keys, value)
             if position < size and native_keys.item(position) == value:
                 return xp.asarray([position], dtype=index.keys_sorted.dtype)
             return xp.zeros(0, dtype=index.keys_sorted.dtype)
@@ -381,7 +390,8 @@ def property_query_values(index: NodePropIndex, predicate: object, xp: ArrayName
     if not all(isinstance(value, Integral) and not isinstance(value, bool) for value in members):
         return None
     bounds = np.iinfo(index.keys_sorted.dtype)
-    return xp.unique(xp.asarray(
+    values = xp.asarray(
         [int(value) for value in members if isinstance(value, Integral) and bounds.min <= int(value) <= bounds.max],
         dtype=index.keys_sorted.dtype,
-    ))
+    )
+    return values if int(values.shape[0]) <= 1 else xp.unique(values)
