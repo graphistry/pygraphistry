@@ -341,3 +341,32 @@ def test_native_polars_scalar_dictionary_lookup_avoids_query_plans_and_text_expo
     assert result.equals(expected)
     result.replace_column(0, pl.Series("id", [999] * result.height, dtype=pl.Int64))
     assert base._nodes.equals(original)
+
+
+@pytest.mark.parametrize("count,large,eligible", [(1000, False, True), (1024, False, True), (1025, False, False), (4, True, False)])
+def test_bounded_text_dictionary_preserves_lookup_memory_and_immutability(count, large, eligible):
+    pl = pytest.importorskip("polars")
+    from polars.testing import assert_frame_equal
+    from graphistry.compute.gfql.index.registry import index_nbytes
+    from dataclasses import replace
+    values = [("用户🙂" * 10000 if large else "é用户🙂") + str(i) for i in range(count)]
+    base = graphistry.nodes(pl.DataFrame({"id": range(count), "v": values}), "id")
+    indexed = base.create_index("node_prop", column="v", engine="polars")
+    index = get_registry(indexed).node_props["v"]
+    assert (index.string_key_positions is not None) == eligible
+    if eligible:
+        assert index.string_key_positions_bytes > 0
+        assert index_nbytes(index) - index_nbytes(replace(index, string_key_positions=None, string_key_positions_bytes=0)) == index.string_key_positions_bytes
+        with pytest.raises(TypeError):
+            index.string_key_positions["injected"] = 0
+    else:
+        assert index.string_key_positions_bytes == 0
+    for value in [values[0], values[-1], "missing", [values[-1], values[0], values[0]]]:
+        assert_frame_equal(indexed.filter_nodes_by_dict({"v": value}, engine="polars")._nodes,
+                           base.filter_nodes_by_dict({"v": value}, engine="polars")._nodes)
+
+
+@pytest.mark.parametrize("value", [1, 9])
+def test_dense_direct_node_scan_retains_native_schema_and_ownership(value, monkeypatch):
+    from graphistry.tests.compute.gfql.index.test_native_dense_property_scan import test_dense_integer_scan_preserves_schema_order_nulls_and_native_ownership
+    test_dense_integer_scan_preserves_schema_order_nulls_and_native_ownership("nodes", "node_prop", False, value, monkeypatch)

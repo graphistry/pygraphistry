@@ -108,6 +108,8 @@ class NodePropIndex:
     n_keys: int = 0
     name: Optional[str] = None
     min_group_count: int = 0  # smallest stored CSR bucket; zero for empty/legacy indexes
+    string_key_positions: Optional[Mapping[str, int]] = field(compare=False, default=None)
+    string_key_positions_bytes: int = 0
 
 
 ColStatsRole = Literal["nodes", "edges"]
@@ -592,6 +594,8 @@ def index_nbytes(
             total += int(native_keys.estimated_size())
         else:
             total += int(idx.string_keys.memory_usage(index=False, deep=True))
+    if isinstance(idx, NodePropIndex):
+        total += idx.string_key_positions_bytes
     if isinstance(idx, NodePropIndex) and idx.category_keys is not None:
         total += int(idx.category_keys.memory_usage(deep=True))
     return total
