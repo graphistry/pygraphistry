@@ -387,3 +387,72 @@ def test_polars_empty_temporal_guard_resolves_label_alias_and_warns_once():
         assert len(warnings) == 1
         assert result._edges.height == 0
         assert result._edges.schema == edges.schema
+
+
+@pytest.mark.parametrize("kind,role", [("node_prop", "nodes"), ("edge_prop", "edges")])
+@pytest.mark.parametrize("value", [1, 999, 2**65, True, 1.0, "bad", is_in([1, 2])])
+def test_dense_polars_property_decline_keeps_canonical_values_errors_without_probe(kind, role, value, monkeypatch):
+    from graphistry.compute.exceptions import GFQLSchemaError
+    from graphistry.compute.gfql.index import property_lookup, with_index_policy
+
+    pl = pytest.importorskip("polars")
+    frame = pl.DataFrame({"id": range(400), "s": range(400), "d": range(400), "v": np.arange(400) % 4})
+    base = graphistry.nodes(frame, "id").edges(frame, "s", "d")
+    indexed = base.create_index(kind, column="v", engine="polars")
+    index = get_registry(indexed).property_indexes(role)["v"]
+    assert index.min_group_count == 100
+    method = "filter_" + role + "_by_dict"
+    filters = {"v": value}
+    try:
+        expected = getattr(getattr(base, method)(filters, engine="polars"), "_" + role)
+    except (GFQLSchemaError, pl.exceptions.PolarsError, TypeError, ValueError, OverflowError) as error:
+        expected = error
+
+    def unnecessary_probe(*args, **kwargs):
+        pytest.fail("Every stored bucket exceeds the crossover; an untraced scan needs no probe")
+
+    with monkeypatch.context() as patch:
+        patch.setattr(property_lookup, "prop_match_count", unnecessary_probe)
+        if isinstance(expected, Exception):
+            with pytest.raises(type(expected)) as actual:
+                getattr(with_index_policy(indexed, "use"), method)(filters, engine="polars")
+            assert getattr(actual.value, "code", None) == getattr(expected, "code", None)
+            assert getattr(actual.value, "context", None) == getattr(expected, "context", None)
+        else:
+            actual = getattr(getattr(indexed, method)(filters, engine="polars"), "_" + role)
+            from polars.testing import assert_frame_equal
+            assert_frame_equal(actual, expected)
+    assert frame.equals(base._nodes) and base._nodes is indexed._nodes
+
+
+@pytest.mark.parametrize("value,count,path", [(1, 100, "scan"), (999, 0, "index")])
+def test_dense_polars_trace_still_costs_requested_key(value, count, path):
+    indexed = graph("polars", np.arange(400) % 4).create_index("edge_prop", column="txn", engine="polars")
+    with index_trace() as steps:
+        out = indexed.filter_edges_by_dict({"txn": value}, engine="polars")
+    assert len(out._edges) == count
+    assert any(s.get("op") == "property_lookup" and s["path"] == path and s["est_result_rows"] == count for s in steps)
+
+
+def test_dense_polars_minimum_bucket_respects_skew_force_and_explicit_override(monkeypatch):
+    from graphistry.compute.gfql.index import set_cost_gate_frac, reset_cost_gate_frac, with_index_policy
+
+    values = np.zeros(400, dtype=np.int64)
+    values[7] = 99
+    rare = graph("polars", values).create_index("edge_prop", column="txn", engine="polars")
+    assert get_registry(rare).edge_props["txn"].min_group_count == 1
+    with index_trace() as steps:
+        assert len(rare.filter_edges_by_dict({"txn": 99}, engine="polars")._edges) == 1
+    assert any(s.get("path") == "index" for s in steps)
+    dense = graph("polars", np.arange(400) % 4).create_index("edge_prop", column="txn", engine="polars")
+    try:
+        set_cost_gate_frac(Engine.POLARS, 0.5)
+        with index_trace() as steps:
+            assert len(dense.filter_edges_by_dict({"txn": 1}, engine="polars")._edges) == 100
+        assert any(s.get("path") == "index" for s in steps)
+    finally:
+        reset_cost_gate_frac(Engine.POLARS)
+    monkeypatch.setenv("GFQL_INDEX_COST_GATE_FRAC_POLARS", "invalid")
+    assert len(with_index_policy(dense, "force").filter_edges_by_dict({"txn": 1}, engine="polars")._edges) == 100
+    # Unencodable predicates keep canonical filtering before cost configuration.
+    assert len(dense.filter_edges_by_dict({"txn": True}, engine="polars")._edges) == 100
