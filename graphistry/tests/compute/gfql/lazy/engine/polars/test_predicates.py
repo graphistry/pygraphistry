@@ -35,7 +35,7 @@ def test_integer_boundaries(dtype, bits, signed, height):
         assert_frame_equal(frame, original)
 
 
-@pytest.mark.parametrize("height", [1, 33, 1024, 1025])
+@pytest.mark.parametrize("height", [1, 33, 1024, 1025, 100000])
 @pytest.mark.parametrize("kind", ["category", "enum", "float32", "float64", "ms", "us", "ns"])
 @pytest.mark.parametrize("pattern", ["all", "none", "partial", "nulls"])
 def test_typed_native_equality_preserves_expression_values_order_and_isolation(height, kind, pattern):
@@ -218,3 +218,27 @@ def test_small_filter_intersects_multiple_supported_predicates(reverse):
     assert actual is not None
     assert actual.get_column("order").to_list() == [0, 3]
     assert_frame_equal(actual, oracle(frame, filters))
+
+
+@pytest.mark.parametrize("height", [33, 1024])
+@pytest.mark.parametrize("dtype,hit,miss", [
+    (pl.Int64, 1, 2), (pl.Float64, 0.25, 0.5), (pl.Categorical, "雪", "other"),
+])
+def test_native_partial_nullable_scalar_filter_preserves_values_without_planning(height, dtype, hit, miss, monkeypatch):
+    values = [hit if i % 3 == 0 else None if i % 3 == 1 else miss for i in range(height)]
+    frame = pl.DataFrame({"v": pl.Series(values, dtype=dtype), "order": range(height)})
+    expected = oracle(frame, {"v": hit})
+    original = frame.clone()
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("Native scalar filtering must not plan or export source columns")
+
+    with monkeypatch.context() as patch:
+        patch.setattr(pl.LazyFrame, "collect", forbidden)
+        if hasattr(pl.LazyFrame, "_collect_eager"):
+            patch.setattr(pl.LazyFrame, "_collect_eager", forbidden)
+        patch.setattr(pl.Series, "to_numpy", forbidden)
+        result = filter_by_dict_polars(frame, {"v": hit})
+    assert_frame_equal(result, expected)
+    result.replace_column(1, pl.Series("order", [999] * result.height, dtype=pl.Int64))
+    assert_frame_equal(frame, original)
