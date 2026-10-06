@@ -86,6 +86,7 @@ def property_candidate_positions_from_registry(
         return None
     xp, _ = array_namespace(engine)
     best: Optional[Tuple[str, NodePropIndex, ArrayLike, int]] = None
+    single_polars_threshold: Optional[float] = None
     for column in sorted(indexes):
         if column not in filter_dict:
             continue
@@ -95,6 +96,15 @@ def property_candidate_positions_from_registry(
         values = property_query_values(index, filter_dict[column], xp)
         if values is None:
             continue
+        if engine == Engine.POLARS and len(filter_dict) == 1 and policy != "force":
+            # Polars uses the same crossover for every property encoding. If
+            # even the smallest bucket is dense, canonical scanning avoids a
+            # redundant probe. Tracing still costs the actual requested key;
+            # force and multi-predicate selection keep their existing behavior.
+            single_polars_threshold = cost_gate_frac(engine) * len(frame)
+            if (index.min_group_count > 0
+                    and index.min_group_count >= single_polars_threshold and not _trace_active()):
+                return None
         count = prop_match_count(index, values, xp)
         if best is None or count < best[3]:
             best = column, index, values, count
@@ -107,7 +117,10 @@ def property_candidate_positions_from_registry(
     column, index, values, count = best
     # Native text scans remain expensive; encoded masks have a lower crossover.
     cost_kind = None if index.string_keys is not None else index_kind
-    use_index = policy == "force" or count < cost_gate_frac(engine, kind=cost_kind) * len(frame)
+    use_index = policy == "force" or count < (
+        single_polars_threshold if single_polars_threshold is not None
+        else cost_gate_frac(engine, kind=cost_kind) * len(frame)
+    )
     semantic_decline = False
     if use_index:
         if engine in POLARS_ENGINES:
