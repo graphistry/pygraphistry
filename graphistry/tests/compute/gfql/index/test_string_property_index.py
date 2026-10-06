@@ -10,6 +10,99 @@ from graphistry.compute.gfql.index import get_registry, index_trace
 from graphistry.tests.compute.gfql.index.test_edge_property_index import frame_records
 
 
+@pytest.mark.parametrize("kind,role", [("node_prop", "nodes"), ("edge_prop", "edges")])
+@pytest.mark.parametrize("value", ["key1", "missing", "\ud800"])
+def test_dense_native_text_scan_retains_outputs_errors_and_source_without_encoding(kind, role, value, monkeypatch):
+    from graphistry.compute.exceptions import GFQLSchemaError
+    from graphistry.compute.gfql.index import property_keys
+    pl = pytest.importorskip("polars")
+    from polars.testing import assert_frame_equal
+    frame = pl.DataFrame({"id": range(400), "s": range(400), "d": range(400),
+                          "v": ["key" + str(i % 4) for i in range(400)]})
+    base = graphistry.nodes(frame, "id").edges(frame, "s", "d")
+    indexed = base.create_index(kind, column="v", engine="polars")
+    nodes, edges = base._nodes.clone(), base._edges.clone()
+    method = "filter_" + role + "_by_dict"
+    try:
+        expected = getattr(getattr(base, method)({"v": value}, engine="polars"), "_" + role)
+    except (GFQLSchemaError, pl.exceptions.PolarsError, TypeError, ValueError, UnicodeError) as error:
+        expected = error
+
+    def redundant_encoding(*args, **kwargs):
+        pytest.fail("A proven dense native text scan needs no dictionary probe")
+
+    with monkeypatch.context() as patch:
+        patch.setattr(property_keys, "_string_query_codes", redundant_encoding)
+        if isinstance(expected, Exception):
+            with pytest.raises(type(expected)) as actual:
+                getattr(indexed, method)({"v": value}, engine="polars")
+            assert getattr(actual.value, "code", None) == getattr(expected, "code", None)
+            assert getattr(actual.value, "context", None) == getattr(expected, "context", None)
+        else:
+            actual = getattr(getattr(indexed, method)({"v": value}, engine="polars"), "_" + role)
+            assert_frame_equal(actual, expected)
+            if actual.height:
+                actual.replace_column(0, pl.Series("id", [999] * actual.height, dtype=pl.Int64))
+    assert_frame_equal(base._nodes, nodes)
+    assert_frame_equal(base._edges, edges)
+
+
+@pytest.mark.parametrize("value", [True, 7, 1.0, ["key1"]])
+def test_dense_native_text_preserves_unsupported_admission_before_invalid_cost(value, monkeypatch):
+    from graphistry.compute.exceptions import GFQLSchemaError
+
+    pl = pytest.importorskip("polars")
+    frame = pl.DataFrame({"id": range(400), "v": ["key" + str(i % 4) for i in range(400)]})
+    base = graphistry.nodes(frame, "id")
+    indexed = base.create_index("node_prop", column="v", engine="polars")
+    monkeypatch.setenv("GFQL_INDEX_COST_GATE_FRAC_POLARS", "invalid")
+    if isinstance(value, list):
+        # Supported membership still reaches the same cost configuration.
+        with pytest.raises(ValueError):
+            indexed.filter_nodes_by_dict({"v": value}, engine="polars")
+        return
+    try:
+        expected = base.filter_nodes_by_dict({"v": value}, engine="polars")._nodes
+    except (GFQLSchemaError, pl.exceptions.PolarsError, TypeError, ValueError) as error:
+        with pytest.raises(type(error)) as actual:
+            indexed.filter_nodes_by_dict({"v": value}, engine="polars")
+        assert getattr(actual.value, "code", None) == getattr(error, "code", None)
+        assert getattr(actual.value, "context", None) == getattr(error, "context", None)
+    else:
+        from polars.testing import assert_frame_equal
+        assert_frame_equal(indexed.filter_nodes_by_dict({"v": value}, engine="polars")._nodes, expected)
+
+
+def test_dense_native_text_force_trace_and_override_still_encode(monkeypatch):
+    from graphistry.compute.gfql.index import property_keys, set_cost_gate_frac, reset_cost_gate_frac, with_index_policy
+
+    pl = pytest.importorskip("polars")
+    frame = pl.DataFrame({"id": range(400), "v": ["key" + str(i % 4) for i in range(400)]})
+    indexed = graphistry.nodes(frame, "id").create_index("node_prop", column="v", engine="polars")
+    original = property_keys._string_query_codes
+    calls = []
+
+    def encode(*args, **kwargs):
+        calls.append(1)
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(property_keys, "_string_query_codes", encode)
+    with index_trace() as steps:
+        assert len(indexed.filter_nodes_by_dict({"v": "missing"}, engine="polars")._nodes) == 0
+    assert calls and any(s.get("path") == "index" and s.get("est_result_rows") == 0 for s in steps)
+    calls.clear()
+    try:
+        set_cost_gate_frac(Engine.POLARS, 0.5)
+        assert len(indexed.filter_nodes_by_dict({"v": "key1"}, engine="polars")._nodes) == 100
+        assert calls
+    finally:
+        reset_cost_gate_frac(Engine.POLARS)
+    calls.clear()
+    monkeypatch.setenv("GFQL_INDEX_COST_GATE_FRAC_POLARS", "invalid")
+    assert len(with_index_policy(indexed, "force").filter_nodes_by_dict({"v": "key1"}, engine="polars")._nodes) == 100
+    assert calls
+
+
 @pytest.fixture(params=["pandas", "polars", "cudf", "polars-gpu"])
 def engine(request):
     if request.param == "polars-gpu":
