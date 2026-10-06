@@ -279,7 +279,7 @@ def _filter_property_candidates(
             import polars as pl
             column, value = next(iter(filter_dict.items()))
             if column in eager.columns:
-                dtype = eager.schema[column]
+                dtype = eager.get_column(column).dtype
                 if (dtype.is_integer() and type(value) is int
                         or dtype in (pl.String, pl.Categorical, pl.Enum) and type(value) is str
                         or dtype == pl.Float64 and type(value) is float):
