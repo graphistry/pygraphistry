@@ -148,7 +148,7 @@ def build_property_index(
     candidates with their key dtype. Other dtypes decline.
     """
     from .property_keys import (
-        categorical_property_keys, is_categorical_property, is_integer_property,
+        bounded_string_key_positions, categorical_property_keys, is_categorical_property, is_integer_property,
         is_string_property, is_timestamp_property, string_property_keys, timestamp_property_keys,
     )
 
@@ -179,6 +179,7 @@ def build_property_index(
     unique_keys, group_offsets, row_positions = _csr_from_keys(keys, xp)
     if original_rows is not None:
         row_positions = original_rows[row_positions]
+    string_key_positions, string_key_positions_bytes = bounded_string_key_positions(dictionary, engine)
     return NodePropIndex(
         key_col=column,
         keys_sorted=unique_keys,
@@ -189,6 +190,8 @@ def build_property_index(
         fingerprint=frame_fingerprint(nodes, (column,), engine),
         source_ref=cast(DataFrameT, nodes),
         string_keys=dictionary,
+        string_key_positions=string_key_positions,
+        string_key_positions_bytes=string_key_positions_bytes,
         category_keys=category_dictionary,
         timestamp_dtype=timestamp_dtype,
         n_nodes=len(nodes),

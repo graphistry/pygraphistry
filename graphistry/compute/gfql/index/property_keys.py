@@ -4,7 +4,9 @@ from __future__ import annotations
 from bisect import bisect_left
 from datetime import datetime
 from numbers import Integral
-from typing import TYPE_CHECKING, Optional, Sequence, Tuple, cast
+from sys import getsizeof
+from types import MappingProxyType
+from typing import TYPE_CHECKING, Mapping, Optional, Sequence, Tuple, cast
 
 import numpy as np
 import pandas as pd
@@ -205,12 +207,30 @@ def _values_to_codes_polars(keys: "pl.Series", values: "pl.Series") -> ArrayLike
     )
 
 
+def bounded_string_key_positions(
+    keys: Optional[SeriesT], engine: Engine,
+) -> Tuple[Optional[Mapping[str, int]], int]:
+    """Build bounded CPU dictionary metadata once, without exporting source rows."""
+    if keys is None or engine != Engine.POLARS or len(keys) > 1024:
+        return None, 0
+    native_keys = cast("pl.Series", keys)  # hygiene-ok: explicit-cast -- CPU Polars builders supply a native text dictionary
+    if native_keys.estimated_size() > 64 * 1024:
+        return None, 0
+    positions = {key: position for position, key in enumerate(native_keys.to_list())}
+    frozen = MappingProxyType(positions)
+    nbytes = getsizeof(frozen) + getsizeof(positions) + sum(getsizeof(key) + getsizeof(value) for key, value in positions.items())
+    return (frozen, nbytes) if nbytes <= 256 * 1024 else (None, 0)
+
+
 def _string_query_codes(index: NodePropIndex, members: Sequence[str], xp: ArrayNamespace) -> ArrayLike:
     keys = index.string_keys
     assert keys is not None
     size = len(keys)
     if size == 0 or not members:
         return xp.zeros(0, dtype=xp.int64)
+    if len(members) == 1 and type(members[0]) is str and index.string_key_positions is not None:
+        position = index.string_key_positions.get(members[0])
+        return xp.zeros(0, dtype=index.keys_sorted.dtype) if position is None else xp.asarray([position], dtype=index.keys_sorted.dtype)
     if index.engine in POLARS_ENGINES:
         import polars as pl
         native_keys = cast(  # hygiene-ok: explicit-cast -- index.engine establishes the concrete type of the native stored dictionary
