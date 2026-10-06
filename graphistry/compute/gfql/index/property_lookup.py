@@ -105,7 +105,9 @@ def property_candidate_positions_from_registry(
                 _record_uncovered_property(role, column, index_kind, engine, policy)
         return None
     column, index, values, count = best
-    use_index = policy == "force" or count < cost_gate_frac(engine, kind=None if index.string_keys is not None else "node_prop" if role == "nodes" else "edge_prop") * len(frame)
+    # Native text scans remain expensive; encoded masks have a lower crossover.
+    cost_kind = None if index.string_keys is not None else index_kind
+    use_index = policy == "force" or count < cost_gate_frac(engine, kind=cost_kind) * len(frame)
     semantic_decline = False
     if use_index:
         if engine in POLARS_ENGINES:
