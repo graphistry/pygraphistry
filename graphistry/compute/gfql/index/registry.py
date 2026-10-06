@@ -104,6 +104,7 @@ class NodePropIndex:
     n_nodes: int = 0  # historical field name: row count of the node OR edge frame
     n_keys: int = 0
     name: Optional[str] = None
+    min_group_count: int = 0  # smallest stored CSR bucket; zero for empty/legacy indexes
 
 
 ColStatsRole = Literal["nodes", "edges"]
