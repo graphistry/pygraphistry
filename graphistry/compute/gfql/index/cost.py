@@ -5,10 +5,11 @@ import os
 from typing import Any, Dict, Optional
 
 from graphistry.Engine import Engine
+from .types import IndexKind
 
 # Index-vs-scan crossover fraction (of distinct source keys): past this frontier a
-# full scan is cheaper than per-seed index probes, so `use` falls back to scan and
-# never loses to the un-indexed path. Engine-aware because vectorized-scan engines
+# the planner declines index probes. Measured controls still determine actual
+# query performance. Engine-aware because vectorized-scan engines
 # (polars/cudf/GPU) scan far faster than pandas, so their crossover is much smaller
 # (see test_index_cost_gate_engine_aware). Measured N=1e5 deg8: pandas ~0.5,
 # polars ~0.02. GPU values provisional (dgx-gated) and conservatively grouped with
@@ -66,18 +67,23 @@ def _env_cost_gate_frac(engine: Engine) -> Optional[float]:
     return None
 
 
-def cost_gate_frac(engine: Engine) -> float:
+def cost_gate_frac(engine: Engine, *, kind: Optional[IndexKind] = None) -> float:
     """Return the index-vs-scan crossover fraction for an engine.
 
     Precedence: code override via ``set_cost_gate_frac`` > engine/global env var
     > baked default. Env vars are ``GFQL_INDEX_COST_GATE_FRAC`` and per-engine
     ``GFQL_INDEX_COST_GATE_FRAC_PANDAS`` / ``..._POLARS_GPU`` style names.
+    Encoded property kinds use the conservative crossover; native string keys
+    retain the general crossover because native text scans cost more.
     """
     if engine in _COST_GATE_FRAC_OVERRIDES:
         return _COST_GATE_FRAC_OVERRIDES[engine]
     env = _env_cost_gate_frac(engine)
     if env is not None:
         return env
+    if kind in ("node_prop", "edge_prop"):
+        # Encoded numeric/category/temporal masks scan more cheaply than adjacency.
+        return _COST_GATE_FRAC_DEFAULT
     return _COST_GATE_FRAC.get(engine, _COST_GATE_FRAC_DEFAULT)
 
 

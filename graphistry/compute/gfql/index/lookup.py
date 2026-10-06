@@ -109,6 +109,13 @@ def _csr_hit_positions(keys: ArrayLike, values: ArrayLike, xp: ArrayNamespace) -
         common = xp.promote_types(values.dtype, keys.dtype)
         values = values.astype(common)
         keys = keys.astype(common)
+    import numpy as np
+    if isinstance(keys, np.ndarray) and isinstance(values, np.ndarray) and values.size == 1:
+        value = values[0]
+        position = keys.searchsorted(value)
+        if position < U and keys[position] == value:
+            return xp.asarray([position], dtype=xp.int64)
+        return xp.zeros(0, dtype=xp.int64)
     pos = xp.searchsorted(keys, values)
     clipped = xp.where(pos < U, pos, U - 1)
     return clipped[keys[clipped] == values]
@@ -134,6 +141,10 @@ def csr_gather_rows(index: Any, values: ArrayLike, xp: ArrayNamespace) -> ArrayL
     empty = index.row_positions[:0]
     if int(positions.shape[0]) == 0:
         return empty
+    if index.backend == "numpy" and int(positions.shape[0]) == 1:
+        import numpy as np
+        group = int(np.asarray(positions)[0])
+        return index.row_positions[int(index.group_offsets[group]):int(index.group_offsets[group + 1])]
     start = index.group_offsets[positions]
     counts = _csr_group_sizes(index, positions)
     total = int(counts.sum())
