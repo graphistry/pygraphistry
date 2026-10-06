@@ -73,3 +73,31 @@ def test_public_indexed_filter_reuses_only_exact_matches_and_isolates_source(rol
         if len(result):
             result.iloc[0, 0] = 999
     pd.testing.assert_frame_equal(frame, original)
+
+
+@pytest.mark.parametrize("storage", ["int64", "uint64", "float64", "category", "datetime64[us]"])
+@pytest.mark.parametrize("value", [0, 1, 0.1, True, "1", 2**65])
+def test_owned_scalar_candidate_residual_keeps_native_values_errors_and_isolation(storage, value):
+    from graphistry.compute.filter_by_dict import _filter_property_candidates, filter_by_dict
+    from graphistry.compute.exceptions import GFQLSchemaError
+
+    values = (["0", "1", None] if storage == "category" else
+              pd.to_datetime([0, 1, None], unit="s") if storage.startswith("datetime") else [0, 1, 2])
+    frame = pd.DataFrame({"v": pd.Series(values, dtype=storage), "id": [0, 1, 2]})
+    frame.index = pd.Index([7, 7, 2], name="row_key")
+    original = frame.copy(deep=True)
+    candidate = frame.iloc[[0, 1, 2]].copy(deep=True)
+    predicate = {"v": value}
+    try:
+        expected = filter_by_dict(candidate, predicate, "pandas")
+    except (GFQLSchemaError, ValueError, TypeError, OverflowError) as error:
+        with pytest.raises(type(error)) as actual:
+            _filter_property_candidates(frame, candidate, predicate, Engine.PANDAS)
+        assert getattr(actual.value, "code", None) == getattr(error, "code", None)
+        assert getattr(actual.value, "context", None) == getattr(error, "context", None)
+    else:
+        result = _filter_property_candidates(frame, candidate, predicate, Engine.PANDAS)
+        pd.testing.assert_frame_equal(result, expected)
+        if len(result):
+            result.iloc[0, 1] = 999
+    pd.testing.assert_frame_equal(frame, original)
