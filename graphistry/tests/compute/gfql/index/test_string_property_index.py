@@ -364,3 +364,9 @@ def test_bounded_text_dictionary_preserves_lookup_memory_and_immutability(count,
     for value in [values[0], values[-1], "missing", [values[-1], values[0], values[0]]]:
         assert_frame_equal(indexed.filter_nodes_by_dict({"v": value}, engine="polars")._nodes,
                            base.filter_nodes_by_dict({"v": value}, engine="polars")._nodes)
+
+
+@pytest.mark.parametrize("value", [1, 9])
+def test_dense_direct_node_scan_retains_native_schema_and_ownership(value, monkeypatch):
+    from graphistry.tests.compute.gfql.index.test_native_dense_property_scan import test_dense_integer_scan_preserves_schema_order_nulls_and_native_ownership
+    test_dense_integer_scan_preserves_schema_order_nulls_and_native_ownership("nodes", "node_prop", False, value, monkeypatch)
