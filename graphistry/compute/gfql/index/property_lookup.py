@@ -155,11 +155,16 @@ def property_candidate_frame(
     if engine == Engine.POLARS and filter_dict and len(filter_dict) == 1 and policy == "use" and registry.property_indexes(role) and not _trace_active():
         from graphistry.compute.filter_by_dict import _filter_native_property_scalar, _supports_native_property_scalar
         column, value = next(iter(filter_dict.items()))
-        index = registry.get_property_valid(role, column, frame, engine)
-        if index is None:
-            index = registry.get_property_valid(role, column, frame, Engine.POLARS_GPU)
-        if index is not None and _supports_native_property_scalar(frame, column, value):
-            if index.min_group_count > 0 and index.min_group_count >= cost_gate_frac(engine) * len(frame):
-                return _filter_native_property_scalar(frame, column, value)
+        # Reserve this shortcut for repeated buckets. Singleton dictionaries
+        # retain canonical selection, avoiding duplicate validation and dtype
+        # dispatch on selective lookups; small frames keep the same scan result.
+        stored = registry.property_indexes(role).get(column)
+        if stored is not None and stored.min_group_count > 1:
+            index = registry.get_property_valid(role, column, frame, engine)
+            if index is None:
+                index = registry.get_property_valid(role, column, frame, Engine.POLARS_GPU)
+            if index is not None and _supports_native_property_scalar(frame, column, value):
+                if index.min_group_count >= cost_gate_frac(engine) * len(frame):
+                    return _filter_native_property_scalar(frame, column, value)
     positions = property_candidate_positions(g, role, frame, filter_dict, engine)
     return frame if positions is None else take_rows(frame, positions, engine)
