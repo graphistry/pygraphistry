@@ -146,7 +146,7 @@ def build_property_index(
     including only non-null rows. Integer columns use their non-null values
     directly. Other dtypes decline until their equality semantics are supported.
     """
-    from .property_keys import is_integer_property, is_string_property, string_property_keys
+    from .property_keys import bounded_string_key_positions, is_integer_property, is_string_property, string_property_keys
 
     xp, backend = array_namespace(engine)
     dictionary = None
@@ -167,6 +167,7 @@ def build_property_index(
     unique_keys, group_offsets, row_positions = _csr_from_keys(keys, xp)
     if original_rows is not None:
         row_positions = original_rows[row_positions]
+    string_key_positions, string_key_positions_bytes = bounded_string_key_positions(dictionary, engine)
     return NodePropIndex(
         key_col=column,
         keys_sorted=unique_keys,
@@ -177,6 +178,8 @@ def build_property_index(
         fingerprint=frame_fingerprint(nodes, (column,), engine),
         source_ref=cast(DataFrameT, nodes),
         string_keys=dictionary,
+        string_key_positions=string_key_positions,
+        string_key_positions_bytes=string_key_positions_bytes,
         n_nodes=len(nodes),
         n_keys=int(unique_keys.shape[0]),
         min_group_count=int((group_offsets[1:] - group_offsets[:-1]).min()) if int(unique_keys.shape[0]) else 0,
