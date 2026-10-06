@@ -263,3 +263,18 @@ def test_native_temporal_literal_metadata_matches_polars_without_series_plan(uni
     monkeypatch.setattr(pl.Series, "__init__", forbidden_series)
     actual = property_query_values(index, value, np)
     np.testing.assert_array_equal(actual, expected)
+
+
+@pytest.mark.parametrize("dtype_name", ["String", "Categorical", "Enum"])
+@pytest.mark.parametrize("role,kind", [("nodes", "node_prop"), ("edges", "edge_prop")])
+def test_dense_text_dictionary_native_scan_matches_canonical(dtype_name, role, kind):
+    pl = pytest.importorskip("polars")
+    from polars.testing import assert_frame_equal
+    dtype = pl.Enum(["a", "b", "c", "d"]) if dtype_name == "Enum" else getattr(pl, dtype_name)
+    frame = pl.DataFrame({"id": range(400), "s": range(400), "d": range(400), "v": [None if i % 11 == 0 else "abcd"[i % 4] for i in range(400)]}).with_columns(pl.col("v").cast(dtype))
+    base = graphistry.nodes(frame, "id").edges(frame, "s", "d")
+    indexed = base.create_index(kind, column="v", engine="polars")
+    method = "filter_" + role + "_by_dict"
+    for value in ["b", "missing"]:
+        assert_frame_equal(getattr(getattr(indexed, method)({"v": value}, engine="polars"), "_" + role),
+                           getattr(getattr(base, method)({"v": value}, engine="polars"), "_" + role))
