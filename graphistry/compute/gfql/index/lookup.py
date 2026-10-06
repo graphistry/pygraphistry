@@ -132,6 +132,10 @@ def csr_match_count(index: Any, values: ArrayLike, xp: ArrayNamespace) -> int:
     positions = _csr_hit_positions(index.keys_sorted, values, xp)
     if int(positions.shape[0]) == 0:
         return 0
+    if index.backend == "numpy" and int(positions.shape[0]) == 1:
+        import numpy as np
+        group = int(np.asarray(positions)[0])
+        return int(index.group_offsets[group + 1]) - int(index.group_offsets[group])
     return int(_csr_group_sizes(index, positions).sum())
 
 

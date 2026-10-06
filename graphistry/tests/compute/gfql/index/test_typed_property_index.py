@@ -237,3 +237,29 @@ def test_category_nan_membership_preserves_distinct_literal_and_ast_null_semanti
     else:
         pd.testing.assert_frame_equal(actual, expected)
     assert len(actual) == (1 if as_ast else 0)
+
+
+@pytest.mark.parametrize("unit", ["ms", "us", "ns"])
+@pytest.mark.parametrize("value", [
+    datetime(1969, 12, 31, 23, 59, 59, 999999),
+    datetime(1970, 1, 1, 0, 0, 0, 1),
+    datetime(2026, 1, 1, 12, 30, 1, 123456),
+])
+def test_native_temporal_literal_metadata_matches_polars_without_series_plan(unit, value, monkeypatch):
+    from dataclasses import replace
+    from graphistry.compute.gfql.index.property_keys import property_query_values
+
+    pl = pytest.importorskip("polars")
+    frame = pl.DataFrame({"id": [0], "value": pl.Series([value], dtype=pl.Datetime(unit))})
+    indexed = graphistry.nodes(frame, "id").create_index("node_prop", column="value", engine="polars")
+    # A metadata-only oracle also covers native ns literals independently of
+    # the builder's conservative microsecond candidate buckets.
+    index = replace(get_registry(indexed).node_props["value"], timestamp_dtype=pl.Datetime(unit))
+    expected = pl.Series([value], dtype=pl.Datetime(unit)).cast(pl.Int64).to_numpy()
+
+    def forbidden_series(*args, **kwargs):
+        raise AssertionError("Naive scalar encoding must use bounded integer literal metadata")
+
+    monkeypatch.setattr(pl.Series, "__init__", forbidden_series)
+    actual = property_query_values(index, value, np)
+    np.testing.assert_array_equal(actual, expected)
