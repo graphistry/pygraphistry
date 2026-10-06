@@ -96,7 +96,14 @@ def property_candidate_positions_from_registry(
                     semantic_decline = True
         else:
             from graphistry.compute.filter_by_dict import _prepare_filter_dict
-            _prepare_filter_dict(frame, filter_dict)
+            native_integer_scalar = (
+                engine == Engine.PANDAS and len(filter_dict) == 1
+                and type(filter_dict[column]) is int and frame[column].dtype.kind in "iu"
+            )
+            # A live native integer index already proves this single real column
+            # and exact integer literal need no type/label rewriting validation.
+            if not native_integer_scalar:
+                _prepare_filter_dict(frame, filter_dict)
     if record_decision and _trace_active():
         _record({
             "op": "property_lookup", "role": role, "column": column,
