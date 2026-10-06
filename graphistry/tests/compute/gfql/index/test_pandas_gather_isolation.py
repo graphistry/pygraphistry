@@ -101,3 +101,67 @@ def test_owned_scalar_candidate_residual_keeps_native_values_errors_and_isolatio
         if len(result):
             result.iloc[0, 1] = 999
     pd.testing.assert_frame_equal(frame, original)
+
+
+@pytest.mark.parametrize("positions", [
+    np.arange(9, dtype=np.uint32), np.arange(100), np.arange(400),
+    np.arange(1024), np.arange(1025), np.array([9, 0, 9] * 4),
+    np.array([-1] * 9), np.array([2048] * 9), np.array([2**64 - 1] * 9, dtype=np.uint64),
+])
+def test_native_bounded_polars_gather_keeps_order_schema_errors_and_source(positions, monkeypatch):
+    pl = pytest.importorskip("polars")
+    from polars.testing import assert_frame_equal
+
+    frame = pl.DataFrame({
+        "id": range(2048), "text": ["雪", None] * 1024,
+        "category": pl.Series(["a", None] * 1024, dtype=pl.Categorical),
+        "timestamp": pl.Series(range(2048), dtype=pl.Int64).cast(pl.Datetime("ns")),
+    })
+    original = frame.clone()
+    try:
+        expected = frame[positions]
+    except (IndexError, ValueError, TypeError, pl.exceptions.PolarsError) as error:
+        with pytest.raises(type(error)):
+            take_rows(frame, positions, Engine.POLARS)
+    else:
+        def forbidden(*args, **kwargs):
+            raise AssertionError("Native bounded gather must not plan or export source columns")
+
+        with monkeypatch.context() as patch:
+            patch.setattr(pl.LazyFrame, "collect", forbidden)
+            if hasattr(pl.LazyFrame, "_collect_eager"):
+                patch.setattr(pl.LazyFrame, "_collect_eager", forbidden)
+            patch.setattr(pl.Series, "to_numpy", forbidden)
+            result = take_rows(frame, positions, Engine.POLARS)
+        assert_frame_equal(result, expected)
+        result.replace_column(0, pl.Series("id", [999] * result.height, dtype=pl.Int64))
+    assert_frame_equal(frame, original)
+
+
+@pytest.mark.parametrize("dtype", ["int8", "int64", "uint64"])
+@pytest.mark.parametrize("value", [1, -1, 2**65, True, 1.0, "1"])
+@pytest.mark.parametrize("role,kind", [("nodes", "node_prop"), ("edges", "edge_prop")])
+def test_native_integer_candidate_validation_preserves_single_literal_errors_and_values(dtype, value, role, kind):
+    import graphistry
+    from graphistry.compute.exceptions import GFQLSchemaError
+    from graphistry.compute.gfql.index import with_index_policy
+
+    frame = pd.DataFrame({"id": [0, 1, 2], "s": [0, 1, 2], "d": [1, 2, 3],
+                          "v": pd.Series([0, 1, 2], dtype=dtype)})
+    original = frame.copy(deep=True)
+    base = graphistry.nodes(frame, "id").edges(frame, "s", "d")
+    indexed = with_index_policy(base.create_index(kind, column="v", engine="pandas"), "force")
+    method = "filter_" + role + "_by_dict"
+    try:
+        expected = getattr(getattr(base, method)({"v": value}, engine="pandas"), "_" + role)
+    except (GFQLSchemaError, ValueError, TypeError, OverflowError) as error:
+        with pytest.raises(type(error)) as actual:
+            getattr(indexed, method)({"v": value}, engine="pandas")
+        assert getattr(actual.value, "code", None) == getattr(error, "code", None)
+        assert getattr(actual.value, "context", None) == getattr(error, "context", None)
+    else:
+        result = getattr(getattr(indexed, method)({"v": value}, engine="pandas"), "_" + role)
+        pd.testing.assert_frame_equal(result, expected)
+        if len(result):
+            result.iloc[0, 0] = 999
+    pd.testing.assert_frame_equal(frame, original)
