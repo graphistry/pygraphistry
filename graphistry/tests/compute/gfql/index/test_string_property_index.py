@@ -394,3 +394,37 @@ def test_native_text_index_copy_and_pickle_preserve_results_and_readonly_metadat
         assert restored_index.string_key_positions.get("missing") is None
         with pytest.raises(TypeError):
             restored_index.string_key_positions["injected"] = 0
+
+
+@pytest.mark.parametrize("engine,dtype", [
+    ("pandas", "object"), ("pandas", "string"), ("pandas", "string[pyarrow]"),
+    ("pandas", "arrow-string"), ("pandas", "arrow-large-string"),
+    ("polars", "object"), ("polars-gpu", "object"),
+], indirect=["engine"])
+@pytest.mark.parametrize("kind,role", [("node_prop", "nodes"), ("edge_prop", "edges")])
+def test_large_text_dictionary_scalar_boundaries_preserve_schema_and_source(engine, dtype, kind, role):
+    from graphistry.compute.gfql.index import with_index_policy
+    if dtype.startswith("arrow-"):
+        arrow = pytest.importorskip("pyarrow")
+        dtype = pd.ArrowDtype(arrow.string() if dtype == "arrow-string" else arrow.large_string())
+    values = [f"key{i:05d}" for i in range(1600)] + ["", "é用户🙂", None]
+    frame = pd.DataFrame({"id": range(len(values)), "v": pd.Series(values, dtype=dtype)})
+    frame.index = pd.Index(range(len(values), 0, -1), name="row_key")
+    native = df_to_engine(frame, Engine(engine))
+    base = graphistry.nodes(native, "id").edges(native, "id", "id")
+    indexed = base.create_index(kind, column="v", engine=engine)
+    original = frame_records(getattr(base, "_" + role))
+    method = "filter_" + role + "_by_dict"
+    for value in ("key00000", "key01599", "", "é用户🙂", "missing"):
+        expected = getattr(getattr(base, method)({"v": value}, engine=engine), "_" + role)
+        for policy in ("off", "use", "force"):
+            with index_trace() as steps:
+                result = getattr(with_index_policy(indexed, policy), method)({"v": value}, engine=engine)
+            actual = getattr(result, "_" + role)
+            assert frame_records(actual) == frame_records(expected)
+            assert list(map(str, actual.dtypes)) == list(map(str, expected.dtypes))
+            if engine == "pandas":
+                pd.testing.assert_index_equal(actual.index, expected.index)
+            if policy == "force":
+                assert any(step.get("op") == "property_lookup" and step.get("path") == "index" for step in steps)
+    assert frame_records(getattr(base, "_" + role)) == original
