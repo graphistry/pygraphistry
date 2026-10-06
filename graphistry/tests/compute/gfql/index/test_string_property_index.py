@@ -370,3 +370,27 @@ def test_bounded_text_dictionary_preserves_lookup_memory_and_immutability(count,
 def test_dense_direct_node_scan_retains_native_schema_and_ownership(value, monkeypatch):
     from graphistry.tests.compute.gfql.index.test_native_dense_property_scan import test_dense_integer_scan_preserves_schema_order_nulls_and_native_ownership
     test_dense_integer_scan_preserves_schema_order_nulls_and_native_ownership("nodes", "node_prop", False, value, monkeypatch)
+
+
+@pytest.mark.parametrize("count", [0, 4, 1000, 1025])
+def test_native_text_index_copy_and_pickle_preserve_results_and_readonly_metadata(count):
+    import copy
+    import pickle
+    pl = pytest.importorskip("polars")
+    from polars.testing import assert_frame_equal
+    values = ["key" + str(i) for i in range(count)]
+    base = graphistry.nodes(pl.DataFrame({"id": pl.Series(range(count), dtype=pl.Int64), "v": pl.Series(values, dtype=pl.String)}), "id")
+    indexed = base.create_index("node_prop", column="v", engine="polars")
+    original = base._nodes.clone()
+    expected = base.filter_nodes_by_dict({"v": "key1"}, engine="polars")._nodes
+    for restored in [copy.copy(indexed), copy.deepcopy(indexed), pickle.loads(pickle.dumps(indexed))]:
+        assert_frame_equal(restored.filter_nodes_by_dict({"v": "key1"}, engine="polars")._nodes, expected)
+        assert_frame_equal(base._nodes, original)
+    index = get_registry(indexed).node_props["v"]
+    restored_index = pickle.loads(pickle.dumps(index))
+    assert restored_index.string_key_positions_bytes == index.string_key_positions_bytes
+    if index.string_key_positions is not None:
+        assert dict(restored_index.string_key_positions) == dict(index.string_key_positions)
+        assert restored_index.string_key_positions.get("missing") is None
+        with pytest.raises(TypeError):
+            restored_index.string_key_positions["injected"] = 0
