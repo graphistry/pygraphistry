@@ -176,6 +176,7 @@ def build_property_index(
         string_keys=dictionary,
         n_nodes=len(nodes),
         n_keys=int(unique_keys.shape[0]),
+        min_group_count=int((group_offsets[1:] - group_offsets[:-1]).min()) if int(unique_keys.shape[0]) else 0,
     )
 
 
