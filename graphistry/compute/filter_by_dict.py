@@ -267,7 +267,21 @@ def _filter_property_candidates(
     original: DataFrameT, candidates: DataFrameT, filter_dict: Optional[dict], engine: Engine,
     *, filter_validated: bool = False,
 ) -> DataFrameT:
-    """Reuse an isolated pandas gather when its canonical residual accepts every row."""
+    """Apply canonical residuals, reusing exact owned property gathers when proven."""
+    # Public selectors supply already gathered, validated candidates. Integer/text
+    # encodings are exact; float/temporal encodings still require residuals.
+    if engine == Engine.POLARS and filter_validated and candidates is not original and filter_dict and len(filter_dict) == 1:
+        from graphistry.compute.gfql.lazy import ExecutionTarget, active_target
+        from graphistry.compute.gfql.index.engine_arrays import as_eager_polars_frame
+        eager = as_eager_polars_frame(candidates)
+        if eager is not None and active_target() != ExecutionTarget.GPU:
+            import polars as pl
+            column, value = next(iter(filter_dict.items()))
+            if column in eager.columns:
+                dtype = eager.schema[column]
+                if (dtype.is_integer() and type(value) is int
+                        or dtype in (pl.String, pl.Categorical, pl.Enum) and type(value) is str):
+                    return candidates
     if engine == Engine.PANDAS and candidates is not original and filter_dict:
         if isinstance(candidates, pd.DataFrame) and len(filter_dict) == 1:
             import numpy as np
@@ -275,6 +289,8 @@ def _filter_property_candidates(
             if column in candidates.columns and type(value) in (int, float, bool, str):
                 series = candidates[column]
                 dtype = series.dtype
+                if filter_validated and type(value) is int and isinstance(dtype, np.dtype) and dtype.kind in "iu":
+                    return candidates
                 if isinstance(dtype, pd.CategoricalDtype) or isinstance(dtype, np.dtype) and dtype.kind in "iufbM":
                     if not filter_validated:
                         _prepare_filter_dict(candidates, filter_dict)
