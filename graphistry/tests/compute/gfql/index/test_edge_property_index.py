@@ -156,17 +156,21 @@ def test_nullable_residual_membership_preserves_duplicate_named_row_index(engine
         "id": range(6), "v": pd.array([1, None, 2, 1, 1, 2], dtype="Int64"),
         "keep": pd.array([False, True, True, None, True, True], dtype="boolean"),
     }, index=pd.Index([4, 4, 9, 1, 1, 2], name="row_key"))
-    original = graphistry.nodes(df_to_engine(frame, Engine(engine)), "id")
-    indexed = original.create_index("node_prop", column="id", engine=engine)
-    filters = {"id": is_in([0, 1, 3, 4]), "v": is_in([1, None]), "keep": True}
+    original = graphistry.edges(df_to_engine(frame, Engine(engine)), "id", "id")
+    indexed = original.create_index("edge_prop", column="id", engine=engine)
+    # Concrete membership filters promise null exclusion. Native IsIn delegates
+    # to each engine's Series.isin(), whose legacy null behavior is separate.
+    filters = {"id": [0, 1, 3, 4], "v": [1, None], "keep": True}
     for policy in ("off", "use", "force"):
-        result = with_index_policy(indexed, policy).filter_nodes_by_dict(filters, engine=engine)
-        assert [row["id"] for row in frame_records(result._nodes)] == [4]
-        if engine in ("pandas", "cudf"):
-            index = result._nodes.index if engine == "pandas" else result._nodes.index.to_pandas()
-            assert index.name == "row_key"
-            assert index.tolist() == [1]
-    assert [row["id"] for row in frame_records(original._nodes)] == list(range(6))
+        with index_trace() as steps:
+            result = with_index_policy(indexed, policy).filter_edges_by_dict(filters, engine=engine)
+        assert [row["id"] for row in frame_records(result._edges)] == [4]
+        index = result._edges.index if engine == "pandas" else result._edges.index.to_pandas()
+        assert index.name == "row_key"
+        assert index.tolist() == [1]
+        if policy == "force":
+            assert any(step.get("op") == "property_lookup" and step.get("path") == "index" for step in steps)
+    assert [row["id"] for row in frame_records(original._edges)] == list(range(6))
 
 
 def test_multihop_edge_identity_does_not_reuse_one_relationship(engine):
