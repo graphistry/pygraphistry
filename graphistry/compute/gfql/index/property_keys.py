@@ -1,6 +1,7 @@
 """Native string dictionaries and lossless property query-key preparation."""
 from __future__ import annotations
 
+from bisect import bisect_left
 from numbers import Integral
 from typing import TYPE_CHECKING, Optional, Sequence, Tuple, cast
 
@@ -77,7 +78,9 @@ def _string_query_codes(index: NodePropIndex, members: Sequence[str], xp: ArrayN
         )
         if len(members) == 1:
             value = members[0]
-            position = native_keys.search_sorted(value)
+            # O(log dictionary) public native scalar reads; no source rows/export
+            # or eager query plan for a single bounded text literal.
+            position = bisect_left(native_keys, value)
             if position < size and native_keys.item(position) == value:
                 return xp.asarray([position], dtype=index.keys_sorted.dtype)
             return xp.zeros(0, dtype=index.keys_sorted.dtype)
@@ -110,7 +113,8 @@ def property_query_values(index: NodePropIndex, predicate: object, xp: ArrayName
     if not all(isinstance(value, Integral) and not isinstance(value, bool) for value in members):
         return None
     bounds = np.iinfo(index.keys_sorted.dtype)
-    return xp.unique(xp.asarray(
+    values = xp.asarray(
         [int(value) for value in members if isinstance(value, Integral) and bounds.min <= int(value) <= bounds.max],
         dtype=index.keys_sorted.dtype,
-    ))
+    )
+    return values if int(values.shape[0]) <= 1 else xp.unique(values)
