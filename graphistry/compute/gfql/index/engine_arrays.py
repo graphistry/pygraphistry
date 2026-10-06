@@ -126,10 +126,9 @@ def take_rows(df: DataFrameT, positions: ArrayLike, engine: Engine) -> DataFrame
             and int(idx.min()) >= 0 and int(idx.max()) < min(len(df), 2**32)
         ):
             import polars as pl
-            # Native index metadata avoids repeated per-column gathers and
-            # rebuilding the frame in Python for a bounded result.
+            # Gather native columns without starting a frame expression plan.
             native_idx = pl.Series(idx.astype(np.uint32, copy=False))
-            result = df[native_idx]
+            result = pl.DataFrame([column[native_idx] for column in df.iter_columns()])
         else:
             result = df[idx]
         return cast(DataFrameT, result)
