@@ -147,11 +147,17 @@ def _timestamp_query_values(
         if isinstance(value, pd.Timestamp) and value.nanosecond:
             return None  # Polars literal precision differs across supported versions.
         try:
-            if isinstance(value, datetime) and value.tzinfo is None and native_dtype.time_zone is None:
-                encoded = pl.Series([value], dtype=native_dtype).cast(pl.Int64).to_numpy()
+            if type(value) is datetime and value.tzinfo is None and native_dtype.time_zone is None:
+                # Bounded literal metadata: avoid planning a one-row temporal cast.
+                delta = value - datetime(1970, 1, 1)
+                microseconds = (delta.days * 86400 + delta.seconds) * 1000000 + delta.microseconds
+                ticks = microseconds * 1000 if native_dtype.time_unit == "ns" else (
+                    microseconds // 1000 if native_dtype.time_unit == "ms" else microseconds
+                )
+                return xp.asarray([ticks], dtype=xp.int64)
             else:
                 encoded = pl.select(pl.lit(value).cast(native_dtype).to_physical()).to_series().to_numpy()
-        except (TypeError, ValueError, pl.exceptions.PolarsError):
+        except (TypeError, ValueError, OverflowError, pl.exceptions.PolarsError):
             return None  # No comparable native literal; canonical filter owns errors.
         return xp.asarray(encoded)
     if isinstance(dtype, pd.ArrowDtype):
