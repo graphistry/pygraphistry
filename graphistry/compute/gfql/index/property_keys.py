@@ -4,8 +4,7 @@ from __future__ import annotations
 from bisect import bisect_left
 from numbers import Integral
 from sys import getsizeof
-from types import MappingProxyType
-from typing import TYPE_CHECKING, Mapping, Optional, Sequence, Tuple, cast
+from typing import TYPE_CHECKING, Dict, Iterator, Mapping, Optional, Sequence, Tuple, cast
 
 import numpy as np
 import pandas as pd
@@ -77,6 +76,24 @@ def _values_to_codes_polars(keys: "pl.Series", values: "pl.Series") -> ArrayLike
     )
 
 
+class _StringKeyPositions(Mapping[str, int]):
+    """Owned read-only lookup metadata, compatible with copy and pickle."""
+
+    __slots__ = ("_positions",)
+
+    def __init__(self, positions: Dict[str, int]) -> None:
+        self._positions = positions
+
+    def __getitem__(self, key: str) -> int:
+        return self._positions[key]
+
+    def __iter__(self) -> Iterator[str]:
+        return iter(self._positions)
+
+    def __len__(self) -> int:
+        return len(self._positions)
+
+
 def bounded_string_key_positions(
     keys: Optional[SeriesT], engine: Engine,
 ) -> Tuple[Optional[Mapping[str, int]], int]:
@@ -87,7 +104,7 @@ def bounded_string_key_positions(
     if native_keys.estimated_size() > 64 * 1024:
         return None, 0
     positions = {key: position for position, key in enumerate(native_keys.to_list())}
-    frozen = MappingProxyType(positions)
+    frozen = _StringKeyPositions(positions)
     nbytes = getsizeof(frozen) + getsizeof(positions) + sum(getsizeof(key) + getsizeof(value) for key, value in positions.items())
     return (frozen, nbytes) if nbytes <= 256 * 1024 else (None, 0)
 
