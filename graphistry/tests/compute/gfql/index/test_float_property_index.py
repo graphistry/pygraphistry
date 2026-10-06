@@ -185,3 +185,43 @@ def test_arrow_float_query_does_not_export_source_rows(dtype, monkeypatch):
         actual = indexed.filter_nodes_by_dict({"value": query})._nodes
     assert actual["id"].tolist() == [7, 9]
     assert any(s.get("path") == "index" for s in steps)
+
+
+@pytest.mark.parametrize("dtype", ["Float32", "Float64"])
+@pytest.mark.parametrize("kind,role", [("node_prop", "nodes"), ("edge_prop", "edges")])
+@pytest.mark.parametrize("value", [0.1, np.nextafter(0.1, 0.0), np.nextafter(0.0, 1.0),
+                                    -0.0, float("inf"), float("-inf"), float("nan"),
+                                    2**53 + 1, True, "bad", [0.1]])
+def test_native_float_candidates_keep_precision_nan_payload_errors_and_isolation(dtype, kind, role, value):
+    pl = pytest.importorskip("polars")
+    from polars.testing import assert_frame_equal
+    from graphistry.compute.exceptions import GFQLSchemaError
+
+    frame = pl.DataFrame({
+        "id": range(7), "s": range(7), "d": range(7),
+        "v": pl.Series([0.1, float(np.nextafter(0.1, 0.0)), float(np.nextafter(0.0, 1.0)),
+                        -0.0, float("inf"), float("nan"), None], dtype=getattr(pl, dtype)),
+        "payload": [float("nan"), 1.0, None, 2.0, 3.0, float("nan"), None],
+        "category": pl.Series(["a", "b", None, "a", "b", "a", "b"], dtype=pl.Categorical),
+    })
+    source = frame.clone()
+    base = graphistry.nodes(frame, "id").edges(frame, "s", "d")
+    indexed = with_index_policy(base.create_index(kind, column="v", engine="polars"), "force")
+    original_nodes, original_edges = base._nodes.clone(), base._edges.clone()
+    method = "filter_" + role + "_by_dict"
+    filters = {"v": value}
+    try:
+        expected = getattr(getattr(base, method)(filters, engine="polars"), "_" + role)
+    except (GFQLSchemaError, pl.exceptions.PolarsError, ValueError, TypeError, OverflowError) as error:
+        with pytest.raises(type(error)) as actual:
+            getattr(indexed, method)(filters, engine="polars")
+        assert getattr(actual.value, "code", None) == getattr(error, "code", None)
+        assert getattr(actual.value, "context", None) == getattr(error, "context", None)
+    else:
+        result = getattr(getattr(indexed, method)(filters, engine="polars"), "_" + role)
+        assert_frame_equal(result, expected)
+        if result.height:
+            result.replace_column(0, pl.Series("id", [999] * result.height, dtype=pl.Int64))
+    assert_frame_equal(base._nodes, original_nodes)
+    assert_frame_equal(base._edges, original_edges)
+    assert_frame_equal(frame, source)
