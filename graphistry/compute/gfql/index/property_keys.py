@@ -338,6 +338,23 @@ def bounded_string_key_positions(
     return (frozen, nbytes) if nbytes <= 256 * 1024 else (None, 0)
 
 
+class _NativeStringKeySequence:
+    """Public scalar item reads for dictionary bisect, without Series indexing dispatch."""
+
+    __slots__ = ("_keys",)
+
+    def __init__(self, keys: "pl.Series") -> None:
+        self._keys = keys
+
+    def __len__(self) -> int:
+        return len(self._keys)
+
+    def __getitem__(self, position: int) -> str:
+        return cast(  # hygiene-ok: explicit-cast -- the stored native dictionary contains non-null strings
+            str, self._keys.item(position),
+        )
+
+
 def _string_query_codes(index: NodePropIndex, members: Sequence[str], xp: ArrayNamespace) -> ArrayLike:
     keys = index.string_keys
     assert keys is not None
@@ -356,7 +373,7 @@ def _string_query_codes(index: NodePropIndex, members: Sequence[str], xp: ArrayN
             value = members[0]
             # O(log dictionary) public native scalar reads; no source rows/export
             # or eager query plan for a single bounded text literal.
-            position = bisect_left(native_keys, value)
+            position = bisect_left(_NativeStringKeySequence(native_keys), value)
             if position < size and native_keys.item(position) == value:
                 return xp.asarray([position], dtype=index.keys_sorted.dtype)
             return xp.zeros(0, dtype=index.keys_sorted.dtype)
