@@ -1237,21 +1237,30 @@ def _project_preserving_height(table: Any, exprs: List[Any]) -> Any:
 
 
 def _project_eager_columns(
-    table: "pl.DataFrame", items: Sequence[SelectItem], exprs: Sequence["pl.Expr"],
+    table: "pl.DataFrame", items: Sequence[SelectItem], exprs: Sequence["Union[pl.Expr, pl.Series]"],
 ) -> Optional["pl.DataFrame"]:
-    """Gather columns and uniform coalesce inputs without an expression execution plan."""
+    """Gather columns and uniform coalesce inputs without an expression execution plan.
+
+    Column-only projections need no source items; computed expressions require them.
+    """
     import polars as pl
     from graphistry.compute.gfql.expr_parser import FunctionCall, parse_expr
 
     if not isinstance(table, pl.DataFrame) or not exprs:
         return None
     projected: List[pl.Series] = []
-    for item, expression in zip(items, exprs):
+    for index, expression in enumerate(exprs):
+        if isinstance(expression, pl.Series):
+            projected.append(expression)
+            continue
         bare = expression.meta.undo_aliases()
         output = expression.meta.output_name()
         if bare.meta.is_column():
             projected.append(table.get_column(bare.meta.output_name()).alias(output))
             continue
+        if index >= len(items):
+            return None
+        item = items[index]
         source = item if isinstance(item, str) else item[1]
         if not isinstance(source, str) or not source.lstrip().lower().startswith("coalesce"):
             return None
