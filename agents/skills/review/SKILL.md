@@ -153,6 +153,9 @@ Guidance:
 - For file-heavy diffs, parallelize by `(dimension, file)` and aggregate.
 - Runtime comparisons must hold query/data, engine, index policy, and environment constant against the base. A successful `policy="off"` scan does not establish that a `force` failure is new.
 - Pin standalone and remote probe imports to the intended worktree; record the imported source path and revision before accepting results. An installed package or stale mount can otherwise invalidate a baseline comparison.
+- For archived source, verify a fresh reconstructed tree against the intended commit's exported files,
+  including declared `export-subst` output and embedded revision IDs. Verify cached overlays in full;
+  a list of hashes for changed files alone leaves the unchanged cached files unverified.
 - Verify pre-existing patterns are not misreported as regressions:
 
 ```bash
