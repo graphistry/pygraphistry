@@ -93,8 +93,15 @@ def property_candidate_positions_from_registry(
         index = valid_property_index(registry, role, frame, column, engine)
         if index is None:
             continue
-        values = property_query_values(index, filter_dict[column], xp)
-        if values is None:
+        # Exact native text scalars always have a defined dictionary lookup.
+        # Other predicates must prove admission before cost configuration so
+        # unsupported/coercing values retain canonical error ordering.
+        native_text_scalar = (
+            engine == Engine.POLARS and index.string_keys is not None
+            and type(filter_dict[column]) is str
+        )
+        values = None if native_text_scalar else property_query_values(index, filter_dict[column], xp)
+        if values is None and not native_text_scalar:
             continue
         if engine == Engine.POLARS and len(filter_dict) == 1 and policy != "force":
             # Polars uses the same crossover for every property encoding. If
@@ -105,6 +112,10 @@ def property_candidate_positions_from_registry(
             if (index.min_group_count > 0
                     and index.min_group_count >= single_polars_threshold and not _trace_active()):
                 return None
+        if values is None:
+            values = property_query_values(index, filter_dict[column], xp)
+            if values is None:
+                continue
         count = prop_match_count(index, values, xp)
         if best is None or count < best[3]:
             best = column, index, values, count
