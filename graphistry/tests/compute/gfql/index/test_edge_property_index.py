@@ -209,6 +209,21 @@ def test_empty_edge_candidates_preserve_residual_type_errors(engine):
     assert outcomes[0] == outcomes[1] == outcomes[2]
 
 
+@pytest.mark.parametrize("residual_first", [False, True])
+def test_positive_edge_candidates_preserve_residual_type_errors(engine, residual_first):
+    from graphistry.compute.exceptions import GFQLSchemaError
+    from graphistry.compute.gfql.index.api import with_index_policy
+
+    indexed = graph(engine).create_index("edge_prop", column="txn", engine=engine)
+    filters = {"keep": "bad", "txn": 7} if residual_first else {"txn": 7, "keep": "bad"}
+    outcomes = []
+    for policy in ("off", "use", "force"):
+        with pytest.raises(GFQLSchemaError) as caught:
+            with_index_policy(indexed, policy).filter_edges_by_dict(filters, engine=engine)
+        outcomes.append((caught.value.code, caught.value.context["field"]))
+    assert outcomes[0] == outcomes[1] == outcomes[2]
+
+
 @pytest.mark.parametrize("policy", ["use", "force"])
 def test_empty_property_candidates_preserve_temporal_residual(engine, policy):
     from graphistry.compute.gfql.index.api import with_index_policy
