@@ -200,6 +200,21 @@ def _string_query_codes(index: NodePropIndex, members: Sequence[str], xp: ArrayN
     return xp.unique(positions[(positions < size) & hits])
 
 
+def string_literals_are_utf8(predicate: object) -> bool:
+    if isinstance(predicate, str) and str.isascii(predicate):
+        return True
+    members = predicate.options if isinstance(predicate, IsIn) else (
+        predicate if isinstance(predicate, (list, tuple, set, frozenset)) else (predicate,)
+    )
+    for value in members:
+        if isinstance(value, str) and not str.isascii(value):
+            try:
+                str.encode(value, "utf-8")
+            except UnicodeEncodeError:
+                return False
+    return True
+
+
 def property_query_values(index: NodePropIndex, predicate: object, xp: ArrayNamespace) -> Optional[ArrayLike]:
     """Encode supported equality/membership values; decline ambiguous coercions."""
     members = predicate.options if isinstance(predicate, IsIn) else (
@@ -207,6 +222,8 @@ def property_query_values(index: NodePropIndex, predicate: object, xp: ArrayName
     )
     if index.string_keys is not None:
         if not all(isinstance(value, str) for value in members):
+            return None
+        if index.engine in POLARS_ENGINES and not string_literals_are_utf8(predicate):
             return None
         return _string_query_codes(index, [value for value in members if isinstance(value, str)], xp)
     if not all(isinstance(value, Integral) and not isinstance(value, bool) for value in members):
