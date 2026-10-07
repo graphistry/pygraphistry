@@ -118,7 +118,7 @@ def property_candidate_positions_from_registry(
                 continue
         scalar_rows = None
         if engine == Engine.CUDF and int(values.shape[0]) <= 1:
-            groups = _csr_hit_positions(index.keys_sorted, values, xp)
+            groups = values if index.string_keys is not None else _csr_hit_positions(index.keys_sorted, values, xp)
             if int(groups.shape[0]) == 0:
                 scalar_rows = index.row_positions[:0]
             else:
