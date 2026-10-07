@@ -209,3 +209,29 @@ def test_native_pandas_label_mask_retains_empty_row_schema_and_source(empty):
     pd.testing.assert_series_equal(filter_mask_by_dict(frame, filters, engine=Engine.PANDAS), expected)
     pd.testing.assert_frame_equal(filter_by_dict(frame, filters, "pandas"), frame.iloc[:0 if empty else 1])
     pd.testing.assert_frame_equal(frame, original)
+
+
+def test_pandas_subclass_comparison_alias_preserves_source_column_metadata():
+    from graphistry.compute.filter_by_dict import filter_by_dict
+
+    class AliasSeries(pd.Series):
+        def __eq__(self, other):
+            return self if other is True else super().__eq__(other)
+
+    class AliasFrame(pd.DataFrame):
+        @property
+        def _constructor(self):
+            return AliasFrame
+
+        @property
+        def _constructor_sliced(self):
+            return AliasSeries
+
+    frame = AliasFrame({"id": [0, 1], "v": [True, False]})
+    original = frame.copy(deep=True)
+    column = frame["v"]
+    actual = filter_by_dict(frame, {"v": True}, "pandas")
+    assert actual["id"].tolist() == [0]
+    assert column.name == frame["v"].name == "v"
+    actual.iloc[0, 0] = 999
+    pd.testing.assert_frame_equal(frame, original)
