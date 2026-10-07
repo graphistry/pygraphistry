@@ -17,7 +17,7 @@ from graphistry.compute.typing import ArrayLike, DataFrameT
 from .api import _record, _trace_active, get_index_policy, get_registry
 from .cost import cost_gate_frac
 from .engine_arrays import array_namespace, as_eager_polars_frame, take_rows
-from .lookup import lookup_prop_rows, prop_match_count
+from .lookup import _csr_hit_positions, _csr_single_group_bounds, lookup_prop_rows, prop_match_count
 from .registry import ColStatsRole, NodePropIndex
 
 
@@ -58,6 +58,7 @@ def property_candidate_positions(
     xp, _ = array_namespace(engine)
     best: Optional[Tuple[str, NodePropIndex, ArrayLike, int]] = None
     single_polars_threshold: Optional[float] = None
+    best_scalar_rows: Optional[ArrayLike] = None
     for column in sorted(registry.property_indexes(role)):
         if column not in filter_dict:
             continue
@@ -75,19 +76,32 @@ def property_candidate_positions(
             continue
         bounds = np.iinfo(index.keys_sorted.dtype)
         # Bounds prove this cast is lossless, even for mixed signed/unsigned keys.
-        values = xp.unique(xp.asarray(
+        values = xp.asarray(
             [int(value) for value in members if isinstance(value, Integral) and bounds.min <= int(value) <= bounds.max],
             dtype=index.keys_sorted.dtype,
-        ))
-        if engine == Engine.POLARS and len(filter_dict) == 1 and policy != "force":
+        )
+        if int(values.shape[0]) > 1:
+            values = xp.unique(values)
+        if engine in (Engine.POLARS, Engine.CUDF) and len(filter_dict) == 1 and policy != "force":
             # Tracing costs the requested key; force bypasses this density decline.
             single_polars_threshold = cost_gate_frac(engine) * len(frame)
             if (index.min_group_count > 0
                     and index.min_group_count >= single_polars_threshold and not _trace_active()):
                 return None
-        count = prop_match_count(index, values, xp)
+        scalar_rows = None
+        if engine == Engine.CUDF and int(values.shape[0]) <= 1:
+            groups = _csr_hit_positions(index.keys_sorted, values, xp)
+            if int(groups.shape[0]) == 0:
+                scalar_rows = index.row_positions[:0]
+            else:
+                start, end = _csr_single_group_bounds(index, groups)
+                scalar_rows = index.row_positions[start:end]
+            count = int(scalar_rows.shape[0])
+        else:
+            count = prop_match_count(index, values, xp)
         if best is None or count < best[3]:
             best = column, index, values, count
+            best_scalar_rows = scalar_rows
     if best is None:
         return None
     column, index, values, count = best
@@ -111,7 +125,7 @@ def property_candidate_positions(
         else:
             from graphistry.compute.filter_by_dict import _prepare_filter_dict
             native_scalar = (
-                engine == Engine.PANDAS and len(filter_dict) == 1
+                engine in (Engine.PANDAS, Engine.CUDF) and len(filter_dict) == 1
                 and type(filter_dict[column]) is int and frame[column].dtype.kind in "iu"
             )
             if (not native_scalar and engine == Engine.PANDAS and len(filter_dict) == 1
@@ -132,7 +146,8 @@ def property_candidate_positions(
         })
     if not use_index:
         return None
-    return xp.sort(lookup_prop_rows(index, values, xp))
+    rows = best_scalar_rows if best_scalar_rows is not None else lookup_prop_rows(index, values, xp)
+    return rows if engine == Engine.CUDF and int(rows.shape[0]) <= 1 else xp.sort(rows)
 
 
 def property_candidate_frame(
