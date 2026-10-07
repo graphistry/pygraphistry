@@ -332,6 +332,10 @@ def _filter_property_candidates(
                 dtype = series.dtype
                 if filter_validated and type(value) is int and isinstance(dtype, np.dtype) and dtype.kind in "iu":
                     return candidates
+                if (filter_validated and type(candidates) is pd.DataFrame and type(value) is str
+                        and type(series.array) is pd.Categorical and isinstance(dtype, pd.CategoricalDtype)
+                        and type(dtype.categories) is pd.Index):
+                    return candidates  # Native dictionary lookup already proves categorical scalar equality.
                 native_string_residual = filter_validated and type(value) is str and pd.api.types.is_string_dtype(dtype)
                 if (isinstance(dtype, pd.CategoricalDtype)
                         or isinstance(dtype, np.dtype) and dtype.kind in "iufbM"
