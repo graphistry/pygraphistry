@@ -116,6 +116,13 @@ def _csr_hit_positions(keys: ArrayLike, values: ArrayLike, xp: ArrayNamespace) -
         if position < U and keys[position] == value:
             return xp.asarray([position], dtype=xp.int64)
         return xp.zeros(0, dtype=xp.int64)
+    if int(values.shape[0]) == 1:
+        import cupy as cp
+        # Only a query position crosses the device boundary, never source rows.
+        position = int(cp.asnumpy(xp.searchsorted(keys, values))[0])
+        if position < U and keys[position] == values[0]:
+            return xp.asarray([position], dtype=xp.int64)
+        return xp.zeros(0, dtype=xp.int64)
     pos = xp.searchsorted(keys, values)
     clipped = xp.where(pos < U, pos, U - 1)
     return clipped[keys[clipped] == values]
@@ -126,16 +133,27 @@ def _csr_group_sizes(index: Any, positions: ArrayLike) -> ArrayLike:
     return index.group_offsets[positions + 1] - index.group_offsets[positions]
 
 
+def _csr_single_group_bounds(index: Any, positions: ArrayLike) -> Tuple[int, int]:
+    """Read one CSR bucket's bounds; GPU probes transfer only three integers."""
+    if index.backend == "cupy":
+        import cupy as cp
+        group = int(cp.asnumpy(positions)[0])
+        bounds = cp.asnumpy(index.group_offsets[group:group + 2])
+        return int(bounds[0]), int(bounds[1])
+    import numpy as np
+    group = int(np.asarray(positions)[0])
+    return int(index.group_offsets[group]), int(index.group_offsets[group + 1])
+
+
 def csr_match_count(index: Any, values: ArrayLike, xp: ArrayNamespace) -> int:
     """How many rows a CSR gather of ``values`` would return — offsets only, no
     gather. The planner's free selectivity/degree estimate."""
     positions = _csr_hit_positions(index.keys_sorted, values, xp)
     if int(positions.shape[0]) == 0:
         return 0
-    if index.backend == "numpy" and int(positions.shape[0]) == 1:
-        import numpy as np
-        group = int(np.asarray(positions)[0])
-        return int(index.group_offsets[group + 1]) - int(index.group_offsets[group])
+    if int(positions.shape[0]) == 1:
+        bucket_start, bucket_end = _csr_single_group_bounds(index, positions)
+        return bucket_end - bucket_start
     return int(_csr_group_sizes(index, positions).sum())
 
 
@@ -145,10 +163,9 @@ def csr_gather_rows(index: Any, values: ArrayLike, xp: ArrayNamespace) -> ArrayL
     empty = index.row_positions[:0]
     if int(positions.shape[0]) == 0:
         return empty
-    if index.backend == "numpy" and int(positions.shape[0]) == 1:
-        import numpy as np
-        group = int(np.asarray(positions)[0])
-        return index.row_positions[int(index.group_offsets[group]):int(index.group_offsets[group + 1])]
+    if int(positions.shape[0]) == 1:
+        bucket_start, bucket_end = _csr_single_group_bounds(index, positions)
+        return index.row_positions[bucket_start:bucket_end]
     start = index.group_offsets[positions]
     counts = _csr_group_sizes(index, positions)
     total = int(counts.sum())
