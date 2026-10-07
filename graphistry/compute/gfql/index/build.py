@@ -22,15 +22,21 @@ def _csr_from_keys(keys: ArrayLike, xp: ArrayNamespace) -> Tuple[ArrayLike, Arra
     """(keys array over E rows) -> (unique_keys, group_offsets[U+1], row_positions[E]).
 
     row_positions = the original row indices grouped (contiguously) by key value.
-    Fully vectorized: one argsort + one boundary scan.
+    Fully vectorized: sorted unique NumPy keys directly form singleton buckets;
+    other inputs use argsort followed by a boundary scan.
     """
     E = int(keys.shape[0])
     if E == 0:
         empty = keys[:0]
         return empty, xp.zeros(1, dtype=xp.int64), xp.zeros(0, dtype=xp.int64)
-    order = xp.argsort(keys)                       # row positions sorted by key
-    sorted_keys = keys[order]
-    row_positions = order.astype(xp.int64)
+    import numpy as np
+    if type(keys) is np.ndarray and xp is np and keys.dtype.kind in "iuf" and E > 1 and int(xp.count_nonzero(keys[1:] > keys[:-1])) == E - 1:
+        # Strict ordering proves the existing sort's identity permutation.
+        return keys.copy(), xp.arange(E + 1, dtype=xp.int64), xp.arange(E, dtype=xp.int64)
+    else:
+        order = xp.argsort(keys)
+        sorted_keys = keys[order]
+        row_positions = order.astype(xp.int64)
     change = xp.ones(E, dtype=bool)
     change[1:] = sorted_keys[1:] != sorted_keys[:-1]
     starts = xp.nonzero(change)[0].astype(xp.int64)
@@ -47,6 +53,8 @@ def _non_null_id_rows(
     if engine in (Engine.POLARS, Engine.POLARS_GPU):
         import polars as pl
 
+        if columns and all(frame.get_column(column).null_count() == 0 for column in columns):
+            return frame, None
         valid = frame.select(pl.all_horizontal(pl.col(column).is_not_null() for column in columns)).to_series()
         if bool(valid.all()):
             return frame, None
