@@ -133,7 +133,7 @@ def _csr_group_sizes(index: Any, positions: ArrayLike) -> ArrayLike:
     return index.group_offsets[positions + 1] - index.group_offsets[positions]
 
 
-def _csr_single_group_bounds(index: Any, positions: ArrayLike) -> Tuple[int, int]:
+def _csr_single_group_bounds(index: Any, positions: ArrayLike) -> Tuple[int, int]:  # hygiene-ok: explicit-any -- shares the existing CSR interface for property and adjacency records
     """Read one CSR bucket's bounds; GPU probes transfer only three integers."""
     if index.backend == "cupy":
         import cupy as cp
