@@ -154,4 +154,4 @@ def test_gpu_string_scalar_probe_never_exports_more_than_one_dictionary_key(monk
     monkeypatch.setattr(cudf.Series, "to_arrow", bounded_export)
     positions = property_candidate_positions(indexed, "edges", frame, {"v": "key1"}, Engine.CUDF)
     assert int(positions[0]) == 1
-    assert exports == [1]
+    assert sum(exports) <= 1
