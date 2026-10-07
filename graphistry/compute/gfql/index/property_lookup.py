@@ -13,14 +13,14 @@ from .api import _record, _trace_active, get_index_policy, get_registry
 from .cost import cost_gate_frac
 from .engine_arrays import array_namespace, as_eager_polars_frame, take_rows
 from .lookup import lookup_prop_rows, prop_match_count
-from .property_keys import property_query_values
+from .property_keys import property_query_values, string_literals_are_utf8
 from .registry import ColStatsRole, GfqlIndexRegistry, NodePropIndex
 
 
-def _empty_gather_changes_temporal_filter(
+def _empty_gather_changes_scalar_filter(
     frame: "pl.DataFrame", filter_dict: Mapping[str, object],
 ) -> bool:
-    """An empty eager frame skips canonical scalar temporal-string parsing."""
+    """An empty eager frame can skip canonical scalar validation."""
     from graphistry.compute.filter_by_dict import resolve_filter_column_or_absent
     from graphistry.compute.gfql.lazy.engine.polars.predicates import _dtype_is_temporal
     from graphistry.compute.gfql.strictness import absent_column_matches
@@ -35,6 +35,7 @@ def _empty_gather_changes_temporal_filter(
             continue
         resolved_column, resolved_value = resolved
         needs_original_frame |= isinstance(resolved_value, str) and _dtype_is_temporal(schema.get(resolved_column))
+        needs_original_frame |= not string_literals_are_utf8(resolved_value)
     return needs_original_frame
 
 
@@ -78,6 +79,7 @@ def property_candidate_positions_from_registry(
         native_text_scalar = (
             engine == Engine.POLARS and index.string_keys is not None
             and type(filter_dict[column]) is str
+            and string_literals_are_utf8(filter_dict[column])
         )
         values = None if native_text_scalar else property_query_values(index, filter_dict[column], xp)
         if values is None and not native_text_scalar:
@@ -115,7 +117,7 @@ def property_candidate_positions_from_registry(
                 if eager is None:
                     return None
                 filter_expr_by_dict_polars(eager, dict(filter_dict))
-                if eager.height > 0 and _empty_gather_changes_temporal_filter(eager, filter_dict):
+                if eager.height > 0 and _empty_gather_changes_scalar_filter(eager, filter_dict):
                     use_index = False
                     semantic_decline = True
         else:
@@ -134,7 +136,7 @@ def property_candidate_positions_from_registry(
             "engine": engine.value, "policy": policy, "est_result_rows": count,
             "path": "index" if use_index else "scan",
             "decision_code": "index_path_unavailable" if semantic_decline else "index_selected" if use_index else "scan_cost",
-            "decision_reason": "empty property candidates would change canonical temporal filtering" if semantic_decline else "property candidates gathered" if use_index else "property gather cost exceeds scan",
+            "decision_reason": "empty property candidates would change canonical scalar filtering" if semantic_decline else "property candidates gathered" if use_index else "property gather cost exceeds scan",
         })
     if not use_index:
         return None
