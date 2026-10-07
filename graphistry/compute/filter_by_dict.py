@@ -241,7 +241,7 @@ def filter_mask_by_dict(df: DataFrameT, filter_dict: Dict[str, Any], *, engine: 
     if absent_never_matches:
         return initial_mask(False)
     # Reuse the first native pandas comparison instead of allocating and ANDing True.
-    hits = None if native_pandas else initial_mask(True)
+    hits = None if native_pandas and len(df) else initial_mask(True)
     if concrete_filters:
         for original_col, (resolved_col, resolved_val) in concrete_filters.items():
             if original_col.startswith("label__") and resolved_col == "labels" and isinstance(resolved_val, str):
@@ -254,7 +254,11 @@ def filter_mask_by_dict(df: DataFrameT, filter_dict: Dict[str, Any], *, engine: 
                 mask = df[resolved_col].isin(list(resolved_val)) & df[resolved_col].notna()
             else:
                 mask = df[resolved_col] == resolved_val
-            hits = mask.rename("x" if mask.name == "x" else None, copy=False) if hits is None else hits & mask
+            if hits is None:
+                mask.name = "x" if mask.name == "x" else None
+                hits = mask
+            else:
+                hits = hits & mask
     if predicates:
         for resolved_col, op in predicates.values():
             if hits is None:
