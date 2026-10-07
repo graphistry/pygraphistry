@@ -73,9 +73,7 @@ def property_candidate_positions_from_registry(
             index = registry.get_property_valid(role, column, frame, other)
         if index is None:
             continue
-        # Exact native text scalars always have a defined dictionary lookup.
-        # Other predicates must prove admission before cost configuration so
-        # unsupported/coercing values retain canonical error ordering.
+        # Unsupported literals must prove admission before cost configuration.
         native_text_scalar = (
             engine == Engine.POLARS and index.string_keys is not None
             and type(filter_dict[column]) is str
