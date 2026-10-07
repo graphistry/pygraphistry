@@ -307,3 +307,27 @@ def test_dense_temporal_native_scan_preserves_values_schema_and_source(unit, nul
     assert_frame_equal(actual, expected)
     actual.replace_column(0, pl.Series("id", [999] * actual.height))
     assert_frame_equal(frame, original)
+
+
+@pytest.mark.parametrize("storage", ["int64", "uint64"])
+@pytest.mark.parametrize("boundary", ["min", "max"])
+def test_integer_category_scalar_and_missing_key_match_scan_without_mutation(storage, boundary):
+    bounds = np.iinfo(storage)
+    value = int(getattr(bounds, boundary))
+    other = int(bounds.max if boundary == "min" else bounds.min)
+    categories = pd.Index(np.array([value, other], dtype=storage))
+    codes = np.ones(400, dtype=np.int64)
+    codes[[7, 9]], codes[15] = 0, -1
+    frame = pd.DataFrame({"id": np.arange(400), "value": pd.Categorical.from_codes(codes, categories)})
+    frame.index = np.arange(400)[::-1]
+    original = frame.copy(deep=True)
+    base = graphistry.nodes(frame, "id")
+    indexed = base.create_index("node_prop", column="value", engine="pandas")
+    for member in [value, [value], 17, [17]]:
+        expected = base.filter_nodes_by_dict({"value": member}, engine="pandas")._nodes
+        for policy in ["off", "use", "force"]:
+            actual = with_index_policy(indexed, policy).filter_nodes_by_dict({"value": member}, engine="pandas")._nodes
+            pd.testing.assert_frame_equal(actual, expected)
+            if len(actual):
+                actual.iloc[0, 0] = -1
+            pd.testing.assert_frame_equal(frame, original)
