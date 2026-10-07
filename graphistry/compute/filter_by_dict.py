@@ -274,15 +274,8 @@ def _supports_native_property_scalar(df: DataFrameT, column: str, value: object)
         return False
     dtype = df.get_column(column).dtype
     if dtype in (pl.String, pl.Categorical, pl.Enum) and type(value) is str:
-        # Expression and Series comparisons differ on malformed UTF-8. Keep
-        # canonical behavior for invalid query literals rather than introducing
-        # a new encoding error at a native scan.
-        if not value.isascii():
-            try:
-                value.encode("utf-8")
-            except UnicodeEncodeError:
-                return False
-        return True
+        from graphistry.compute.gfql.index.property_keys import string_literals_are_utf8
+        return string_literals_are_utf8(value)
     return (
         dtype == pl.Int64 and type(value) is int and -(2**63) <= value < 2**63
         or dtype == pl.UInt64 and type(value) is int and 0 <= value < 2**63
