@@ -115,12 +115,14 @@ def test_singleton_dictionary_small_frame_cost_decline_preserves_scan(count, val
     assert_frame_equal(frame, original)
 
 
-def test_stale_dense_index_preserves_scan_with_invalid_cost_configuration(monkeypatch):
+@pytest.mark.parametrize("lazy", [False, True])
+def test_stale_dense_index_preserves_scan_with_invalid_cost_configuration(lazy, monkeypatch):
     pl = pytest.importorskip("polars")
     from polars.testing import assert_frame_equal
     frame = pl.DataFrame({"id": range(400), "v": [i % 4 for i in range(400)]})
     indexed = graphistry.edges(frame, "id", "id").create_index("edge_prop", column="v", engine="polars")
     changed = frame.with_columns(pl.lit(1).alias("v"))
-    rebound = indexed.edges(changed)
+    rebound = indexed.edges(changed.lazy() if lazy else changed)
     monkeypatch.setenv("GFQL_INDEX_COST_GATE_FRAC_POLARS", "invalid")
-    assert_frame_equal(rebound.filter_edges_by_dict({"v": 1}, engine="polars")._edges, changed)
+    actual = rebound.filter_edges_by_dict({"v": 1}, engine="polars")._edges
+    assert_frame_equal(actual.collect() if isinstance(actual, pl.LazyFrame) else actual, changed)
