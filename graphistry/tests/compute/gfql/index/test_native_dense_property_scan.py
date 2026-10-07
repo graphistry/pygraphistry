@@ -69,7 +69,7 @@ def test_dense_scan_preserves_unsupported_literal_error_priority(value, monkeypa
         assert_frame_equal(actual, expected)
 
 
-@pytest.mark.parametrize("value", [[1], 2**80, -2**80])
+@pytest.mark.parametrize("value", [1, [1], 2**80, -2**80])
 def test_dense_admitted_literal_retains_invalid_cost_configuration_error(value, monkeypatch):
     pl = pytest.importorskip("polars")
     frame = pl.DataFrame({"id": range(400), "v": [i % 4 for i in range(400)]})
@@ -113,3 +113,14 @@ def test_singleton_dictionary_small_frame_cost_decline_preserves_scan(count, val
         expected = base.filter_edges_by_dict({"v": value}, engine="polars")._edges
         assert_frame_equal(actual, expected)
     assert_frame_equal(frame, original)
+
+
+def test_stale_dense_index_preserves_scan_with_invalid_cost_configuration(monkeypatch):
+    pl = pytest.importorskip("polars")
+    from polars.testing import assert_frame_equal
+    frame = pl.DataFrame({"id": range(400), "v": [i % 4 for i in range(400)]})
+    indexed = graphistry.edges(frame, "id", "id").create_index("edge_prop", column="v", engine="polars")
+    changed = frame.with_columns(pl.lit(1).alias("v"))
+    rebound = indexed.edges(changed)
+    monkeypatch.setenv("GFQL_INDEX_COST_GATE_FRAC_POLARS", "invalid")
+    assert_frame_equal(rebound.filter_edges_by_dict({"v": 1}, engine="polars")._edges, changed)

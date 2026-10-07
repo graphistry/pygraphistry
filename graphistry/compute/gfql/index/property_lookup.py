@@ -180,17 +180,21 @@ def property_candidate_frame(
     registry, policy = get_registry(g), get_index_policy(g)
     if policy == "off" or not filter_dict or not registry.property_indexes(role) and not _trace_active():
         return frame
-    positions = property_candidate_positions(g, role, frame, filter_dict, engine)
-    if positions is None and engine == Engine.POLARS and filter_dict and len(filter_dict) == 1 and policy == "use" and registry.property_indexes(role) and not _trace_active():
+    if engine == Engine.POLARS and filter_dict and len(filter_dict) == 1 and policy == "use" and registry.property_indexes(role) and not _trace_active():
         from graphistry.compute.filter_by_dict import _filter_native_property_scalar, _supports_native_property_scalar
         column, value = next(iter(filter_dict.items()))
         # Singleton dictionaries retain canonical selection.
         stored = registry.property_indexes(role).get(column)
         if stored is not None and stored.min_group_count > 1:
-            index = registry.get_property_valid(role, column, frame, engine)
-            if index is None:
-                index = registry.get_property_valid(role, column, frame, Engine.POLARS_GPU)
-            if index is not None and _supports_native_property_scalar(frame, column, value):
-                if index.min_group_count >= cost_gate_frac(engine) * len(frame):
+            try:
+                dense_scan = stored.min_group_count >= cost_gate_frac(engine) * len(frame)
+            except ValueError:
+                dense_scan = False  # The selector validates cost only after admitting the literal.
+            if dense_scan:
+                index = registry.get_property_valid(role, column, frame, engine)
+                if index is None:
+                    index = registry.get_property_valid(role, column, frame, Engine.POLARS_GPU)
+                if index is not None and _supports_native_property_scalar(frame, column, value):
                     return _filter_native_property_scalar(frame, column, value)
+    positions = property_candidate_positions(g, role, frame, filter_dict, engine)
     return frame if positions is None else take_rows(frame, positions, engine)
