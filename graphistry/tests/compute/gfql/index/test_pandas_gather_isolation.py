@@ -235,3 +235,23 @@ def test_pandas_subclass_comparison_alias_preserves_source_column_metadata():
     assert column.name == frame["v"].name == "v"
     actual.iloc[0, 0] = 999
     pd.testing.assert_frame_equal(frame, original)
+
+
+@pytest.mark.parametrize("ordered", [False, True])
+@pytest.mark.parametrize("value", ["key1", "missing", np.str_("key1")])
+def test_owned_categorical_scalar_candidates_preserve_canonical_values_and_source(ordered, value):
+    from graphistry.compute.filter_by_dict import _filter_property_candidates, filter_by_dict
+
+    frame = pd.DataFrame({"id": [0, 1, 2, 3],
+                          "value": pd.Categorical(["key1", None, "other", "key1"], ordered=ordered)},
+                         index=pd.Index([7, 7, 2, 1], name="row_key"))
+    original = frame.copy(deep=True)
+    expected = filter_by_dict(frame, {"value": value}, engine="pandas")
+    candidates = take_rows(frame, np.flatnonzero(np.asarray(frame["value"].array == value)), Engine.PANDAS)
+    for validated in [False, True]:
+        result = _filter_property_candidates(frame, candidates, {"value": value}, Engine.PANDAS, filter_validated=validated)
+        pd.testing.assert_frame_equal(result, expected)
+        pd.testing.assert_frame_equal(frame, original)
+    if len(result):
+        result.iloc[0, 0] = 999
+    pd.testing.assert_frame_equal(frame, original)
