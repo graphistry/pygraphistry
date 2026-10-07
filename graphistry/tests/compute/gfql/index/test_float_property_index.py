@@ -253,3 +253,30 @@ def test_float64_singleton_matches_native_expression_and_owns_result(actual, val
     if result.height:
         result.replace_column(0, pl.Series("id", [999], dtype=pl.Int64))
     assert_frame_equal(frame, original)
+
+
+@pytest.mark.parametrize("role,kind", [("nodes", "node_prop"), ("edges", "edge_prop")])
+@pytest.mark.parametrize("nullable", [False, True])
+@pytest.mark.parametrize("value", [-0.0, 0.25])
+def test_dense_finite_float_native_scan_keeps_null_nan_signed_zero_and_source(role, kind, nullable, value, monkeypatch):
+    pl = pytest.importorskip("polars")
+    from polars.testing import assert_frame_equal
+
+    values = [None if nullable and i % 11 == 0 else float("nan") if i % 13 == 0
+              else -0.0 if i % 8 == 0 else (i % 4) / 4 for i in range(400)]
+    frame = pl.DataFrame({"id": range(400), "s": range(400), "d": range(400),
+                          "v": pl.Series(values, dtype=pl.Float64), "payload": [[i, None] for i in range(400)]})
+    base = graphistry.nodes(frame, "id").edges(frame, "s", "d")
+    indexed = base.create_index(kind, column="v", engine="polars")
+    method = "filter_" + role + "_by_dict"
+    expected = getattr(getattr(base, method)({"v": value}, engine="polars"), "_" + role)
+    original = frame.clone()
+    with monkeypatch.context() as patch:
+        def forbidden(*args, **kwargs):
+            pytest.fail("Dense finite Float64 scans must retain native column filtering")
+        patch.setattr(pl.Series, "to_numpy", forbidden)
+        patch.setattr(pl.DataFrame, "filter", forbidden)
+        actual = getattr(getattr(indexed, method)({"v": value}, engine="polars"), "_" + role)
+    assert_frame_equal(actual, expected)
+    actual.replace_column(0, pl.Series("id", [999] * actual.height))
+    assert_frame_equal(frame, original)
