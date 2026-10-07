@@ -48,10 +48,13 @@ def test_cudf_frontier_values_dtype_and_independent_buffers(
 @pytest.mark.parametrize("seed", [0, 1, 8])
 @pytest.mark.parametrize("direction", ["forward", "reverse"])
 def test_cudf_seeded_hop_matches_scan_and_owns_frames(seed, direction):
+    import graphistry
+    from graphistry import n, e_forward, e_reverse
+
+    edge = e_forward() if direction == "forward" else e_reverse()
+    query = [n({"v": seed}), edge, n()]
     cudf = pytest.importorskip("cudf")
     from cudf.testing import assert_frame_equal
-    import graphistry
-    from graphistry import n, e
 
     nodes = cudf.DataFrame({"id": [0, 1, 2, 3], "v": [0, 1, 2, 3]})
     edges = cudf.DataFrame({"src": [0, 1, 1, 2], "dst": [1, 2, 3, 0], "label": [0, 1, 2, 3]})
@@ -61,7 +64,6 @@ def test_cudf_seeded_hop_matches_scan_and_owns_frames(seed, direction):
     indexed = indexed.create_index("node_prop", column="v", engine="cudf")
     indexed = indexed.create_index("edge_out_adj", engine="cudf")
     indexed = indexed.create_index("edge_in_adj", engine="cudf")
-    query = [n({"v": seed}), e(direction=direction), n()]
     expected = graph.gfql(query, engine="cudf", index_policy="off")
     result = indexed.gfql(query, engine="cudf", index_policy="use")
     for name in ("nodes", "edges"):
