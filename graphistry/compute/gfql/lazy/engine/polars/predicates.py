@@ -498,8 +498,7 @@ def _filter_eager_equalities(
                 # Series equality does not widen narrow/unsigned integer storage.
                 supported = dtype == pl.Int64 or dtype == pl.UInt64 and expected >= 0
         if isinstance(dtype, pl.Datetime) and type(expected) is str:
-            # Expr comparison coerces ns storage to the Python literal's us unit;
-            # Series equality instead compares exact ns ticks. Keep the scan contract.
+            # Expr comparisons coerce ns storage to literal us units; Series equality does not.
             if dtype.time_unit == "ns":
                 return None
             expected = _parse_temporal_filter_scalar(expected, dtype)
@@ -514,7 +513,6 @@ def _filter_eager_equalities(
     if not mask.any():
         return df.clear()
     # Native Series filtering discards null mask entries and preserves row order.
-    # Iterate columns, never rows; avoid an eager expression plan or frame gather.
     return pl.DataFrame([column.filter(mask) for column in df.iter_columns()])
 
 
