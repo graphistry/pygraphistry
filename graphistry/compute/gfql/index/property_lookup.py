@@ -123,7 +123,7 @@ def property_candidate_positions_from_registry(
                 _record_uncovered_property(role, column, index_kind, engine, policy)
         return None
     column, index, values, count = best
-    # Native text scans remain expensive; encoded masks have a lower crossover.
+    # Encoded text uses the text-specific crossover.
     cost_kind = None if index.string_keys is not None else index_kind
     use_index = policy == "force" or count < (
         single_polars_threshold if single_polars_threshold is not None
