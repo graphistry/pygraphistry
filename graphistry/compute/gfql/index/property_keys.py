@@ -364,7 +364,6 @@ def property_query_values(index: NodePropIndex, predicate: object, xp: ArrayName
         if len(kinds) != 1:
             return None  # Native Index inference can coerce mixed keys or reject them.
         if index.engine == Engine.PANDAS and type(index.category_keys) is pd.Index and kinds == {"str"} and len(members) == 1:
-            # Unique plain category labels have exact scalar lookup semantics.
             # Specialized Index types can parse string keys or return partial slices.
             try:
                 position = index.category_keys.get_loc(members[0])
