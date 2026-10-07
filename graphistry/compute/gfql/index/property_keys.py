@@ -342,7 +342,7 @@ def _string_query_codes(index: NodePropIndex, members: Sequence[str], xp: ArrayN
         native_keys = cast(  # hygiene-ok: explicit-cast -- index.engine establishes the concrete type of the native stored dictionary
             "pl.Series", keys,
         )
-        if len(members) == 1:
+        if len(members) == 1 and type(members[0]) is str:
             value = members[0]
             # O(log dictionary) public native scalar reads; no source rows/export
             # or eager query plan for a single bounded text literal.
