@@ -208,8 +208,9 @@ def _ids_to_key_array(
     dropna semantics). None when the cast is not value-safe (mismatched families
     like str-vs-int decline to the scan path rather than risk false matches)."""
     try:
-        if 'cudf' in str(type(vals).__module__):
-            vals = vals.dropna()  # type: ignore[union-attr]  # cudf Series by module check
+        cudf_series = 'cudf' in str(type(vals).__module__)
+        if cudf_series:
+            vals = vals.dropna() if vals.null_count else vals  # type: ignore[union-attr]  # cudf Series by module check
             raw = vals.values  # type: ignore[union-attr]  # device array; to_numpy() raises on nulls + round-trips host
         elif is_polars_series(vals):
             # Nullable integers become floats in NumPy unless nulls are removed first.
@@ -234,6 +235,8 @@ def _ids_to_key_array(
                 # >= 2^53 into false matches; the scan path compares exactly -> decline.
                 return None
             arr = arr.astype(common)
+        if cudf_series and int(arr.shape[0]) <= 1:
+            return arr.copy()
         return xp.unique(arr)
     except (TypeError, ValueError):
         return None
