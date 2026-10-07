@@ -343,7 +343,7 @@ def test_native_polars_scalar_dictionary_lookup_avoids_query_plans_and_text_expo
     assert base._nodes.equals(original)
 
 
-@pytest.mark.parametrize("count,large,eligible", [(1000, False, True), (1024, False, True), (1025, False, False), (4, True, False)])
+@pytest.mark.parametrize("count,large,eligible", [(1000, False, True), (1024, False, True), (1025, False, True), (4, True, False)])
 def test_bounded_text_dictionary_preserves_lookup_memory_and_immutability(count, large, eligible):
     pl = pytest.importorskip("polars")
     from polars.testing import assert_frame_equal
@@ -355,6 +355,7 @@ def test_bounded_text_dictionary_preserves_lookup_memory_and_immutability(count,
     index = get_registry(indexed).node_props["v"]
     assert (index.string_key_positions is not None) == eligible
     if eligible:
+        assert len(index.string_key_positions) <= 1024
         assert index.string_key_positions_bytes > 0
         assert index_nbytes(index) - index_nbytes(replace(index, string_key_positions=None, string_key_positions_bytes=0)) == index.string_key_positions_bytes
         with pytest.raises(TypeError):
@@ -415,7 +416,8 @@ def test_large_text_dictionary_scalar_boundaries_preserve_schema_and_source(engi
     indexed = base.create_index(kind, column="v", engine=engine)
     original = frame_records(getattr(base, "_" + role))
     method = "filter_" + role + "_by_dict"
-    for value in ("key00000", "key01599", "", "é用户🙂", "missing"):
+    for value in ("key00000", "key00001", "key00800", "key01598", "key01599",
+                  "key00000-extra", "key00800-extra", "", "é用户🙂", "missing", "雪🙂"):
         expected = getattr(getattr(base, method)({"v": value}, engine=engine), "_" + role)
         for policy in ("off", "use", "force"):
             with index_trace() as steps:

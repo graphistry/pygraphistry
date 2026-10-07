@@ -69,10 +69,11 @@ def _values_to_codes_polars(keys: "pl.Series", values: "pl.Series") -> ArrayLike
 class _StringKeyPositions(Mapping[str, int]):
     """Owned read-only lookup metadata, compatible with copy and pickle."""
 
-    __slots__ = ("_positions",)
+    __slots__ = ("_positions", "_fence_keys")
 
-    def __init__(self, positions: Dict[str, int]) -> None:
+    def __init__(self, positions: Dict[str, int], fence_keys: Optional[Tuple[str, ...]] = None) -> None:
         self._positions = positions
+        self._fence_keys = fence_keys
 
     def __getitem__(self, key: str) -> int:
         return self._positions[key]
@@ -83,19 +84,35 @@ class _StringKeyPositions(Mapping[str, int]):
     def __len__(self) -> int:
         return len(self._positions)
 
+    def query_bounds(self, value: str, size: int) -> Optional[Tuple[int, int]]:
+        """A sampled dictionary narrows a native probe; a complete one resolves misses."""
+        if self._fence_keys is None:
+            return None
+        position = bisect_left(self._fence_keys, value)
+        lower = self._positions[self._fence_keys[position - 1]] + 1 if position else 0
+        upper = self._positions[self._fence_keys[position]] if position < len(self._fence_keys) else size
+        return lower, upper
+
 
 def bounded_string_key_positions(
     keys: Optional[SeriesT], engine: Engine,
 ) -> Tuple[Optional[Mapping[str, int]], int]:
     """Build bounded CPU dictionary metadata once, without exporting source rows."""
-    if keys is None or engine != Engine.POLARS or len(keys) > 1024:
+    if keys is None or engine != Engine.POLARS:
         return None, 0
     native_keys = cast("pl.Series", keys)  # hygiene-ok: explicit-cast -- CPU Polars builders supply a native text dictionary
-    if native_keys.estimated_size() > 64 * 1024:
+    # Large dictionaries retain at most 1024 ordered fences. Query probes search
+    # only the bounded interval between them, without exporting source strings.
+    stride = max(1, (len(native_keys) + 1023) // 1024)
+    selected = native_keys if stride == 1 else native_keys.gather(list(range(0, len(native_keys), stride)))
+    if selected.estimated_size() > 64 * 1024:
         return None, 0
-    positions = {key: position for position, key in enumerate(native_keys.to_list())}
-    frozen = _StringKeyPositions(positions)
-    nbytes = getsizeof(frozen) + getsizeof(positions) + sum(getsizeof(key) + getsizeof(value) for key, value in positions.items())
+    positions = dict(zip(selected.to_list(), range(0, len(native_keys), stride)))
+    fence_keys = tuple(positions) if stride > 1 else None
+    frozen = _StringKeyPositions(positions, fence_keys)
+    nbytes = (getsizeof(frozen) + getsizeof(positions)
+              + (getsizeof(fence_keys) if fence_keys is not None else 0)
+              + sum(getsizeof(key) + getsizeof(value) for key, value in positions.items()))
     return (frozen, nbytes) if nbytes <= 256 * 1024 else (None, 0)
 
 
@@ -122,9 +139,15 @@ def _string_query_codes(index: NodePropIndex, members: Sequence[str], xp: ArrayN
     size = len(keys)
     if size == 0 or not members:
         return xp.zeros(0, dtype=xp.int64)
+    native_bounds: Optional[Tuple[int, int]] = None
     if len(members) == 1 and type(members[0]) is str and index.string_key_positions is not None:
         position = index.string_key_positions.get(members[0])
-        return xp.zeros(0, dtype=index.keys_sorted.dtype) if position is None else xp.asarray([position], dtype=index.keys_sorted.dtype)
+        if position is not None:
+            return xp.asarray([position], dtype=index.keys_sorted.dtype)
+        if isinstance(index.string_key_positions, _StringKeyPositions):
+            native_bounds = index.string_key_positions.query_bounds(members[0], size)
+        if native_bounds is None:
+            return xp.zeros(0, dtype=index.keys_sorted.dtype)
     if index.engine == Engine.PANDAS and len(members) == 1 and type(members[0]) is str:
         # Dictionary metadata needs one scalar probe, not three temporary Series.
         # Exotic string subclasses retain pandas' vector comparison semantics.
@@ -145,7 +168,8 @@ def _string_query_codes(index: NodePropIndex, members: Sequence[str], xp: ArrayN
             value = members[0]
             # O(log dictionary) public native scalar reads; no source rows/export
             # or eager query plan for a single bounded text literal.
-            position = bisect_left(_NativeStringKeySequence(native_keys), value)
+            lower, upper = native_bounds if native_bounds is not None else (0, size)
+            position = bisect_left(_NativeStringKeySequence(native_keys), value, lower, upper)
             if position < size and native_keys.item(position) == value:
                 return xp.asarray([position], dtype=index.keys_sorted.dtype)
             return xp.zeros(0, dtype=index.keys_sorted.dtype)
