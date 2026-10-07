@@ -125,6 +125,17 @@ def _string_query_codes(index: NodePropIndex, members: Sequence[str], xp: ArrayN
     if len(members) == 1 and type(members[0]) is str and index.string_key_positions is not None:
         position = index.string_key_positions.get(members[0])
         return xp.zeros(0, dtype=index.keys_sorted.dtype) if position is None else xp.asarray([position], dtype=index.keys_sorted.dtype)
+    if index.engine == Engine.PANDAS and len(members) == 1 and type(members[0]) is str:
+        # Dictionary metadata needs one scalar probe, not three temporary Series.
+        # Exotic string subclasses retain pandas' vector comparison semantics.
+        value = members[0]
+        position = int(keys.searchsorted(value))
+        if position >= size:
+            return xp.zeros(0, dtype=index.keys_sorted.dtype)
+        key = keys.iloc[position]
+        if type(key) is str:
+            return (xp.asarray([position], dtype=index.keys_sorted.dtype) if key == value
+                    else xp.zeros(0, dtype=index.keys_sorted.dtype))
     if index.engine in POLARS_ENGINES:
         import polars as pl
         native_keys = cast(  # hygiene-ok: explicit-cast -- index.engine establishes the concrete type of the native stored dictionary
