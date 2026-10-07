@@ -340,8 +340,7 @@ def bounded_string_key_positions(
     if keys is None or engine != Engine.POLARS:
         return None, 0
     native_keys = cast("pl.Series", keys)  # hygiene-ok: explicit-cast -- CPU Polars builders supply a native text dictionary
-    # Large dictionaries retain at most 1024 ordered fences. Query probes search
-    # only the bounded interval between them, without exporting source strings.
+    # Query probes must not export source strings.
     stride = max(1, (len(native_keys) + 1023) // 1024)
     selected = native_keys if stride == 1 else native_keys.gather(list(range(0, len(native_keys), stride)))
     if selected.estimated_size() > 64 * 1024:
@@ -388,7 +387,6 @@ def _string_query_codes(index: NodePropIndex, members: Sequence[str], xp: ArrayN
         if native_bounds is None:
             return xp.zeros(0, dtype=index.keys_sorted.dtype)
     if index.engine == Engine.PANDAS and len(members) == 1 and type(members[0]) is str:
-        # Dictionary metadata needs one scalar probe, not three temporary Series.
         # Exotic string subclasses retain pandas' vector comparison semantics.
         value = members[0]
         position = int(keys.searchsorted(value))
@@ -405,8 +403,7 @@ def _string_query_codes(index: NodePropIndex, members: Sequence[str], xp: ArrayN
         )
         if len(members) == 1 and type(members[0]) is str:
             value = members[0]
-            # O(log dictionary) public native scalar reads; no source rows/export
-            # or eager query plan for a single bounded text literal.
+            # Scalar probes use public native dictionary items without exporting source rows.
             lower, upper = native_bounds if native_bounds is not None else (0, size)
             position = bisect_left(_NativeStringKeySequence(native_keys), value, lower, upper)
             if position < size and native_keys.item(position) == value:
@@ -466,7 +463,6 @@ def property_query_values(index: NodePropIndex, predicate: object, xp: ArrayName
         if len(kinds) != 1:
             return None  # Native Index inference can coerce mixed keys or reject them.
         if index.engine == Engine.PANDAS and type(index.category_keys) is pd.Index and kinds == {"str"} and len(members) == 1:
-            # Unique plain category labels have exact scalar lookup semantics.
             # Specialized Index types can parse string keys or return partial slices.
             try:
                 position = index.category_keys.get_loc(members[0])
