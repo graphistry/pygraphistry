@@ -157,6 +157,14 @@ def _string_query_codes(index: NodePropIndex, members: Sequence[str], xp: ArrayN
             native_bounds = index.string_key_positions.query_bounds(members[0], size)
         if native_bounds is None:
             return xp.zeros(0, dtype=index.keys_sorted.dtype)
+    if (index.engine == Engine.CUDF and len(members) == 1 and type(members[0]) is str
+            and string_literals_are_utf8(members[0])):
+        value = members[0]
+        position = int(keys.searchsorted(value))
+        # Export one probed key, not a dictionary or source column.
+        if position < size and keys.iloc[position:position + 1].to_arrow()[0].as_py() == value:
+            return xp.asarray([position], dtype=index.keys_sorted.dtype)
+        return xp.zeros(0, dtype=index.keys_sorted.dtype)
     if index.engine == Engine.PANDAS and len(members) == 1 and type(members[0]) is str:
         # Exotic string subclasses retain pandas' vector comparison semantics.
         value = members[0]

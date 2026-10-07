@@ -132,11 +132,15 @@ def take_rows(df: DataFrameT, positions: ArrayLike, engine: Engine) -> DataFrame
         else:
             result = df[idx]
         return result
-    if engine == Engine.PANDAS:
+    if engine in (Engine.PANDAS, Engine.CUDF):
         import numpy as np
-        idx = np.asarray(positions)
-        if idx.ndim == 1 and idx.size == 1 and idx.dtype.kind in "iu":
-            position = int(idx[0])
+        single_idx = positions if engine == Engine.CUDF else np.asarray(positions)
+        if len(single_idx.shape) == 1 and single_idx.shape[0] == 1 and single_idx.dtype.kind in "iu":
+            if engine == Engine.CUDF:
+                import cupy as cp
+                position = int(cp.asnumpy(single_idx)[0])
+            else:
+                position = int(np.asarray(single_idx)[0])
             if 0 <= position < len(df):
                 return cast(DataFrameT, df.iloc[position:position + 1].copy())
     # pandas / cudf: iloc accepts numpy (pandas) or cupy (cudf) int arrays
