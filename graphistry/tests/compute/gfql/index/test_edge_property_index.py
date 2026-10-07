@@ -19,6 +19,8 @@ def engine(request):
 
 
 def graph(engine, txn=None):
+    if engine in ("polars", "polars-gpu"):
+        pytest.importorskip("polars")
     nodes = pd.DataFrame({"id": np.arange(500)})
     edges = pd.DataFrame({
         "s": np.arange(400), "d": np.arange(400) + 1,

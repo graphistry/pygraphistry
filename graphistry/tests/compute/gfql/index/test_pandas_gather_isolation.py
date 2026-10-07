@@ -165,3 +165,47 @@ def test_native_integer_candidate_validation_preserves_single_literal_errors_and
         if len(result):
             result.iloc[0, 0] = 999
     pd.testing.assert_frame_equal(frame, original)
+
+
+@pytest.mark.parametrize("column", ["v", "x"])
+@pytest.mark.parametrize("members", [False, True])
+@pytest.mark.parametrize("empty", [False, True])
+def test_native_pandas_mask_preserves_names_nulls_and_source_without_warnings(column, members, empty):
+    import warnings
+    from graphistry.compute.filter_by_dict import filter_mask_by_dict
+
+    frame = pd.DataFrame({column: pd.Series([1, None, 2], dtype="Int64")})
+    frame.index = pd.Index([7, 7, 2], name="row_key")
+    if empty:
+        frame = frame.iloc[:0]
+    original = frame.copy(deep=True)
+    original_column = frame[column]
+    value = [1, None] if members else 1
+    expected = pd.Series(True, index=frame.index, name="x", dtype="bool")
+    comparison = (frame[column].isin(value) & frame[column].notna()) if members else frame[column] == value
+    expected = expected & comparison
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        actual = filter_mask_by_dict(frame, {column: value}, engine=Engine.PANDAS)
+    assert not caught
+    pd.testing.assert_series_equal(actual, expected)
+    assert original_column.name == column
+    if len(actual):
+        actual.iloc[0] = False
+    pd.testing.assert_frame_equal(frame, original)
+
+
+@pytest.mark.parametrize("empty", [False, True])
+def test_native_pandas_label_mask_retains_empty_row_schema_and_source(empty):
+    from graphistry.compute.filter_by_dict import filter_by_dict, filter_mask_by_dict
+
+    frame = pd.DataFrame({"id": [0, 1, 2], "labels": [["Person"], ["Company"], None]})
+    frame.index = pd.Index([7, 7, 2], name="row_key")
+    if empty:
+        frame = frame.iloc[:0]
+    original = frame.copy(deep=True)
+    filters = {"label__Person": True}
+    expected = pd.Series([True, False, False][:len(frame)], index=frame.index, dtype="bool")
+    pd.testing.assert_series_equal(filter_mask_by_dict(frame, filters, engine=Engine.PANDAS), expected)
+    pd.testing.assert_frame_equal(filter_by_dict(frame, filters, "pandas"), frame.iloc[:0 if empty else 1])
+    pd.testing.assert_frame_equal(frame, original)
