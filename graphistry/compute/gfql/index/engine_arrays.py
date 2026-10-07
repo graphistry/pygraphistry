@@ -131,7 +131,7 @@ def take_rows(df: DataFrameT, positions: ArrayLike, engine: Engine) -> DataFrame
             result = pl.DataFrame([column[native_idx] for column in df.iter_columns()])
         else:
             result = df[idx]
-        return cast(DataFrameT, result)
+        return result
     if engine == Engine.PANDAS:
         import numpy as np
         idx = np.asarray(positions)
