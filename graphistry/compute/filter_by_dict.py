@@ -293,8 +293,7 @@ def _filter_property_candidates(
     *, filter_validated: bool = False,
 ) -> DataFrameT:
     """Apply canonical residuals, reusing exact owned property gathers when proven."""
-    # Public selectors supply already gathered, validated candidates. Integer/text
-    # encodings are exact; float/temporal encodings still require residuals.
+    # Float and temporal candidates still require canonical residuals.
     if engine == Engine.POLARS and filter_validated and candidates is not original and filter_dict and len(filter_dict) == 1:
         from graphistry.compute.gfql.lazy import ExecutionTarget, active_target
         from graphistry.compute.gfql.index.engine_arrays import as_eager_polars_frame
@@ -322,8 +321,7 @@ def _filter_property_candidates(
                         or native_string_residual):
                     if not filter_validated:
                         _prepare_filter_dict(candidates, filter_dict)
-                    # The native array owns scalar comparison semantics; avoid
-                    # wrapping an already isolated gather's mask in another Series.
+                    # The native array owns scalar comparison semantics.
                     comparison = series.array == value
                     mask = (comparison.to_numpy(dtype=bool, na_value=False)
                             if isinstance(comparison, pd.arrays.BooleanArray) else np.asarray(comparison))
