@@ -215,7 +215,9 @@ def _timestamp_query_values(
         if pd.isna(stamp) or (stamp.tz is None) != (timezone is None):
             return None
         timestamp_ticks.append(stamp.asm8.astype(f"datetime64[{unit}]").astype(np.int64))
-    return xp.unique(xp.asarray(timestamp_ticks, dtype=xp.int64))
+    encoded_ticks = xp.asarray(timestamp_ticks, dtype=xp.int64)
+    return encoded_ticks if int(encoded_ticks.shape[0]) <= 1 else xp.unique(encoded_ticks)
+
 
 
 def string_property_keys(
