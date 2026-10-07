@@ -324,8 +324,7 @@ def _filter_property_candidates(
                         or native_string_residual):
                     if not filter_validated:
                         _prepare_filter_dict(candidates, filter_dict)
-                    # The native array owns scalar comparison semantics; avoid
-                    # wrapping an already isolated gather's mask in another Series.
+                    # The native array owns scalar comparison semantics.
                     comparison = series.array == value
                     mask = (comparison.to_numpy(dtype=bool, na_value=False)
                             if isinstance(comparison, pd.arrays.BooleanArray) else np.asarray(comparison))
