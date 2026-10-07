@@ -278,3 +278,32 @@ def test_dense_text_dictionary_native_scan_matches_canonical(dtype_name, role, k
     for value in ["b", "missing"]:
         assert_frame_equal(getattr(getattr(indexed, method)({"v": value}, engine="polars"), "_" + role),
                            getattr(getattr(base, method)({"v": value}, engine="polars"), "_" + role))
+
+
+@pytest.mark.parametrize("unit", ["ns", "us", "ms"])
+@pytest.mark.parametrize("nullable", [False, True])
+@pytest.mark.parametrize("role,kind", [("nodes", "node_prop"), ("edges", "edge_prop")])
+def test_dense_temporal_native_scan_preserves_values_schema_and_source(unit, nullable, role, kind, monkeypatch):
+    from datetime import datetime, timedelta
+    pl = pytest.importorskip("polars")
+    from polars.testing import assert_frame_equal
+
+    epoch = datetime(2026, 1, 1)
+    values = [None if nullable and i % 11 == 0 else epoch + timedelta(seconds=i % 4) for i in range(400)]
+    frame = pl.DataFrame({"id": range(400), "s": range(400), "d": range(400),
+                          "value": pl.Series(values, dtype=pl.Datetime(unit)), "payload": [[i, None] for i in range(400)]})
+    base = graphistry.nodes(frame, "id").edges(frame, "s", "d")
+    indexed = base.create_index(kind, column="value", engine="polars")
+    method = "filter_" + role + "_by_dict"
+    filters = {"value": (epoch + timedelta(seconds=1)).isoformat()}
+    expected = getattr(getattr(base, method)(filters, engine="polars"), "_" + role)
+    original = frame.clone()
+    with monkeypatch.context() as patch:
+        def forbidden(*args, **kwargs):
+            pytest.fail("Dense temporal scans must retain native column filtering")
+        patch.setattr(pl.Series, "to_numpy", forbidden)
+        patch.setattr(pl.DataFrame, "filter", forbidden)
+        actual = getattr(getattr(indexed, method)(filters, engine="polars"), "_" + role)
+    assert_frame_equal(actual, expected)
+    actual.replace_column(0, pl.Series("id", [999] * actual.height))
+    assert_frame_equal(frame, original)
