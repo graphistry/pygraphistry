@@ -1,13 +1,13 @@
 from typing import Any, Dict, Mapping, Optional, Tuple, Union, cast
 import pandas as pd
 
-from graphistry.Engine import Engine, EngineAbstract, POLARS_ENGINES, df_to_engine, resolve_engine, s_cons
+from graphistry.Engine import Engine, EngineAbstract, POLARS_ENGINES, df_cons, df_to_engine, resolve_engine, s_cons
 from graphistry.util import setup_logger
 
 from graphistry.Plottable import Plottable
 from graphistry.compute.gfql.node_dtypes_memo import memo_get, memo_put
 from .predicates.ASTPredicate import ASTPredicate
-from .typing import DataFrameT, DType, FilterValue, NodeDtypes, SeriesT
+from .typing import DataFrameT, DType, FilterDict, FilterValue, NodeDtypes, SeriesT
 
 
 logger = setup_logger(__name__)
@@ -291,13 +291,12 @@ def _supports_native_property_scalar(df: DataFrameT, column: str, value: object)
 
 def _filter_native_property_scalar(df: DataFrameT, column: str, value: object) -> DataFrameT:
     """Filter an admitted scalar with native columns, preserving order and ownership."""
-    import polars as pl
     mask = df.get_column(column) == value
-    return cast(DataFrameT, pl.DataFrame([series.filter(mask) for series in df.iter_columns()]))
+    return df_cons(Engine.POLARS)([series.filter(mask) for series in df.iter_columns()])
 
 
 def _filter_property_candidates(
-    original: DataFrameT, candidates: DataFrameT, filter_dict: Optional[dict], engine: Engine,
+    original: DataFrameT, candidates: DataFrameT, filter_dict: Optional[FilterDict], engine: Engine,
     *, filter_validated: bool = False,
 ) -> DataFrameT:
     """Apply canonical residuals, reusing exact owned property gathers when proven."""
