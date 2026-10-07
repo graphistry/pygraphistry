@@ -17,6 +17,7 @@ from cudf.testing import assert_frame_equal
 @pytest.mark.parametrize("policy", ["off", "use", "force"])
 def test_scalar_candidates_preserve_scan_schema_order_nulls_errors_and_ownership(role, kind, dense, value, policy):
     from graphistry.compute.filter_by_dict import _filter_property_candidates, filter_by_dict
+    from graphistry.compute.exceptions import GFQLSchemaError
     from graphistry.compute.gfql.index.property_lookup import property_candidate_frame
 
     frame = cudf.DataFrame({"id": cp.arange(400), "v": cp.arange(400) % (4 if dense else 400),
@@ -24,10 +25,19 @@ def test_scalar_candidates_preserve_scan_schema_order_nulls_errors_and_ownership
     base = graphistry.nodes(frame, "id").edges(frame, "id", "id")
     indexed = with_index_policy(base.create_index(kind, column="v", engine="cudf"), policy)
     filters = {"v": value}
-    expected = filter_by_dict(frame, filters, "cudf")
-    candidates = property_candidate_frame(indexed, role, frame, filters, Engine.CUDF)
-    actual = _filter_property_candidates(frame, candidates, filters, Engine.CUDF,
-                                        filter_validated=candidates is not frame)
+    def execute():
+        candidates = property_candidate_frame(indexed, role, frame, filters, Engine.CUDF)
+        return _filter_property_candidates(frame, candidates, filters, Engine.CUDF,
+                                           filter_validated=candidates is not frame)
+
+    try:
+        expected = filter_by_dict(frame, filters, "cudf")
+    except (TypeError, ValueError, OverflowError, GFQLSchemaError) as error:
+        with pytest.raises(type(error)) as observed:
+            execute()
+        assert str(observed.value) == str(error)
+        return
+    actual = execute()
     assert_frame_equal(actual, expected)
     original = frame.to_pandas()
     if len(actual):
