@@ -277,6 +277,9 @@ def _supports_native_property_scalar(df: DataFrameT, column: str, value: object)
     if active_target() == ExecutionTarget.GPU:
         return False
     dtype = df.get_column(column).dtype
+    if dtype == pl.Float64 and type(value) is float:
+        from math import isfinite
+        return isfinite(value)
     if isinstance(dtype, pl.Datetime) and type(value) is str:
         from datetime import datetime
         from graphistry.compute.gfql.lazy.engine.polars.predicates import _parse_temporal_filter_scalar
