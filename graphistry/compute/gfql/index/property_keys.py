@@ -20,6 +20,9 @@ if TYPE_CHECKING:
     import polars as pl
 
 
+_NATIVE_STRING_DICTIONARY_MAX_BYTES = 8 * 1024 * 1024
+
+
 def is_string_property(frame: DataFrameT, column: str, engine: Engine) -> bool:
     """Admit homogeneous text, without coercing mixed object or categorical keys."""
     if column not in frame.columns:
@@ -291,9 +294,11 @@ def _string_query_codes(index: NodePropIndex, members: Sequence[str], xp: ArrayN
             return xp.zeros(0, dtype=index.keys_sorted.dtype)
     if (index.engine == Engine.CUDF and len(members) == 1 and type(members[0]) is str
             and string_literals_are_utf8(members[0])):
+        if keys.memory_usage(index=False, deep=True) <= _NATIVE_STRING_DICTIONARY_MAX_BYTES:
+            matches = xp.asarray((keys == members[0]).values)
+            return xp.asarray(xp.nonzero(matches)[0], dtype=index.keys_sorted.dtype)
         value = members[0]
         position = int(keys.searchsorted(value))
-        # Export one probed key, not a dictionary or source column.
         if position < size and keys.iloc[position:position + 1].to_arrow()[0].as_py() == value:
             return xp.asarray([position], dtype=index.keys_sorted.dtype)
         return xp.zeros(0, dtype=index.keys_sorted.dtype)
