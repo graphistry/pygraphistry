@@ -380,7 +380,8 @@ def test_native_text_index_copy_and_pickle_preserve_results_and_readonly_metadat
     pl = pytest.importorskip("polars")
     from polars.testing import assert_frame_equal
     values = ["key" + str(i) for i in range(count)]
-    base = graphistry.nodes(pl.DataFrame({"id": pl.Series(range(count), dtype=pl.Int64), "v": pl.Series(values, dtype=pl.String)}), "id")
+    # Other test files replace global authentication callbacks with local lambdas.
+    base = graphistry.client(inherit=False).nodes(pl.DataFrame({"id": pl.Series(range(count), dtype=pl.Int64), "v": pl.Series(values, dtype=pl.String)}), "id")
     indexed = base.create_index("node_prop", column="v", engine="polars")
     original = base._nodes.clone()
     expected = base.filter_nodes_by_dict({"v": "key1"}, engine="polars")._nodes
