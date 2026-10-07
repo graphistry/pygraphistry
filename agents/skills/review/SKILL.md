@@ -204,6 +204,9 @@ python -m pytest -q [targeted_test]
   - No local GPU available: run equivalent GPU validation on `dgx-spark` and record exact command + output artifact path in wave evidence.
 - For optional-engine tests, check the declared CI dependency environment as well as installed-engine
   integration; skip unavailable dependencies and explicitly exercise supported installed-engine cases.
+- For new, renamed, or moved Polars-gated test modules, verify explicit registration in
+  `bin/test-polars.sh` or a documented exclusion in the completeness guard. Before committing
+  or propagating the fix, run `python -m pytest -q graphistry/tests/compute/gfql/test_polars_lane_completeness.py`.
 - For RAPIDS/cuDF changes, prefer dual-version validation (`RAPIDS_VERSION=25.02` and `26.02`) and include at least one amplified pass beyond early-stop defaults (for example, avoid relying only on `--maxfail=1` harness behavior when triaging regression surface).
 - When shared GPU pressure blocks full-matrix execution, require explicit evidence of the constrained condition (for example `nvidia-smi` + failing stack site), then run targeted amplified subsets and document exactly which tests were excluded and why.
 - If startup/runtime claims are made, verify entrypoints/scripts in `bin/` and workflow behavior.
