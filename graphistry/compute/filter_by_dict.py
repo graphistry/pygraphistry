@@ -274,9 +274,7 @@ def _supports_native_property_scalar(df: DataFrameT, column: str, value: object)
         return False
     dtype = df.get_column(column).dtype
     if dtype in (pl.String, pl.Categorical, pl.Enum) and type(value) is str:
-        # Expression and Series comparisons differ on malformed UTF-8. Keep
-        # canonical behavior for invalid query literals rather than introducing
-        # a new encoding error at a native scan.
+        # Malformed UTF-8 must retain canonical expression validation.
         if not value.isascii():
             try:
                 value.encode("utf-8")
@@ -300,8 +298,7 @@ def _filter_property_candidates(
     *, filter_validated: bool = False,
 ) -> DataFrameT:
     """Apply canonical residuals, reusing exact owned property gathers when proven."""
-    # Public selectors supply already gathered, validated candidates. Integer/text
-    # encodings are exact; float/temporal encodings still require residuals.
+    # Float and temporal candidates still require canonical residuals.
     if engine == Engine.POLARS and filter_validated and candidates is not original and filter_dict and len(filter_dict) == 1:
         from graphistry.compute.gfql.lazy import ExecutionTarget, active_target
         from graphistry.compute.gfql.index.engine_arrays import as_eager_polars_frame
@@ -326,8 +323,7 @@ def _filter_property_candidates(
                 if isinstance(dtype, pd.CategoricalDtype) or isinstance(dtype, np.dtype) and dtype.kind in "iufbM":
                     if not filter_validated:
                         _prepare_filter_dict(candidates, filter_dict)
-                    # The native array owns scalar comparison semantics; avoid
-                    # wrapping an already isolated gather's mask in another Series.
+                    # The native array owns scalar comparison semantics.
                     mask = np.asarray(series.array == value)
                     if mask.dtype.kind == "b":
                         return candidates if mask.all() else candidates[mask]

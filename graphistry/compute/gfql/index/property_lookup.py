@@ -79,10 +79,7 @@ def property_candidate_positions(
             dtype=index.keys_sorted.dtype,
         ))
         if engine == Engine.POLARS and len(filter_dict) == 1 and policy != "force":
-            # Polars uses the same crossover for every property encoding. If
-            # even the smallest bucket is dense, canonical scanning avoids a
-            # redundant probe. Tracing still costs the actual requested key;
-            # force and multi-predicate selection keep their existing behavior.
+            # Tracing costs the requested key; force bypasses this density decline.
             single_polars_threshold = cost_gate_frac(engine) * len(frame)
             if (index.min_group_count > 0
                     and index.min_group_count >= single_polars_threshold and not _trace_active()):
@@ -116,8 +113,7 @@ def property_candidate_positions(
                 engine == Engine.PANDAS and len(filter_dict) == 1
                 and type(filter_dict[column]) is int and frame[column].dtype.kind in "iu"
             )
-            # A live native integer index already proves this single real column
-            # and exact integer literal need no type/label rewriting validation.
+            # A live integer index proves this exact literal needs no label rewriting.
             if not native_integer_scalar:
                 _prepare_filter_dict(frame, filter_dict)
     if _trace_active():
@@ -138,18 +134,14 @@ def property_candidate_frame(
     filter_dict: Optional[Mapping[str, object]], engine: Engine,
 ) -> DataFrameT:
     """Candidate frame in original row order, or the original frame on a decline."""
-    # A live index proves that every stored bucket is beyond the scan crossover.
-    # For an exact native scalar, scan the original columns directly. Keep off,
-    # force, tracing, stale indexes, and coercing predicates on their usual path.
+    # Off, force, tracing, stale indexes, and coercing literals retain canonical selection.
     registry, policy = get_registry(g), get_index_policy(g)
     if policy == "off" or not filter_dict or not registry.property_indexes(role) and not _trace_active():
         return frame
     if engine == Engine.POLARS and filter_dict and len(filter_dict) == 1 and policy == "use" and registry.property_indexes(role) and not _trace_active():
         from graphistry.compute.filter_by_dict import _filter_native_property_scalar, _supports_native_property_scalar
         column, value = next(iter(filter_dict.items()))
-        # Reserve this shortcut for repeated buckets. Singleton dictionaries
-        # retain canonical selection, avoiding duplicate validation and dtype
-        # dispatch on selective lookups; small frames keep the same scan result.
+        # Singleton dictionaries retain canonical selection.
         stored = registry.property_indexes(role).get(column)
         if stored is not None and stored.min_group_count > 1:
             index = registry.get_property_valid(role, column, frame, engine)
