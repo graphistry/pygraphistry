@@ -308,6 +308,14 @@ def _filter_property_candidates(
     *, filter_validated: bool = False,
 ) -> DataFrameT:
     """Apply canonical residuals, reusing exact owned property gathers when proven."""
+    if engine == Engine.CUDF and filter_validated and candidates is not original and filter_dict and len(filter_dict) == 1:
+        import numpy as np
+        column, value = next(iter(filter_dict.items()))
+        if column in candidates.columns:
+            dtype = candidates[column].dtype
+            if isinstance(dtype, np.dtype) and (dtype.kind in "iu" and type(value) is int
+                    or dtype.kind == "O" and type(value) is str):
+                return candidates
     # Float and coercing temporal candidates still require canonical residuals.
     if engine == Engine.POLARS and filter_validated and candidates is not original and filter_dict and len(filter_dict) == 1:
         from graphistry.compute.gfql.lazy import ExecutionTarget, active_target
