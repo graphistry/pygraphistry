@@ -225,3 +225,31 @@ def test_native_float_candidates_keep_precision_nan_payload_errors_and_isolation
     assert_frame_equal(base._nodes, original_nodes)
     assert_frame_equal(base._edges, original_edges)
     assert_frame_equal(frame, source)
+
+
+@pytest.mark.parametrize("actual", [0.1, float(np.nextafter(0.1, 0.0)),
+    float(np.nextafter(0.0, 1.0)), -0.0, float(np.finfo(np.float64).max),
+    float("inf"), float("-inf"), float("nan"), None])
+@pytest.mark.parametrize("value", [0.1, float(np.nextafter(0.1, 0.0)),
+    float(np.nextafter(0.0, 1.0)), -0.0, float(np.finfo(np.float64).max)])
+def test_float64_singleton_matches_native_expression_and_owns_result(actual, value, monkeypatch):
+    pl = pytest.importorskip("polars")
+    from polars.testing import assert_frame_equal
+    from graphistry.compute.gfql.lazy.engine.polars.predicates import filter_by_dict_polars
+
+    frame = pl.DataFrame({"id": [7], "v": pl.Series([actual], dtype=pl.Float64),
+                          "payload": [[1, None]]})
+    original = frame.clone()
+    expected = frame.filter(pl.col("v") == value)
+
+    def forbidden_plan(*args, **kwargs):
+        pytest.fail("An exact finite Float64 singleton needs no frame expression plan")
+
+    with monkeypatch.context() as patch:
+        patch.setattr(pl.DataFrame, "filter", forbidden_plan)
+        patch.setattr(pl.Series, "to_numpy", forbidden_plan)
+        result = filter_by_dict_polars(frame, {"v": value})
+    assert_frame_equal(result, expected)
+    if result.height:
+        result.replace_column(0, pl.Series("id", [999], dtype=pl.Int64))
+    assert_frame_equal(frame, original)
