@@ -232,7 +232,7 @@ def filter_mask_by_dict(df: DataFrameT, filter_dict: Dict[str, Any], *, engine: 
     predicates, concrete_filters, absent_never_matches = _prepare_filter_dict(df, filter_dict)
 
     engine = resolve_engine(EngineAbstract.AUTO, df) if engine is None else engine
-    native_pandas = engine == Engine.PANDAS and isinstance(df, pd.DataFrame)
+    native_pandas = engine == Engine.PANDAS and type(df) is pd.DataFrame
     def initial_mask(value: bool) -> SeriesT:
         if native_pandas or engine == Engine.CUDF:
             return s_cons(engine)(value, index=df.index, name="x", dtype="bool")
