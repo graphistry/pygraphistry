@@ -507,3 +507,41 @@ def test_invalid_unicode_index_literals_preserve_scan_errors_and_empty_filter_pr
             assert_frame_equal(actual, expected)
     assert_frame_equal(base._nodes, original)
     assert_frame_equal(base._edges, original)
+
+
+@pytest.mark.parametrize("engine", ["polars", "polars-gpu"], indirect=True)
+@pytest.mark.parametrize("kind,role", [("node_prop", "nodes"), ("edge_prop", "edges")])
+@pytest.mark.parametrize("shape", ["scalar", "list", "ast"])
+@pytest.mark.parametrize("override", ["equality", "ordering"])
+def test_native_string_subclass_literals_keep_scan_comparison_semantics(engine, kind, role, shape, override):
+    from graphistry.compute.gfql.index import with_index_policy
+    pl = pytest.importorskip("polars")
+    from polars.testing import assert_frame_equal
+
+    class QueryText(str):
+        __hash__ = str.__hash__
+
+        def __eq__(self, other):
+            return False if override == "equality" else str.__eq__(self, other)
+
+        def __lt__(self, other):
+            return False if override == "ordering" else str.__lt__(self, other)
+
+        def __gt__(self, other):
+            return True if override == "ordering" else str.__gt__(self, other)
+
+    frame = pl.DataFrame({"id": range(400), "s": range(400), "d": range(400),
+                          "v": [f"key{i:04d}" for i in range(400)]})
+    original = frame.clone()
+    base = graphistry.nodes(frame, "id").edges(frame, "s", "d", "id")
+    indexed = base.create_index(kind, column="v", engine=engine)
+    literal = QueryText("key0000")
+    value = literal if shape == "scalar" else ([literal] if shape == "list" else graphistry.is_in([literal]))
+    method = "filter_" + role + "_by_dict"
+    expected = getattr(getattr(base, method)({"v": value}, engine=engine), "_" + role)
+    assert expected.get_column("id").to_list() == [0]
+    for policy in ("off", "use", "force"):
+        actual = getattr(getattr(with_index_policy(indexed, policy), method)({"v": value}, engine=engine), "_" + role)
+        assert_frame_equal(actual, expected)
+    assert_frame_equal(base._nodes, original)
+    assert_frame_equal(base._edges, original)
