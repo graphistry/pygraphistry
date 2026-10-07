@@ -41,6 +41,14 @@ def lookup_edge_rows(index: AdjacencyIndex, frontier: ArrayLike, xp: ArrayNamesp
         f = f.astype(common)
         keys = keys.astype(common)
 
+    # A singleton frontier expands one CSR bucket; retain independent result buffers.
+    if index.backend == "cupy" and int(f.shape[0]) == 1:
+        positions = _csr_hit_positions(keys, f, xp)
+        if int(positions.shape[0]) == 0:
+            return empty, f[:0]
+        bucket_start, bucket_end = _csr_single_group_bounds(index, positions)
+        return index.row_positions[bucket_start:bucket_end].copy(), f.copy()
+
     pos = xp.searchsorted(keys, f)
     pos_clipped = xp.where(pos < U, pos, U - 1)
     hit = keys[pos_clipped] == f
@@ -58,6 +66,7 @@ def lookup_edge_rows(index: AdjacencyIndex, frontier: ArrayLike, xp: ArrayNamesp
 
     flat = _expand_ranges(start, counts, total, xp)
     return index.row_positions[flat], matched_ids
+
 
 
 def _expand_ranges(start: ArrayLike, counts: ArrayLike, total: int, xp: ArrayNamespace) -> ArrayLike:
