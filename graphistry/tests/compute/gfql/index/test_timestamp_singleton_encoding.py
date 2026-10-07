@@ -27,9 +27,12 @@ def test_timestamp_scalar_empty_and_membership_preserve_sorted_ticks(backend, un
     assert result.dtype == xp.int64
 
 
-@pytest.mark.parametrize("predicate", ["not-a-timestamp", datetime(1970, 1, 1, tzinfo=timezone.utc), np.datetime64("NaT"), 1])
-def test_timestamp_ambiguous_or_invalid_literals_decline_to_canonical_filter(predicate):
-    index = NodePropIndex(key_col="v", keys_sorted=np.asarray([1]), group_offsets=np.asarray([0, 1]),
-                          row_positions=np.asarray([0]), backend="numpy", engine=Engine.PANDAS,
+@pytest.mark.parametrize("backend", ["numpy", "cupy"])
+@pytest.mark.parametrize("predicate", ["not-a-timestamp", datetime(1970, 1, 1, tzinfo=timezone.utc), np.datetime64("NaT", "ns"), 1])
+def test_timestamp_ambiguous_or_invalid_literals_decline_to_canonical_filter(backend, predicate):
+    xp = np if backend == "numpy" else pytest.importorskip("cupy")
+    index = NodePropIndex(key_col="v", keys_sorted=xp.asarray([1]), group_offsets=xp.asarray([0, 1]),
+                          row_positions=xp.asarray([0]), backend=backend,
+                          engine=Engine.PANDAS if backend == "numpy" else Engine.CUDF,
                           timestamp_dtype=np.dtype("datetime64[ns]"))
-    assert property_query_values(index, predicate, np) is None
+    assert property_query_values(index, predicate, xp) is None
