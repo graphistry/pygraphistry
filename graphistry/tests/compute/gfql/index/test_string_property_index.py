@@ -458,3 +458,52 @@ def test_pandas_scalar_dictionary_keeps_exotic_string_comparison(kind, role):
         pd.testing.assert_frame_equal(actual, expected)
         assert any(step.get("op") == "property_lookup" and step.get("path") == "index" for step in steps)
     pd.testing.assert_frame_equal(frame, original)
+
+
+@pytest.mark.parametrize("engine", ["polars", "polars-gpu"], indirect=True)
+@pytest.mark.parametrize("kind,role", [("node_prop", "nodes"), ("edge_prop", "edges")])
+@pytest.mark.parametrize("shape", ["scalar", "list", "ast"])
+@pytest.mark.parametrize("case", ["selective", "other-miss", "absent-first", "all-null", "empty", "bad-cost"])
+def test_invalid_unicode_index_literals_preserve_scan_errors_and_empty_filter_priority(engine, kind, role, shape, case, monkeypatch):
+    from graphistry.compute.exceptions import GFQLValidationError
+    from graphistry.compute.gfql.index import with_index_policy
+    pl = pytest.importorskip("polars")
+    from polars.testing import assert_frame_equal
+
+    count = 0 if case == "empty" else 400
+    values = [None] * count if case == "all-null" else [f"key{i:04d}" for i in range(count)]
+    frame = pl.DataFrame({"id": pl.Series(range(count), dtype=pl.Int64),
+                          "s": pl.Series(range(count), dtype=pl.Int64),
+                          "d": pl.Series(range(count), dtype=pl.Int64),
+                          "v": pl.Series(values, dtype=pl.String)})
+    base = graphistry.nodes(frame, "id").edges(frame, "s", "d", "id")
+    indexed = base.create_index(kind, column="v", engine=engine).create_index(kind, column="id", engine=engine)
+    if case == "bad-cost":
+        monkeypatch.setenv("GFQL_INDEX_COST_GATE_FRAC", "invalid")
+    invalid = chr(0xD800)
+    value = invalid if shape == "scalar" else (
+        [invalid, "key0000"] if shape == "list" else graphistry.is_in([invalid, "key0000"])
+    )
+    filters = {"v": value}
+    if case == "other-miss":
+        filters = {"id": 9999, **filters}
+    elif case == "absent-first":
+        filters = {"absent": 5, "id": 9999, **filters}
+    method = "filter_" + role + "_by_dict"
+    original = frame.clone()
+    try:
+        expected = getattr(getattr(base, method)(filters, engine=engine), "_" + role)
+    except (UnicodeError, ValueError, TypeError, GFQLValidationError, pl.exceptions.PolarsError) as error:
+        expected = error
+    for policy in ("off", "use", "force"):
+        selected = with_index_policy(indexed, policy)
+        if isinstance(expected, Exception):
+            with pytest.raises(type(expected)) as actual:
+                getattr(selected, method)(filters, engine=engine)
+            assert getattr(actual.value, "code", None) == getattr(expected, "code", None)
+            assert getattr(actual.value, "context", None) == getattr(expected, "context", None)
+        else:
+            actual = getattr(getattr(selected, method)(filters, engine=engine), "_" + role)
+            assert_frame_equal(actual, expected)
+    assert_frame_equal(base._nodes, original)
+    assert_frame_equal(base._edges, original)
