@@ -6,6 +6,8 @@ from typing import TYPE_CHECKING, Mapping, Optional, Tuple
 if TYPE_CHECKING:
     import polars as pl
 
+import pandas as pd
+
 from graphistry.Engine import Engine, POLARS_ENGINES
 from graphistry.Plottable import Plottable
 from graphistry.compute.typing import ArrayLike, DataFrameT
@@ -117,12 +119,17 @@ def property_candidate_positions_from_registry(
                     semantic_decline = True
         else:
             from graphistry.compute.filter_by_dict import _prepare_filter_dict
-            native_integer_scalar = (
+            native_scalar = (
                 engine == Engine.PANDAS and len(filter_dict) == 1
                 and type(filter_dict[column]) is int and frame[column].dtype.kind in "iu"
             )
-            # A live integer index proves this exact literal needs no label rewriting.
-            if not native_integer_scalar:
+            if (not native_scalar and engine == Engine.PANDAS and len(filter_dict) == 1
+                    and type(filter_dict[column]) is str and type(frame) is pd.DataFrame
+                    and isinstance(frame[column].dtype, pd.CategoricalDtype)):
+                array = frame[column].array
+                native_scalar = type(array) is pd.Categorical and type(array.categories) is pd.Index
+            # A live native index proves these exact literals need no label rewriting.
+            if not native_scalar:
                 _prepare_filter_dict(frame, filter_dict)
     if record_decision and _trace_active():
         _record({
@@ -146,7 +153,8 @@ def property_candidate_frame(
     registry, policy = get_registry(g), get_index_policy(g)
     if policy == "off" or not filter_dict or not registry.property_indexes(role) and not _trace_active():
         return frame
-    if engine == Engine.POLARS and filter_dict and len(filter_dict) == 1 and policy == "use" and registry.property_indexes(role) and not _trace_active():
+    positions = property_candidate_positions(g, role, frame, filter_dict, engine)
+    if positions is None and engine == Engine.POLARS and filter_dict and len(filter_dict) == 1 and policy == "use" and registry.property_indexes(role) and not _trace_active():
         from graphistry.compute.filter_by_dict import _filter_native_property_scalar, _supports_native_property_scalar
         column, value = next(iter(filter_dict.items()))
         # Singleton dictionaries retain canonical selection.
@@ -158,5 +166,4 @@ def property_candidate_frame(
             if index is not None and _supports_native_property_scalar(frame, column, value):
                 if index.min_group_count >= cost_gate_frac(engine) * len(frame):
                     return _filter_native_property_scalar(frame, column, value)
-    positions = property_candidate_positions(g, role, frame, filter_dict, engine)
     return frame if positions is None else take_rows(frame, positions, engine)
