@@ -185,7 +185,7 @@ def property_candidate_frame(
         column, value = next(iter(filter_dict.items()))
         # Singleton dictionaries retain canonical selection.
         stored = registry.property_indexes(role).get(column)
-        if stored is not None and stored.min_group_count > 1:
+        if stored is not None and stored.min_group_count > 1 and as_eager_polars_frame(frame) is not None:
             try:
                 dense_scan = stored.min_group_count >= cost_gate_frac(engine) * len(frame)
             except ValueError:
