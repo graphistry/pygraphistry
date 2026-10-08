@@ -8,6 +8,8 @@ from __future__ import annotations
 
 from typing import Any, List, Optional, Sequence, Tuple, Union, cast
 
+import numpy as np
+
 from graphistry.Engine import Engine
 from graphistry.compute.typing import DataFrameT, SeriesT
 from .engine_arrays import array_namespace, col_to_array
@@ -164,7 +166,10 @@ def build_property_index(
         keys, dictionary = string_property_keys(valid_nodes, column, engine)
     else:
         valid_nodes = nodes
-        if is_integer_property(nodes, column, engine):
+        if is_integer_property(nodes, column, engine) and (
+            engine != Engine.PANDAS or not isinstance(nodes[column].dtype, np.dtype)
+        ):
+            # NumPy integer storage cannot contain nulls; extension/cuDF storage can.
             valid_nodes, original_rows = _non_null_id_rows(nodes, (column,), engine, xp)
         try:
             keys = col_to_array(valid_nodes, column, engine)
