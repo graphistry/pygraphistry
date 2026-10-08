@@ -9,13 +9,12 @@ from typing import Any, Dict, Literal, Mapping, Optional, Sequence, Tuple, TYPE_
 import pandas as pd
 
 from graphistry.Plottable import Plottable
-from graphistry.Engine import is_polars_series
+from graphistry.Engine import Engine, is_polars_series
 from .ast import Direction
 from .typing import ArrayLike, ArrayNamespace, DataFrameT, FilterDict, ScalarFilterDict, SeedFilterDict, SeedFilterValue, SeriesT
 
 if TYPE_CHECKING:
-    from graphistry.Engine import Engine
-    from graphistry.compute.gfql.index.registry import AdjacencyIndex, NodeIdIndex
+    from graphistry.compute.gfql.index.registry import AdjacencyIndex, GfqlIndexRegistry, NodeIdIndex
 
 
 def _tag_fast_path_aliases(
@@ -297,6 +296,20 @@ def _resident_node_id_index(
     return None
 
 
+def _take_cudf_property_seed_rows(
+    registry: "GfqlIndexRegistry", nodes_df: DataFrameT,
+    n0f: Mapping[str, SeedFilterValue], rows: ArrayLike, engine: "Engine",
+) -> DataFrameT:
+    """Use the trusted gather only when every covering index owns this frame."""
+    from graphistry.compute.gfql.index.engine_arrays import _take_index_rows, take_rows
+
+    relevant = [index for column, index in registry.property_indexes("nodes").items() if column in n0f]
+    n_rows = len(nodes_df)
+    if relevant and all(index.source_ref is nodes_df and index.fingerprint[0] == n_rows for index in relevant):
+        return _take_index_rows(nodes_df, rows, engine, relevant[0])
+    return take_rows(nodes_df, rows, engine)
+
+
 def _seed_rows_via_prop_index_frame(
     g: Plottable, nodes_df: DataFrameT, n0f: Mapping[str, SeedFilterValue], engine: "Engine",
     *, record_property_decision: bool = False,
@@ -307,7 +320,7 @@ def _seed_rows_via_prop_index_frame(
     from graphistry.compute.gfql.index.bindings import (
         _seed_rows_via_property_index as _prop_rows,
     )
-    from graphistry.compute.gfql.index.engine_arrays import array_namespace, _take_index_rows, take_rows
+    from graphistry.compute.gfql.index.engine_arrays import array_namespace, take_rows
     policy = get_index_policy(g)
     if policy == "off":
         return None
@@ -318,12 +331,8 @@ def _seed_rows_via_prop_index_frame(
     rows = _prop_rows(registry, nodes_df, n0f, engine, xp, policy=policy, record_decision=record_property_decision)
     if rows is None:
         return None
-    from graphistry.Engine import Engine
     if engine == Engine.CUDF and int(rows.shape[0]) > 1:
-        relevant = [index for column, index in registry.property_indexes("nodes").items() if column in n0f]
-        n_rows = len(nodes_df)
-        if relevant and all(index.source_ref is nodes_df and index.fingerprint[0] == n_rows for index in relevant):
-            return _take_index_rows(nodes_df, rows, engine, relevant[0])
+        return _take_cudf_property_seed_rows(registry, nodes_df, n0f, rows, engine)
     return take_rows(nodes_df, rows, engine)
 
 
@@ -351,6 +360,25 @@ def _seed_node_rows(
     if engine is None:
         raise TypeError(f"unsupported node frame type {type(nodes_df).__name__}")
     return _filter_frame(nodes_df, filter_dict if filter_dict is not None else dict(n0f), engine), "scan"
+
+
+def _index_answered_cudf_integral_membership(
+    seed: DataFrameT, effective: FilterDict, n0f: Mapping[str, SeedFilterValue],
+) -> bool:
+    """Check the bounded integral membership shortcut without filtering rows."""
+    from graphistry.compute.predicates.is_in import IsIn
+    import numpy as np
+
+    (column, value), = effective.items()
+    if column in n0f and column in seed.columns and isinstance(n0f[column], tuple):
+        dtype = seed[column].dtype
+        if isinstance(dtype, np.dtype) and dtype.kind in "iu":
+            members = value.options if type(value) is IsIn else value if type(value) in (list, tuple) else None
+            if members is not None and 1 <= len(members) <= 1024:
+                bounds = np.iinfo(dtype)
+                return (all(type(member) is int and bounds.min <= member <= bounds.max for member in members)
+                        and tuple(sorted(set(members))) == n0f[column])
+    return False
 
 
 def _seed_node_rows_from_index(
@@ -382,20 +410,9 @@ def _seed_node_rows_from_index(
     effective: FilterDict = filter_dict if filter_dict is not None else dict(n0f)
     if _index_answered_whole_filter(effective, n0f):
         return seed, how
-    from graphistry.Engine import Engine
-    if engine == Engine.CUDF and len(effective) == 1 and len(n0f) == 1:
-        from graphistry.compute.predicates.is_in import IsIn
-        import numpy as np
-        (column, value), = effective.items()
-        if column in n0f and column in seed.columns and isinstance(n0f[column], tuple):
-            dtype = seed[column].dtype
-            if isinstance(dtype, np.dtype) and dtype.kind in "iu":
-                members = value.options if type(value) is IsIn else value if type(value) in (list, tuple) else None
-                if members is not None and 1 <= len(members) <= 1024:
-                    bounds = np.iinfo(dtype)
-                    if (all(type(member) is int and bounds.min <= member <= bounds.max for member in members)
-                            and tuple(sorted(set(members))) == n0f[column]):
-                        return seed, how
+    if (engine == Engine.CUDF and len(effective) == 1 and len(n0f) == 1
+            and _index_answered_cudf_integral_membership(seed, effective, n0f)):
+        return seed, how
     verified = _verify_scalar_filters_on_hit(seed, n0f, engine)
     if verified is not None:
         return verified, how
