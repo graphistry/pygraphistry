@@ -372,11 +372,11 @@ def _seed_rows_via_property_index(
     }
     if engine == Engine.CUDF:
         for predicate in seed_filter.values():
-            members = _membership_seed_ids(predicate) if isinstance(predicate, tuple) else None
-            if members:
-                bounds = xp.iinfo("int64")
-                if members[0] < bounds.min or members[-1] > bounds.max:
-                    return None  # Canonical cuDF isin infers signed Python-literal arrays.
+            # Tuple seeds are sorted integer metadata from _seeded_seed_filters.
+            if isinstance(predicate, tuple) and predicate and (
+                predicate[0] < -(2**63) or predicate[-1] > 2**63 - 1
+            ):
+                return None  # Canonical cuDF isin infers signed Python-literal arrays.
     return property_candidate_positions_from_registry(
         registry, "nodes", nodes, seed_filter, engine, policy, record_decision=record_decision,
     )
