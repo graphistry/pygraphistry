@@ -26,6 +26,11 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 - **GFQL index support that does not exist yet now says so and points at the tracking issue (#2141)**: `CREATE GFQL INDEX FOR edge_prop ...` used to fail as "Malformed GFQL INDEX DDL", and a `node_prop` index on a string, float, boolean, categorical, timestamp or nullable column failed with a message that did not say whether support was coming. Both now raise `GfqlIndexNotImplementedError`, naming the kind or the column's dtype, listing the supported kinds, and linking https://github.com/graphistry/pygraphistry/issues/2141. The same error comes from the Cypher DDL (alone or leading a query), the `CreateIndex` wire op, and `create_index`. It subclasses both `NotImplementedError` and the existing `GfqlIndexUnsupportedError` (a `ValueError`), so existing `except ValueError` handlers keep working and `gfql_index_node_props` still skips unindexable columns. Genuinely unknown kinds and broken statements still raise as before.
 
+### Added
+
+- **GFQL `edge_prop` indexes** (#2141): `CREATE GFQL INDEX FOR edge_prop ON (txn_id)` and `create_index("edge_prop", column="txn_id")` build per-column CSR lookups. Integer edge equality and membership predicates gather matching candidates in input order, preserve duplicate property values, and reapply residual filters. `gfql_explain` reports actual property-index selection and cost declines; stale indexes and `index_policy="off"` retain the scan path. Supported on pandas, cuDF, and Polars.
+
+
 ### Documentation
 
 - **The 0.59.2 `WHERE a.id IN [...]` number is restated from a benchmark-host receipt**: on 100k nodes / 500k edges with 50 seed ids and the node-id and adjacency indexes resident, the query took 2,713 ms before #2117 and takes 5.24 ms on 0.59.2 (518x; pandas on a GB10, 15 timed queries per arm from three processes, same rows on every arm), and 2,723 -> 33.7 ms without indexes. The subgraph form `GRAPH { MATCH (a)-[e]->(b) WHERE a.id IN [...] }` was rejected with a validation error before and now answers in 0.93 ms index-served. The 0.59.2 entry's 4 s -> 10 ms came from a developer workstation; the receipts are pyg-bench `results/gfql-cypher-in-seed-list-20261004` (graphistry/pyg-bench#288).

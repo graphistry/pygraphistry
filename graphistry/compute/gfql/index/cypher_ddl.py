@@ -23,7 +23,7 @@ from .wire import CreateIndex, DropIndex, ShowIndexes, IndexOp
 from .errors import is_not_yet_implemented_kind, not_implemented_kind_error
 from .registry import ALL_KINDS
 
-_KIND = r"(?P<kind>edge_out_adj|edge_in_adj|node_id|node_prop)"
+_KIND = r"(?P<kind>edge_out_adj|edge_in_adj|node_id|node_prop|edge_prop)"
 
 _ON_COL = r"(?:\s+ON(?:\s*\(\s*(?P<col>[A-Za-z_]\w*)\s*\)|\s+(?P<col2>[A-Za-z_]\w*)))?"
 _CREATE_PATTERN = (

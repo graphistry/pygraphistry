@@ -673,7 +673,7 @@ SAFELIST_V1: Dict[str, Dict[str, Any]] = {
             'name': is_string,
             'engine': is_string,
         },
-        description='Build a resident GFQL index (edge_out_adj, edge_in_adj, node_id, node_prop ON column) so the ops after it can use it',
+        description='Build a resident GFQL index (edge_out_adj, edge_in_adj, node_id, node_prop/edge_prop ON column) so the ops after it can use it',
     ),
 
     'drop_index': _safelist_entry(

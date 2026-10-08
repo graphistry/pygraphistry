@@ -1,13 +1,13 @@
 from typing import Any, Dict, Mapping, Optional, Tuple, Union, cast
 import pandas as pd
 
-from graphistry.Engine import EngineAbstract, POLARS_ENGINES, df_to_engine, resolve_engine
+from graphistry.Engine import Engine, EngineAbstract, POLARS_ENGINES, df_cons, df_to_engine, resolve_engine, s_cons
 from graphistry.util import setup_logger
 
 from graphistry.Plottable import Plottable
 from graphistry.compute.gfql.node_dtypes_memo import memo_get, memo_put
 from .predicates.ASTPredicate import ASTPredicate
-from .typing import DataFrameT, DType, NodeDtypes, SeriesT
+from .typing import DataFrameT, DType, FilterDict, FilterValue, NodeDtypes, SeriesT
 
 
 logger = setup_logger(__name__)
@@ -137,17 +137,14 @@ def filter_by_dict(df: DataFrameT, filter_dict: Optional[dict] = None, engine: U
         from graphistry.compute.gfql.lazy.engine.polars.predicates import filter_by_dict_polars
         return filter_by_dict_polars(df, filter_dict)  # mask path below is pandas/cuDF-idiom (#1882)
 
-    hits = filter_mask_by_dict(df, filter_dict)
+    hits = filter_mask_by_dict(df, filter_dict, engine=engine_concrete)
     return df[hits]
 
 
-def filter_mask_by_dict(df: DataFrameT, filter_dict: Dict[str, Any]) -> SeriesT:  # hygiene-ok: explicit-any -- filter values are heterogeneous by contract (scalars, lists, ASTPredicate)
-    """Boolean row mask ``filter_by_dict`` would apply to an already engine-native
-    ``df`` — same column resolution, same typed validation errors, same 3VL
-    membership semantics. Exposed so callers that read only a column subset can
-    gather it directly (``df.loc[mask, cols]``) without materializing the
-    full-width filtered frame.
-    """
+def _prepare_filter_dict(
+    df: DataFrameT, filter_dict: Mapping[str, FilterValue],
+) -> Tuple[Dict[str, Tuple[str, ASTPredicate]], Dict[str, Tuple[str, FilterValue]], bool]:
+    """Resolve columns and validate canonical filter types before any row gather."""
     from graphistry.compute.exceptions import ErrorCode, GFQLSchemaError
 
     from graphistry.compute.gfql.strictness import absent_column_matches
@@ -222,25 +219,134 @@ def filter_mask_by_dict(df: DataFrameT, filter_dict: Dict[str, Any]) -> SeriesT:
 
             predicates[col] = (resolved_col, resolved_val)
 
-    hits = df[[]].assign(x=False if absent_never_matches else True).x
+    return predicates, concrete_filters, absent_never_matches
+
+
+def filter_mask_by_dict(df: DataFrameT, filter_dict: Dict[str, Any], *, engine: Optional[Engine] = None) -> SeriesT:  # hygiene-ok: explicit-any -- filter values are heterogeneous by contract (scalars, lists, ASTPredicate)
+    """Boolean row mask ``filter_by_dict`` would apply to an already engine-native
+    ``df`` — same column resolution, same typed validation errors, same 3VL
+    membership semantics. Exposed so callers that read only a column subset can
+    gather it directly (``df.loc[mask, cols]``) without materializing the
+    full-width filtered frame.
+    """
+    predicates, concrete_filters, absent_never_matches = _prepare_filter_dict(df, filter_dict)
+
+    engine = resolve_engine(EngineAbstract.AUTO, df) if engine is None else engine
+    native_pandas = engine == Engine.PANDAS and type(df) is pd.DataFrame
+    def initial_mask(value: bool) -> SeriesT:
+        if native_pandas or engine == Engine.CUDF:
+            return s_cons(engine)(value, index=df.index, name="x", dtype="bool")
+        return df[[]].assign(x=value).x
+
     if absent_never_matches:
-        return hits
+        return initial_mask(False)
+    # Reuse the first native pandas comparison instead of allocating and ANDing True.
+    hits = None if native_pandas and len(df) else initial_mask(True)
     if concrete_filters:
         for original_col, (resolved_col, resolved_val) in concrete_filters.items():
             if original_col.startswith("label__") and resolved_col == "labels" and isinstance(resolved_val, str):
-                hits = hits & _label_series_contains(df[resolved_col], resolved_val)
+                mask = _label_series_contains(df[resolved_col], resolved_val)
             elif _is_membership_filter_value(resolved_val):
                 # openCypher/SQL 3VL: `null IN [...]` is null -> a NULL cell is NOT a member (and a
                 # NULL in the list cannot make a null cell match). `& notna()` excludes null cells —
                 # a no-op for pandas (its isin already excludes a NaN cell here) but fixes cuDF, which
                 # otherwise matches a null cell against a None/NaN list element.
-                hits = hits & df[resolved_col].isin(list(resolved_val)) & df[resolved_col].notna()
+                mask = df[resolved_col].isin(list(resolved_val)) & df[resolved_col].notna()
             else:
-                hits = hits & (df[resolved_col] == resolved_val)
+                mask = df[resolved_col] == resolved_val
+            if hits is None:
+                mask.name = "x" if mask.name == "x" else None
+                hits = mask
+            else:
+                hits = hits & mask
     if predicates:
         for resolved_col, op in predicates.values():
+            if hits is None:
+                hits = initial_mask(True)
             hits = hits & op(df[resolved_col])
-    return hits
+    return initial_mask(True) if hits is None else hits
+
+
+def _supports_native_property_scalar(df: DataFrameT, column: str, value: object) -> bool:
+    """Exact eager CPU scalar comparisons; coercing/temporal predicates decline."""
+    import polars as pl
+    from graphistry.compute.gfql.lazy import ExecutionTarget, active_target
+
+    if not isinstance(df, pl.DataFrame) or df.width > 32 or column not in df.columns:
+        return False
+    if active_target() == ExecutionTarget.GPU:
+        return False
+    dtype = df.get_column(column).dtype
+    if dtype in (pl.String, pl.Categorical, pl.Enum) and type(value) is str:
+        # Malformed UTF-8 must retain canonical expression validation.
+        if not value.isascii():
+            try:
+                value.encode("utf-8")
+            except UnicodeEncodeError:
+                return False
+        return True
+    return (
+        dtype == pl.Int64 and type(value) is int and -(2**63) <= value < 2**63
+        or dtype == pl.UInt64 and type(value) is int and 0 <= value < 2**63
+    )
+
+
+def _filter_native_property_scalar(df: DataFrameT, column: str, value: object) -> DataFrameT:
+    """Filter an admitted scalar with native columns, preserving order and ownership."""
+    mask = df.get_column(column) == value
+    return df_cons(Engine.POLARS)([series.filter(mask) for series in df.iter_columns()])
+
+
+def _filter_property_candidates(
+    original: DataFrameT, candidates: DataFrameT, filter_dict: Optional[FilterDict], engine: Engine,
+    *, filter_validated: bool = False,
+) -> DataFrameT:
+    """Apply canonical residuals, reusing exact owned property gathers when proven."""
+    if engine == Engine.CUDF and filter_validated and candidates is not original and filter_dict and len(filter_dict) == 1:
+        import numpy as np
+        column, value = next(iter(filter_dict.items()))
+        if column in candidates.columns:
+            dtype = candidates[column].dtype
+            if isinstance(dtype, np.dtype) and dtype.kind in "iu" and type(value) is int:
+                return candidates
+    # Float and temporal candidates still require canonical residuals.
+    if engine == Engine.POLARS and filter_validated and candidates is not original and filter_dict and len(filter_dict) == 1:
+        from graphistry.compute.gfql.lazy import ExecutionTarget, active_target
+        from graphistry.compute.gfql.index.engine_arrays import as_eager_polars_frame
+        eager = as_eager_polars_frame(candidates)
+        if eager is not None and active_target() != ExecutionTarget.GPU:
+            import polars as pl
+            column, value = next(iter(filter_dict.items()))
+            if column in eager.columns:
+                dtype = eager.get_column(column).dtype
+                if (dtype.is_integer() and type(value) is int
+                        or dtype in (pl.String, pl.Categorical, pl.Enum) and type(value) is str):
+                    return candidates
+    if engine == Engine.PANDAS and candidates is not original and filter_dict:
+        if isinstance(candidates, pd.DataFrame) and len(filter_dict) == 1:
+            import numpy as np
+            column, value = next(iter(filter_dict.items()))
+            if column in candidates.columns and type(value) in (int, float, bool, str):
+                series = candidates[column]
+                dtype = series.dtype
+                if filter_validated and type(value) is int and isinstance(dtype, np.dtype) and dtype.kind in "iu":
+                    return candidates
+                if (filter_validated and type(candidates) is pd.DataFrame and type(value) is str
+                        and type(series.array) is pd.Categorical and isinstance(dtype, pd.CategoricalDtype)
+                        and type(dtype.categories) is pd.Index):
+                    return candidates  # Native dictionary lookup already proves categorical scalar equality.
+                if isinstance(dtype, pd.CategoricalDtype) or isinstance(dtype, np.dtype) and dtype.kind in "iufbM":
+                    if not filter_validated:
+                        _prepare_filter_dict(candidates, filter_dict)
+                    # The native array owns scalar comparison semantics.
+                    mask = np.asarray(series.array == value)
+                    if mask.dtype.kind == "b":
+                        return candidates if mask.all() else candidates[mask]
+        hits = filter_mask_by_dict(candidates, filter_dict, engine=engine)
+        # Nullable Boolean.all() ignores NA; sum counts only true rows.
+        all_match = pd.api.types.is_bool_dtype(hits.dtype) and hits.sum() == len(hits)
+        return candidates if all_match else candidates[hits]
+    return filter_by_dict(candidates, filter_dict, engine.value)
 
 
 def filter_nodes_by_dict(self: Plottable, filter_dict: Optional[dict] = None, engine: Union[EngineAbstract, str] = EngineAbstract.AUTO) -> Plottable:
@@ -255,7 +361,18 @@ def filter_edges_by_dict(self: Plottable, filter_dict: Optional[dict] = None, en
     """
     filter edges to those that match all values in filter_dict
     """
-    edges2 = filter_by_dict(self._edges, filter_dict, engine)
+    from graphistry.compute.gfql.index.property_lookup import property_candidate_frame
+
+    edges = self._edges
+    if edges is not None:
+        concrete_engine = resolve_engine(EngineAbstract(engine), edges)
+        candidates = property_candidate_frame(self, "edges", edges, filter_dict, concrete_engine)
+        edges2 = _filter_property_candidates(
+            edges, candidates, filter_dict, concrete_engine,
+            filter_validated=candidates is not edges,
+        )
+    else:
+        edges2 = filter_by_dict(edges, filter_dict, engine)
     return self.edges(edges2)
 
 

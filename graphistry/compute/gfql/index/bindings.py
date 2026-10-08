@@ -385,20 +385,39 @@ def _seed_rows_via_property_index(
             index = registry.get_node_prop_valid(column, nodes, other)
         if index is None:
             continue
-        values = xp.asarray(members)
-        count = prop_match_count(index, values, xp)
+        bounds = xp.iinfo(index.keys_sorted.dtype)
+        # Decline out-of-bounds predicates so canonical filtering owns overflow errors.
+        if members[0] < bounds.min or members[-1] > bounds.max:
+            return None
+        if engine == Engine.CUDF and isinstance(value, tuple):
+            literal_bounds = xp.iinfo("int64")
+            if members[0] < literal_bounds.min or members[-1] > literal_bounds.max:
+                return None  # Canonical cuDF isin infers signed Python-literal arrays.
+        values = xp.asarray(members, dtype=index.keys_sorted.dtype)
+        groups = group_sizes = None
+        if engine == Engine.CUDF and int(values.shape[0]) > 1:
+            from .lookup import _csr_hit_positions, _csr_group_sizes
+            groups = _csr_hit_positions(index.keys_sorted, values, xp)
+            group_sizes = _csr_group_sizes(index, groups)
+            count = int(group_sizes.sum())
+        else:
+            count = prop_match_count(index, values, xp)
         if best_count is not None and count >= best_count:
             continue
         best_count = count
-        best_rows = (index, values)
+        best_rows = (index, values, groups, group_sizes)
     if best_rows is None or best_count is None:
         return None
     if policy != "force":
         n_nodes = int(nodes.shape[0])
         if best_count >= cost_gate_frac(engine) * n_nodes:
             return None  # not selective enough to beat one vectorized scan
-    index, values = best_rows
-    return xp.sort(lookup_prop_rows(index, values, xp))
+    index, values, groups, group_sizes = best_rows
+    rows = (
+        lookup_prop_rows(index, values, xp, group_positions=groups, group_sizes=group_sizes, match_count=best_count)
+        if groups is not None else lookup_prop_rows(index, values, xp)
+    )
+    return xp.sort(rows)
 
 
 def _try_indexed_connected_bindings_state(

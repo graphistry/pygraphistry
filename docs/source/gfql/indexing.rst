@@ -26,7 +26,7 @@ You can also create the indexes in the same call as the query that uses them:
 Index kinds
 -----------
 
-There are four kinds. ``gfql_index_all()`` builds the first three.
+There are five kinds. ``gfql_index_all()`` builds the first three.
 
 .. list-table::
    :header-rows: 1
@@ -65,6 +65,15 @@ There are four kinds. ``gfql_index_all()`` builds the first three.
        | Cypher: ``CREATE GFQL INDEX FOR node_prop ON (account_number)``
        | Python: ``g.create_index("node_prop", column="account_number")``
        | JSON: ``{"type": "CreateIndex", "kind": "node_prop", "column": "account_number"}``
+
+   * - ``edge_prop``
+     - Analogous to a column index on the edge table. Finds edges by a property such as
+       a transaction id. Integer equality and membership lookups retain duplicate rows.
+       Only integer columns without nulls can be indexed.
+
+       | Cypher: ``CREATE GFQL INDEX FOR edge_prop ON (txn_id)``
+       | Python: ``g.create_index("edge_prop", column="txn_id")``
+       | JSON: ``{"type": "CreateIndex", "kind": "edge_prop", "column": "txn_id"}``
 
 Indexes do not change or copy your dataframes. ``g.show_indexes()`` lists each index and
 its memory use (the ``nbytes`` column). GFQL builds an index only when you ask for one,
@@ -150,6 +159,7 @@ The lifecycle calls. Each returns a new ``g``, like the rest of the API:
    g = g.gfql_index_edges("forward")    # or one direction: 'forward'|'reverse'|'both'
    g = g.create_index("edge_out_adj")   # or one kind: 'edge_out_adj'|'edge_in_adj'|'node_id'
    g = g.gfql_index_node_props(["id"])  # property indexes on node columns
+   g = g.create_index("edge_prop", column="amount")  # property indexes on edge columns
    g.show_indexes()                     # pandas DataFrame: kind, engine, ..., valid, usable, reason
    g = g.drop_index()                   # drop all (or drop_index("edge_out_adj"))
 
@@ -175,6 +185,28 @@ Only integer columns without nulls can be indexed today. When one query filters 
 several indexed columns, GFQL starts from the most selective one and applies the other
 filters to its matches, so results do not depend on which indexes exist.
 
+An edge property can seed a query in the same way:
+
+.. code-block:: python
+
+   transfers = pd.DataFrame({
+       "src": range(400), "dst": range(1, 401), "txn_id": range(400),
+   })
+   g_transfers = graphistry.edges(transfers, "src", "dst").materialize_nodes()
+   g_transfers = g_transfers.create_index("edge_prop", column="txn_id")
+   query = "MATCH (a)-[e {txn_id: 7}]->(b) RETURN a, b"
+   report = g_transfers.gfql_explain(query)
+   assert report["used_index"] and report["decision_code"] == "index_selected"
+
+   # DDL and per-column lifecycle are also available
+   g_transfers = g_transfers.gfql("CREATE GFQL INDEX FOR edge_prop ON (txn_id)")
+   g_transfers = g_transfers.drop_index("edge_prop", column="txn_id")
+
+Equality and ``is_in`` edge filters use a live edge-property index on native
+chains and Cypher queries. The most selective indexed column supplies candidate
+rows; the full filter still applies, preserving row order and duplicate edges.
+A dense lookup can be costed out; inspect ``gfql_explain`` for the actual decision.
+
 What uses an index
 ------------------
 
@@ -187,6 +219,7 @@ These queries use a resident index automatically:
 - **Native chains that start from known ids**, such as
   ``[n({"id": is_in([...])}), e_forward(), n()]``.
 - **Start nodes found by a property column** that has a ``node_prop`` index.
+- **Edges found by a property column** that has an ``edge_prop`` index.
 - **A direct** ``g.hop(nodes=..., hops=..., direction=...)``.
 
 Queries that do not start from known nodes, such as a filter over every node, scan. To

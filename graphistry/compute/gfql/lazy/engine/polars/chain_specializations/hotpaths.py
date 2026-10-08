@@ -163,7 +163,10 @@ def _seeded_typed_return_dst_polars(
         from_ids = seed_nodes.get_column(node).drop_nulls()
         if from_ids.len() == 0:
             return nodes_df.clear(), edges_df.clear(), seed_nodes, kernel_admits
-        edges = edges_df.filter(is_in_ids(pl.col(from_col), from_ids))
+        from graphistry.Engine import Engine
+        from graphistry.compute.gfql.index.property_lookup import property_candidate_frame
+        candidates = property_candidate_frame(g, "edges", edges_df, e1.edge_match, Engine.POLARS)
+        edges = candidates.filter(is_in_ids(pl.col(from_col), from_ids))
         edges = filter_by_dict_polars(edges, e1.edge_match)
         dst_ids = edges.get_column(to_col).drop_nulls().unique()
         dstn = nodes_df.filter(is_in_ids(pl.col(node), dst_ids))

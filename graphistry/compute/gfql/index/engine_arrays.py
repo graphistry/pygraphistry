@@ -12,10 +12,11 @@ Bulk operations stay vectorized; bounded CPU gathers can reuse row slices.
 """
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Optional, Tuple, cast
+from typing import TYPE_CHECKING, Any, Optional, Tuple, Union, cast
 
 if TYPE_CHECKING:
     import polars as pl
+    from .registry import AdjacencyIndex, NodeIdIndex, NodePropIndex
 
 from graphistry.Engine import Engine
 from graphistry.compute.typing import DataFrameT
@@ -120,11 +121,57 @@ def take_rows(df: DataFrameT, positions: ArrayLike, engine: Engine) -> DataFrame
                     result = df[idx]
             else:
                 result = df[idx]
+        elif (
+            engine == Engine.POLARS and idx.ndim == 1 and 9 <= idx.size <= 1024
+            and idx.dtype.kind in "iu" and df.width <= 32
+            and int(idx.min()) >= 0 and int(idx.max()) < min(len(df), 2**32)
+        ):
+            import polars as pl
+            # Gather native columns without starting a frame expression plan.
+            native_idx = pl.Series(idx.astype(np.uint32, copy=False))
+            result = pl.DataFrame([column[native_idx] for column in df.iter_columns()])
         else:
             result = df[idx]
-        return cast(DataFrameT, result)
+        return result
+    if engine in (Engine.PANDAS, Engine.CUDF):
+        import numpy as np
+        single_idx = positions if engine == Engine.CUDF else np.asarray(positions)
+        if len(single_idx.shape) == 1 and single_idx.shape[0] == 1 and single_idx.dtype.kind in "iu":
+            if engine == Engine.CUDF:
+                import cupy as cp
+                position = int(cp.asnumpy(single_idx)[0])
+            else:
+                position = int(np.asarray(single_idx)[0])
+            if 0 <= position < len(df):
+                return cast(DataFrameT, df.iloc[position:position + 1].copy())
     # pandas / cudf: iloc accepts numpy (pandas) or cupy (cudf) int arrays
     return cast(DataFrameT, df.iloc[positions])
+
+
+
+def _take_index_rows(
+    df: DataFrameT, positions: ArrayLike, engine: Engine,
+    index: "Union[AdjacencyIndex, NodeIdIndex, NodePropIndex]",
+) -> DataFrameT:
+    """Gather positions produced by a live index without repeating GPU bounds reductions.
+
+    Callers supply only nonnegative row positions from that index's lookup.
+    Builders obtain these positions from the original frame; lookup selects
+    subsets. Identity and height must still match before trusting this invariant.
+    Arbitrary indexers continue through checked ``take_rows``.
+    """
+    if engine == Engine.CUDF:
+        n_rows = len(df)
+        if (index.source_ref is df and index.fingerprint[0] == n_rows
+                and int(positions.shape[0]) > 1):
+            import cudf  # type: ignore[import]
+            from cudf.core.column import as_column  # type: ignore[import]
+            from cudf.core.copy_types import GatherMap  # type: ignore[import]
+
+            if isinstance(df, cudf.DataFrame):
+                gather_map = GatherMap.from_column_unchecked(as_column(positions), n_rows, nullify=False)
+                return df._gather(gather_map)
+    return take_rows(df, positions, engine)
 
 
 def select_by_ids(df: DataFrameT, col: str, ids: ArrayLike, engine: Engine) -> DataFrameT:

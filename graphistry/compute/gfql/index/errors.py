@@ -7,7 +7,7 @@ from typing_extensions import TypeGuard
 
 INDEX_SUPPORT_ISSUE_URL = "https://github.com/graphistry/pygraphistry/issues/2141"
 NotYetImplementedKind = Literal["edge_prop"]
-NOT_YET_IMPLEMENTED_KINDS: Tuple[NotYetImplementedKind, ...] = ("edge_prop",)
+NOT_YET_IMPLEMENTED_KINDS: Tuple[NotYetImplementedKind, ...] = ()
 
 
 class GfqlIndexUnsupportedError(ValueError):
@@ -22,7 +22,7 @@ class GfqlIndexUnsupportedError(ValueError):
 
 
 class GfqlIndexNotImplementedError(GfqlIndexUnsupportedError, NotImplementedError):
-    """Index support GFQL does not have yet: an edge property index, or a property
+    """Index support GFQL does not have yet: a property
     column type other than null-free integers. Tracked in ``INDEX_SUPPORT_ISSUE_URL``."""
 
 

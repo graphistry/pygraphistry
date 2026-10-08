@@ -21,6 +21,7 @@ python -m pytest --version
 # `graphistry/tests/compute/gfql/test_polars_lane_completeness.py` parses this array and
 # fails if any module-level polars-gated test file is absent from it (or listed but gone).
 POLARS_TEST_FILES=(
+    graphistry/tests/compute/gfql/index/test_sorted_csr_build_ownership.py
     graphistry/tests/compute/gfql/test_searchany_wysiwyg_datetime.py
     graphistry/tests/test_plotterbase_optional_deps.py
     graphistry/tests/compute/test_polars.py
@@ -172,6 +173,9 @@ POLARS_TEST_FILES=(
     # #1937 split-month duration scaling: every case is parametrized pandas AND polars,
     # and the polars params only run here
     graphistry/tests/compute/gfql/test_duration_month_division_1937.py
+    graphistry/tests/compute/gfql/index/test_edge_property_index.py
+    graphistry/tests/compute/gfql/index/test_native_dense_property_scan.py
+    graphistry/tests/compute/gfql/index/test_pandas_gather_isolation.py
     graphistry/tests/compute/gfql/index/test_indexed_bindings.py
     graphistry/tests/compute/gfql/index/test_indexed_bindings_membership_seed.py
     graphistry/tests/compute/gfql/index/test_index_ddl_in_one_call.py

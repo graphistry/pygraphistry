@@ -1,6 +1,6 @@
 """Index support GFQL does not have yet raises NotImplementedError naming #2141.
 
-An edge property index and non-integer property columns are tracked work, not caller mistakes and not
+Non-integer property columns are tracked work, not caller mistakes and not
 malformed DDL. Every entry point (Cypher DDL, fused DDL, the wire op, ``create_index``) says so the same way,
 while staying a ``ValueError`` for existing callers and staying skippable for the convenience builders.
 """
@@ -41,26 +41,22 @@ def _assert_tracked(excinfo: pytest.ExceptionInfo) -> None:
     "CREATE GFQL INDEX IF NOT EXISTS FOR edge_prop ON txn_id",
     "DROP GFQL INDEX IF EXISTS FOR edge_prop ON (txn_id)",
 ])
-def test_edge_prop_ddl_is_not_implemented_not_malformed(ddl):
-    with pytest.raises(GfqlIndexNotImplementedError) as excinfo:
-        parse_index_ddl(ddl)
-    _assert_tracked(excinfo)
-    assert "Malformed" not in str(excinfo.value)
+def test_edge_prop_ddl_is_now_implemented(ddl):
+    op = parse_index_ddl(ddl)
+    assert op is not None
+    assert op.kind == "edge_prop" and op.column == "txn_id"
 
 
-def test_edge_prop_in_a_fused_query_raises_before_the_match_runs():
-    with pytest.raises(GfqlIndexNotImplementedError) as excinfo:
-        _graph().gfql("CREATE GFQL INDEX FOR edge_prop ON (txn_id); MATCH (a)-[e]->(b) RETURN b")
-    _assert_tracked(excinfo)
+def test_edge_prop_in_a_fused_query_builds_and_runs_the_match():
+    out = _graph().gfql("CREATE GFQL INDEX FOR edge_prop ON (txn_id); MATCH (a)-[e {txn_id: 9001}]->(b) RETURN b.id AS id")
+    assert out._nodes["id"].tolist() == [1]
 
 
 def test_edge_prop_through_the_wire_and_the_python_api():
-    with pytest.raises(GfqlIndexNotImplementedError) as excinfo:
-        CreateIndex.from_json({"type": "CreateIndex", "kind": "edge_prop", "column": "txn_id"})
-    _assert_tracked(excinfo)
-    with pytest.raises(GfqlIndexNotImplementedError) as excinfo:
-        create_index(_graph(), "edge_prop", column="txn_id")  # type: ignore[arg-type]
-    _assert_tracked(excinfo)
+    op = CreateIndex.from_json({"type": "CreateIndex", "kind": "edge_prop", "column": "txn_id"})
+    assert op.kind == "edge_prop"
+    indexed = create_index(_graph(), "edge_prop", column="txn_id")
+    assert set(get_registry(indexed).edge_props) == {"txn_id"}
 
 
 @pytest.mark.parametrize("ddl", ["CREATE GFQL INDEX FOR bogus", "CREATE GFQL INDEX FOR node_prop ON ("])

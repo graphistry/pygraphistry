@@ -12,7 +12,7 @@ from graphistry.compute.typing import ArrayLike, ArrayNamespace, DataFrameT
 if TYPE_CHECKING:
     from graphistry.compute.predicates.ASTPredicate import ASTPredicate
 
-IndexKind = Literal["edge_out_adj", "edge_in_adj", "node_id", "node_prop"]
+IndexKind = Literal["edge_out_adj", "edge_in_adj", "node_id", "node_prop", "edge_prop"]
 #: Build-time facts that `show_indexes` reports but that are not registry `indexes`.
 SidecarFactKind = Literal["category", "endpoint_rows", "temporal_text"]
 AdjacencyIndexKind = Literal["edge_out_adj", "edge_in_adj"]

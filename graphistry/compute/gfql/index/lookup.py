@@ -6,7 +6,7 @@ numpy (pandas/polars) and cupy (cudf) arrays.
 """
 from __future__ import annotations
 
-from typing import Any, Tuple
+from typing import Any, Optional, Tuple
 
 from .registry import AdjacencyIndex, NodeIdIndex, NodePropIndex
 from .types import ArrayLike, ArrayNamespace
@@ -41,6 +41,14 @@ def lookup_edge_rows(index: AdjacencyIndex, frontier: ArrayLike, xp: ArrayNamesp
         f = f.astype(common)
         keys = keys.astype(common)
 
+    # A singleton frontier expands one CSR bucket; retain independent result buffers.
+    if index.backend == "cupy" and int(f.shape[0]) == 1:
+        positions = _csr_hit_positions(keys, f, xp)
+        if int(positions.shape[0]) == 0:
+            return empty, f[:0]
+        bucket_start, bucket_end = _csr_single_group_bounds(index, positions)
+        return index.row_positions[bucket_start:bucket_end].copy(), f.copy()
+
     pos = xp.searchsorted(keys, f)
     pos_clipped = xp.where(pos < U, pos, U - 1)
     hit = keys[pos_clipped] == f
@@ -58,6 +66,7 @@ def lookup_edge_rows(index: AdjacencyIndex, frontier: ArrayLike, xp: ArrayNamesp
 
     flat = _expand_ranges(start, counts, total, xp)
     return index.row_positions[flat], matched_ids
+
 
 
 def _expand_ranges(start: ArrayLike, counts: ArrayLike, total: int, xp: ArrayNamespace) -> ArrayLike:
@@ -109,6 +118,20 @@ def _csr_hit_positions(keys: ArrayLike, values: ArrayLike, xp: ArrayNamespace) -
         common = xp.promote_types(values.dtype, keys.dtype)
         values = values.astype(common)
         keys = keys.astype(common)
+    import numpy as np
+    if isinstance(keys, np.ndarray) and isinstance(values, np.ndarray) and values.size == 1:
+        value = values[0]
+        position = keys.searchsorted(value)
+        if position < U and keys[position] == value:
+            return xp.asarray([position], dtype=xp.int64)
+        return xp.zeros(0, dtype=xp.int64)
+    if int(values.shape[0]) == 1:
+        import cupy as cp
+        # Only a query position crosses the device boundary, never source rows.
+        position = int(cp.asnumpy(xp.searchsorted(keys, values))[0])
+        if position < U and keys[position] == values[0]:
+            return xp.asarray([position], dtype=xp.int64)
+        return xp.zeros(0, dtype=xp.int64)
     pos = xp.searchsorted(keys, values)
     clipped = xp.where(pos < U, pos, U - 1)
     return clipped[keys[clipped] == values]
@@ -119,35 +142,53 @@ def _csr_group_sizes(index: Any, positions: ArrayLike) -> ArrayLike:
     return index.group_offsets[positions + 1] - index.group_offsets[positions]
 
 
+def _csr_single_group_bounds(index: Any, positions: ArrayLike) -> Tuple[int, int]:  # hygiene-ok: explicit-any -- shares the existing CSR interface for property and adjacency records
+    """Read one CSR bucket's bounds; GPU probes transfer only three integers."""
+    if index.backend == "cupy":
+        import cupy as cp
+        group = int(cp.asnumpy(positions)[0])
+        bounds = cp.asnumpy(index.group_offsets[group:group + 2])
+        return int(bounds[0]), int(bounds[1])
+    import numpy as np
+    group = int(np.asarray(positions)[0])
+    return int(index.group_offsets[group]), int(index.group_offsets[group + 1])
+
+
 def csr_match_count(index: Any, values: ArrayLike, xp: ArrayNamespace) -> int:
     """How many rows a CSR gather of ``values`` would return — offsets only, no
     gather. The planner's free selectivity/degree estimate."""
     positions = _csr_hit_positions(index.keys_sorted, values, xp)
     if int(positions.shape[0]) == 0:
         return 0
+    if int(positions.shape[0]) == 1:
+        bucket_start, bucket_end = _csr_single_group_bounds(index, positions)
+        return bucket_end - bucket_start
     return int(_csr_group_sizes(index, positions).sum())
 
 
-def csr_gather_rows(index: Any, values: ArrayLike, xp: ArrayNamespace) -> ArrayLike:
+def csr_gather_rows(index: Any, values: ArrayLike, xp: ArrayNamespace, *, group_positions: Optional[ArrayLike] = None, group_sizes: Optional[ArrayLike] = None, match_count: Optional[int] = None) -> ArrayLike:
     """Row positions of every row whose key is in ``values`` (CSR range expansion)."""
-    positions = _csr_hit_positions(index.keys_sorted, values, xp)
+    positions = group_positions if group_positions is not None else _csr_hit_positions(index.keys_sorted, values, xp)
     empty = index.row_positions[:0]
     if int(positions.shape[0]) == 0:
         return empty
+    if int(positions.shape[0]) == 1:
+        bucket_start, bucket_end = _csr_single_group_bounds(index, positions)
+        return index.row_positions[bucket_start:bucket_end]
     start = index.group_offsets[positions]
-    counts = _csr_group_sizes(index, positions)
-    total = int(counts.sum())
+    counts = group_sizes if group_sizes is not None else _csr_group_sizes(index, positions)
+    total = match_count if match_count is not None else int(counts.sum())
     if total == 0:
         return empty
     return index.row_positions[_expand_ranges(start, counts, total, xp)]
 
 
-def lookup_prop_rows(index: NodePropIndex, values: ArrayLike, xp: ArrayNamespace) -> ArrayLike:
+def lookup_prop_rows(index: NodePropIndex, values: ArrayLike, xp: ArrayNamespace, *, group_positions: Optional[ArrayLike] = None, group_sizes: Optional[ArrayLike] = None, match_count: Optional[int] = None) -> ArrayLike:
     """values -> node row positions of every row holding one of them.
 
     Order is unspecified here; callers that need frame order sort.
     """
-    return csr_gather_rows(index, values, xp)
+    return csr_gather_rows(index, values, xp, group_positions=group_positions, group_sizes=group_sizes, match_count=match_count)
 
 
 def prop_match_count(index: NodePropIndex, values: ArrayLike, xp: ArrayNamespace) -> int:

@@ -22,9 +22,10 @@ EDGE_OUT_ADJ: AdjacencyIndexKind = "edge_out_adj"
 EDGE_IN_ADJ: AdjacencyIndexKind = "edge_in_adj"
 NODE_ID: IndexKind = "node_id"
 NODE_PROP: IndexKind = "node_prop"
+EDGE_PROP: IndexKind = "edge_prop"
 
 ADJ_KINDS: Tuple[AdjacencyIndexKind, ...] = (EDGE_OUT_ADJ, EDGE_IN_ADJ)
-ALL_KINDS: Tuple[IndexKind, ...] = (EDGE_OUT_ADJ, EDGE_IN_ADJ, NODE_ID, NODE_PROP)
+ALL_KINDS: Tuple[IndexKind, ...] = (EDGE_OUT_ADJ, EDGE_IN_ADJ, NODE_ID, NODE_PROP, EDGE_PROP)
 
 FrameFingerprint = Tuple[int, Tuple[str, ...], str]
 
@@ -84,7 +85,7 @@ class NodeIdIndex:
 
 @dataclass(frozen=True)
 class NodePropIndex:
-    """Sorted node PROPERTY value -> node row positions (CSR, duplicates allowed).
+    """Sorted PROPERTY value -> frame row positions (CSR, duplicates allowed).
 
     The secondary index: a seed predicate on a non-key column (``{id: 42}`` where
     the graph's node id is some other column) otherwise costs a full node scan.
@@ -100,12 +101,14 @@ class NodePropIndex:
     engine: Engine
     fingerprint: FrameFingerprint = field(compare=False, default=(-1, (), ""))
     source_ref: Optional[DataFrameT] = field(compare=False, default=None)
-    n_nodes: int = 0
+    n_nodes: int = 0  # historical field name: row count of the node OR edge frame
     n_keys: int = 0
     name: Optional[str] = None
+    min_group_count: int = 0  # smallest stored CSR bucket; zero for empty/legacy indexes
 
 
 ColStatsRole = Literal["nodes", "edges"]
+PROPERTY_ROLES: Tuple[Tuple[IndexKind, ColStatsRole], ...] = ((NODE_PROP, "nodes"), (EDGE_PROP, "edges"))
 
 
 @dataclass(frozen=True)
@@ -256,6 +259,7 @@ class GfqlIndexRegistry:
     indexes: Dict[IndexKind, Union[AdjacencyIndex, NodeIdIndex]] = field(default_factory=dict)
     # Property indexes are keyed by COLUMN, not kind: a graph may carry several.
     node_props: Dict[str, NodePropIndex] = field(default_factory=dict)
+    edge_props: Dict[str, NodePropIndex] = field(default_factory=dict)
     # Column-stat facts keyed by (role, column, type_column, type_value); the
     # whole-frame fact uses (role, column, None, None). See ColStatsFact.
     col_stats: Dict[Tuple[str, str, Optional[str], Optional[PartitionValue]], ColStatsFact] = field(default_factory=dict)
@@ -277,6 +281,32 @@ class GfqlIndexRegistry:
         props = dict(self.node_props)
         props[column] = index
         return replace(self, node_props=props)
+
+    def property_indexes(self, role: ColStatsRole) -> Mapping[str, NodePropIndex]:
+        return self.node_props if role == "nodes" else self.edge_props
+
+    def with_property(self, role: ColStatsRole, column: str, index: NodePropIndex) -> "GfqlIndexRegistry":
+        props = dict(self.property_indexes(role))
+        props[column] = index
+        return replace(self, node_props=props) if role == "nodes" else replace(self, edge_props=props)
+
+    def get_property_valid(
+        self, role: ColStatsRole, column: str, df: Optional[DataFrameT], engine: Engine,
+    ) -> Optional[NodePropIndex]:
+        idx = self.property_indexes(role).get(column)
+        if idx is None or df is None or idx.engine != engine:
+            return None
+        if idx.source_ref is not None and idx.source_ref is not df:
+            return None
+        if idx.fingerprint != frame_fingerprint(df, (column,), engine):
+            return None
+        return idx
+
+    def without_property(self, role: ColStatsRole, column: Optional[str] = None) -> "GfqlIndexRegistry":
+        props = dict(self.property_indexes(role)) if column is not None else {}
+        if column is not None:
+            props.pop(column, None)
+        return replace(self, node_props=props) if role == "nodes" else replace(self, edge_props=props)
 
     def with_degrees(self, fact: DegreeFact) -> "GfqlIndexRegistry":
         d = dict(self.degrees)
@@ -419,18 +449,11 @@ class GfqlIndexRegistry:
     ) -> Optional["NodePropIndex"]:
         """The property index for ``column``, only while it still matches the live
         frame + engine (same identity/fingerprint contract as ``get_valid``)."""
-        idx = self.node_props.get(column)
-        if idx is None or df is None or idx.engine != engine:
-            return None
-        if idx.source_ref is not None and idx.source_ref is not df:
-            return None
-        if idx.fingerprint != frame_fingerprint(df, (column,), engine):
-            return None
-        return idx
+        return self.get_property_valid("nodes", column, df, engine)
 
     def without(self, kind: IndexKind) -> "GfqlIndexRegistry":
-        if kind == NODE_PROP:
-            return replace(self, node_props={})
+        if kind in (NODE_PROP, EDGE_PROP):
+            return self.without_property("nodes" if kind == NODE_PROP else "edges")
         new = dict(self.indexes)
         new.pop(kind, None)
         return replace(self, indexes=new)
@@ -441,7 +464,7 @@ class GfqlIndexRegistry:
         return replace(self, node_props=props)
 
     def rebind_edges(self, new_edges: DataFrameT, old_edges: DataFrameT) -> "GfqlIndexRegistry":
-        """Migrate the EDGE adjacency indexes' identity guard from ``old_edges`` to
+        """Migrate the EDGE adjacency/property indexes' identity guard from ``old_edges`` to
         ``new_edges``.
 
         Caller contract: ``new_edges`` was derived FROM ``old_edges`` by a transform
@@ -503,7 +526,15 @@ class GfqlIndexRegistry:
                 new[kind] = replace(idx, source_ref=new_edges)
             else:
                 new.pop(kind, None)
-        return replace(self, indexes=new)
+        props = dict(self.edge_props)
+        for column, prop in self.edge_props.items():
+            if prop.source_ref is not old_edges or self.get_property_valid("edges", column, old_edges, prop.engine) is not prop:
+                continue
+            if column in new_edges.columns and prop.fingerprint == frame_fingerprint(new_edges, (column,), prop.engine):
+                props[column] = replace(prop, source_ref=new_edges)
+            else:
+                props.pop(column, None)
+        return replace(self, indexes=new, edge_props=props)
 
     def get(self, kind: IndexKind) -> Optional[Union[AdjacencyIndex, NodeIdIndex]]:
         return self.indexes.get(kind)
@@ -515,7 +546,7 @@ class GfqlIndexRegistry:
         return cast(Tuple[IndexKind, ...], tuple(sorted(self.indexes.keys())))
 
     def is_empty(self) -> bool:
-        return not self.indexes and not self.node_props and not self.col_stats
+        return not self.indexes and not self.node_props and not self.edge_props and not self.col_stats
 
     def get_valid(self, kind: IndexKind, df: DataFrameT, cols: Tuple[str, ...], engine: Engine) -> Optional[Union[AdjacencyIndex, NodeIdIndex]]:
         """Return the index for ``kind`` only if its fingerprint still matches the
