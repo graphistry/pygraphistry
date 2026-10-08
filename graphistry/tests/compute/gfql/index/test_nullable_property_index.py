@@ -142,3 +142,25 @@ def test_nullable_signed_extremes_are_not_converted_to_float(engine, offset):
 def test_dense_nullable_scan_preserves_native_order_schema_and_ownership(role, kind, value, monkeypatch):
     from graphistry.tests.compute.gfql.index.test_native_dense_property_scan import test_dense_integer_scan_preserves_schema_order_nulls_and_native_ownership
     test_dense_integer_scan_preserves_schema_order_nulls_and_native_ownership(role, kind, True, value, monkeypatch)
+
+
+@pytest.mark.parametrize("dtype", [np.int8, np.int64, np.uint64])
+@pytest.mark.parametrize("kind,role", [("node_prop", "nodes"), ("edge_prop", "edges")])
+def test_numpy_integer_build_retains_direct_storage_path(dtype, kind, role, monkeypatch):
+    import importlib
+    build_module = importlib.import_module("graphistry.compute.gfql.index.build")
+    base = graph("pandas")
+    frame = getattr(base, "_" + role).assign(account=np.arange(400, dtype=dtype) % 100)
+    base = base.nodes(frame) if role == "nodes" else base.edges(frame)
+    before = frame.copy(deep=True)
+
+    def reject_null_filter(*args, **kwargs):
+        pytest.fail("primitive integer storage must not allocate a null mask")
+
+    monkeypatch.setattr(build_module, "_non_null_id_rows", reject_null_filter)
+    indexed = base.create_index(kind, column="account", engine="pandas")
+    method = "filter_nodes_by_dict" if role == "nodes" else "filter_edges_by_dict"
+    actual = getattr(indexed, method)({"account": 7}, engine="pandas")
+    pd.testing.assert_frame_equal(getattr(actual, "_" + role), frame[frame.account == 7])
+    pd.testing.assert_frame_equal(frame, before)
+    assert getattr(actual, "_" + role).account.dtype == np.dtype(dtype)
