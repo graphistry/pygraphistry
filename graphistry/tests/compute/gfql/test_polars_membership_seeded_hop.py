@@ -72,8 +72,8 @@ def test_membership_seed_keeps_typed_nonempty_graph_and_engages(engine, column, 
             gathers.append(int(rows.shape[0]))
             return rows, matched
 
-        def seed_spy(index, values, xp):
-            rows = seed_lookup(index, values, xp)
+        def seed_spy(index, values, xp, **kwargs):
+            rows = seed_lookup(index, values, xp, **kwargs)
             seed_gathers.append(int(rows.shape[0]))
             return rows
 
