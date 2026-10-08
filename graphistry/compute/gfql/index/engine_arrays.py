@@ -12,10 +12,11 @@ Bulk operations stay vectorized; bounded CPU gathers can reuse row slices.
 """
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Optional, Tuple, cast
+from typing import TYPE_CHECKING, Any, Optional, Tuple, Union, cast
 
 if TYPE_CHECKING:
     import polars as pl
+    from .registry import AdjacencyIndex, NodeIdIndex, NodePropIndex
 
 from graphistry.Engine import Engine
 from graphistry.compute.typing import DataFrameT
@@ -145,6 +146,32 @@ def take_rows(df: DataFrameT, positions: ArrayLike, engine: Engine) -> DataFrame
                 return cast(DataFrameT, df.iloc[position:position + 1].copy())
     # pandas / cudf: iloc accepts numpy (pandas) or cupy (cudf) int arrays
     return cast(DataFrameT, df.iloc[positions])
+
+
+
+def _take_index_rows(
+    df: DataFrameT, positions: ArrayLike, engine: Engine,
+    index: "Union[AdjacencyIndex, NodeIdIndex, NodePropIndex]",
+) -> DataFrameT:
+    """Gather positions produced by a live index without repeating GPU bounds reductions.
+
+    Callers supply only nonnegative row positions from that index's lookup.
+    Builders obtain these positions from the original frame; lookup selects
+    subsets. Identity and height must still match before trusting this invariant.
+    Arbitrary indexers continue through checked ``take_rows``.
+    """
+    if engine == Engine.CUDF:
+        n_rows = len(df)
+        if (index.source_ref is df and index.fingerprint[0] == n_rows
+                and int(positions.shape[0]) > 1):
+            import cudf  # type: ignore[import]
+            from cudf.core.column import as_column  # type: ignore[import]
+            from cudf.core.copy_types import GatherMap  # type: ignore[import]
+
+            if isinstance(df, cudf.DataFrame):
+                gather_map = GatherMap.from_column_unchecked(as_column(positions), n_rows, nullify=False)
+                return df._gather(gather_map)
+    return take_rows(df, positions, engine)
 
 
 def select_by_ids(df: DataFrameT, col: str, ids: ArrayLike, engine: Engine) -> DataFrameT:

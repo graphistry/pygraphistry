@@ -448,8 +448,8 @@ def property_query_values(index: NodePropIndex, predicate: object, xp: ArrayName
     if not all(isinstance(value, Integral) and not isinstance(value, bool) for value in members):
         return None
     bounds = np.iinfo(index.keys_sorted.dtype)
-    values = xp.asarray(
-        [int(value) for value in members if isinstance(value, Integral) and bounds.min <= int(value) <= bounds.max],
-        dtype=index.keys_sorted.dtype,
-    )
+    admitted = [int(value) for value in members if isinstance(value, Integral) and bounds.min <= int(value) <= bounds.max]
+    if index.engine == Engine.CUDF and len(admitted) <= 1024:
+        return xp.asarray(sorted(set(admitted)), dtype=index.keys_sorted.dtype)
+    values = xp.asarray(admitted, dtype=index.keys_sorted.dtype)
     return values if int(values.shape[0]) <= 1 else xp.unique(values)
