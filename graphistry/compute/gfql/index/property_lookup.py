@@ -59,6 +59,8 @@ def property_candidate_positions(
     best: Optional[Tuple[str, NodePropIndex, ArrayLike, int]] = None
     single_polars_threshold: Optional[float] = None
     best_scalar_rows: Optional[ArrayLike] = None
+    best_groups: Optional[ArrayLike] = None
+    best_group_sizes: Optional[ArrayLike] = None
     for column in sorted(registry.property_indexes(role)):
         if column not in filter_dict:
             continue
@@ -76,12 +78,13 @@ def property_candidate_positions(
             continue
         bounds = np.iinfo(index.keys_sorted.dtype)
         # Bounds prove this cast is lossless, even for mixed signed/unsigned keys.
-        values = xp.asarray(
-            [int(value) for value in members if isinstance(value, Integral) and bounds.min <= int(value) <= bounds.max],
-            dtype=index.keys_sorted.dtype,
-        )
-        if int(values.shape[0]) > 1:
-            values = xp.unique(values)
+        admitted = [int(value) for value in members if isinstance(value, Integral) and bounds.min <= int(value) <= bounds.max]
+        if engine == Engine.CUDF and len(admitted) <= 1024:
+            values = xp.asarray(sorted(set(admitted)), dtype=index.keys_sorted.dtype)
+        else:
+            values = xp.asarray(admitted, dtype=index.keys_sorted.dtype)
+            if int(values.shape[0]) > 1:
+                values = xp.unique(values)
         if engine in (Engine.POLARS, Engine.CUDF) and len(filter_dict) == 1 and policy != "force":
             # Tracing costs the requested key; force bypasses this density decline.
             single_polars_threshold = cost_gate_frac(engine) * len(frame)
@@ -89,6 +92,8 @@ def property_candidate_positions(
                     and index.min_group_count >= single_polars_threshold and not _trace_active()):
                 return None
         scalar_rows = None
+        groups: Optional[ArrayLike] = None
+        group_sizes: Optional[ArrayLike] = None
         if engine == Engine.CUDF and int(values.shape[0]) <= 1:
             groups = _csr_hit_positions(index.keys_sorted, values, xp)
             if int(groups.shape[0]) == 0:
@@ -97,11 +102,18 @@ def property_candidate_positions(
                 start, end = _csr_single_group_bounds(index, groups)
                 scalar_rows = index.row_positions[start:end]
             count = int(scalar_rows.shape[0])
+        elif engine == Engine.CUDF:
+            from .lookup import _csr_group_sizes
+            groups = _csr_hit_positions(index.keys_sorted, values, xp)
+            group_sizes = _csr_group_sizes(index, groups)
+            count = int(group_sizes.sum())
         else:
             count = prop_match_count(index, values, xp)
         if best is None or count < best[3]:
             best = column, index, values, count
             best_scalar_rows = scalar_rows
+            best_groups = groups if scalar_rows is None else None
+            best_group_sizes = group_sizes
     if best is None:
         return None
     column, index, values, count = best
@@ -146,7 +158,10 @@ def property_candidate_positions(
         })
     if not use_index:
         return None
-    rows = best_scalar_rows if best_scalar_rows is not None else lookup_prop_rows(index, values, xp)
+    rows = best_scalar_rows if best_scalar_rows is not None else (
+        lookup_prop_rows(index, values, xp, group_positions=best_groups, group_sizes=best_group_sizes, match_count=count)
+        if best_groups is not None else lookup_prop_rows(index, values, xp)
+    )
     return rows if engine == Engine.CUDF and int(rows.shape[0]) <= 1 else xp.sort(rows)
 
 

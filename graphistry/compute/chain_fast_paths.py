@@ -250,12 +250,12 @@ def _index_node_rows(
     """Node rows whose id is in ``ids`` via the resident node-id index (positional
     gather; row order is id-sorted, covered by the value-identical contract)."""
     from graphistry.compute.gfql.index.lookup import lookup_node_rows
-    from graphistry.compute.gfql.index.engine_arrays import take_rows
+    from graphistry.compute.gfql.index.engine_arrays import _take_index_rows
     arr = _ids_to_key_array(ids, nid.keys_sorted, xp)
     if arr is None:
         return None
     positions = lookup_node_rows(nid, arr, xp)
-    return take_rows(nodes_df, xp.sort(positions) if preserve_input_order else positions, engine)
+    return _take_index_rows(nodes_df, xp.sort(positions) if preserve_input_order else positions, engine, nid)
 
 
 def _frame_engine(df: DataFrameT) -> Optional["Engine"]:
@@ -306,7 +306,7 @@ def _seed_rows_via_prop_index_frame(
     from graphistry.compute.gfql.index.bindings import (
         _seed_rows_via_property_index as _prop_rows,
     )
-    from graphistry.compute.gfql.index.engine_arrays import array_namespace, take_rows
+    from graphistry.compute.gfql.index.engine_arrays import array_namespace, _take_index_rows, take_rows
     policy = get_index_policy(g)
     if policy == "off":
         return None
@@ -317,6 +317,12 @@ def _seed_rows_via_prop_index_frame(
     rows = _prop_rows(registry, nodes_df, n0f, engine, xp, policy=policy)
     if rows is None:
         return None
+    from graphistry.Engine import Engine
+    if engine == Engine.CUDF and int(rows.shape[0]) > 1:
+        relevant = [index for column, index in registry.property_indexes("nodes").items() if column in n0f]
+        n_rows = len(nodes_df)
+        if relevant and all(index.source_ref is nodes_df and index.fingerprint[0] == n_rows for index in relevant):
+            return _take_index_rows(nodes_df, rows, engine, relevant[0])
     return take_rows(nodes_df, rows, engine)
 
 
@@ -369,6 +375,20 @@ def _seed_node_rows_from_index(
     effective: FilterDict = filter_dict if filter_dict is not None else dict(n0f)
     if _index_answered_whole_filter(effective, n0f):
         return seed, how
+    from graphistry.Engine import Engine
+    if engine == Engine.CUDF and len(effective) == 1 and len(n0f) == 1:
+        from graphistry.compute.predicates.is_in import IsIn
+        import numpy as np
+        (column, value), = effective.items()
+        if column in n0f and column in seed.columns and isinstance(n0f[column], tuple):
+            dtype = seed[column].dtype
+            if isinstance(dtype, np.dtype) and dtype.kind in "iu":
+                members = value.options if type(value) is IsIn else value if type(value) in (list, tuple) else None
+                if members is not None and 1 <= len(members) <= 1024:
+                    bounds = np.iinfo(dtype)
+                    if (all(type(member) is int and bounds.min <= member <= bounds.max for member in members)
+                            and tuple(sorted(set(members))) == n0f[column]):
+                        return seed, how
     verified = _verify_scalar_filters_on_hit(seed, n0f, engine)
     if verified is not None:
         return verified, how
@@ -468,8 +488,8 @@ def _index_edge_rows(
 ) -> Optional[DataFrameT]:
     """Edge rows incident to ``ids`` on the indexed side via the CSR adjacency
     (searchsorted gather; replaces the O(E) isin scan)."""
-    from graphistry.compute.gfql.index.engine_arrays import take_rows
+    from graphistry.compute.gfql.index.engine_arrays import _take_index_rows
     positions = _index_edge_positions(adj, ids, xp, preserve_input_order)
     if positions is None:
         return None
-    return take_rows(edges_df, positions, engine)
+    return _take_index_rows(edges_df, positions, engine, adj)
