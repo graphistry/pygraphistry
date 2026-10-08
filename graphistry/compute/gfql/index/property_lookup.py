@@ -91,6 +91,8 @@ def property_candidate_positions_from_registry(
     best: Optional[Tuple[str, NodePropIndex, ArrayLike, int]] = None
     single_polars_threshold: Optional[float] = None
     best_scalar_rows: Optional[ArrayLike] = None
+    best_groups: Optional[ArrayLike] = None
+    best_group_sizes: Optional[ArrayLike] = None
     for column in sorted(indexes):
         if column not in filter_dict:
             continue
@@ -117,6 +119,8 @@ def property_candidate_positions_from_registry(
             if values is None:
                 continue
         scalar_rows = None
+        groups: Optional[ArrayLike] = None
+        group_sizes: Optional[ArrayLike] = None
         if engine == Engine.CUDF and int(values.shape[0]) <= 1:
             groups = values if index.string_keys is not None else _csr_hit_positions(index.keys_sorted, values, xp)
             if int(groups.shape[0]) == 0:
@@ -125,11 +129,18 @@ def property_candidate_positions_from_registry(
                 start, end = _csr_single_group_bounds(index, groups)
                 scalar_rows = index.row_positions[start:end]
             count = int(scalar_rows.shape[0])
+        elif engine == Engine.CUDF and index.string_keys is None:
+            from .lookup import _csr_group_sizes
+            groups = _csr_hit_positions(index.keys_sorted, values, xp)
+            group_sizes = _csr_group_sizes(index, groups)
+            count = int(group_sizes.sum())
         else:
             count = prop_match_count(index, values, xp)
         if best is None or count < best[3]:
             best = column, index, values, count
             best_scalar_rows = scalar_rows
+            best_groups = groups if scalar_rows is None else None
+            best_group_sizes = group_sizes
     if best is None:
         if record_decision and _trace_active():
             column = uncovered_property_column(frame, filter_dict, engine, registry=registry, role=role, binding_column=binding_column)
@@ -184,7 +195,10 @@ def property_candidate_positions_from_registry(
         })
     if not use_index:
         return None
-    rows = best_scalar_rows if best_scalar_rows is not None else lookup_prop_rows(index, values, xp)
+    rows = best_scalar_rows if best_scalar_rows is not None else (
+        lookup_prop_rows(index, values, xp, group_positions=best_groups, group_sizes=best_group_sizes, match_count=count)
+        if best_groups is not None else lookup_prop_rows(index, values, xp)
+    )
     return rows if engine == Engine.CUDF and int(rows.shape[0]) <= 1 else xp.sort(rows)
 
 
