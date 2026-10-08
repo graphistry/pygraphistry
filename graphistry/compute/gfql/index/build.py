@@ -150,20 +150,29 @@ def build_property_index(
 
     Duplicates are fine (CSR keeps every row per value) — this is the secondary
     index, so the caller still applies the remaining predicates to the gathered
-    candidates. Declines (None) for anything whose ordering/equality is not
-    unambiguous under a vectorized ``searchsorted`` on BOTH backends: non-integer
-    dtypes (float NaN ordering, object/string on cupy) and null-bearing columns.
-    Widening that gate later is additive — a decline only means "scan", never a
-    wrong answer.
+    candidates. Text uses a native sorted dictionary with integer CSR codes,
+    including only non-null rows. Null-free integer columns use their values
+    directly. Other dtypes decline until their equality semantics are supported.
     """
+    from .property_keys import bounded_string_key_positions, is_string_property, string_property_keys
+
     xp, backend = array_namespace(engine)
-    try:
-        keys = col_to_array(nodes, column, engine)
-    except (AttributeError, KeyError, TypeError, ValueError):
-        return None
+    dictionary = None
+    original_rows = None
+    if is_string_property(nodes, column, engine):
+        valid_nodes, original_rows = _non_null_id_rows(nodes, (column,), engine, xp)
+        keys, dictionary = string_property_keys(valid_nodes, column, engine)
+    else:
+        try:
+            keys = col_to_array(nodes, column, engine)
+        except (AttributeError, KeyError, TypeError, ValueError):
+            return None
     if str(keys.dtype.kind) not in ("i", "u"):  # numpy/cupy arrays always carry dtype.kind
         return None
     unique_keys, group_offsets, row_positions = _csr_from_keys(keys, xp)
+    if original_rows is not None:
+        row_positions = original_rows[row_positions]
+    string_key_positions, string_key_positions_bytes = bounded_string_key_positions(dictionary, engine)
     return NodePropIndex(
         key_col=column,
         keys_sorted=unique_keys,
@@ -173,7 +182,10 @@ def build_property_index(
         engine=engine,
         fingerprint=frame_fingerprint(nodes, (column,), engine),
         source_ref=cast(DataFrameT, nodes),
-        n_nodes=int(keys.shape[0]),
+        string_keys=dictionary,
+        string_key_positions=string_key_positions,
+        string_key_positions_bytes=string_key_positions_bytes,
+        n_nodes=len(nodes),
         n_keys=int(unique_keys.shape[0]),
         min_group_count=int((group_offsets[1:] - group_offsets[:-1]).min()) if int(unique_keys.shape[0]) else 0,
     )

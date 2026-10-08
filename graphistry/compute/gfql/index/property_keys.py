@@ -1,0 +1,236 @@
+"""Native string dictionaries and lossless property query-key preparation."""
+from __future__ import annotations
+
+from bisect import bisect_left
+from numbers import Integral
+from sys import getsizeof
+from typing import TYPE_CHECKING, Dict, Iterator, Mapping, Optional, Sequence, Tuple, cast
+
+import numpy as np
+import pandas as pd
+
+from graphistry.Engine import Engine, POLARS_ENGINES
+from graphistry.compute.predicates.is_in import IsIn
+from graphistry.compute.typing import ArrayLike, ArrayNamespace, DataFrameT, SeriesT
+from .engine_arrays import as_eager_polars_frame
+from .registry import NodePropIndex
+
+if TYPE_CHECKING:
+    import polars as pl
+
+
+_NATIVE_STRING_DICTIONARY_MAX_BYTES = 8 * 1024 * 1024
+
+
+def is_string_property(frame: DataFrameT, column: str, engine: Engine) -> bool:
+    """Admit homogeneous text, without coercing mixed object or categorical keys."""
+    if column not in frame.columns:
+        return False
+    if engine in POLARS_ENGINES:
+        import polars as pl
+        eager = as_eager_polars_frame(frame)
+        return eager is not None and eager.schema[column] == pl.String
+    series = frame[column]
+    if engine == Engine.CUDF:
+        return series.dtype == np.dtype("object")
+    if isinstance(series.dtype, pd.ArrowDtype):
+        import pyarrow as pa
+        logical_type = series.dtype.pyarrow_dtype
+        return pa.types.is_string(logical_type) or pa.types.is_large_string(logical_type)
+    return isinstance(series.dtype, pd.StringDtype) or series.dtype.kind == "U" or (
+        series.dtype == np.dtype("object")
+        and pd.api.types.infer_dtype(series, skipna=True) == "string"
+    )
+
+
+def string_property_keys(
+    frame: DataFrameT, column: str, engine: Engine,
+) -> Tuple[ArrayLike, SeriesT]:
+    """Non-null string rows -> integer codes and their sorted native dictionary."""
+    if engine in POLARS_ENGINES:
+        eager = as_eager_polars_frame(frame)
+        assert eager is not None
+        values = eager.get_column(column)
+        keys = values.unique().sort()
+        return _values_to_codes_polars(keys, values), cast(  # hygiene-ok: explicit-cast -- SeriesT is the engine-polymorphic stored column vocabulary
+            SeriesT, keys,
+        )
+    values = frame[column]
+    keys = values.drop_duplicates().sort_values().reset_index(drop=True)
+    if engine == Engine.PANDAS:
+        keys = pd.Series(keys.to_numpy(dtype=object), dtype=object)
+    return keys.searchsorted(values), keys
+
+
+def _values_to_codes_polars(keys: "pl.Series", values: "pl.Series") -> ArrayLike:
+    """Polars native string search returns host integer positions."""
+    return cast(  # hygiene-ok: explicit-cast -- Polars emits a NumPy integer array; ArrayLike protocol has stricter operator annotations
+        ArrayLike, keys.search_sorted(values).to_numpy(),
+    )
+
+
+class _StringKeyPositions(Mapping[str, int]):
+    """Owned read-only lookup metadata, compatible with copy and pickle."""
+
+    __slots__ = ("_positions", "_fence_keys")
+
+    def __init__(self, positions: Dict[str, int], fence_keys: Optional[Tuple[str, ...]] = None) -> None:
+        self._positions = positions
+        self._fence_keys = fence_keys
+
+    def __getitem__(self, key: str) -> int:
+        return self._positions[key]
+
+    def __iter__(self) -> Iterator[str]:
+        return iter(self._positions)
+
+    def __len__(self) -> int:
+        return len(self._positions)
+
+    def query_bounds(self, value: str, size: int) -> Optional[Tuple[int, int]]:
+        """A sampled dictionary narrows a native probe; a complete one resolves misses."""
+        if self._fence_keys is None:
+            return None
+        position = bisect_left(self._fence_keys, value)
+        lower = self._positions[self._fence_keys[position - 1]] + 1 if position else 0
+        upper = self._positions[self._fence_keys[position]] if position < len(self._fence_keys) else size
+        return lower, upper
+
+
+def bounded_string_key_positions(
+    keys: Optional[SeriesT], engine: Engine,
+) -> Tuple[Optional[Mapping[str, int]], int]:
+    """Build bounded CPU dictionary metadata once, without exporting source rows."""
+    if keys is None or engine != Engine.POLARS:
+        return None, 0
+    native_keys = cast("pl.Series", keys)  # hygiene-ok: explicit-cast -- CPU Polars builders supply a native text dictionary
+    # Query probes must not export source strings.
+    stride = max(1, (len(native_keys) + 1023) // 1024)
+    selected = native_keys if stride == 1 else native_keys.gather(list(range(0, len(native_keys), stride)))
+    if selected.estimated_size() > 64 * 1024:
+        return None, 0
+    positions = dict(zip(selected.to_list(), range(0, len(native_keys), stride)))
+    fence_keys = tuple(positions) if stride > 1 else None
+    frozen = _StringKeyPositions(positions, fence_keys)
+    nbytes = (getsizeof(frozen) + getsizeof(positions)
+              + (getsizeof(fence_keys) if fence_keys is not None else 0)
+              + sum(getsizeof(key) + getsizeof(value) for key, value in positions.items()))
+    return (frozen, nbytes) if nbytes <= 256 * 1024 else (None, 0)
+
+
+class _NativeStringKeySequence:
+    """Public scalar item reads for dictionary bisect, without Series indexing dispatch."""
+
+    __slots__ = ("_keys",)
+
+    def __init__(self, keys: "pl.Series") -> None:
+        self._keys = keys
+
+    def __len__(self) -> int:
+        return len(self._keys)
+
+    def __getitem__(self, position: int) -> str:
+        return cast(  # hygiene-ok: explicit-cast -- the stored native dictionary contains non-null strings
+            str, self._keys.item(position),
+        )
+
+
+def _string_query_codes(index: NodePropIndex, members: Sequence[str], xp: ArrayNamespace) -> ArrayLike:
+    keys = index.string_keys
+    assert keys is not None
+    size = len(keys)
+    if size == 0 or not members:
+        return xp.zeros(0, dtype=xp.int64)
+    native_bounds: Optional[Tuple[int, int]] = None
+    if len(members) == 1 and type(members[0]) is str and index.string_key_positions is not None:
+        position = index.string_key_positions.get(members[0])
+        if position is not None:
+            return xp.asarray([position], dtype=index.keys_sorted.dtype)
+        if isinstance(index.string_key_positions, _StringKeyPositions):
+            native_bounds = index.string_key_positions.query_bounds(members[0], size)
+        if native_bounds is None:
+            return xp.zeros(0, dtype=index.keys_sorted.dtype)
+    if (index.engine == Engine.CUDF and len(members) == 1 and type(members[0]) is str
+            and string_literals_are_utf8(members[0])):
+        if keys.memory_usage(index=False, deep=True) <= _NATIVE_STRING_DICTIONARY_MAX_BYTES:
+            matches = xp.asarray((keys == members[0]).values)
+            return xp.asarray(xp.nonzero(matches)[0], dtype=index.keys_sorted.dtype)
+        value = members[0]
+        position = int(keys.searchsorted(value))
+        if position < size and keys.iloc[position:position + 1].to_arrow()[0].as_py() == value:
+            return xp.asarray([position], dtype=index.keys_sorted.dtype)
+        return xp.zeros(0, dtype=index.keys_sorted.dtype)
+    if index.engine == Engine.PANDAS and len(members) == 1 and type(members[0]) is str:
+        # Exotic string subclasses retain pandas' vector comparison semantics.
+        value = members[0]
+        position = int(keys.searchsorted(value))
+        if position >= size:
+            return xp.zeros(0, dtype=index.keys_sorted.dtype)
+        key = keys.iloc[position]
+        if type(key) is str:
+            return (xp.asarray([position], dtype=index.keys_sorted.dtype) if key == value
+                    else xp.zeros(0, dtype=index.keys_sorted.dtype))
+    if index.engine in POLARS_ENGINES:
+        import polars as pl
+        native_keys = cast(  # hygiene-ok: explicit-cast -- index.engine establishes the concrete type of the native stored dictionary
+            "pl.Series", keys,
+        )
+        if len(members) == 1 and type(members[0]) is str:
+            value = members[0]
+            # Scalar probes use public native dictionary items without exporting source rows.
+            lower, upper = native_bounds if native_bounds is not None else (0, size)
+            position = bisect_left(_NativeStringKeySequence(native_keys), value, lower, upper)
+            if position < size and native_keys.item(position) == value:
+                return xp.asarray([position], dtype=index.keys_sorted.dtype)
+            return xp.zeros(0, dtype=index.keys_sorted.dtype)
+        values = pl.Series(members, dtype=pl.String)
+        positions = xp.asarray(_values_to_codes_polars(native_keys, values))
+        clipped = xp.minimum(positions, size - 1)
+        hits = xp.asarray((native_keys.gather(np.asarray(clipped)) == values).to_numpy())
+    else:
+        if index.engine == Engine.CUDF:
+            import cudf
+            values = cudf.Series(members, dtype="str")
+        else:
+            values = pd.Series(members, dtype=keys.dtype)
+        positions = xp.asarray(keys.searchsorted(values))
+        clipped = xp.minimum(positions, size - 1)
+        equal = keys.iloc[clipped].reset_index(drop=True) == values
+        hits = equal.values if index.engine == Engine.CUDF else equal.to_numpy(dtype=bool)
+    return xp.unique(positions[(positions < size) & hits])
+
+
+def string_literals_are_utf8(predicate: object) -> bool:
+    if isinstance(predicate, str) and str.isascii(predicate):
+        return True
+    members = predicate.options if isinstance(predicate, IsIn) else (
+        predicate if isinstance(predicate, (list, tuple, set, frozenset)) else (predicate,)
+    )
+    for value in members:
+        if isinstance(value, str) and not str.isascii(value):
+            try:
+                str.encode(value, "utf-8")
+            except UnicodeEncodeError:
+                return False
+    return True
+
+
+def property_query_values(index: NodePropIndex, predicate: object, xp: ArrayNamespace) -> Optional[ArrayLike]:
+    """Encode supported equality/membership values; decline ambiguous coercions."""
+    members = predicate.options if isinstance(predicate, IsIn) else (
+        predicate if isinstance(predicate, (list, tuple)) else [predicate]
+    )
+    if index.string_keys is not None:
+        if not all(isinstance(value, str) for value in members):
+            return None
+        if index.engine in POLARS_ENGINES and not string_literals_are_utf8(predicate):
+            return None
+        return _string_query_codes(index, [value for value in members if isinstance(value, str)], xp)
+    if not all(isinstance(value, Integral) and not isinstance(value, bool) for value in members):
+        return None
+    bounds = np.iinfo(index.keys_sorted.dtype)
+    admitted = [int(value) for value in members if isinstance(value, Integral) and bounds.min <= int(value) <= bounds.max]
+    if index.engine == Engine.CUDF and len(admitted) <= 1024:
+        return xp.asarray(sorted(set(admitted)), dtype=index.keys_sorted.dtype)
+    values = xp.asarray(admitted, dtype=index.keys_sorted.dtype)
+    return values if int(values.shape[0]) <= 1 else xp.unique(values)

@@ -90,7 +90,8 @@ def test_stale_index_metadata_uses_checked_gather(stale):
 
 @pytest.mark.parametrize("engine", ["pandas", "cudf"])
 @pytest.mark.parametrize("policy", ["use", "force"])
-def test_unsigned_membership_preserves_large_exact_keys(engine, policy):
+@pytest.mark.parametrize("members", [[2**63+1, 2**64-1], [2**64-1, 2**63+1], [2**63+1, 2**64-1, 2**63+1]])
+def test_unsigned_membership_preserves_large_exact_keys(engine, policy, members):
     nodes = pd.DataFrame({"id": [0, 1, 2], "v": pd.Series([2**63, 2**63+1, 2**64-1], dtype="uint64")})
     edges = pd.DataFrame({"s": [0, 1], "d": [1, 2]})
     if engine == "cudf":
@@ -98,7 +99,7 @@ def test_unsigned_membership_preserves_large_exact_keys(engine, policy):
         nodes, edges = cudf.from_pandas(nodes), cudf.from_pandas(edges)
     bare = graphistry.bind(node="id", source="s", destination="d").nodes(nodes).edges(edges)
     indexed = bare.create_index("node_prop", column="v", engine=engine)
-    query = [n({"v": is_in([2**63+1, 2**64-1])}), e_forward(), n()]
+    query = [n({"v": is_in(members)}), e_forward(), n()]
     try:
         expected = bare.gfql(query, engine=engine, index_policy="off")
     except (OverflowError, TypeError, ValueError) as error:

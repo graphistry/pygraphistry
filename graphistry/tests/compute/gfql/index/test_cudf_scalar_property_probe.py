@@ -103,3 +103,55 @@ def test_gpu_take_rows_matches_native_values_errors_and_owned_buffers(positions)
         if len(actual):
             actual["id"].values[0] = 99
             assert int(frame["id"].values[0]) == 1
+
+
+@pytest.mark.parametrize("role,kind", [("nodes", "node_prop"), ("edges", "edge_prop")])
+@pytest.mark.parametrize("dense", [False, True])
+@pytest.mark.parametrize("value", ["key1", "absent", "雪", 1, True, "\ud800"])
+@pytest.mark.parametrize("policy", ["off", "use", "force"])
+def test_string_scalar_candidates_match_canonical_values_errors_and_owned_buffers(role, kind, dense, value, policy):
+    from graphistry.compute.exceptions import GFQLSchemaError
+    from graphistry.compute.filter_by_dict import _filter_property_candidates, filter_by_dict
+    from graphistry.compute.gfql.index.property_lookup import property_candidate_frame
+
+    frame = cudf.DataFrame({"id": cp.arange(400), "v": [f"key{i % (4 if dense else 400)}" for i in range(400)]})
+    base = graphistry.nodes(frame, "id").edges(frame, "id", "id")
+    indexed = with_index_policy(base.create_index(kind, column="v", engine="cudf"), policy)
+    filters = {"v": value}
+
+    def execute():
+        candidates = property_candidate_frame(indexed, role, frame, filters, Engine.CUDF)
+        return _filter_property_candidates(frame, candidates, filters, Engine.CUDF,
+                                           filter_validated=candidates is not frame)
+
+    try:
+        expected = filter_by_dict(frame, filters, "cudf")
+    except (TypeError, ValueError, OverflowError, GFQLSchemaError) as error:
+        with pytest.raises(type(error)) as observed:
+            execute()
+        assert str(observed.value) == str(error)
+        return
+    actual = execute()
+    assert_frame_equal(actual, expected)
+    if len(actual):
+        actual["id"].values[0] = 999
+    np.testing.assert_array_equal(frame["id"].values.get(), np.arange(400))
+
+
+def test_gpu_string_scalar_probe_never_exports_more_than_one_dictionary_key(monkeypatch):
+    from graphistry.compute.gfql.index.property_lookup import property_candidate_positions
+
+    frame = cudf.DataFrame({"id": cp.arange(400), "v": [f"key{i}" for i in range(400)]})
+    indexed = graphistry.edges(frame, "id", "id").create_index("edge_prop", column="v", engine="cudf")
+    original = cudf.Series.to_arrow
+    exports = []
+
+    def bounded_export(series, *args, **kwargs):
+        assert len(series) <= 1
+        exports.append(len(series))
+        return original(series, *args, **kwargs)
+
+    monkeypatch.setattr(cudf.Series, "to_arrow", bounded_export)
+    positions = property_candidate_positions(indexed, "edges", frame, {"v": "key1"}, Engine.CUDF)
+    assert int(positions[0]) == 1
+    assert sum(exports) <= 1

@@ -1,6 +1,6 @@
 """Index support GFQL does not have yet raises NotImplementedError naming #2141.
 
-Non-integer property columns are tracked work, not caller mistakes and not
+Unsupported property column types are tracked work, not caller mistakes and not
 malformed DDL. Every entry point (Cypher DDL, fused DDL, the wire op, ``create_index``) says so the same way,
 while staying a ``ValueError`` for existing callers and staying skippable for the convenience builders.
 """
@@ -72,7 +72,7 @@ def test_unknown_kind_through_the_python_api_stays_a_plain_value_error():
     assert not isinstance(excinfo.value, NotImplementedError)
 
 
-@pytest.mark.parametrize("column", ["email", "score", "maybe"])
+@pytest.mark.parametrize("column", ["score", "maybe"])
 def test_non_integer_or_nullable_property_columns_are_not_implemented(column):
     with pytest.raises(GfqlIndexNotImplementedError) as excinfo:
         create_index(_graph(), NODE_PROP, column=column)
@@ -81,11 +81,11 @@ def test_non_integer_or_nullable_property_columns_are_not_implemented(column):
     assert "dtype" in str(excinfo.value)
 
 
-def test_integer_property_columns_still_build_and_the_builder_still_skips_the_rest():
+def test_supported_property_columns_build_and_the_builder_skips_the_rest():
     g = create_index(_graph(), NODE_PROP, column="account_number")
     assert get_registry(g).node_prop_cols() == ("account_number",)
     g2 = _graph().gfql_index_node_props(["email", "score", "maybe", "account_number"])
-    assert get_registry(g2).node_prop_cols() == ("account_number",)
+    assert get_registry(g2).node_prop_cols() == ("account_number", "email")
 
 
 def test_the_tracking_url_is_the_issue():

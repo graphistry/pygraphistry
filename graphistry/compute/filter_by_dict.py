@@ -278,13 +278,8 @@ def _supports_native_property_scalar(df: DataFrameT, column: str, value: object)
         return False
     dtype = df.get_column(column).dtype
     if dtype in (pl.String, pl.Categorical, pl.Enum) and type(value) is str:
-        # Malformed UTF-8 must retain canonical expression validation.
-        if not value.isascii():
-            try:
-                value.encode("utf-8")
-            except UnicodeEncodeError:
-                return False
-        return True
+        from graphistry.compute.gfql.index.property_keys import string_literals_are_utf8
+        return string_literals_are_utf8(value)
     return (
         dtype == pl.Int64 and type(value) is int and -(2**63) <= value < 2**63
         or dtype == pl.UInt64 and type(value) is int and 0 <= value < 2**63
@@ -307,7 +302,8 @@ def _filter_property_candidates(
         column, value = next(iter(filter_dict.items()))
         if column in candidates.columns:
             dtype = candidates[column].dtype
-            if isinstance(dtype, np.dtype) and dtype.kind in "iu" and type(value) is int:
+            if isinstance(dtype, np.dtype) and (dtype.kind in "iu" and type(value) is int
+                    or dtype.kind == "O" and type(value) is str):
                 return candidates
     # Float and temporal candidates still require canonical residuals.
     if engine == Engine.POLARS and filter_validated and candidates is not original and filter_dict and len(filter_dict) == 1:
@@ -335,11 +331,16 @@ def _filter_property_candidates(
                         and type(series.array) is pd.Categorical and isinstance(dtype, pd.CategoricalDtype)
                         and type(dtype.categories) is pd.Index):
                     return candidates  # Native dictionary lookup already proves categorical scalar equality.
-                if isinstance(dtype, pd.CategoricalDtype) or isinstance(dtype, np.dtype) and dtype.kind in "iufbM":
+                native_string_residual = filter_validated and type(value) is str and pd.api.types.is_string_dtype(dtype)
+                if (isinstance(dtype, pd.CategoricalDtype)
+                        or isinstance(dtype, np.dtype) and dtype.kind in "iufbM"
+                        or native_string_residual):
                     if not filter_validated:
                         _prepare_filter_dict(candidates, filter_dict)
                     # The native array owns scalar comparison semantics.
-                    mask = np.asarray(series.array == value)
+                    comparison = series.array == value
+                    mask = (comparison.to_numpy(dtype=bool, na_value=False)
+                            if isinstance(comparison, pd.arrays.BooleanArray) else np.asarray(comparison))
                     if mask.dtype.kind == "b":
                         return candidates if mask.all() else candidates[mask]
         hits = filter_mask_by_dict(candidates, filter_dict, engine=engine)
@@ -353,7 +354,18 @@ def filter_nodes_by_dict(self: Plottable, filter_dict: Optional[dict] = None, en
     """
     filter nodes to those that match all values in filter_dict
     """
-    nodes2 = filter_by_dict(self._nodes, filter_dict, engine)
+    from graphistry.compute.gfql.index.property_lookup import property_candidate_frame
+
+    nodes = self._nodes
+    if nodes is not None:
+        concrete_engine = resolve_engine(EngineAbstract(engine), nodes)
+        candidates = property_candidate_frame(self, "nodes", nodes, filter_dict, concrete_engine)
+        nodes2 = _filter_property_candidates(
+            nodes, candidates, filter_dict, concrete_engine,
+            filter_validated=candidates is not nodes,
+        )
+    else:
+        nodes2 = filter_by_dict(nodes, filter_dict, engine)
     return self.nodes(nodes2)
 
 

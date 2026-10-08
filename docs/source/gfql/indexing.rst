@@ -59,8 +59,8 @@ There are five kinds. ``gfql_index_all()`` builds the first three.
    * - ``node_prop``
      - Analogous to an ordinary column index on the node table. Finds start nodes by a
        column other than the node id, such as an account number. You choose the columns.
-       Only integer columns without nulls can be indexed today; queries on other columns
-       still return the right rows through a scan.
+       String columns and integer columns without nulls can be indexed. Null string
+       rows are excluded; queries on unsupported column types scan.
 
        | Cypher: ``CREATE GFQL INDEX FOR node_prop ON (account_number)``
        | Python: ``g.create_index("node_prop", column="account_number")``
@@ -68,8 +68,8 @@ There are five kinds. ``gfql_index_all()`` builds the first three.
 
    * - ``edge_prop``
      - Analogous to a column index on the edge table. Finds edges by a property such as
-       a transaction id. Integer equality and membership lookups retain duplicate rows.
-       Only integer columns without nulls can be indexed.
+       a transaction id. String and integer equality and membership lookups retain
+       duplicate rows. Null string rows are excluded; integer columns require no nulls.
 
        | Cypher: ``CREATE GFQL INDEX FOR edge_prop ON (txn_id)``
        | Python: ``g.create_index("edge_prop", column="txn_id")``
@@ -181,9 +181,30 @@ different column, such as a business key, index that column with ``node_prop``:
    g.gfql('CREATE GFQL INDEX FOR node_prop ON id')
    g = g.drop_index("node_prop", column="id")             # or drop_index("node_prop") for all
 
-Only integer columns without nulls can be indexed today. When one query filters on
+Strings and integer columns without nulls can be indexed. When one query filters on
 several indexed columns, GFQL starts from the most selective one and applies the other
 filters to its matches, so results do not depend on which indexes exist.
+
+String business keys
+~~~~~~~~~~~~~~~~~~~~
+
+Emails, usernames, and external IDs can be indexed without changing the graph's
+node-id binding. Text uses native string dictionaries and integer row-position
+arrays; comparisons preserve exact text, including Unicode and empty strings.
+Null text rows match no non-null key. Duplicate keys gather every matching row,
+and the remaining query predicates are still applied.
+
+.. code-block:: python
+
+   accounts = pd.DataFrame({
+       "id": range(400),
+       "email": ["alice@example.test", "bob@example.test"]
+           + [f"account-{i}@example.test" for i in range(398)],
+   })
+   g_accounts = graphistry.nodes(accounts, "id").create_index("node_prop", column="email")
+   g_accounts.gfql("MATCH (p {email: 'alice@example.test'}) RETURN p")
+   query = "MATCH (p) WHERE p.email IN ['alice@example.test', 'bob@example.test'] RETURN p"
+   assert g_accounts.gfql_explain(query)["used_index"]
 
 An edge property can seed a query in the same way:
 

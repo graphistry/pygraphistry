@@ -414,7 +414,7 @@ def create_index(
         if prop_idx is None:
             raise GfqlIndexNotImplementedError(
                 f"Cannot build a {kind!r} index on {column!r} "
-                f"(dtype {frame[column].dtype}): only integer columns without nulls "
+                f"(dtype {frame[column].dtype}): only string columns and integer columns without nulls "
                 f"are indexable today; other column types are not implemented yet "
                 f"(tracked in {INDEX_SUPPORT_ISSUE_URL}). Seeded queries still work via "
                 f"the un-indexed scan path."

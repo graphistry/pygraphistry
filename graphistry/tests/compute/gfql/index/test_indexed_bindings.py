@@ -700,7 +700,7 @@ def test_node_property_index_declines_unindexable_columns() -> None:
     )
 
     g = _prop_graph("pandas", columns=())
-    for column in ("kind", "maybe"):  # object dtype, float-with-null
+    for column in ("maybe",):  # float-with-null is still unsupported
         with pytest.raises(GfqlIndexUnsupportedError):
             create_index(g, NODE_PROP, column=column)
     # caller mistakes are NOT the skippable kind
@@ -711,7 +711,7 @@ def test_node_property_index_declines_unindexable_columns() -> None:
 
     # the convenience wrapper skips the unindexable dtypes and indexes what it can
     g2 = g.gfql_index_node_props(["kind", "maybe", "public"])
-    assert get_registry(g2).node_prop_cols() == ("public",)
+    assert get_registry(g2).node_prop_cols() == ("kind", "public")
     # ...but does NOT swallow a real failure
     with pytest.raises(ValueError):
         g.gfql_index_node_props(["nosuch"])

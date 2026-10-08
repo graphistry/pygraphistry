@@ -40,7 +40,9 @@ def _single_node_rows_via_index_or_filter(
                                  hop_count=0, public_seed_scan=node not in n0.filter_dict,
                                  served=served)
         return rows
-    return filter_by_dict(nodes_df, n0.filter_dict, engine_abs)
+    from graphistry.compute.gfql.index.property_lookup import property_candidate_frame
+    candidates = property_candidate_frame(g, "nodes", nodes_df, n0.filter_dict, resolve_engine(engine_abs, nodes_df))
+    return filter_by_dict(candidates, n0.filter_dict, engine_abs)
 
 
 
@@ -194,7 +196,9 @@ def _seeded_typed_return_dst_pandas_cudf(
     # id filter first, then the object filters on the survivors; membership sets are dropna()'d so null ids never link
     ctx = _resident_seed_indexes(g, nodes_df, edges_df, node, src, dst, direction)
     nid_ctx = (ctx[0], ctx[2], ctx[3]) if ctx is not None else _resident_node_id_index(g, nodes_df, node)
-    seed_nodes, how = _seed_node_rows(g, nodes_df, n0f, node, nid_ctx, n0.filter_dict)
+    seed_nodes, how = _seed_node_rows(
+        g, nodes_df, n0f, node, nid_ctx, n0.filter_dict, record_property_decision=True,
+    )
     edges = dstn = None
     kernel_admits = False
     if ctx is not None:

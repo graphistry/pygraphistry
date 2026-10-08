@@ -312,6 +312,7 @@ def _take_cudf_property_seed_rows(
 
 def _seed_rows_via_prop_index_frame(
     g: Plottable, nodes_df: DataFrameT, n0f: Mapping[str, SeedFilterValue], engine: "Engine",
+    *, record_property_decision: bool = False,
 ) -> Optional[DataFrameT]:
     """Candidate seed rows through a resident node PROPERTY index covering one of the
     scalar predicates, else None (the caller re-applies the whole filter either way)."""
@@ -327,7 +328,7 @@ def _seed_rows_via_prop_index_frame(
     if registry.is_empty() or not registry.node_prop_cols():
         return None
     xp, _ = array_namespace(engine)
-    rows = _prop_rows(registry, nodes_df, n0f, engine, xp, policy=policy)
+    rows = _prop_rows(registry, nodes_df, n0f, engine, xp, policy=policy, record_decision=record_property_decision)
     if rows is None:
         return None
     if engine == Engine.CUDF and int(rows.shape[0]) > 1:
@@ -343,13 +344,16 @@ def _seed_node_rows(
     g: Plottable, nodes_df: DataFrameT, n0f: Mapping[str, SeedFilterValue], node: str,
     nid_ctx: Optional[Tuple["NodeIdIndex", ArrayNamespace, "Engine"]],
     filter_dict: Optional[FilterDict] = None,
+    *, record_property_decision: bool = False,
 ) -> Tuple[DataFrameT, SeedRowsHow]:
     """Rows matching the scalar seed filter: node-id index when the predicate is on the
     binding column, else a resident property index, else a scan. The canonical filter
     (``filter_dict`` as written, or the resolved scalars) is re-applied to the candidates,
     so every branch keeps the full path's typed-error and comparison semantics."""
     from graphistry.compute.gfql.index.bindings import _filter_frame
-    indexed = _seed_node_rows_from_index(g, nodes_df, n0f, node, nid_ctx, filter_dict)
+    indexed = _seed_node_rows_from_index(
+        g, nodes_df, n0f, node, nid_ctx, filter_dict, record_property_decision=record_property_decision,
+    )
     if indexed is not None:
         return indexed
     engine = _frame_engine(nodes_df)
@@ -381,6 +385,7 @@ def _seed_node_rows_from_index(
     g: Plottable, nodes_df: DataFrameT, n0f: Mapping[str, SeedFilterValue], node: str,
     nid_ctx: Optional[Tuple["NodeIdIndex", ArrayNamespace, "Engine"]],
     filter_dict: Optional[FilterDict] = None,
+    *, record_property_decision: bool = False,
 ) -> Optional[Tuple[DataFrameT, SeedRowsHow]]:
     from graphistry.compute.gfql.index.bindings import _filter_frame
     engine = _frame_engine(nodes_df)
@@ -395,7 +400,9 @@ def _seed_node_rows_from_index(
         if seed is not None:
             how = "node_id_index"
     if seed is None:
-        seed = _seed_rows_via_prop_index_frame(g, nodes_df, n0f, engine)
+        seed = _seed_rows_via_prop_index_frame(
+            g, nodes_df, n0f, engine, record_property_decision=record_property_decision,
+        )
         if seed is not None:
             how = "property_index"
     if seed is None:

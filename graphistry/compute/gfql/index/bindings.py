@@ -35,8 +35,6 @@ from .lookup import (
     lookup_degree,
     lookup_edge_rows,
     lookup_node_rows,
-    lookup_prop_rows,
-    prop_match_count,
 )
 from .registry import (
     EDGE_IN_ADJ,
@@ -349,6 +347,7 @@ def _seed_rows_via_property_index(
     xp: Any,
     *,
     policy: str,
+    record_decision: bool = False,
 ) -> Optional[Any]:
     """Node row positions for the most selective indexed scalar seed predicate.
 
@@ -358,66 +357,27 @@ def _seed_rows_via_property_index(
     covers such a column, gather its candidates instead; the caller re-applies the
     WHOLE filter to them, so the result is identical to the scan either way.
 
-    Returns None (keep scanning) when nothing is indexed, no predicate is a plain
-    integer scalar, or the estimated candidate count is not selective enough to
-    beat the scan (``force`` skips the cost gate).
+    Returns None (keep scanning) when nothing is indexed, no predicate is a supported
+    equality/membership seed, or the estimated candidate count is not selective enough to
+    beat the scan (``force`` skips the cost gate). The consumer records the
+    complete traversal decision by default; other callers may request a property receipt.
     """
-    if not first_filter:
-        return None
-    best_rows = None
-    best_count: Optional[int] = None
-    for column in registry.node_prop_cols():
-        value = first_filter.get(column)
-        members: List[int]
-        if isinstance(value, tuple):
-            ids = _membership_seed_ids(value)
-            if not ids:
-                continue  # non-integral or empty member set: seeds nothing through this index
-            members = ids
-        elif value is None or isinstance(value, bool) or not isinstance(value, Integral):
-            continue
-        else:
-            members = [int(value)]
-        index = registry.get_node_prop_valid(column, nodes, engine)
-        if index is None and engine in (Engine.POLARS, Engine.POLARS_GPU):
-            # Both Polars targets index the same host frame with NumPy arrays.
-            other = Engine.POLARS_GPU if engine == Engine.POLARS else Engine.POLARS
-            index = registry.get_node_prop_valid(column, nodes, other)
-        if index is None:
-            continue
-        bounds = xp.iinfo(index.keys_sorted.dtype)
-        # Decline out-of-bounds predicates so canonical filtering owns overflow errors.
-        if members[0] < bounds.min or members[-1] > bounds.max:
-            return None
-        if engine == Engine.CUDF and isinstance(value, tuple):
-            literal_bounds = xp.iinfo("int64")
-            if members[0] < literal_bounds.min or members[-1] > literal_bounds.max:
+    from .property_lookup import property_candidate_positions_from_registry
+
+    seed_filter = {
+        column: predicate for column, predicate in first_filter.items()
+        if not (isinstance(predicate, tuple) and not predicate)
+    }
+    if engine == Engine.CUDF:
+        for predicate in seed_filter.values():
+            # Tuple seeds are sorted integer metadata from _seeded_seed_filters.
+            if isinstance(predicate, tuple) and predicate and (
+                predicate[0] < -(2**63) or predicate[-1] > 2**63 - 1
+            ):
                 return None  # Canonical cuDF isin infers signed Python-literal arrays.
-        values = xp.asarray(members, dtype=index.keys_sorted.dtype)
-        groups = group_sizes = None
-        if engine == Engine.CUDF and int(values.shape[0]) > 1:
-            from .lookup import _csr_hit_positions, _csr_group_sizes
-            groups = _csr_hit_positions(index.keys_sorted, values, xp)
-            group_sizes = _csr_group_sizes(index, groups)
-            count = int(group_sizes.sum())
-        else:
-            count = prop_match_count(index, values, xp)
-        if best_count is not None and count >= best_count:
-            continue
-        best_count = count
-        best_rows = (index, values, groups, group_sizes)
-    if best_rows is None or best_count is None:
-        return None
-    if policy != "force":
-        n_nodes = int(nodes.shape[0])
-        if best_count >= cost_gate_frac(engine) * n_nodes:
-            return None  # not selective enough to beat one vectorized scan
-    index, values, groups, group_sizes = best_rows
-    rows = (
-        lookup_prop_rows(index, values, xp, group_positions=groups, group_sizes=group_sizes, match_count=best_count)
-        if groups is not None else lookup_prop_rows(index, values, xp)
+    return property_candidate_positions_from_registry(
+        registry, "nodes", nodes, seed_filter, engine, policy, record_decision=record_decision,
     )
-    return xp.sort(rows)
 
 
 def _try_indexed_connected_bindings_state(
