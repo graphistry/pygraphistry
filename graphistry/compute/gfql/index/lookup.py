@@ -6,7 +6,7 @@ numpy (pandas/polars) and cupy (cudf) arrays.
 """
 from __future__ import annotations
 
-from typing import Any, Tuple
+from typing import Any, Optional, Tuple
 
 from .registry import AdjacencyIndex, NodeIdIndex, NodePropIndex
 from .types import ArrayLike, ArrayNamespace
@@ -166,9 +166,9 @@ def csr_match_count(index: Any, values: ArrayLike, xp: ArrayNamespace) -> int:
     return int(_csr_group_sizes(index, positions).sum())
 
 
-def csr_gather_rows(index: Any, values: ArrayLike, xp: ArrayNamespace) -> ArrayLike:
+def csr_gather_rows(index: Any, values: ArrayLike, xp: ArrayNamespace, *, group_positions: Optional[ArrayLike] = None, group_sizes: Optional[ArrayLike] = None, match_count: Optional[int] = None) -> ArrayLike:
     """Row positions of every row whose key is in ``values`` (CSR range expansion)."""
-    positions = _csr_hit_positions(index.keys_sorted, values, xp)
+    positions = group_positions if group_positions is not None else _csr_hit_positions(index.keys_sorted, values, xp)
     empty = index.row_positions[:0]
     if int(positions.shape[0]) == 0:
         return empty
@@ -176,19 +176,19 @@ def csr_gather_rows(index: Any, values: ArrayLike, xp: ArrayNamespace) -> ArrayL
         bucket_start, bucket_end = _csr_single_group_bounds(index, positions)
         return index.row_positions[bucket_start:bucket_end]
     start = index.group_offsets[positions]
-    counts = _csr_group_sizes(index, positions)
-    total = int(counts.sum())
+    counts = group_sizes if group_sizes is not None else _csr_group_sizes(index, positions)
+    total = match_count if match_count is not None else int(counts.sum())
     if total == 0:
         return empty
     return index.row_positions[_expand_ranges(start, counts, total, xp)]
 
 
-def lookup_prop_rows(index: NodePropIndex, values: ArrayLike, xp: ArrayNamespace) -> ArrayLike:
+def lookup_prop_rows(index: NodePropIndex, values: ArrayLike, xp: ArrayNamespace, *, group_positions: Optional[ArrayLike] = None, group_sizes: Optional[ArrayLike] = None, match_count: Optional[int] = None) -> ArrayLike:
     """values -> node row positions of every row holding one of them.
 
     Order is unspecified here; callers that need frame order sort.
     """
-    return csr_gather_rows(index, values, xp)
+    return csr_gather_rows(index, values, xp, group_positions=group_positions, group_sizes=group_sizes, match_count=match_count)
 
 
 def prop_match_count(index: NodePropIndex, values: ArrayLike, xp: ArrayNamespace) -> int:
