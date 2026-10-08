@@ -36,7 +36,7 @@ def equal(actual, expected):
 @pytest.mark.parametrize("engine", ["pandas", "cudf"])
 @pytest.mark.parametrize("direction", [e_forward, e_reverse])
 @pytest.mark.parametrize("policy", ["use", "force"])
-@pytest.mark.parametrize("members", [[], [1], [1, 2], [2, 2, 99], [-1, 1], [None, 2], [1.0, 2.0], ["1"], [2**64], [True, 2]])
+@pytest.mark.parametrize("members", [[], [1], [1, 2], [2, 2, 99], [-1, 1], [None, 2], [1.0, 2.0], ["1"], [2**64], [1, 2**64], [-(2**63)-1, 1], [2**63-1], [True, 2]])
 def test_public_membership_keeps_scan_behavior_and_source(engine, direction, policy, members):
     # Construct with the public API before a CUDA skip, so local collection checks it.
     query = [n({"v": is_in(members)}), direction(), n()]
@@ -86,3 +86,25 @@ def test_stale_index_metadata_uses_checked_gather(stale):
     equal(_take_index_rows(frame, positions, Engine.CUDF, index), frame.iloc[positions])
     equal(take_rows(frame, positions, Engine.CUDF), frame.iloc[positions])
     assert isinstance(frame, cudf.DataFrame)
+
+
+@pytest.mark.parametrize("engine", ["pandas", "cudf"])
+@pytest.mark.parametrize("policy", ["use", "force"])
+def test_unsigned_membership_preserves_large_exact_keys(engine, policy):
+    nodes = pd.DataFrame({"id": [0, 1, 2], "v": pd.Series([2**63, 2**63+1, 2**64-1], dtype="uint64")})
+    edges = pd.DataFrame({"s": [0, 1], "d": [1, 2]})
+    if engine == "cudf":
+        cudf = pytest.importorskip("cudf")
+        nodes, edges = cudf.from_pandas(nodes), cudf.from_pandas(edges)
+    bare = graphistry.bind(node="id", source="s", destination="d").nodes(nodes).edges(edges)
+    indexed = bare.create_index("node_prop", column="v", engine=engine)
+    query = [n({"v": is_in([2**63+1, 2**64-1])}), e_forward(), n()]
+    try:
+        expected = bare.gfql(query, engine=engine, index_policy="off")
+    except (OverflowError, TypeError, ValueError) as error:
+        with pytest.raises(type(error)):
+            indexed.gfql(query, engine=engine, index_policy=policy)
+    else:
+        actual = indexed.gfql(query, engine=engine, index_policy=policy)
+        equal(actual._nodes.sort_values("id").reset_index(drop=True), expected._nodes.sort_values("id").reset_index(drop=True))
+        equal(actual._edges.sort_values(["s", "d"]).reset_index(drop=True), expected._edges.sort_values(["s", "d"]).reset_index(drop=True))

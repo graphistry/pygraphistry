@@ -385,7 +385,15 @@ def _seed_rows_via_property_index(
             index = registry.get_node_prop_valid(column, nodes, other)
         if index is None:
             continue
-        values = xp.asarray(members)
+        bounds = xp.iinfo(index.keys_sorted.dtype)
+        # Decline out-of-bounds predicates so canonical filtering owns overflow errors.
+        if members[0] < bounds.min or members[-1] > bounds.max:
+            return None
+        if engine == Engine.CUDF and isinstance(value, tuple):
+            literal_bounds = xp.iinfo("int64")
+            if members[0] < literal_bounds.min or members[-1] > literal_bounds.max:
+                return None  # Canonical cuDF isin infers signed Python-literal arrays.
+        values = xp.asarray(members, dtype=index.keys_sorted.dtype)
         groups = group_sizes = None
         if engine == Engine.CUDF and int(values.shape[0]) > 1:
             from .lookup import _csr_hit_positions, _csr_group_sizes
