@@ -392,6 +392,9 @@ def test_temporal_text_traversal_matches_direct_filter(engine, unit, policy, mat
 
     if engine == "polars-gpu":
         pytest.importorskip("cudf_polars")
+        from graphistry.compute.gfql.lazy import polars_gpu_available
+        if not polars_gpu_available():
+            pytest.skip("Installed cudf-polars cannot execute the configured GPU engine")
     nodes = pl.DataFrame({"id": [0, 1, 2]})
     stamp = datetime(2026, 1, 1, 12, 30, 1, 123000)
     edges = pl.DataFrame({"s": [0, 1], "d": [1, 2], "eid": [7, 9],
