@@ -169,7 +169,7 @@ class BenchProvenance(Directive):
             state.disclosed.append(docname)
             disclosures = _disclosures(state, docname)
             if disclosures:
-                field_list += _field('Caveats', _bullets(disclosures))
+                field_list += _field('Notes', _bullets(disclosures))
         return [_admonition('Measurement', field_list)]
 
 
