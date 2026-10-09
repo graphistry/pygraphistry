@@ -72,6 +72,7 @@ class IndexedBindingsState:
     engine: Engine
     hop_count: int
     estimated_rows: int
+    edge_template: Optional[DataFrameT] = None
 
 
 def _plain_scalar_filter(value: Any) -> bool:

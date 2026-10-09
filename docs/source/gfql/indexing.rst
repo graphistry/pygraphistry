@@ -518,6 +518,25 @@ branches retain each original edge once, while different parallel edges remain
 different matches. Unsupported shapes, missing or stale indexes, dense
 candidates, and ``index_policy='off'`` keep the general execution path.
 
+Unseeded LIMIT
+~~~~~~~~~~~~~~
+
+For an unfiltered directed single-hop pattern on pandas or cuDF, ``LIMIT`` can
+bound node and edge property materialization. For example, on the quick-start
+graph without indexes:
+
+.. code-block:: python
+
+   limited = g.gfql("MATCH (a)-[e]->(b) RETURN b.id AS id LIMIT 3")
+   assert limited._nodes["id"].tolist() == [1, 2, 2]
+
+The existing binding order and parallel matches are preserved. Endpoint columns
+are still scanned; ``gfql_explain()`` records this optimization as
+``op='binding_limit'`` with ``path='scan'``. Filters, ordering, ``DISTINCT``,
+aggregation, arbitrary projection expressions, and unsupported graph shapes
+retain their existing execution path. Polars and Polars GPU also retain their
+existing paths. Measured latency depends on the workload.
+
 See also
 --------
 

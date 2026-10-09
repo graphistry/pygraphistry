@@ -8,25 +8,9 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [Development]
 <!-- Do Not Erase This Section - Used for tracking unreleased changes -->
 
-### Documentation
-
-- **GFQL docs say how indexes behave in graph pipelines**: stages that run on the indexed graph use its indexes, while a stage over a graph derived earlier in the same query scans, because Cypher cannot yet index a derived graph inside the query (#2148). The indexing page adds a "Graph pipelines" section with a runnable native `let()` example that indexes the derived graph, notes that this index is rebuilt on every call, and explains that `used_index` is `True` when any stage used an index, so `steps` shows which. The Cypher page's `GRAPH { }` section points to it.
-
-### Documentation
-
-- **The GFQL indexing page is rewritten in plain language and brought up to date**: each section now leads with what a reader needs, and the page no longer cites release numbers or implementation details that may change. Three statements were out of date and are corrected, each re-checked on master: building indexes on Polars frames with the default engine keeps them Polars (the page said to pass `engine='polars'`); multi-hop, multi-alias and `IN`-list queries use indexes on Polars as well as pandas (the page said the Polars chain engine was not covered); and a query that starts from a column with a `node_prop` index uses it (the page said the seed falls back to a scan). The page now also says that in-place edits to a bound table may not be detected and need a rebuild, and that `index_policy='force'` can build indexes as well as `'auto'`.
-
-### Documentation
-
-- **The indexing page's index-kind table shows how to create each kind and what it corresponds to in SQL**: each of `edge_out_adj`, `edge_in_adj`, `node_id` and `node_prop` now lists its Cypher DDL, its Python call (`g.create_index(...)`) and its JSON wire op, each checked to build the index on master, and says which SQL index it is analogous to: foreign key indexes on the edge table's source and destination columns, the node table's primary key index, and an ordinary column index.
-
-## [0.59.3 - 2026-10-05]
-
-### Changed
-
-- **GFQL index support that does not exist yet now says so and points at the tracking issue (#2141)**: `CREATE GFQL INDEX FOR edge_prop ...` used to fail as "Malformed GFQL INDEX DDL", and a `node_prop` index on a string, float, boolean, categorical, timestamp or nullable column failed with a message that did not say whether support was coming. Both now raise `GfqlIndexNotImplementedError`, naming the kind or the column's dtype, listing the supported kinds, and linking https://github.com/graphistry/pygraphistry/issues/2141. The same error comes from the Cypher DDL (alone or leading a query), the `CreateIndex` wire op, and `create_index`. It subclasses both `NotImplementedError` and the existing `GfqlIndexUnsupportedError` (a `ValueError`), so existing `except ValueError` handlers keep working and `gfql_index_node_props` still skips unindexable columns. Genuinely unknown kinds and broken statements still raise as before.
-
 ### Added
+
+- **GFQL unseeded LIMIT** (#2129): unfiltered directed single-hop pandas/cuDF queries limit wide property gathers after a canonical walk over endpoint columns, preserving binding order and parallel edges.
 
 - **GFQL indexed cross-alias OR** (#2157): selective node equality or membership branches of a directed single-hop Cypher query union original edge candidates before canonical binding materialization, preserving branch overlap and parallel edges.
 
@@ -46,6 +30,23 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 - **GFQL `edge_prop` indexes** (#2141): `CREATE GFQL INDEX FOR edge_prop ON (txn_id)` and `create_index("edge_prop", column="txn_id")` build per-column CSR lookups. Integer edge equality and membership predicates gather matching candidates in input order, preserve duplicate property values, and reapply residual filters. `gfql_explain` reports actual property-index selection and cost declines; stale indexes and `index_policy="off"` retain the scan path. Supported on pandas, cuDF, and Polars.
 
+### Documentation
+
+- **GFQL docs say how indexes behave in graph pipelines**: stages that run on the indexed graph use its indexes, while a stage over a graph derived earlier in the same query scans, because Cypher cannot yet index a derived graph inside the query (#2148). The indexing page adds a "Graph pipelines" section with a runnable native `let()` example that indexes the derived graph, notes that this index is rebuilt on every call, and explains that `used_index` is `True` when any stage used an index, so `steps` shows which. The Cypher page's `GRAPH { }` section points to it.
+
+### Documentation
+
+- **The GFQL indexing page is rewritten in plain language and brought up to date**: each section now leads with what a reader needs, and the page no longer cites release numbers or implementation details that may change. Three statements were out of date and are corrected, each re-checked on master: building indexes on Polars frames with the default engine keeps them Polars (the page said to pass `engine='polars'`); multi-hop, multi-alias and `IN`-list queries use indexes on Polars as well as pandas (the page said the Polars chain engine was not covered); and a query that starts from a column with a `node_prop` index uses it (the page said the seed falls back to a scan). The page now also says that in-place edits to a bound table may not be detected and need a rebuild, and that `index_policy='force'` can build indexes as well as `'auto'`.
+
+### Documentation
+
+- **The indexing page's index-kind table shows how to create each kind and what it corresponds to in SQL**: each of `edge_out_adj`, `edge_in_adj`, `node_id` and `node_prop` now lists its Cypher DDL, its Python call (`g.create_index(...)`) and its JSON wire op, each checked to build the index on master, and says which SQL index it is analogous to: foreign key indexes on the edge table's source and destination columns, the node table's primary key index, and an ordinary column index.
+
+## [0.59.3 - 2026-10-05]
+
+### Changed
+
+- **GFQL index support that does not exist yet now says so and points at the tracking issue (#2141)**: `CREATE GFQL INDEX FOR edge_prop ...` used to fail as "Malformed GFQL INDEX DDL", and a `node_prop` index on a string, float, boolean, categorical, timestamp or nullable column failed with a message that did not say whether support was coming. Both now raise `GfqlIndexNotImplementedError`, naming the kind or the column's dtype, listing the supported kinds, and linking https://github.com/graphistry/pygraphistry/issues/2141. The same error comes from the Cypher DDL (alone or leading a query), the `CreateIndex` wire op, and `create_index`. It subclasses both `NotImplementedError` and the existing `GfqlIndexUnsupportedError` (a `ValueError`), so existing `except ValueError` handlers keep working and `gfql_index_node_props` still skips unindexable columns. Genuinely unknown kinds and broken statements still raise as before.
 
 ### Documentation
 
