@@ -331,3 +331,33 @@ def test_integer_category_scalar_and_missing_key_match_scan_without_mutation(sto
             if len(actual):
                 actual.iloc[0, 0] = -1
             pd.testing.assert_frame_equal(frame, original)
+
+
+@pytest.mark.parametrize("registered_engine", ["polars", "polars-gpu"])
+@pytest.mark.parametrize("role,kind", [("nodes", "node_prop"), ("edges", "edge_prop")])
+@pytest.mark.parametrize("gpu_target", [False, True])
+def test_polars_gpu_dense_temporal_decline_keeps_canonical_filter(registered_engine, role, kind, gpu_target, monkeypatch):
+    import importlib
+    pl = pytest.importorskip("polars")
+    if registered_engine == "polars-gpu":
+        pytest.importorskip("cudf_polars")
+    from polars.testing import assert_frame_equal
+    from graphistry.compute.gfql.lazy import ExecutionTarget, target_mode
+
+    frame = pl.DataFrame({"id": np.arange(400), "s": np.arange(400), "d": np.arange(400),
+                          "value": [datetime(2025, 1, 1, i % 4) for i in range(400)]})
+    base = graphistry.nodes(frame, "id").edges(frame, "s", "d")
+    indexed = base.create_index(kind, column="value", engine=registered_engine)
+    original = frame.clone()
+    filters = importlib.import_module("graphistry.compute.filter_by_dict")
+    selector = importlib.import_module("graphistry.compute.gfql.index.property_lookup")
+
+    def forbidden(*args, **kwargs):
+        pytest.fail("GPU cost decline must preserve canonical filtering instead of executing the CPU scalar helper")
+
+    monkeypatch.setattr(filters, "_filter_native_property_scalar", forbidden)
+    target = ExecutionTarget.GPU if gpu_target else ExecutionTarget.CPU
+    with target_mode(target):
+        actual = selector.property_candidate_frame(indexed, role, frame, {"value": "2025-01-01T01:00:00"}, Engine.POLARS_GPU)
+    assert actual is frame
+    assert_frame_equal(frame, original)
