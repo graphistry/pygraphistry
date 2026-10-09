@@ -10,11 +10,12 @@ from typing import TYPE_CHECKING, Dict, Iterator, Mapping, Optional, Sequence, T
 import numpy as np
 import pandas as pd
 
-from graphistry.Engine import Engine, POLARS_ENGINES
+from graphistry.Engine import Engine, POLARS_ENGINES, resolve_engine
+from graphistry.compute.predicates.ASTPredicate import ASTPredicate
 from graphistry.compute.predicates.is_in import IsIn
 from graphistry.compute.typing import ArrayLike, ArrayNamespace, DataFrameT, DType, IndexT, SeriesT
-from .engine_arrays import as_eager_polars_frame
-from .registry import NodePropIndex
+from .engine_arrays import array_namespace, as_eager_polars_frame
+from .registry import ColStatsRole, GfqlIndexRegistry, NodePropIndex
 
 if TYPE_CHECKING:
     import polars as pl
@@ -116,6 +117,66 @@ def is_timestamp_property(frame: DataFrameT, column: str, engine: Engine) -> boo
         import pyarrow as pa
         return pa.types.is_timestamp(dtype.pyarrow_dtype)
     return dtype.kind == "M"
+
+
+def valid_property_index(
+    registry: GfqlIndexRegistry, role: ColStatsRole, frame: DataFrameT,
+    column: str, engine: Engine,
+) -> Optional[NodePropIndex]:
+    """Valid resident property encoding, including the shared eager Polars sidecar."""
+    index = registry.get_property_valid(role, column, frame, engine)
+    if index is None and engine in POLARS_ENGINES:
+        other = Engine.POLARS_GPU if engine == Engine.POLARS else Engine.POLARS
+        index = registry.get_property_valid(role, column, frame, other)
+    return index
+
+
+def uncovered_property_column(
+    frame: DataFrameT, filters: Mapping[str, object], engine: Engine,
+    *, registry: Optional[GfqlIndexRegistry] = None, role: ColStatsRole = "nodes",
+    binding_column: Optional[str] = None,
+) -> Optional[str]:
+    """Trace-only proof that no property predicate has a supported encoding.
+
+    Reuse build admission; never construct an index or export source values.
+    Unknown/missing columns and lazy frames remain canonical execution's concern.
+    """
+    if not filters or engine not in (Engine.PANDAS, Engine.CUDF, *POLARS_ENGINES):
+        return None
+    actual_engine = resolve_engine("auto", frame)
+    if actual_engine != engine and not (actual_engine in POLARS_ENGINES and engine in POLARS_ENGINES):
+        return None
+    if engine in POLARS_ENGINES and as_eager_polars_frame(frame) is None:
+        return None
+    for column, predicate in filters.items():
+        if column not in frame.columns:
+            return None
+        if isinstance(predicate, ASTPredicate) and not isinstance(predicate, IsIn):
+            continue
+        members = predicate.options if isinstance(predicate, IsIn) else (
+            predicate if isinstance(predicate, (list, tuple)) else [predicate]
+        )
+        if any(value is None or isinstance(value, (float, np.floating)) and np.isnan(value) for value in members):
+            if column != binding_column:
+                continue  # Property keys exclude null/NaN rows for every supported dtype.
+        if not any(classify(frame, column, engine) for classify in (
+            is_integer_property, is_float_property, is_categorical_property,
+            is_timestamp_property, is_string_property,
+        )):
+            continue
+        if column == binding_column and isinstance(predicate, Real) and not isinstance(predicate, bool) and (
+            is_integer_property(frame, column, engine) or is_float_property(frame, column, engine)
+        ):
+            return None  # Numeric node-id lookup admits scalars that node_prop can decline.
+        if registry is None:
+            return None
+        index = valid_property_index(registry, role, frame, column, engine)
+        if index is None:
+            return None  # Supported storage with missing/stale encoding is not a capability gap.
+        xp, _ = array_namespace(engine)
+        if property_query_values(index, predicate, xp) is not None:
+            return None
+    return min(filters)
 
 
 def categorical_property_keys(

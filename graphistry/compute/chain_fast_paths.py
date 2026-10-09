@@ -479,7 +479,8 @@ def _index_answered_whole_filter(effective: FilterDict, n0f: Mapping[str, SeedFi
 
 def _record_native_seed_lane(
     nodes_df: DataFrameT, *, seam: str, reason: str, hop_count: int, public_seed_scan: bool,
-    served: bool = True,
+    served: bool = True, seed_graph: Optional[Plottable] = None,
+    seed_filter: Optional[Mapping[str, object]] = None,
 ) -> None:
     """gfql_explain step for a native op-list lane: served from a resident index, or declined to the scan."""
     from graphistry.compute.gfql.index.api import _record_indexed_traversal
@@ -489,7 +490,8 @@ def _record_native_seed_lane(
     _record_indexed_traversal(
         seam=seam, engine=engine, served=served, reason=reason, hop_count=hop_count,
         public_seed_scan=public_seed_scan,
-        hop_details=[{"hop": 1}] if hop_count else None)
+        hop_details=[{"hop": 1}] if hop_count else None,
+        seed_graph=seed_graph, seed_filter=seed_filter)
 
 
 def _index_edge_positions(

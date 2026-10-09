@@ -15,8 +15,21 @@ from .api import _record, _trace_active, get_index_policy, get_registry
 from .cost import cost_gate_frac
 from .engine_arrays import array_namespace, as_eager_polars_frame, take_rows
 from .lookup import _csr_hit_positions, _csr_single_group_bounds, lookup_prop_rows, prop_match_count
-from .property_keys import property_query_values, string_literals_are_utf8
+from .property_keys import property_query_values, string_literals_are_utf8, uncovered_property_column, valid_property_index
 from .registry import ColStatsRole, GfqlIndexRegistry, NodePropIndex
+from .types import IndexKind
+
+
+def _record_uncovered_property(
+    role: ColStatsRole, column: str, index_kind: IndexKind, engine: Engine, policy: str,
+) -> None:
+    if _trace_active():
+        _record({
+            "op": "property_lookup", "role": role, "column": column,
+            "index_kind": index_kind, "engine": engine.value, "policy": policy,
+            "path": "scan", "decision_code": "not_index_coverable",
+            "decision_reason": "property predicate has no supported index encoding",
+        })
 
 
 def _empty_gather_changes_scalar_filter(
@@ -52,16 +65,27 @@ def property_candidate_positions(
     """
     return property_candidate_positions_from_registry(
         get_registry(g), role, frame, filter_dict, engine, get_index_policy(g),
+        binding_column=g._node if role == "nodes" else None,
     )
 
 
 def property_candidate_positions_from_registry(
     registry: GfqlIndexRegistry, role: ColStatsRole, frame: DataFrameT,
     filter_dict: Optional[Mapping[str, object]], engine: Engine, policy: str,
-    *, record_decision: bool = True,
+    *, record_decision: bool = True, binding_column: Optional[str] = None,
 ) -> Optional[ArrayLike]:
     """Shared selector for graph filtering and specialized node-seed consumers."""
-    if policy == "off" or not filter_dict or not registry.property_indexes(role):
+    if policy == "off" or not filter_dict:
+        return None
+    index_kind: IndexKind = "node_prop" if role == "nodes" else "edge_prop"
+    indexes = registry.property_indexes(role)
+    if not indexes and not (record_decision and _trace_active()):
+        return None
+    if not indexes:
+        if record_decision and _trace_active():
+            column = uncovered_property_column(frame, filter_dict, engine, binding_column=binding_column)
+            if column is not None:
+                _record_uncovered_property(role, column, index_kind, engine, policy)
         return None
     xp, _ = array_namespace(engine)
     best: Optional[Tuple[str, NodePropIndex, ArrayLike, int]] = None
@@ -69,13 +93,10 @@ def property_candidate_positions_from_registry(
     best_scalar_rows: Optional[ArrayLike] = None
     best_groups: Optional[ArrayLike] = None
     best_group_sizes: Optional[ArrayLike] = None
-    for column in sorted(registry.property_indexes(role)):
+    for column in sorted(indexes):
         if column not in filter_dict:
             continue
-        index = registry.get_property_valid(role, column, frame, engine)
-        if index is None and engine in POLARS_ENGINES:
-            other = Engine.POLARS_GPU if engine == Engine.POLARS else Engine.POLARS
-            index = registry.get_property_valid(role, column, frame, other)
+        index = valid_property_index(registry, role, frame, column, engine)
         if index is None:
             continue
         # Unsupported literals must prove admission before cost configuration.
@@ -121,11 +142,17 @@ def property_candidate_positions_from_registry(
             best_groups = groups if scalar_rows is None else None
             best_group_sizes = group_sizes
     if best is None:
+        if record_decision and _trace_active():
+            column = uncovered_property_column(frame, filter_dict, engine, registry=registry, role=role, binding_column=binding_column)
+            if column is not None:
+                _record_uncovered_property(role, column, index_kind, engine, policy)
         return None
     column, index, values, count = best
+    # Encoded text uses the text-specific crossover.
+    cost_kind = None if index.string_keys is not None else index_kind
     use_index = policy == "force" or count < (
         single_polars_threshold if single_polars_threshold is not None
-        else cost_gate_frac(engine, kind=None if index.string_keys is not None else "node_prop" if role == "nodes" else "edge_prop") * len(frame)
+        else cost_gate_frac(engine, kind=cost_kind) * len(frame)
     )
     semantic_decline = False
     if use_index:
@@ -161,7 +188,7 @@ def property_candidate_positions_from_registry(
     if record_decision and _trace_active():
         _record({
             "op": "property_lookup", "role": role, "column": column,
-            "engine": engine.value, "policy": policy, "est_result_rows": count,
+            "index_kind": index_kind, "engine": engine.value, "policy": policy, "est_result_rows": count,
             "path": "index" if use_index else "scan",
             "decision_code": "index_path_unavailable" if semantic_decline else "index_selected" if use_index else "scan_cost",
             "decision_reason": "empty property candidates would change canonical scalar filtering" if semantic_decline else "property candidates gathered" if use_index else "property gather cost exceeds scan",
