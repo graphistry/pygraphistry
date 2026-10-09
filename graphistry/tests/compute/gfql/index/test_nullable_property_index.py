@@ -144,12 +144,18 @@ def test_dense_nullable_scan_preserves_native_order_schema_and_ownership(role, k
     test_dense_integer_scan_preserves_schema_order_nulls_and_native_ownership(role, kind, True, value, monkeypatch)
 
 
+@pytest.mark.parametrize("engine", ["pandas", "cudf"])
 @pytest.mark.parametrize("dtype", [np.int8, np.int64, np.uint64])
 @pytest.mark.parametrize("kind,role", [("node_prop", "nodes"), ("edge_prop", "edges")])
-def test_numpy_integer_build_retains_direct_storage_path(dtype, kind, role, monkeypatch):
+def test_non_null_integer_build_retains_direct_storage_path(engine, dtype, kind, role, monkeypatch):
     import importlib
     build_module = importlib.import_module("graphistry.compute.gfql.index.build")
-    base = graph("pandas")
+    if engine == "cudf":
+        pytest.importorskip("cudf")
+        from cudf.testing import assert_frame_equal
+    else:
+        assert_frame_equal = pd.testing.assert_frame_equal
+    base = graph(engine)
     frame = getattr(base, "_" + role).assign(account=np.arange(400, dtype=dtype) % 100)
     base = base.nodes(frame) if role == "nodes" else base.edges(frame)
     before = frame.copy(deep=True)
@@ -158,9 +164,9 @@ def test_numpy_integer_build_retains_direct_storage_path(dtype, kind, role, monk
         pytest.fail("primitive integer storage must not allocate a null mask")
 
     monkeypatch.setattr(build_module, "_non_null_id_rows", reject_null_filter)
-    indexed = base.create_index(kind, column="account", engine="pandas")
+    indexed = base.create_index(kind, column="account", engine=engine)
     method = "filter_nodes_by_dict" if role == "nodes" else "filter_edges_by_dict"
-    actual = getattr(indexed, method)({"account": 7}, engine="pandas")
-    pd.testing.assert_frame_equal(getattr(actual, "_" + role), frame[frame.account == 7])
-    pd.testing.assert_frame_equal(frame, before)
+    actual = getattr(indexed, method)({"account": 7}, engine=engine)
+    assert_frame_equal(getattr(actual, "_" + role), frame[frame.account == 7])
+    assert_frame_equal(frame, before)
     assert getattr(actual, "_" + role).account.dtype == np.dtype(dtype)

@@ -168,8 +168,10 @@ def build_property_index(
         valid_nodes = nodes
         if is_integer_property(nodes, column, engine) and (
             engine != Engine.PANDAS or not isinstance(nodes[column].dtype, np.dtype)
+        ) and (
+            engine != Engine.CUDF or nodes[column].null_count > 0
         ):
-            # NumPy integer storage cannot contain nulls; extension/cuDF storage can.
+            # Primitive pandas integers and null-free cuDF columns need no null mask.
             valid_nodes, original_rows = _non_null_id_rows(nodes, (column,), engine, xp)
         try:
             keys = col_to_array(valid_nodes, column, engine)
