@@ -82,6 +82,7 @@ Example
 See Also
 --------
 
+- :doc:`preloaded_datasets`: Complete column documentation for preloaded geographic datasets
 - :ref:`kepler-dataset-format`: Native Kepler.gl dataset format reference
 - :ref:`kepler-layer-api`: Layer configuration
 - :ref:`kepler-encoding-api`: Complete Kepler configuration
