@@ -809,3 +809,116 @@ class TestPersonalOrgFromJwt(unittest.TestCase):
         token = _make_test_jwt(payload_dict)
         # The exact byte length will vary; the corrected formula is robust to all.
         assert _personal_org_from_jwt(token) == 'u'
+
+
+class TestArrowUploader_SwitchOrg(unittest.TestCase):
+    """
+    _switch_org must report whether the server accepted the switch, and must not
+    remember a switch that never happened. Earlier revisions logged the failure and
+    then cached the (org, token) pair anyway, so the early return turned every later
+    attempt into a silent no-op.
+    """
+
+    def _mock_response(self, status=200, json_data=None):
+        mock_resp = mock.Mock()
+        mock_resp.status_code = status
+        mock_resp.content = "CONTENT"
+        mock_resp.raise_for_status = mock.Mock()
+        mock_resp.json = mock.Mock(return_value=json_data if json_data else {})
+        return mock_resp
+
+    def _uploader(self):
+        au = ArrowUploader()
+        au._client_session._last_switched_org_token = None
+        return au
+
+    @mock.patch('requests.post')
+    def test_switch_org_accepted_is_reported_and_cached(self, mock_post):
+        mock_post.return_value = self._mock_response(status=200)
+
+        au = self._uploader()
+        assert au._switch_org("my-org", "tok") is True
+        assert au._client_session._last_switched_org_token == ("my-org", "tok")
+
+    @mock.patch('requests.post')
+    def test_switch_org_rejected_is_reported_and_not_cached(self, mock_post):
+        mock_post.return_value = self._mock_response(status=403)
+
+        au = self._uploader()
+        assert au._switch_org("my-org", "tok") is False
+        assert au._client_session._last_switched_org_token is None
+
+    @mock.patch('requests.post')
+    def test_switch_org_rejection_does_not_suppress_a_retry(self, mock_post):
+        mock_post.return_value = self._mock_response(status=403)
+        au = self._uploader()
+        assert au._switch_org("my-org", "tok") is False
+
+        mock_post.return_value = self._mock_response(status=200)
+        assert au._switch_org("my-org", "tok") is True
+        assert mock_post.call_count == 2
+
+    @mock.patch('requests.post')
+    def test_switch_org_transport_failure_is_reported_and_not_cached(self, mock_post):
+        mock_post.side_effect = Exception("connection reset")
+
+        au = self._uploader()
+        assert au._switch_org("my-org", "tok") is False
+        assert au._client_session._last_switched_org_token is None
+
+    @mock.patch('requests.post')
+    def test_switch_org_skips_http_when_already_switched(self, mock_post):
+        au = self._uploader()
+        au._client_session._last_switched_org_token = ("my-org", "tok")
+
+        assert au._switch_org("my-org", "tok") is True
+        mock_post.assert_not_called()
+
+    @mock.patch('requests.post')
+    def test_switch_org_without_org_or_token_is_a_noop(self, mock_post):
+        au = self._uploader()
+        assert au._switch_org(None, "tok") is False
+        assert au._switch_org("my-org", None) is False
+        mock_post.assert_not_called()
+
+
+class TestArrowUploader_NullActiveOrganization(unittest.TestCase):
+    """
+    A server may omit active_organization, send null, or send a non-dict. The dict
+    default on .get() only covers a missing key, so a present-but-null value used to
+    raise AttributeError on the login path.
+    """
+
+    def _mock_response(self, json_data):
+        mock_resp = mock.Mock()
+        mock_resp.status_code = 200
+        mock_resp.content = "CONTENT"
+        mock_resp.raise_for_status = mock.Mock()
+        mock_resp.json = mock.Mock(return_value=json_data)
+        return mock_resp
+
+    @mock.patch('requests.post')
+    def test_login_with_null_active_organization(self, mock_post):
+        mock_post.return_value = self._mock_response(
+            {'token': '123', 'active_organization': None})
+
+        au = ArrowUploader()
+        assert au.login(username="u", password="p").token == "123"
+        assert PyGraphistry.org_name() is None
+
+    @mock.patch('requests.post')
+    def test_login_with_missing_active_organization(self, mock_post):
+        mock_post.return_value = self._mock_response({'token': '123'})
+
+        au = ArrowUploader()
+        assert au.login(username="u", password="p").token == "123"
+        assert PyGraphistry.org_name() is None
+
+    @mock.patch('requests.post')
+    def test_login_with_non_dict_active_organization(self, mock_post):
+        mock_post.return_value = self._mock_response(
+            {'token': '123', 'active_organization': 'unexpected-string-shape'})
+
+        au = ArrowUploader()
+        assert au.login(username="u", password="p").token == "123"
+        assert PyGraphistry.org_name() is None

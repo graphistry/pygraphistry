@@ -266,27 +266,46 @@ class ArrowUploader:
     ########################################################################3
 
 
-    def _switch_org(self, org_name: Optional[str], token: Optional[str]) -> None:
+    def _switch_org(self, org_name: Optional[str], token: Optional[str]) -> bool:
+        """
+        Ask the server to make org_name the session's active organization.
+
+        Returns True when the server accepted the switch, False otherwise. A rejected
+        or failed switch is not recorded, so a later call retries instead of silently
+        skipping. Callers must not treat False as fatal: not every deployment exposes
+        the switch endpoint, and login should still succeed.
+        """
         if not org_name or not token:
-            return
+            return False
         last = self._client_session._last_switched_org_token
         if last == (org_name, token):
-            return
+            return True
+
+        switch_url = f"{self.server_base_path}/api/v2/o/{org_name}/switch/"
         try:
-            switch_url = f"{self.server_base_path}/api/v2/o/{org_name}/switch/"
             response = requests.post(
                 switch_url,
                 data={'slug': org_name},
                 headers=inject_trace_headers({'Authorization': f'Bearer {token}'}),
                 verify=self.certificate_validation,
             )
-            log_requests_error(response)
-            self._client_session._last_switched_org_token = (org_name, token)
-            from .pygraphistry import PyGraphistry
-            if PyGraphistry.session is self._client_session:
-                PyGraphistry.session._last_switched_org_token = (org_name, token)
         except Exception as exc:
             logger.warning("Failed to switch organization %s: %s", org_name, exc)
+            return False
+
+        log_requests_error(response)
+        if not (200 <= response.status_code < 300):
+            logger.warning(
+                "Server rejected switch to organization %s with HTTP %s; "
+                "the session may remain bound to a different organization",
+                org_name, response.status_code)
+            return False
+
+        self._client_session._last_switched_org_token = (org_name, token)
+        from .pygraphistry import PyGraphistry
+        if PyGraphistry.session is self._client_session:
+            PyGraphistry.session._last_switched_org_token = (org_name, token)
+        return True
 
 
     def login(self, username, password, org_name=None):
@@ -338,7 +357,12 @@ class ArrowUploader:
                     f"missing 'token' key in response. Response content: {out.text}"
                 )
 
-            org = json_response.get('active_organization',{})
+            # A server may omit active_organization, send null, or send a non-dict.
+            # All three mean "no organization bound". The dict default alone does not
+            # cover a present-but-null key, which would raise AttributeError below.
+            org = json_response.get('active_organization', None)
+            if not isinstance(org, dict):
+                org = {}
             logged_in_org_name = org.get('slug', None)
             if org_name:  # caller pass in org_name
                 if not logged_in_org_name:  # no active_organization in JWT payload
