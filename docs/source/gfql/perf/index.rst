@@ -46,4 +46,5 @@ Reference
    ../benchmark_graphframes
    ../engines
    ../indexing
+   ../indexing_examples
    ../remote
