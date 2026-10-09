@@ -2,7 +2,7 @@
 name: review
 description: |
   Structured PR review for pygraphistry. Input: PR number/branch (default current branch PR).
-  Output: findings and convergence artifacts under plans/<task>/.
+  Output: findings and convergence artifacts under the local task plans directory.
   Method: multi-wave, evidence-first review across spec, correctness, tests, security,
   code quality, DRY, concurrency, performance, architecture, operability, and conventions.
 ---
@@ -151,6 +151,11 @@ Apply only relevant dimensions per PR:
 Guidance:
 - Keep dimensions independent (avoid blended "general review" prompts).
 - For file-heavy diffs, parallelize by `(dimension, file)` and aggregate.
+- Runtime comparisons must hold query/data, engine, index policy, and environment constant against the base. A successful `policy="off"` scan does not establish that a `force` failure is new.
+- Pin standalone and remote probe imports to the intended worktree; record the imported source path and revision before accepting results. An installed package or stale mount can otherwise invalidate a baseline comparison.
+- For archived source, verify a fresh reconstructed tree against the intended commit's exported files,
+  including declared `export-subst` output and embedded revision IDs. Verify cached overlays in full;
+  a list of hashes for changed files alone leaves the unchanged cached files unverified.
 - Verify pre-existing patterns are not misreported as regressions:
 
 ```bash
@@ -197,6 +202,11 @@ python -m pytest -q [targeted_test]
 - For GPU-affecting PRs, require GPU-path validation evidence:
   - Local GPU path: `cd docker && ./test-gpu-local.sh [targeted_test_or_path]`
   - No local GPU available: run equivalent GPU validation on `dgx-spark` and record exact command + output artifact path in wave evidence.
+- For optional-engine tests, check the declared CI dependency environment as well as installed-engine
+  integration; skip unavailable dependencies and explicitly exercise supported installed-engine cases.
+- For new, renamed, or moved Polars-gated test modules, verify explicit registration in
+  `bin/test-polars.sh` or a documented exclusion in the completeness guard. Before committing
+  or propagating the fix, run `python -m pytest -q graphistry/tests/compute/gfql/test_polars_lane_completeness.py`.
 - For RAPIDS/cuDF changes, prefer dual-version validation (`RAPIDS_VERSION=25.02` and `26.02`) and include at least one amplified pass beyond early-stop defaults (for example, avoid relying only on `--maxfail=1` harness behavior when triaging regression surface).
 - When shared GPU pressure blocks full-matrix execution, require explicit evidence of the constrained condition (for example `nvidia-smi` + failing stack site), then run targeted amplified subsets and document exactly which tests were excluded and why.
 - If startup/runtime claims are made, verify entrypoints/scripts in `bin/` and workflow behavior.
@@ -215,7 +225,12 @@ python -m pytest -q [targeted_test]
 - **Engagement is a pin, not a timing.** "The index/fast path is used" is proven by a `gfql_explain`
   assertion (`used_index`, `decision_code`, the seam name) marked `@pytest.mark.route_engaged(...)`
   so `bin/test-routes-off.sh` can replay the parity half with the route disabled. Parity stays an
-  unmarked result pin. A wall-clock assertion in pygraphistry tests is a finding.
+  unmarked result pin. Run `bin/test-routes-off.sh` with `MODES=all-off` and focused
+  test paths in `SUITES` before publication: another specialization can serve an
+  individual route decline and hide mixed result/engagement assertions. A wall-clock
+  assertion in pygraphistry tests is a finding.
+  A new route also updates the hosted replay matrix and runs `graphistry/tests/compute/gfql/routes/test_replay.py`;
+  focused local replay does not check hosted matrix coverage.
 - **Perf claims live in pyg-bench.** A number in a PR body or CHANGELOG needs a pyg-bench measurement
   with an A/A control beside the A/B, pinned in that repo's thresholds + contract test; pygraphistry
   carries results and data contracts only. Local-box numbers do not close a perf PR.
@@ -296,6 +311,8 @@ column.
 | Param typed `pd.DataFrame` instead of `DataFrameT` | Use `DataFrameT` |
 
 **Hot row path** = row pipeline executor, edge/node materialization, anything called per-query in `_execute_*` / `_compile_*` / `_lower_*` / row-pipeline ops. **Control plane** = one-shot config builders, error formatters, parser glue (lower bar).
+
+**Index engagement**: for property-index changes, verify an actual candidate gather through representative public queries and specialized execution paths that bypass canonical filters. Row parity alone can pass while every query still scans; explain receipts must describe the gather that really occurred. When adding shared-helper traces, check existing consumer-owned receipt fields and counts; preserve those contracts without hiding new gathers.
 
 **Paired cuDF coverage required** for changes in `compute/gfql/row/`, `compute/gfql/cypher/`, `compute/gfql_unified.py`, `compute/chain.py`, `compute/hop.py`, `compute/materialize_nodes.py`. Sibling pattern: `pytest.importorskip("cudf")` + engine-parametrized fixture. New DataFrame-touching helpers also need cuDF smoke if on a hot path.
 
