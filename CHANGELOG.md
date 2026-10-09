@@ -28,6 +28,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- **GFQL nullable integer property indexes** (#2141): node and edge property indexes gather non-null integer keys while preserving original row positions and signed/unsigned precision. Empty and all-null integer columns build empty indexes; null query values retain canonical filtering.
+
 - **GFQL string property indexes**: `node_prop` and `edge_prop` support string equality and membership keys, including nullable text. Native string dictionaries feed shared integer CSR gathers; duplicate keys, input order, residual filters, and exact Unicode equality are preserved. Indexed node seeds and direct node filtering report actual property gathers in explain traces.
 
 - **GFQL `edge_prop` indexes** (#2141): `CREATE GFQL INDEX FOR edge_prop ON (txn_id)` and `create_index("edge_prop", column="txn_id")` build per-column CSR lookups. Integer edge equality and membership predicates gather matching candidates in input order, preserve duplicate property values, and reapply residual filters. `gfql_explain` reports actual property-index selection and cost declines; stale indexes and `index_policy="off"` retain the scan path. Supported on pandas, cuDF, and Polars.

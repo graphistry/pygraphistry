@@ -267,14 +267,11 @@ def filter_mask_by_dict(df: DataFrameT, filter_dict: Dict[str, Any], *, engine: 
     return initial_mask(True) if hits is None else hits
 
 
-def _supports_native_property_scalar(df: DataFrameT, column: str, value: object) -> bool:
-    """Exact eager CPU scalar comparisons; coercing/temporal predicates decline."""
+def _native_property_scalar_matches_dtype(df: DataFrameT, column: str, value: object) -> bool:
+    """Admit exact eager scalar types without executing or converting a frame."""
     import polars as pl
-    from graphistry.compute.gfql.lazy import ExecutionTarget, active_target
 
     if not isinstance(df, pl.DataFrame) or df.width > 32 or column not in df.columns:
-        return False
-    if active_target() == ExecutionTarget.GPU:
         return False
     dtype = df.get_column(column).dtype
     if dtype in (pl.String, pl.Categorical, pl.Enum) and type(value) is str:
@@ -284,6 +281,14 @@ def _supports_native_property_scalar(df: DataFrameT, column: str, value: object)
         dtype == pl.Int64 and type(value) is int and -(2**63) <= value < 2**63
         or dtype == pl.UInt64 and type(value) is int and 0 <= value < 2**63
     )
+
+
+
+def _supports_native_property_scalar(df: DataFrameT, column: str, value: object) -> bool:
+    """Exact eager CPU comparisons; GPU execution retains canonical filtering."""
+    from graphistry.compute.gfql.lazy import ExecutionTarget, active_target
+
+    return active_target() != ExecutionTarget.GPU and _native_property_scalar_matches_dtype(df, column, value)
 
 
 def _filter_native_property_scalar(df: DataFrameT, column: str, value: object) -> DataFrameT:

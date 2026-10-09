@@ -8,6 +8,8 @@ from __future__ import annotations
 
 from typing import Any, List, Optional, Sequence, Tuple, Union, cast
 
+import numpy as np
+
 from graphistry.Engine import Engine
 from graphistry.compute.typing import DataFrameT, SeriesT
 from .engine_arrays import array_namespace, col_to_array
@@ -151,10 +153,10 @@ def build_property_index(
     Duplicates are fine (CSR keeps every row per value) — this is the secondary
     index, so the caller still applies the remaining predicates to the gathered
     candidates. Text uses a native sorted dictionary with integer CSR codes,
-    including only non-null rows. Null-free integer columns use their values
+    including only non-null rows. Integer columns use their non-null values
     directly. Other dtypes decline until their equality semantics are supported.
     """
-    from .property_keys import bounded_string_key_positions, is_string_property, string_property_keys
+    from .property_keys import bounded_string_key_positions, is_integer_property, is_string_property, string_property_keys
 
     xp, backend = array_namespace(engine)
     dictionary = None
@@ -163,8 +165,16 @@ def build_property_index(
         valid_nodes, original_rows = _non_null_id_rows(nodes, (column,), engine, xp)
         keys, dictionary = string_property_keys(valid_nodes, column, engine)
     else:
+        valid_nodes = nodes
+        if is_integer_property(nodes, column, engine) and (
+            engine != Engine.PANDAS or not isinstance(nodes[column].dtype, np.dtype)
+        ) and (
+            engine != Engine.CUDF or nodes[column].null_count > 0
+        ):
+            # Primitive pandas integers and null-free cuDF columns need no null mask.
+            valid_nodes, original_rows = _non_null_id_rows(nodes, (column,), engine, xp)
         try:
-            keys = col_to_array(nodes, column, engine)
+            keys = col_to_array(valid_nodes, column, engine)
         except (AttributeError, KeyError, TypeError, ValueError):
             return None
     if str(keys.dtype.kind) not in ("i", "u"):  # numpy/cupy arrays always carry dtype.kind
