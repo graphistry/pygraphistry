@@ -421,6 +421,7 @@ def _filter_singleton_equalities(
     df: "Union[pl.DataFrame, pl.LazyFrame]", filter_dict: Optional[Mapping[str, object]],
 ) -> "Optional[pl.DataFrame]":
     """Check supported equalities on one CPU row; otherwise use expression filtering."""
+    import math
     import polars as pl
     from graphistry.compute.gfql.lazy import active_target, ExecutionTarget
 
@@ -429,14 +430,17 @@ def _filter_singleton_equalities(
     if active_target() == ExecutionTarget.GPU:
         return None
     matches = True
+    needs_clone = False
     schema = df.schema
     for column, expected in filter_dict.items():
         dtype = schema.get(column)
-        if not _supports_scalar_equality(dtype, expected):
+        finite_float64 = dtype == pl.Float64 and type(expected) is float and math.isfinite(expected)
+        if not _supports_scalar_equality(dtype, expected) and not finite_float64:
             return None
+        needs_clone = needs_clone or finite_float64
         actual = df.get_column(column).item()
         matches = matches and actual is not None and actual == expected
-    return df if matches else df.clear()
+    return (df.clone() if needs_clone else df) if matches else df.clear()
 
 
 def _filter_small_equalities(

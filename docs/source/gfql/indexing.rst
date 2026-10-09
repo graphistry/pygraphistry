@@ -59,8 +59,9 @@ There are five kinds. ``gfql_index_all()`` builds the first three.
    * - ``node_prop``
      - Analogous to an ordinary column index on the node table. Finds start nodes by a
        column other than the node id, such as an account number. You choose the columns.
-       String, integer, categorical, and timestamp columns can be indexed. Nullable
-       columns are supported; null property rows are excluded; queries on unsupported column types scan.
+       String, integer, categorical, timestamp, and Float32/Float64 columns can be indexed. Nullable
+       columns are supported. Null property rows and float NaNs are excluded;
+       queries on unsupported column types scan.
 
        | Cypher: ``CREATE GFQL INDEX FOR node_prop ON (account_number)``
        | Python: ``g.create_index("node_prop", column="account_number")``
@@ -68,8 +69,8 @@ There are five kinds. ``gfql_index_all()`` builds the first three.
 
    * - ``edge_prop``
      - Analogous to a column index on the edge table. Finds edges by a property such as
-       a transaction id. String, integer, categorical, and timestamp lookups retain
-       duplicate rows. Null property rows are excluded.
+       a transaction id. String, integer, categorical, timestamp, and Float32/Float64
+       lookups retain duplicate rows. Null property rows and float NaNs are excluded.
 
        | Cypher: ``CREATE GFQL INDEX FOR edge_prop ON (txn_id)``
        | Python: ``g.create_index("edge_prop", column="txn_id")``
@@ -181,7 +182,7 @@ different column, such as a business key, index that column with ``node_prop``:
    g.gfql('CREATE GFQL INDEX FOR node_prop ON id')
    g = g.drop_index("node_prop", column="id")             # or drop_index("node_prop") for all
 
-String, integer, categorical, and timestamp columns can be indexed. When one query filters on
+String, integer, categorical, timestamp, and Float32/Float64 columns can be indexed. When one query filters on
 several indexed columns, GFQL starts from the most selective one and applies the other
 filters to its matches, so results do not depend on which indexes exist.
 
@@ -192,6 +193,18 @@ Integer property indexes exclude null rows and preserve the original row
 positions of every non-null value. Nullable signed and unsigned integer storage
 is supported without a floating-point conversion; an all-null integer column
 builds an empty index. Null lookup predicates retain canonical filter semantics.
+
+Floating-point keys
+~~~~~~~~~~~~~~~~~~~
+
+Float32 and Float64 columns, including supported nullable and Arrow storage,
+index non-null, non-NaN rows. Signed zeros share a lookup key; infinities remain
+valid keys. Query values form candidate keys in the column's native precision,
+and the canonical predicate determines the exact result. There is no tolerance
+or approximate equality. Scalar and membership coercion can differ by engine;
+indexed filtering preserves those differences. NaN/null and ambiguous query
+encodings use canonical filtering, including its existing errors and AST null
+semantics. Empty and all-null columns build empty indexes.
 
 Categorical and timestamp keys
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

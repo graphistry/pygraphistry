@@ -28,6 +28,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- **GFQL float property indexes** (#2141): node and edge properties support native float candidates with exact canonical residual comparisons, preserving signed zero, infinities, precision, ordering, and null/error semantics. Null and NaN rows are excluded from index keys.
+
 - **GFQL categorical and timestamp property indexes** (#2141): native category dictionaries/codes and non-null timestamp keys support node and edge candidate gathers while preserving labels, dtypes, units, timezones, residual predicates, and input row order. Ambiguous query conversions retain canonical scan behavior.
 
 - **GFQL nullable integer property indexes** (#2141): node and edge property indexes gather non-null integer keys while preserving original row positions and signed/unsigned precision. Empty and all-null integer columns build empty indexes; null query values retain canonical filtering.

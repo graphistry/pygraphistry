@@ -274,6 +274,9 @@ def _native_property_scalar_matches_dtype(df: DataFrameT, column: str, value: ob
     if not isinstance(df, pl.DataFrame) or df.width > 32 or column not in df.columns:
         return False
     dtype = df.get_column(column).dtype
+    if include_extended_types and dtype == pl.Float64 and type(value) is float:
+        from math import isfinite
+        return isfinite(value)
     if include_extended_types and isinstance(dtype, pl.Datetime) and type(value) is str:
         from datetime import datetime
         from graphistry.compute.gfql.lazy.engine.polars.predicates import _parse_temporal_filter_scalar
@@ -321,7 +324,7 @@ def _filter_property_candidates(
             if isinstance(dtype, np.dtype) and (dtype.kind in "iu" and type(value) is int
                     or dtype.kind == "O" and type(value) is str):
                 return candidates
-    # Float and coercing temporal candidates still require canonical residuals.
+    # Float32 and coercing literals retain canonical residuals.
     if engine == Engine.POLARS and filter_validated and candidates is not original and filter_dict and len(filter_dict) == 1:
         from graphistry.compute.gfql.lazy import ExecutionTarget, active_target
         from graphistry.compute.gfql.index.engine_arrays import as_eager_polars_frame
@@ -333,6 +336,7 @@ def _filter_property_candidates(
                 dtype = eager.get_column(column).dtype
                 if (dtype.is_integer() and type(value) is int
                         or dtype in (pl.String, pl.Categorical, pl.Enum) and type(value) is str
+                        or dtype == pl.Float64 and type(value) is float
                         or isinstance(dtype, pl.Datetime) and type(value) is str
                         and _supports_native_property_scalar(eager, column, value)):
                     return candidates
