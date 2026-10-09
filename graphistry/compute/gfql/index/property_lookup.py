@@ -228,7 +228,7 @@ def property_candidate_frame(
                     index = registry.get_property_valid(role, column, frame, other_engine)
                 if index is not None and engine == Engine.POLARS_GPU and _native_property_scalar_matches_dtype(frame, column, value):
                     return frame  # Cost decline: keep canonical GPU filtering, without probing candidates.
-                if index is not None and _supports_native_property_scalar(frame, column, value):
+                if engine == Engine.POLARS and index is not None and _supports_native_property_scalar(frame, column, value):
                     return _filter_native_property_scalar(frame, column, value)
     positions = property_candidate_positions(g, role, frame, filter_dict, engine)
     return frame if positions is None else take_rows(frame, positions, engine)
