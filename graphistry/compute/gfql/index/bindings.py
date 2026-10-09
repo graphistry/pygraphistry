@@ -293,8 +293,10 @@ def _orient_edges(
     else:
         work = gathered
         if isinstance(alias, str):
-            work = gathered.assign(**{alias: True})
-            payload = payload + [alias]
+            # Canonical bindings restore user payload shadowed by alias markers.
+            if alias not in gathered.columns:
+                work = gathered.assign(**{alias: True})
+                payload = payload + [alias]
             renames = {col: f"{alias}.{col}" for col in payload}
         else:
             renames = {}
@@ -387,6 +389,7 @@ def _try_indexed_connected_bindings_state(
     engine: Engine,
     start_nodes: Optional[DataFrameT] = None,
     alias_prefilters: Optional[Any] = None,
+    candidate_edge_rows: Optional[ArrayLike] = None,
 ) -> Optional[IndexedBindingsState]:
     """Return an exact indexed fixed-hop path bag, or safely decline with ``None``."""
     from graphistry.compute.ast import ASTEdge, ASTNode
@@ -399,6 +402,7 @@ def _try_indexed_connected_bindings_state(
         or get_index_policy(base_graph) == "off"
         or len(ops) < 3
         or len(ops) % 2 == 0
+        or (candidate_edge_rows is not None and len(ops) != 3)
     ):
         return None
 
@@ -429,7 +433,8 @@ def _try_indexed_connected_bindings_state(
                 not isinstance(op, ASTNode)
                 or op.query is not None
                 or op._name == node_id
-                or not (_seed_filter_dict(op.filter_dict, node_id) if index == 0 else _simple_filter_dict(op.filter_dict))
+                or not (_seed_filter_dict(op.filter_dict, node_id)
+                        if index == 0 and candidate_edge_rows is None else _simple_filter_dict(op.filter_dict))
             ):
                 return None
         else:
@@ -467,7 +472,9 @@ def _try_indexed_connected_bindings_state(
             return None
 
     first_op = ops[0]
-    if not isinstance(first_op, ASTNode) or not _seed_filter_dict(first_op.filter_dict, node_id):
+    if not isinstance(first_op, ASTNode) or (
+        candidate_edge_rows is None and not _seed_filter_dict(first_op.filter_dict, node_id)
+    ):
         return None
 
     if any(
@@ -482,6 +489,10 @@ def _try_indexed_connected_bindings_state(
         Optional[NodeIdIndex],
         registry.get_valid(NODE_ID, nodes, (node_id,), engine),
     )
+    if candidate_edge_rows is not None:
+        from graphistry.compute.chain_fast_paths import _resident_node_id_index
+        node_ctx = _resident_node_id_index(base_graph, nodes, node_id)
+        node_index = node_ctx[0] if node_ctx is not None else None
     if node_index is None or not _integer_index(node_index):
         return None
 
@@ -497,13 +508,23 @@ def _try_indexed_connected_bindings_state(
         indexes = _indices_for_direction(
             registry, edge_op.direction, edges, (src, dst), engine,
         )
+        if candidate_edge_rows is not None:
+            from graphistry.compute.chain_fast_paths import _resident_seed_indexes
+            seed_ctx = _resident_seed_indexes(base_graph, nodes, edges, node_id, src, dst, edge_op.direction)
+            indexes = [seed_ctx[1]] if seed_ctx is not None else None
         if indexes is None or not all(_integer_index(index) for index in indexes):
             return None
         direction_indexes[edge_index] = indexes
 
-    first_filter = cast(dict, first_op.filter_dict)
+    first_filter = first_op.filter_dict or {}
     xp, _ = array_namespace(engine)
-    if node_id in first_filter:
+    if candidate_edge_rows is not None:
+        candidate_edges = take_rows(edges, candidate_edge_rows, engine)
+        seed_column = dst if ops[1].direction == "reverse" else src
+        seed_ids = xp.unique(col_to_array(candidate_edges, seed_column, engine))
+        seed_rows = xp.sort(lookup_node_rows(node_index, seed_ids, xp))
+        first_nodes = _filter_frame(take_rows(nodes, seed_rows, engine), first_filter, engine)
+    elif node_id in first_filter:
         seed_members = _membership_seed_ids(first_filter[node_id])
         if seed_members is not None:
             seed_ids = xp.asarray(seed_members)
@@ -581,6 +602,8 @@ def _try_indexed_connected_bindings_state(
             else xp.concatenate(row_parts)
         )
         rows = xp.unique(rows)
+        if candidate_edge_rows is not None:
+            rows = rows[xp.isin(rows, candidate_edge_rows)]
         gathered = take_rows(edges, rows, engine)
         gathered = _frame_with_positions(gathered, rows, engine)
         gathered = _filter_frame(gathered, edge_op.edge_match, engine)

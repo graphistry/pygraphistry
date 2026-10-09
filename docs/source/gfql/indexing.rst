@@ -496,6 +496,28 @@ unsupported shapes keep the general path. Missing or stale indexes and
 ``index_policy="off"`` also keep the general path; results and canonical errors
 remain unchanged. Native lane selection alone does not establish a speed gain.
 
+Cross-alias OR
+~~~~~~~~~~~~~~
+
+A directed single-hop Cypher query can gather candidates for both sides of an
+``OR`` before building its binding table. Each branch must name an indexed node
+equality or membership predicate. Unique integral binding ids and resident
+node-id and both adjacency indexes are required; property branches also need
+their property indexes. For example, using the quick-start graph:
+
+.. code-block:: python
+
+   or_indexed = g_indexed.create_index("edge_in_adj")
+   or_out = or_indexed.gfql(
+       "MATCH (a)-[e]->(b) WHERE a.id IN [0] OR b.id = 5 "
+       "RETURN a.id AS src, b.id AS dst")
+   assert len(or_out._nodes) == 3
+
+The canonical row predicate still evaluates the complete ``OR``. Overlapping
+branches retain each original edge once, while different parallel edges remain
+different matches. Unsupported shapes, missing or stale indexes, dense
+candidates, and ``index_policy='off'`` keep the general execution path.
+
 See also
 --------
 
