@@ -32,6 +32,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Documentation
 
+- **GFQL performance measurements**: shorten shared measurement notes while preserving benchmark values, methods and dates.
+
 - **GFQL docs say how indexes behave in graph pipelines**: stages that run on the indexed graph use its indexes, while a stage over a graph derived earlier in the same query scans, because Cypher cannot yet index a derived graph inside the query (#2148). The indexing page adds a "Graph pipelines" section with a runnable native `let()` example that indexes the derived graph, notes that this index is rebuilt on every call, and explains that `used_index` is `True` when any stage used an index, so `steps` shows which. The Cypher page's `GRAPH { }` section points to it.
 
 ### Documentation
