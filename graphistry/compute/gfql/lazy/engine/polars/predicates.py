@@ -3,9 +3,9 @@
 Common comparison/membership/string/null predicates lower to native polars expressions.
 NO-CHEATING contract: no pandas bridge — a predicate with no native lowering raises
 NotImplementedError (bridging one column would misrepresent pandas semantics as polars and
-break columnar/GPU assumptions; use engine='pandas'). Filtering uses one vectorized
-``df.filter(expr)``. Small eager CPU frames
-can use scalar equalities when their storage and filter types agree.
+break columnar/GPU assumptions; use engine='pandas'). Filtering uses native expressions
+or Series operations. Small eager CPU frames can use scalar equalities when their storage
+and filter types agree.
 """
 from __future__ import annotations
 
@@ -468,11 +468,58 @@ def _filter_small_equalities(
     return df[positions]
 
 
+def _filter_eager_equalities(
+    df: "Union[pl.DataFrame, pl.LazyFrame]", filter_dict: Optional[Mapping[str, object]],
+) -> "Optional[pl.DataFrame]":
+    """Apply native Series equality/filtering to small eager CPU candidate frames."""
+    import polars as pl
+    from graphistry.compute.gfql.lazy import active_target, ExecutionTarget
+
+    if not isinstance(df, pl.DataFrame) or not 0 < df.height <= 1024 or not filter_dict:
+        return None
+    if active_target() == ExecutionTarget.GPU:
+        return None
+    schema = df.schema
+    mask: Optional[pl.Series] = None
+    for column, expected in filter_dict.items():
+        dtype = schema.get(column)
+        supported = _supports_scalar_equality(dtype, expected) or (
+            dtype in (pl.Categorical, pl.Enum) and type(expected) is str
+            or dtype in (pl.Float32, pl.Float64) and type(expected) in (int, float)
+        )
+        if supported and type(expected) is int:
+            if dtype in (pl.Float32, pl.Float64):
+                supported = -(2**63) <= expected < 2**63
+            else:
+                # Series equality does not widen narrow/unsigned integer storage.
+                supported = dtype == pl.Int64 or dtype == pl.UInt64 and expected >= 0
+        if isinstance(dtype, pl.Datetime) and type(expected) is str:
+            # Expr comparisons coerce ns storage to literal us units; Series equality does not.
+            if dtype.time_unit == "ns":
+                return None
+            expected = _parse_temporal_filter_scalar(expected, dtype)
+            supported = expected is not None
+        if not supported:
+            return None
+        current = df.get_column(column) == expected
+        mask = current if mask is None else mask & current
+    assert mask is not None  # A nonempty supported filter creates a Boolean Series.
+    if mask.null_count() == 0 and mask.all():
+        return df.clone()
+    if not mask.any():
+        return df.clear()
+    # Native Series filtering discards null mask entries and preserves row order.
+    return pl.DataFrame([column.filter(mask) for column in df.iter_columns()])
+
+
 def filter_by_dict_polars(df: "PolarsFrameT", filter_dict: "Optional[Dict[str, Any]]") -> "PolarsFrameT":
     """Return rows of polars ``df`` matching all entries in ``filter_dict`` via one filter."""
     small = _filter_small_equalities(df, filter_dict)
     if small is not None:
         return small  # type: ignore[return-value]  # The helper admits only eager frames.
+    eager = _filter_eager_equalities(df, filter_dict)
+    if eager is not None:
+        return eager  # type: ignore[return-value]  # The helper admits only eager frames.
     combined = filter_expr_by_dict_polars(df, filter_dict)
     if combined is None:
         return df

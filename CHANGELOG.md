@@ -28,6 +28,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- **GFQL categorical and timestamp property indexes** (#2141): native category dictionaries/codes and non-null timestamp keys support node and edge candidate gathers while preserving labels, dtypes, units, timezones, residual predicates, and input row order. Ambiguous query conversions retain canonical scan behavior.
+
 - **GFQL nullable integer property indexes** (#2141): node and edge property indexes gather non-null integer keys while preserving original row positions and signed/unsigned precision. Empty and all-null integer columns build empty indexes; null query values retain canonical filtering.
 
 - **GFQL string property indexes**: `node_prop` and `edge_prop` support string equality and membership keys, including nullable text. Native string dictionaries feed shared integer CSR gathers; duplicate keys, input order, residual filters, and exact Unicode equality are preserved. Indexed node seeds and direct node filtering report actual property gathers in explain traces.

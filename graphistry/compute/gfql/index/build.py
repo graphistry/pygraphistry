@@ -154,14 +154,26 @@ def build_property_index(
     index, so the caller still applies the remaining predicates to the gathered
     candidates. Text uses a native sorted dictionary with integer CSR codes,
     including only non-null rows. Integer columns use their non-null values
-    directly. Other dtypes decline until their equality semantics are supported.
+    directly. Categorical keys use native codes; timestamps use physical integer
+    candidates with their key dtype. Other dtypes decline.
     """
-    from .property_keys import bounded_string_key_positions, is_integer_property, is_string_property, string_property_keys
+    from .property_keys import (
+        bounded_string_key_positions, categorical_property_keys, is_categorical_property, is_integer_property,
+        is_string_property, is_timestamp_property, string_property_keys, timestamp_property_keys,
+    )
 
     xp, backend = array_namespace(engine)
     dictionary = None
+    category_dictionary = None
+    timestamp_dtype = None
     original_rows = None
-    if is_string_property(nodes, column, engine):
+    if is_categorical_property(nodes, column, engine):
+        valid_nodes, original_rows = _non_null_id_rows(nodes, (column,), engine, xp)
+        keys, dictionary, category_dictionary = categorical_property_keys(valid_nodes, column, engine)
+    elif is_timestamp_property(nodes, column, engine):
+        valid_nodes, original_rows = _non_null_id_rows(nodes, (column,), engine, xp)
+        keys, timestamp_dtype = timestamp_property_keys(valid_nodes, column, engine)
+    elif is_string_property(nodes, column, engine):
         valid_nodes, original_rows = _non_null_id_rows(nodes, (column,), engine, xp)
         keys, dictionary = string_property_keys(valid_nodes, column, engine)
     else:
@@ -195,6 +207,8 @@ def build_property_index(
         string_keys=dictionary,
         string_key_positions=string_key_positions,
         string_key_positions_bytes=string_key_positions_bytes,
+        category_keys=category_dictionary,
+        timestamp_dtype=timestamp_dtype,
         n_nodes=len(nodes),
         n_keys=int(unique_keys.shape[0]),
         min_group_count=int((group_offsets[1:] - group_offsets[:-1]).min()) if int(unique_keys.shape[0]) else 0,

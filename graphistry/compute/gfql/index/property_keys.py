@@ -1,7 +1,8 @@
-"""Native string dictionaries and lossless property query-key preparation."""
+"""Native property dictionaries and conservative query-key preparation."""
 from __future__ import annotations
 
 from bisect import bisect_left
+from datetime import datetime
 from numbers import Integral
 from sys import getsizeof
 from typing import TYPE_CHECKING, Dict, Iterator, Mapping, Optional, Sequence, Tuple, cast
@@ -11,7 +12,7 @@ import pandas as pd
 
 from graphistry.Engine import Engine, POLARS_ENGINES
 from graphistry.compute.predicates.is_in import IsIn
-from graphistry.compute.typing import ArrayLike, ArrayNamespace, DataFrameT, SeriesT
+from graphistry.compute.typing import ArrayLike, ArrayNamespace, DataFrameT, DType, IndexT, SeriesT
 from .engine_arrays import as_eager_polars_frame
 from .registry import NodePropIndex
 
@@ -51,6 +52,137 @@ def is_integer_property(frame: DataFrameT, column: str, engine: Engine) -> bool:
         eager = as_eager_polars_frame(frame)
         return eager is not None and eager.schema[column].is_integer()
     return frame[column].dtype.kind in ("i", "u")
+
+
+def is_categorical_property(frame: DataFrameT, column: str, engine: Engine) -> bool:
+    if column not in frame.columns:
+        return False
+    if engine in POLARS_ENGINES:
+        import polars as pl
+        eager = as_eager_polars_frame(frame)
+        return eager is not None and eager.schema[column] in (pl.Categorical, pl.Enum)
+    return isinstance(frame[column].dtype, pd.CategoricalDtype) or (
+        engine == Engine.CUDF and frame[column].dtype.name == "category"
+    )
+
+
+def is_timestamp_property(frame: DataFrameT, column: str, engine: Engine) -> bool:
+    if column not in frame.columns:
+        return False
+    if engine in POLARS_ENGINES:
+        import polars as pl
+        eager = as_eager_polars_frame(frame)
+        return eager is not None and isinstance(eager.schema[column], pl.Datetime)
+    dtype = frame[column].dtype
+    if isinstance(dtype, pd.ArrowDtype):
+        import pyarrow as pa
+        return pa.types.is_timestamp(dtype.pyarrow_dtype)
+    return dtype.kind == "M"
+
+
+def categorical_property_keys(
+    frame: DataFrameT, column: str, engine: Engine,
+) -> Tuple[ArrayLike, Optional[SeriesT], Optional[IndexT]]:
+    """Reuse physical category codes; never coerce numeric labels to strings."""
+    if engine in POLARS_ENGINES:
+        import polars as pl
+        eager = as_eager_polars_frame(frame)
+        assert eager is not None
+        decoded = eager.with_columns(pl.col(column).cast(pl.String))
+        codes, dictionary = string_property_keys(
+            cast(DataFrameT, decoded), column, engine,  # hygiene-ok: explicit-cast -- the eager Polars frame uses the shared engine-polymorphic frame vocabulary
+        )
+        return codes, dictionary, None
+    values = frame[column]
+    native_codes = values.cat.codes
+    return cast(  # hygiene-ok: explicit-cast -- native NumPy/CuPy category codes implement the bounded array protocol
+        ArrayLike, native_codes.values if engine == Engine.CUDF else native_codes.to_numpy(),
+    ), None, values.cat.categories
+
+
+def timestamp_property_keys(frame: DataFrameT, column: str, engine: Engine) -> Tuple[ArrayLike, DType]:
+    """Native integer keys; Polars buckets cover canonical comparison casts."""
+    if engine in POLARS_ENGINES:
+        eager = as_eager_polars_frame(frame)
+        assert eager is not None
+        import polars as pl
+        values = eager.get_column(column)
+        timestamp_type = values.dtype
+        assert isinstance(timestamp_type, pl.Datetime)
+        if timestamp_type.time_unit == "ns":
+            # Canonical scalar casts require microsecond candidates; residuals retain exact ns equality.
+            values = values.cast(pl.Datetime("us", timestamp_type.time_zone))
+        return cast(  # hygiene-ok: explicit-cast -- Polars physical integer storage is a NumPy array compatible with the shared array protocol
+            ArrayLike, values.to_physical().to_numpy(),
+        ), values.dtype
+    values = frame[column]
+    if engine == Engine.PANDAS and isinstance(values.dtype, pd.ArrowDtype):
+        import pyarrow as pa
+        integers = pa.array(values.array).cast(pa.int64()).to_numpy(zero_copy_only=False)
+    else:
+        integers = values.astype("int64")
+        integers = integers.values if engine == Engine.CUDF else integers.to_numpy()
+    return cast(  # hygiene-ok: explicit-cast -- build-time native integer extraction implements the shared array protocol
+        ArrayLike, integers,
+    ), values.dtype
+
+
+def _timestamp_query_values(
+    index: NodePropIndex, members: Sequence[object], predicate: object, xp: ArrayNamespace,
+) -> Optional[ArrayLike]:
+    dtype = index.timestamp_dtype
+    assert dtype is not None
+    if not all(isinstance(value, (datetime, np.datetime64, str)) for value in members):
+        return None
+    if index.engine in POLARS_ENGINES:
+        import polars as pl
+        native_dtype = cast(  # hygiene-ok: explicit-cast -- the engine and timestamp builder establish a concrete Polars Datetime dtype
+            "pl.Datetime", dtype,
+        )
+        # Canonical temporal membership coercion differs from scalar equality.
+        if isinstance(predicate, (IsIn, list, tuple)):
+            return None
+        value = members[0]
+        if isinstance(value, str):
+            from graphistry.compute.gfql.lazy.engine.polars.predicates import _parse_temporal_filter_scalar
+            value = _parse_temporal_filter_scalar(value, native_dtype)
+            if value is None:
+                return None
+        if isinstance(value, pd.Timestamp) and value.nanosecond:
+            return None  # Polars literal precision differs across supported versions.
+        try:
+            if type(value) is datetime and value.tzinfo is None and native_dtype.time_zone is None:
+                # Bounded literal metadata: avoid planning a one-row temporal cast.
+                delta = value - datetime(1970, 1, 1)
+                microseconds = (delta.days * 86400 + delta.seconds) * 1000000 + delta.microseconds
+                ticks = microseconds * 1000 if native_dtype.time_unit == "ns" else (
+                    microseconds // 1000 if native_dtype.time_unit == "ms" else microseconds
+                )
+                return xp.asarray([ticks], dtype=xp.int64)
+            else:
+                encoded = pl.select(pl.lit(value).cast(native_dtype).to_physical()).to_series().to_numpy()
+        except (TypeError, ValueError, OverflowError, pl.exceptions.PolarsError):
+            return None  # No comparable native literal; canonical filter owns errors.
+        return xp.asarray(encoded)
+    if isinstance(dtype, pd.ArrowDtype):
+        unit = dtype.pyarrow_dtype.unit
+        timezone = dtype.pyarrow_dtype.tz
+    elif isinstance(dtype, pd.DatetimeTZDtype):
+        unit, timezone = dtype.unit, dtype.tz
+    else:
+        unit, timezone = np.datetime_data(dtype)[0], None
+    timestamp_ticks = []
+    for value in members:  # bounded query literals, never source rows
+        try:
+            stamp = pd.Timestamp(value)
+        except (TypeError, ValueError, OverflowError):
+            return None
+        if pd.isna(stamp) or (stamp.tz is None) != (timezone is None):
+            return None
+        timestamp_ticks.append(stamp.asm8.astype(f"datetime64[{unit}]").astype(np.int64))
+    encoded_ticks = xp.asarray(timestamp_ticks, dtype=xp.int64)
+    return encoded_ticks if int(encoded_ticks.shape[0]) <= 1 else xp.unique(encoded_ticks)
+
 
 
 def string_property_keys(
@@ -230,6 +362,43 @@ def property_query_values(index: NodePropIndex, predicate: object, xp: ArrayName
     members = predicate.options if isinstance(predicate, IsIn) else (
         predicate if isinstance(predicate, (list, tuple)) else [predicate]
     )
+    if index.timestamp_dtype is not None:
+        return _timestamp_query_values(index, members, predicate, xp)
+    if index.category_keys is not None:
+        if not all(isinstance(value, (str, Integral, float, bool)) for value in members):
+            return None
+        if not members:
+            return xp.zeros(0, dtype=xp.int64)
+        if any(isinstance(value, float) and np.isnan(value) for value in members):
+            return None  # AST IsIn can match null rows; the index excludes them.
+        kinds = {
+            "str" if isinstance(value, str) else "bool" if isinstance(value, bool)
+            else "int" if isinstance(value, Integral) else "float"
+            for value in members
+        }
+        if len(kinds) != 1:
+            return None  # Native Index inference can coerce mixed keys or reject them.
+        if (index.engine == Engine.PANDAS and type(index.category_keys) is pd.Index and len(members) == 1
+                and (kinds == {"str"} or type(members[0]) is int
+                     and isinstance(index.category_keys.dtype, np.dtype) and index.category_keys.dtype.kind in "iu")):
+            # Exact scalar keys avoid a temporary Index; specialized types retain get_indexer.
+            try:
+                position = index.category_keys.get_loc(members[0])
+            except KeyError:
+                return xp.zeros(0, dtype=index.keys_sorted.dtype)
+            return xp.asarray([position], dtype=index.keys_sorted.dtype)
+        if index.engine == Engine.CUDF:
+            if kinds == {"int"} and any(int(v) < 0 for v in members if isinstance(v, Integral)) and any(
+                int(v) > np.iinfo(np.int64).max for v in members if isinstance(v, Integral)
+            ):
+                return None
+
+            import cudf
+            values = cudf.Index(members)
+        else:
+            values = pd.Index(members, dtype=object)
+        codes = xp.asarray(index.category_keys.get_indexer(values))
+        return xp.unique(codes[codes > -1])
     if index.string_keys is not None:
         if not all(isinstance(value, str) for value in members):
             return None

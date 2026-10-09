@@ -267,13 +267,17 @@ def filter_mask_by_dict(df: DataFrameT, filter_dict: Dict[str, Any], *, engine: 
     return initial_mask(True) if hits is None else hits
 
 
-def _native_property_scalar_matches_dtype(df: DataFrameT, column: str, value: object) -> bool:
-    """Admit exact eager scalar types without executing or converting a frame."""
+def _native_property_scalar_matches_dtype(df: DataFrameT, column: str, value: object, *, include_extended_types: bool = False) -> bool:
+    """Admit exact eager scalar types; CPU-only temporal/float checks are opt-in."""
     import polars as pl
 
     if not isinstance(df, pl.DataFrame) or df.width > 32 or column not in df.columns:
         return False
     dtype = df.get_column(column).dtype
+    if include_extended_types and isinstance(dtype, pl.Datetime) and type(value) is str:
+        from datetime import datetime
+        from graphistry.compute.gfql.lazy.engine.polars.predicates import _parse_temporal_filter_scalar
+        return type(_parse_temporal_filter_scalar(value, dtype)) is datetime
     if dtype in (pl.String, pl.Categorical, pl.Enum) and type(value) is str:
         from graphistry.compute.gfql.index.property_keys import string_literals_are_utf8
         return string_literals_are_utf8(value)
@@ -288,12 +292,19 @@ def _supports_native_property_scalar(df: DataFrameT, column: str, value: object)
     """Exact eager CPU comparisons; GPU execution retains canonical filtering."""
     from graphistry.compute.gfql.lazy import ExecutionTarget, active_target
 
-    return active_target() != ExecutionTarget.GPU and _native_property_scalar_matches_dtype(df, column, value)
+    return active_target() != ExecutionTarget.GPU and _native_property_scalar_matches_dtype(df, column, value, include_extended_types=True)
 
 
 def _filter_native_property_scalar(df: DataFrameT, column: str, value: object) -> DataFrameT:
     """Filter an admitted scalar with native columns, preserving order and ownership."""
-    mask = df.get_column(column) == value
+    import polars as pl
+    series = df.get_column(column)
+    if isinstance(series.dtype, pl.Datetime) and isinstance(value, str):
+        from graphistry.compute.gfql.lazy.engine.polars.predicates import _parse_temporal_filter_scalar
+        value = _parse_temporal_filter_scalar(value, series.dtype)
+        if series.dtype.time_unit == "ns":
+            series = series.cast(pl.Datetime("us", series.dtype.time_zone))
+    mask = series == value
     return df_cons(Engine.POLARS)([series.filter(mask) for series in df.iter_columns()])
 
 
@@ -310,7 +321,7 @@ def _filter_property_candidates(
             if isinstance(dtype, np.dtype) and (dtype.kind in "iu" and type(value) is int
                     or dtype.kind == "O" and type(value) is str):
                 return candidates
-    # Float and temporal candidates still require canonical residuals.
+    # Float and coercing temporal candidates still require canonical residuals.
     if engine == Engine.POLARS and filter_validated and candidates is not original and filter_dict and len(filter_dict) == 1:
         from graphistry.compute.gfql.lazy import ExecutionTarget, active_target
         from graphistry.compute.gfql.index.engine_arrays import as_eager_polars_frame
@@ -321,7 +332,9 @@ def _filter_property_candidates(
             if column in eager.columns:
                 dtype = eager.get_column(column).dtype
                 if (dtype.is_integer() and type(value) is int
-                        or dtype in (pl.String, pl.Categorical, pl.Enum) and type(value) is str):
+                        or dtype in (pl.String, pl.Categorical, pl.Enum) and type(value) is str
+                        or isinstance(dtype, pl.Datetime) and type(value) is str
+                        and _supports_native_property_scalar(eager, column, value)):
                     return candidates
     if engine == Engine.PANDAS and candidates is not original and filter_dict:
         if isinstance(candidates, pd.DataFrame) and len(filter_dict) == 1:
