@@ -56,7 +56,7 @@ def polars_seeded_lane_admits(ops: Sequence[ASTObject]) -> bool:
     single hop whose seed node carries a filter, with no node queries, endpoint matches,
     endpoint or edge queries, zero-hop seed or endpoint pruning. The dispatcher calls this
     first; the frame conditions (polars frames, matching id dtypes, valid resident indexes,
-    scalar-only filters, no colliding aliases) are decided by the body and can still decline
+    scalar or integral-membership seeds, scalar residuals, no colliding aliases) are decided by the body and can still decline
     an admitted shape."""
     if len(ops) != 3:
         return False

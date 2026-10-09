@@ -28,6 +28,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- **GFQL native Polars membership hops** (#2156): directed single hops with integral seed memberships reuse the shared seed admission and resident indexes, preserving typed filters, aliases, and input table order.
+
 - **GFQL intermediate graph indexes** (#2148): graph-preserving Cypher `graphistry.create_index.write` / `graphistry.drop_index.write` stages and index operations inside native `ref()` chains; Polars index calls build on native frames for later stages to reuse.
 
 - **GFQL explain predicate coverage** (#2141): unsupported property encodings report `not_index_coverable`; property and adjacency cost decisions identify the index kind, with `scan_cost` reserved for actual cost comparisons.
