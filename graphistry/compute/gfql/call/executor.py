@@ -133,6 +133,13 @@ def _execute_validated_call(g: Plottable, function: str, validated_params: Dict[
     if is_row_pipeline_call(function):
         return execute_row_pipeline_call(g, function, validated_params)
 
+    # Bridging index lifecycle methods would strand their native table references.
+    if function in ("create_index", "drop_index"):
+        index_params = dict(validated_params)
+        if function == "create_index":
+            index_params.setdefault("engine", engine.value)
+        return getattr(g, function)(**index_params)
+
     # NATIVE polars degree calls (get_degrees / get_indegrees / get_outdegrees): pure
     # groupby/count over edge endpoints — NO pandas bridge (see NO-CHEATING). Reached by
     # the let()/ref() DAG surface (and the schema-changer chain path); the native chain

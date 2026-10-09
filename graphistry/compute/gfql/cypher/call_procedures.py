@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, Literal, Mapping, Optional, Sequence, Tuple, cast
+from typing import TYPE_CHECKING, Any, Dict, Literal, Mapping, Optional, Sequence, Tuple, Union, cast
 
+from graphistry.Engine import EngineAbstract, resolve_engine
 from graphistry.Plottable import Plottable
 from graphistry.compute.exceptions import ErrorCode, GFQLTypeError, GFQLValidationError
 from graphistry.compute.gfql.call.validation import validate_call_params
@@ -40,9 +41,13 @@ from graphistry.plugins.cugraph import (
 )
 from graphistry.plugins.igraph import compute_algs as _IGRAPH_COMPUTE_ALGS
 
+if TYPE_CHECKING:
+    from graphistry.compute.execution_context import ExecutionContext
+    from graphistry.compute.gfql.policy import PolicyDict
+
 
 _ROW_KIND = Literal["degree", "node", "edge", "graph_only", "node_or_graph"]
-_BACKEND = Literal["degree", "cugraph", "igraph", "networkx"]
+_BACKEND = Literal["degree", "cugraph", "igraph", "networkx", "index"]
 
 _DEGREE_OUTPUTS: Tuple[str, ...] = ("nodeId", "degree", "degree_in", "degree_out")
 _CUGRAPH_RESERVED_KEYS = frozenset({"out_col", "params", "kind", "directed", "G"})
@@ -112,6 +117,14 @@ def _invalid_call_argument(
 
 
 def _resolve_procedure_definition(call: CallClause) -> _ProcedureDefinition:
+    if call.procedure in {"graphistry.create_index.write", "graphistry.drop_index.write"}:
+        return _ProcedureDefinition(
+            procedure=call.procedure,
+            backend="index",
+            call_function=call.procedure.split(".")[1],
+            result_kind="graph",
+            row_kind="graph_only",
+        )
     if call.procedure == "graphistry.degree":
         return _ProcedureDefinition(
             procedure=call.procedure,
@@ -323,6 +336,8 @@ def _normalized_value_columns(
     definition: _ProcedureDefinition,
     call_params: Mapping[str, Any],
 ) -> Tuple[str, ...]:
+    if definition.backend == "index":
+        return ()
     value_cols = list(_source_value_columns(definition))
     if definition.backend == "cugraph" and value_cols:
         assert definition.algorithm is not None
@@ -461,6 +476,12 @@ def _normalize_call_params(
         return {}
 
     raw_options = _parse_call_options(definition, call, params=params)
+    if definition.backend == "index":
+        assert definition.call_function is not None
+        try:
+            return dict(validate_call_params(definition.call_function, raw_options))
+        except GFQLTypeError as exc:
+            raise _invalid_call_argument(exc.message, call=call, value=raw_options) from exc
     if definition.backend == "igraph":
         reserved_keys = _IGRAPH_RESERVED_KEYS
     elif definition.backend == "networkx":
@@ -749,7 +770,22 @@ def _write_only_igraph_row_error(compiled_call: CompiledCypherProcedureCall) -> 
     )
 
 
-def execute_cypher_call(base_graph: Plottable, compiled_call: CompiledCypherProcedureCall) -> Plottable:
+def execute_cypher_call(
+    base_graph: Plottable,
+    compiled_call: CompiledCypherProcedureCall,
+    *,
+    engine: Union[EngineAbstract, str] = EngineAbstract.AUTO,
+    policy: Optional['PolicyDict'] = None,
+    context: Optional['ExecutionContext'] = None,
+) -> Plottable:
+    if compiled_call.backend == "index":
+        from graphistry.compute.gfql.call.executor import execute_call
+        assert compiled_call.call_function is not None
+        return execute_call(
+            base_graph, compiled_call.call_function, dict(compiled_call.call_params),
+            resolve_engine(EngineAbstract(engine) if isinstance(engine, str) else engine, base_graph),
+            policy=policy, context=context,
+        )
     if compiled_call.result_kind == "graph":
         result_graph = _execute_backend_call(base_graph, compiled_call)
         definition = _definition_from_compiled_call(compiled_call)

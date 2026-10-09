@@ -28,6 +28,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- **GFQL intermediate graph indexes** (#2148): graph-preserving Cypher `graphistry.create_index.write` / `graphistry.drop_index.write` stages and index operations inside native `ref()` chains; Polars index calls build on native frames for later stages to reuse.
+
 - **GFQL explain predicate coverage** (#2141): unsupported property encodings report `not_index_coverable`; property and adjacency cost decisions identify the index kind, with `scan_cost` reserved for actual cost comparisons.
 
 - **GFQL float property indexes** (#2141): node and edge properties support native float candidates with exact canonical residual comparisons, preserving signed zero, infinities, precision, ordering, and null/error semantics. Null and NaN rows are excluded from index keys.
