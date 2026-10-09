@@ -109,6 +109,7 @@ NOTEBOOKS_TO_VALIDATE=(
     "/docs/test_notebooks/test_graphistry_import.ipynb"
     "/docs/source/demos/gfql/temporal_predicates.ipynb"
     "/docs/source/gfql/hop_bounds.ipynb"
+    "/docs/source/gfql/indexing_examples.ipynb"
 )
 
 for notebook in "${NOTEBOOKS_TO_VALIDATE[@]}"; do
