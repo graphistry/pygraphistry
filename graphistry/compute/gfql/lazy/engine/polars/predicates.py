@@ -533,9 +533,8 @@ def filter_by_dict_polars(df: "PolarsFrameT", filter_dict: "Optional[Dict[str, A
 def filter_expr_by_dict_polars(df: "Union[pl.DataFrame, pl.LazyFrame]", filter_dict: "Optional[Dict[str, Any]]") -> "Optional[pl.Expr]":
     """Build the combined boolean ``pl.Expr`` filter_by_dict_polars would apply, or None
     for an empty/absent filter dict. ``df`` supplies the schema for column/dtype
-    resolution, plus one row-count carve-out: an EMPTY eager ``pl.DataFrame`` (height 0)
-    skips the scalar-equality typed-error/temporal-parse block, so it can return a plain
-    ``==`` expr where a LazyFrame over the same schema raises GFQLSchemaError(E302).
+    resolution. Empty eager frames retain scalar mismatch behavior; valid temporal
+    text still lowers to a temporal literal so empty traversal wavefronts can be filtered.
     Otherwise callers may apply the expr to a LazyFrame over the same schema (the fused
     connected-join lane), with identical semantics incl. the same typed error/NIE contract
     for unsupported shapes."""
@@ -614,6 +613,12 @@ def filter_expr_by_dict_polars(df: "Union[pl.DataFrame, pl.LazyFrame]", filter_d
         else:
             _eq_dtype = _dtype_of(resolved_col)
             _empty_eager = isinstance(df, pl.DataFrame) and df.height == 0
+            if _empty_eager and isinstance(resolved_val, str) and _dtype_is_temporal(_eq_dtype):
+                assert _eq_dtype is not None
+                parsed = _parse_temporal_filter_scalar(resolved_val, _eq_dtype)
+                if parsed is not None:
+                    exprs.append(pl.col(resolved_col) == pl.lit(parsed))
+                    continue
             if _eq_dtype is not None and not _empty_eager:
                 from graphistry.compute.exceptions import ErrorCode, GFQLSchemaError
                 _numeric = _eq_dtype.is_numeric() or _eq_dtype == pl.Boolean

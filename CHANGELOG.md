@@ -30,6 +30,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 - **GFQL `edge_prop` indexes** (#2141): `CREATE GFQL INDEX FOR edge_prop ON (txn_id)` and `create_index("edge_prop", column="txn_id")` build per-column CSR lookups. Integer edge equality and membership predicates gather matching candidates in input order, preserve duplicate property values, and reapply residual filters. `gfql_explain` reports actual property-index selection and cost declines; stale indexes and `index_policy="off"` retain the scan path. Supported on pandas, cuDF, and Polars.
 
+### Fixed
+
+- **GFQL Polars temporal traversal** (#2161): valid timestamp predicates with no matching edges return empty results through native and Cypher traversal.
+
 ### Documentation
 
 - **GFQL performance measurements**: shorten shared measurement notes while preserving benchmark values, methods and dates.
