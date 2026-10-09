@@ -184,8 +184,8 @@ def property_candidate_frame(
     registry, policy = get_registry(g), get_index_policy(g)
     if policy == "off" or not filter_dict or not registry.property_indexes(role) and not _trace_active():
         return frame
-    if engine == Engine.POLARS and filter_dict and len(filter_dict) == 1 and policy == "use" and registry.property_indexes(role) and not _trace_active():
-        from graphistry.compute.filter_by_dict import _filter_native_property_scalar, _supports_native_property_scalar
+    if engine in (Engine.POLARS, Engine.POLARS_GPU) and filter_dict and len(filter_dict) == 1 and policy == "use" and registry.property_indexes(role) and not _trace_active():
+        from graphistry.compute.filter_by_dict import _filter_native_property_scalar, _native_property_scalar_matches_dtype, _supports_native_property_scalar
         column, value = next(iter(filter_dict.items()))
         # Singleton dictionaries retain canonical selection.
         stored = registry.property_indexes(role).get(column)
@@ -197,7 +197,10 @@ def property_candidate_frame(
             if dense_scan:
                 index = registry.get_property_valid(role, column, frame, engine)
                 if index is None:
-                    index = registry.get_property_valid(role, column, frame, Engine.POLARS_GPU)
+                    other_engine = Engine.POLARS_GPU if engine == Engine.POLARS else Engine.POLARS
+                    index = registry.get_property_valid(role, column, frame, other_engine)
+                if index is not None and engine == Engine.POLARS_GPU and _native_property_scalar_matches_dtype(frame, column, value):
+                    return frame  # Cost decline: keep canonical GPU filtering, without probing candidates.
                 if index is not None and _supports_native_property_scalar(frame, column, value):
                     return _filter_native_property_scalar(frame, column, value)
     positions = property_candidate_positions(g, role, frame, filter_dict, engine)
