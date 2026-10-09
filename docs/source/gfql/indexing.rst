@@ -82,6 +82,9 @@ or when you set ``index_policy`` to ``'auto'`` or ``'force'`` (see `Controlling 
 column types that are not supported yet raise ``NotImplementedError``, with a link to the
 issue that tracks them.
 
+Run the :doc:`executable indexing notebook <indexing_examples>` for a complete
+account-and-transfer graph with examples of every index kind.
+
 Quick start
 -----------
 
