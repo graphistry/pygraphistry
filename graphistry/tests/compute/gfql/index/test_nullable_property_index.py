@@ -144,12 +144,18 @@ def test_dense_nullable_scan_preserves_native_order_schema_and_ownership(role, k
     test_dense_integer_scan_preserves_schema_order_nulls_and_native_ownership(role, kind, True, value, monkeypatch)
 
 
+@pytest.mark.parametrize("engine", ["pandas", "cudf"])
 @pytest.mark.parametrize("dtype", [np.int8, np.int64, np.uint64])
 @pytest.mark.parametrize("kind,role", [("node_prop", "nodes"), ("edge_prop", "edges")])
-def test_numpy_integer_build_retains_direct_storage_path(dtype, kind, role, monkeypatch):
+def test_non_null_integer_build_retains_direct_storage_path(engine, dtype, kind, role, monkeypatch):
     import importlib
     build_module = importlib.import_module("graphistry.compute.gfql.index.build")
-    base = graph("pandas")
+    if engine == "cudf":
+        pytest.importorskip("cudf")
+        from cudf.testing import assert_frame_equal
+    else:
+        assert_frame_equal = pd.testing.assert_frame_equal
+    base = graph(engine)
     frame = getattr(base, "_" + role).assign(account=np.arange(400, dtype=dtype) % 100)
     base = base.nodes(frame) if role == "nodes" else base.edges(frame)
     before = frame.copy(deep=True)
@@ -158,9 +164,40 @@ def test_numpy_integer_build_retains_direct_storage_path(dtype, kind, role, monk
         pytest.fail("primitive integer storage must not allocate a null mask")
 
     monkeypatch.setattr(build_module, "_non_null_id_rows", reject_null_filter)
-    indexed = base.create_index(kind, column="account", engine="pandas")
+    indexed = base.create_index(kind, column="account", engine=engine)
     method = "filter_nodes_by_dict" if role == "nodes" else "filter_edges_by_dict"
-    actual = getattr(indexed, method)({"account": 7}, engine="pandas")
-    pd.testing.assert_frame_equal(getattr(actual, "_" + role), frame[frame.account == 7])
-    pd.testing.assert_frame_equal(frame, before)
+    actual = getattr(indexed, method)({"account": 7}, engine=engine)
+    assert_frame_equal(getattr(actual, "_" + role), frame[frame.account == 7])
+    assert_frame_equal(frame, before)
     assert getattr(actual, "_" + role).account.dtype == np.dtype(dtype)
+
+
+@pytest.mark.parametrize("role,kind", [("nodes", "node_prop"), ("edges", "edge_prop")])
+@pytest.mark.parametrize("gpu_target", [False, True])
+def test_polars_gpu_dense_cost_decline_skips_candidate_work(role, kind, gpu_target, monkeypatch):
+    pytest.importorskip("cudf_polars")
+    import importlib
+    from polars.testing import assert_frame_equal
+    from graphistry.compute.gfql.lazy import ExecutionTarget, target_mode
+
+    pl = pytest.importorskip("polars")
+    frame = pl.DataFrame({"id": np.arange(400), "s": np.arange(400), "d": np.arange(400),
+                          "account": [None if i % 11 == 0 else i % 4 for i in range(400)]})
+    base = graphistry.nodes(frame, "id").edges(frame, "s", "d")
+    indexed = base.create_index(kind, column="account", engine="polars-gpu")
+    method = "filter_" + role + "_by_dict"
+    original = frame.clone()
+    lookup = importlib.import_module("graphistry.compute.gfql.index.property_lookup")
+    filters = importlib.import_module("graphistry.compute.filter_by_dict")
+
+    def forbidden(*args, **kwargs):
+        pytest.fail("dense GPU cost decline must keep the canonical scan without candidate probes or CPU scalar execution")
+
+    monkeypatch.setattr(lookup, "property_candidate_positions", forbidden)
+    monkeypatch.setattr(filters, "_filter_native_property_scalar", forbidden)
+    target = ExecutionTarget.GPU if gpu_target else ExecutionTarget.CPU
+    with target_mode(target):
+        expected = getattr(with_index_policy(indexed, "off"), method)({"account": 1}, engine="polars-gpu")
+        actual = getattr(indexed, method)({"account": 1}, engine="polars-gpu")
+    assert_frame_equal(getattr(actual, "_" + role), getattr(expected, "_" + role))
+    assert_frame_equal(frame, original)
