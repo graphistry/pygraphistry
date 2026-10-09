@@ -30,6 +30,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 - **GFQL `edge_prop` indexes** (#2141): `CREATE GFQL INDEX FOR edge_prop ON (txn_id)` and `create_index("edge_prop", column="txn_id")` build per-column CSR lookups. Integer edge equality and membership predicates gather matching candidates in input order, preserve duplicate property values, and reapply residual filters. `gfql_explain` reports actual property-index selection and cost declines; stale indexes and `index_policy="off"` retain the scan path. Supported on pandas, cuDF, and Polars.
 
+### Fixed
+
+- **GFQL Polars temporal traversal** (#2161): valid timestamp predicates with no matching edges return empty results through native and Cypher traversal.
+
 ### Documentation
 
 - **GFQL docs say how indexes behave in graph pipelines**: stages that run on the indexed graph use its indexes, while a stage over a graph derived earlier in the same query scans, because Cypher cannot yet index a derived graph inside the query (#2148). The indexing page adds a "Graph pipelines" section with a runnable native `let()` example that indexes the derived graph, notes that this index is rebuilt on every call, and explains that `used_index` is `True` when any stage used an index, so `steps` shows which. The Cypher page's `GRAPH { }` section points to it.

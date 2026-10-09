@@ -242,3 +242,33 @@ def test_native_partial_nullable_scalar_filter_preserves_values_without_planning
     assert_frame_equal(result, expected)
     result.replace_column(1, pl.Series("order", [999] * result.height, dtype=pl.Int64))
     assert_frame_equal(frame, original)
+
+
+@pytest.mark.parametrize("dtype,text", [
+    (pl.Datetime("ms"), "2026-01-01T00:00:00.123"),
+    (pl.Datetime("us"), "2026-01-01T00:00:00.123456"),
+    (pl.Datetime("ns"), "2026-01-01T00:00:00.123456"),
+    (pl.Date, "2026-01-01"), (pl.Time, "12:00:00"),
+    (pl.Duration("us"), "1 day"),
+])
+@pytest.mark.parametrize("gpu_target", [False, True])
+def test_empty_temporal_text_preserves_schema(dtype, text, gpu_target):
+    frame = pl.DataFrame(schema={"time": dtype, "payload": pl.String})
+    original = frame.clone()
+    with target_mode(ExecutionTarget.GPU if gpu_target else ExecutionTarget.CPU):
+        assert_frame_equal(filter_by_dict_polars(frame, {"time": text}), original)
+    assert_frame_equal(frame, original)
+
+
+@pytest.mark.parametrize("dtype", [pl.Datetime("us"), pl.Date, pl.Time, pl.Duration("us")])
+@pytest.mark.parametrize("gpu_target", [False, True])
+def test_empty_temporal_malformed_text_preserves_behavior(dtype, gpu_target):
+    frame = pl.DataFrame(schema={"time": dtype})
+    original = frame.clone()
+    with target_mode(ExecutionTarget.GPU if gpu_target else ExecutionTarget.CPU):
+        if isinstance(dtype, pl.Duration):
+            assert_frame_equal(filter_by_dict_polars(frame, {"time": "invalid-temporal"}), original)
+        else:
+            with pytest.raises(pl.exceptions.InvalidOperationError):
+                filter_by_dict_polars(frame, {"time": "invalid-temporal"})
+    assert_frame_equal(frame, original)

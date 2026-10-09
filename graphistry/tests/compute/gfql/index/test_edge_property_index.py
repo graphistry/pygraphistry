@@ -321,7 +321,7 @@ def test_polars_temporal_decline_does_not_disable_safe_property_gathers(filters)
     assert any(s.get("decision_code") == "index_selected" for s in steps)
 
 
-def test_polars_original_empty_temporal_filter_keeps_canonical_error():
+def test_polars_original_empty_temporal_filter_preserves_schema():
     pl = pytest.importorskip("polars")
     from graphistry.compute.gfql.index.api import with_index_policy
 
@@ -329,10 +329,12 @@ def test_polars_original_empty_temporal_filter_keeps_canonical_error():
     edges = base._edges.clear().with_columns(pl.lit(None).cast(pl.Datetime).alias("time"))
     indexed = base.edges(edges).create_index("edge_prop", column="txn", engine="polars")
     for policy in ("off", "use", "force"):
-        with pytest.raises(pl.exceptions.InvalidOperationError):
-            with_index_policy(indexed, policy).filter_edges_by_dict(
-                {"txn": 999, "time": "2026-01-01T00:00:00"}, engine="polars",
-            )
+        result = with_index_policy(indexed, policy).filter_edges_by_dict(
+            {"txn": 999, "time": "2026-01-01T00:00:00"}, engine="polars",
+        )
+        assert result._edges.height == 0
+        assert result._edges.schema == edges.schema
+        assert indexed._edges.equals(edges)
 
 
 @pytest.mark.parametrize("kind,text", [
