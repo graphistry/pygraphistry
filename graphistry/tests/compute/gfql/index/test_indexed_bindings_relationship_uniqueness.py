@@ -72,7 +72,11 @@ def _random_graph(seed: int) -> Any:
 
 @pytest.mark.parametrize("engine", _engines())
 @pytest.mark.parametrize("query", PATTERNS)
-def test_indexed_bindings_match_canonical_rows(engine: str, query: str) -> None:
+@pytest.mark.parametrize("check_engagement", [
+    False,
+    pytest.param(True, marks=pytest.mark.route_engaged("indexed-kernel")),
+])
+def test_indexed_bindings_match_canonical_rows(engine: str, query: str, check_engagement: bool) -> None:
     served = 0
     for seed in range(40):
         nodes, edges = _random_graph(seed)
@@ -83,11 +87,16 @@ def test_indexed_bindings_match_canonical_rows(engine: str, query: str) -> None:
             indexed = _rows(indexed_graph.gfql(query, engine=engine, index_policy="force"))
         served += any(s.get("seam") == "connected_bindings" and s.get("served") for s in steps)
         assert indexed == canonical, f"seed={seed}\nnodes={nodes.to_dict('records')}\nedges={edges.to_dict('records')}"
-    assert served, "the indexed bindings path never served; the comparison proves nothing"
+    if check_engagement:
+        assert served, "the indexed bindings path never served; the comparison proves nothing"
 
 
 @pytest.mark.parametrize("engine", _engines())
-def test_default_policy_does_not_reuse_a_relationship(engine: str) -> None:
+@pytest.mark.parametrize("check_engagement", [
+    False,
+    pytest.param(True, marks=pytest.mark.route_engaged("indexed-kernel")),
+])
+def test_default_policy_does_not_reuse_a_relationship(engine: str, check_engagement: bool) -> None:
     """Under the default ``use`` policy a selective seed is served by the index and stays exact."""
     rng = np.random.default_rng(0)
     n_nodes, n_edges = 2000, 20000
@@ -101,6 +110,7 @@ def test_default_policy_does_not_reuse_a_relationship(engine: str) -> None:
     canonical = _rows(g.gfql(query, engine=engine, index_policy="off"))
     with index_trace() as steps:
         indexed = _rows(g.gfql_index_all(engine=engine).gfql(query, engine=engine, index_policy="use"))
-    assert any(s.get("seam") == "connected_bindings" and s.get("served") for s in steps)
+    if check_engagement:
+        assert any(s.get("seam") == "connected_bindings" and s.get("served") for s in steps)
     assert (0, 5, 0) not in indexed
     assert indexed == canonical
