@@ -213,6 +213,9 @@ POLARS_TEST_FILES=(
     # these dispatch helpers are only measured when this lane covers graphistry (see cov widen below)
     graphistry/tests/test_engine_frame_helpers.py
     graphistry/tests/test_public_apis_do_not_mutate_inputs.py
+    # bridge_polars_graph contract and the igraph/cuGraph methods on Polars-bound graphs
+    graphistry/tests/test_bridge_polars_graph.py
+    graphistry/tests/plugins/test_polars_graph_bridge.py
 )
 
 # PARALLELISM. The py3.12 cell of this lane is the coverage cell and has repeatedly run out
