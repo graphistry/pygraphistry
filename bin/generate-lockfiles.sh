@@ -42,7 +42,7 @@ PROFILE_DEFS=(
     "test-networkx-policy-lower-no-scipy:test,networkx:3.8:3.8:--constraint /tmp/networkx-lower.txt:"
     "test-networkx-policy-lower-scipy:test,networkx-scipy:3.8:3.8:--constraint /tmp/networkx-lower.txt:"
     "test-networkx-policy-upper-scipy:test,networkx-scipy:3.12:3.12:--constraint /tmp/networkx-upper.txt:"
-    "test-polars:test,polars:3.9:::"
+    "test-polars:test,polars,igraph:3.9:::"
     "test-graphviz:test,pygraphviz:3.8:::"
     "test-umap:test,testai,umap-learn:3.9::--no-emit-package torch:"
     "test-ai:test,testai,ai:3.9::--no-emit-package torch --constraint /tmp/sentence-transformers-compat.txt:"
