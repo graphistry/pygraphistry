@@ -64,6 +64,8 @@ from graphistry.compute.predicates.logical import all_of
 from graphistry.compute.predicates.str import contains as str_contains, endswith, fullmatch, never_match, startswith
 from graphistry.compute.gfql.cypher.parser import _mask_quoted_backticked_and_commented_for_scan
 from graphistry.compute.gfql.cypher.aggregate_bindings import (
+    aggregate_runtime_spec as _aggregate_runtime_spec,
+    distinct_aggregate_expr_text as _distinct_aggregate_expr_text,
     is_multiplicity_sensitive_aggregate as _is_multiplicity_sensitive_aggregate,
     per_path_aggregate_bindings_apply as _per_path_aggregate_bindings_apply,
     requires_aggregate_bindings as _requires_aggregate_bindings,
@@ -6973,68 +6975,6 @@ def _row_where_predicate_text(predicate: WherePredicate) -> Optional[str]:
         f"{_render_row_where_operand_text(predicate.left)} "
         f"{rendered_op} "
         f"{_render_row_where_operand_text(predicate.right)}"
-    )
-
-
-def _distinct_aggregate_expr_text(
-    agg_spec: _AggregateSpec,
-    *,
-    alias_targets: Mapping[str, ASTObject],
-    binding_rows: bool = False,
-) -> Optional[str]:
-    expr_text = agg_spec.expr_text
-    if expr_text is None:
-        return None
-    target = alias_targets.get(expr_text)
-    if binding_rows and isinstance(target, (ASTNode, ASTEdge)) and agg_spec.func == "count":
-        return expr_text  # binding rows carry each alias's identity in its own column
-    if binding_rows and isinstance(target, ASTNode):
-        return expr_text
-    if isinstance(target, ASTNode):
-        return NODE_IDENTITY_COLUMN
-    if isinstance(target, ASTEdge):
-        if agg_spec.func == "collect":
-            raise _unsupported(
-                "collect(DISTINCT rel_alias) is not yet supported in local Cypher lowering",
-                field="return.item",
-                value=agg_spec.source_text,
-                line=agg_spec.span_line,
-                column=agg_spec.span_column,
-            )
-        return EDGE_IDENTITY_COLUMN
-    return expr_text
-
-
-def _aggregate_runtime_spec(
-    agg_spec: _AggregateSpec,
-    *,
-    alias_targets: Mapping[str, ASTObject],
-    binding_rows: bool = False,
-) -> Tuple[str, Optional[str]]:
-    func = agg_spec.func
-    expr_text = agg_spec.expr_text
-    if expr_text is not None:
-        target = alias_targets.get(expr_text)
-        if isinstance(target, ASTNode) and func in {"collect", "collect_distinct"}:
-            expr_text = f"__node_entity__({expr_text})"
-        elif isinstance(target, ASTEdge) and func in {"collect", "collect_distinct"}:
-            expr_text = f"__edge_entity__({expr_text})"
-    if not agg_spec.distinct:
-        return func, expr_text
-    if func == "count":
-        return "count_distinct", _distinct_aggregate_expr_text(
-            agg_spec, alias_targets=alias_targets, binding_rows=binding_rows
-        )
-    if func == "collect":
-        return "collect_distinct", _distinct_aggregate_expr_text(
-            agg_spec, alias_targets=alias_targets, binding_rows=binding_rows
-        )
-    raise _unsupported(
-        "Cypher DISTINCT aggregates are currently supported for count() and collect() only",
-        field="return.item",
-        value=agg_spec.source_text,
-        line=agg_spec.span_line,
-        column=agg_spec.span_column,
     )
 
 

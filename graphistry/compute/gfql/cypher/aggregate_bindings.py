@@ -14,8 +14,9 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, Mapping, Optional, Sequence, Set, Tuple
 
-from graphistry.compute.ast import ASTNode, ASTObject
+from graphistry.compute.ast import ASTEdge, ASTNode, ASTObject
 from graphistry.compute.exceptions import GFQLValidationError
+from graphistry.compute.gfql.same_path_types import EDGE_IDENTITY_COLUMN, NODE_IDENTITY_COLUMN
 
 if TYPE_CHECKING:
     from graphistry.compute.gfql.cypher.ast import CypherQuery, ReturnClause, ReturnItem
@@ -113,7 +114,6 @@ def per_path_aggregate_bindings_apply(
 
     if len(query.matches) != 1 or query.matches[0].optional or query.unwinds or query.reentry_matches:
         return False
-    aliases = set(alias_targets.keys())
     try:
         for item in non_aggregate_items:
             text = item.expression.text
@@ -121,12 +121,10 @@ def per_path_aggregate_bindings_apply(
                 if not isinstance(alias_targets[text], ASTNode):
                     return False
                 continue
-            refs = _expr_match_aliases(
+            _expr_match_aliases(  # raises for an unanalyzable expression
                 text, alias_targets=alias_targets, params=params,
                 field=query.return_.kind, line=item.span.line, column=item.span.column,
             )
-            if not refs <= aliases:
-                return False
         for spec in aggregate_specs:
             if spec.expr_text is None:
                 continue
@@ -135,12 +133,10 @@ def per_path_aggregate_bindings_apply(
                 if spec.func != "count":
                     return False
                 continue
-            refs = _expr_match_aliases(
+            _expr_match_aliases(  # raises for an unanalyzable expression
                 arg, alias_targets=alias_targets, params=params,
                 field=query.return_.kind, line=spec.span_line, column=spec.span_column,
             )
-            if not refs <= aliases:
-                return False
     except GFQLValidationError:
         return False
     return not _clause_mixes_group_and_aggregate_refs(query, alias_targets=alias_targets, params=params)
@@ -156,7 +152,8 @@ def _aliases_outside_aggregates(node: object, aliases: Set[str]) -> Tuple[bool, 
     if isinstance(node, Identifier):
         head = node.name.split(".", 1)[0]
         return False, {head} & aliases
-    has_agg, refs = False, set()
+    has_agg: bool = False
+    refs: Set[str] = set()
     for child in vars(node).values() if hasattr(node, "__dict__") else ():
         for c in child if isinstance(child, (list, tuple)) else (child,):
             if is_expr_node(c):
@@ -184,8 +181,6 @@ def _clause_mixes_group_and_aggregate_refs(
         items += [(i.expression.text, i.span.line, i.span.column, True) for i in query.order_by.items]
     aliases = set(alias_targets.keys())
     for text, line, column, in_order_by in items:
-        if text == "*":
-            continue
         try:
             node = _parse_row_expr(
                 text, params=params, alias_targets=alias_targets,
@@ -197,3 +192,65 @@ def _clause_mixes_group_and_aggregate_refs(
         if has_agg and (outside or in_order_by):
             return True  # ORDER BY aggregates keep the existing lowering and its errors
     return False
+
+
+def distinct_aggregate_expr_text(
+    agg_spec: "_AggregateSpec",
+    *,
+    alias_targets: Mapping[str, ASTObject],
+    binding_rows: bool = False,
+) -> Optional[str]:
+    """Column a DISTINCT aggregate compares; on binding rows each alias holds its own identity."""
+    from graphistry.compute.gfql.cypher.lowering import _unsupported
+
+    expr_text = agg_spec.expr_text
+    if expr_text is None:
+        return None
+    target = alias_targets.get(expr_text)
+    if binding_rows and agg_spec.func == "count" and isinstance(target, (ASTNode, ASTEdge)):
+        return expr_text
+    if isinstance(target, ASTNode):
+        return NODE_IDENTITY_COLUMN
+    if isinstance(target, ASTEdge):
+        if agg_spec.func == "collect":
+            raise _unsupported(
+                "collect(DISTINCT rel_alias) is not yet supported in local Cypher lowering",
+                field="return.item",
+                value=agg_spec.source_text,
+                line=agg_spec.span_line,
+                column=agg_spec.span_column,
+            )
+        return EDGE_IDENTITY_COLUMN
+    return expr_text
+
+
+def aggregate_runtime_spec(
+    agg_spec: "_AggregateSpec",
+    *,
+    alias_targets: Mapping[str, ASTObject],
+    binding_rows: bool = False,
+) -> Tuple[str, Optional[str]]:
+    """(runtime aggregation function, argument expression) for one Cypher aggregate."""
+    from graphistry.compute.gfql.cypher.lowering import _unsupported
+
+    func = agg_spec.func
+    expr_text = agg_spec.expr_text
+    if expr_text is not None:
+        target = alias_targets.get(expr_text)
+        if isinstance(target, ASTNode) and func in {"collect", "collect_distinct"}:
+            expr_text = f"__node_entity__({expr_text})"
+        elif isinstance(target, ASTEdge) and func in {"collect", "collect_distinct"}:
+            expr_text = f"__edge_entity__({expr_text})"
+    if not agg_spec.distinct:
+        return func, expr_text
+    if func in ("count", "collect"):
+        return f"{func}_distinct", distinct_aggregate_expr_text(
+            agg_spec, alias_targets=alias_targets, binding_rows=binding_rows
+        )
+    raise _unsupported(
+        "Cypher DISTINCT aggregates are currently supported for count() and collect() only",
+        field="return.item",
+        value=agg_spec.source_text,
+        line=agg_spec.span_line,
+        column=agg_spec.span_column,
+    )

@@ -25,7 +25,7 @@ except ImportError:
     HAS_POLARS = False
 
 ENGINES = ["pandas", pytest.param("polars", marks=pytest.mark.skipif(not HAS_POLARS, reason="polars"))]
-Path = Dict[str, Dict[str, Any]]
+Path = Dict[str, Dict[Any, Any]]
 
 
 def _graph(seed: int) -> Tuple[pd.DataFrame, pd.DataFrame]:
@@ -142,6 +142,7 @@ def _rows(df: Any) -> List[tuple]:
 
 
 def _run(nodes: pd.DataFrame, edges: pd.DataFrame, query: str, engine: str) -> Any:
+    g: Any
     if engine == "polars":
         g = graphistry.nodes(pl.from_pandas(nodes), "id").edges(pl.from_pandas(edges), "s", "d")
     else:
@@ -177,6 +178,7 @@ def test_whole_row_group_counts_paths_on_pandas() -> None:
 @pytest.mark.parametrize("query", [
     "MATCH (a)-[r]->(b) RETURN a.id AS k, a.kind + count(b) AS c",
     "OPTIONAL MATCH (a)-[r]->(b) RETURN a.id AS k, sum(r.w) AS s",
+    "MATCH (a)-[r]->(b) RETURN a.id AS k, collect(b) AS xs",
 ])
 def test_ambiguous_or_optional_shapes_keep_structured_errors(engine: str, query: str) -> None:
     nodes, edges = _graph(3)
@@ -184,3 +186,67 @@ def test_ambiguous_or_optional_shapes_keep_structured_errors(engine: str, query:
         _run(nodes, edges, query, engine)
 
 
+
+
+# ---- unit pins for the per-path route's decline branches (each keeps the older lowering) ----
+
+def _gate_inputs(text: str = "a.id", agg_text: Any = None, agg_func: str = "count") -> Any:
+    from dataclasses import replace
+
+    from graphistry.compute.ast import e_forward, n
+    from graphistry.compute.gfql.cypher.ast import CypherQuery, ExpressionText, ReturnItem
+    from graphistry.compute.gfql.cypher.lowering import _AggregateSpec
+    from graphistry.compute.gfql.cypher.parser import parse_cypher
+
+    query = parse_cypher("MATCH (a)-[r]->(b) RETURN a.id AS k, count(*) AS c")
+    assert isinstance(query, CypherQuery)
+    span = query.return_.items[0].span
+    item = ReturnItem(ExpressionText(text, span), "k", span)
+    query = replace(query, return_=replace(query.return_, items=(item,) + query.return_.items[1:]))
+    spec = _AggregateSpec("agg", "c", agg_func, agg_text, False, 1, 1)
+    targets = {"a": n(name="a"), "r": e_forward(name="r"), "b": n(name="b")}
+    return query, [spec], [item], targets
+
+
+def _gate(text: str = "a.id", agg_text: Any = None, agg_func: str = "count") -> bool:
+    from graphistry.compute.gfql.cypher.aggregate_bindings import per_path_aggregate_bindings_apply
+
+    query, specs, items, targets = _gate_inputs(text, agg_text, agg_func)
+    return per_path_aggregate_bindings_apply(
+        query, aggregate_specs=specs, non_aggregate_items=items, alias_targets=targets, params=None,
+    )
+
+
+def test_gate_engages_for_a_clean_relationship_aggregate() -> None:
+    assert _gate("a.id", "r.w", "sum") is True
+
+
+@pytest.mark.parametrize("text, agg_text, agg_func", [
+    ("r", None, "count"),            # whole-row group on an edge alias
+    ("a.id ~~ b.x", None, "count"),  # unanalyzable group key
+    ("a.id", "r.w ~~ 1", "sum"),     # unanalyzable aggregate argument
+    ("a.id", "b", "collect"),        # whole-entity collect keeps the entity path
+])
+def test_gate_declines_shapes_it_does_not_own(text: str, agg_text: Any, agg_func: str) -> None:
+    assert _gate(text, agg_text, agg_func) is False
+
+
+def test_mixed_ref_check_treats_unparseable_items_as_mixed() -> None:
+    from graphistry.compute.gfql.cypher.aggregate_bindings import _clause_mixes_group_and_aggregate_refs
+
+    query, _, _, targets = _gate_inputs("a.id ~~ b.x")
+    assert _clause_mixes_group_and_aggregate_refs(query, alias_targets=targets, params=None) is True
+
+
+@pytest.mark.parametrize("query, expected", [
+    # variable-length 1..2 trails: a->b (2 parallel edges), a->b->c (x2), b->c, b->c->d, b->c->a, c->d, c->a, c->a->b (x2)
+    ("MATCH (a)-[*1..2]->(b) RETURN a.id AS k, count(*) AS c", [("a", 4), ("b", 3), ("c", 4)]),
+    ("MATCH (a)-[*1..2]->(b) RETURN a.id AS k, count(DISTINCT b) AS c", [("a", 2), ("b", 3), ("c", 3)]),
+    ("MATCH (a)-[*1..2]->(b) RETURN a.id AS k, collect(b.id) AS xs",
+     [("a", ("b", "b", "c", "c")), ("b", ("a", "c", "d")), ("c", ("a", "b", "b", "d"))]),
+    ("MATCH (a {k:'X'})-[r]->(b) RETURN a.id AS k, sum(r.w) AS s", [("a", 3), ("c", 24)]),
+])
+def test_variable_length_and_filtered_relationship_aggregates(query: str, expected: List[tuple]) -> None:
+    nodes = pd.DataFrame({"id": ["a", "b", "c", "d"], "k": ["X", "Y", "X", "Y"]})
+    edges = pd.DataFrame({"s": ["a", "a", "b", "c", "c"], "d": ["b", "b", "c", "d", "a"], "w": [1.0, 2.0, 4.0, 8.0, 16.0]})
+    assert _rows(_run(nodes, edges, query, "pandas")) == sorted(expected, key=repr)
