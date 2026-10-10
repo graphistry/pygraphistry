@@ -23,7 +23,7 @@ from graphistry.compute.typing import DataFrameT, SeriesT
 from graphistry.Plottable import Plottable
 from .engine_arrays import (
     array_namespace, col_to_array, ids_to_array, take_rows, select_by_ids,
-    set_difference, union1d,
+    set_difference, sorted_unique, union1d,
 )
 from .lookup import lookup_edge_rows, lookup_node_rows
 from .registry import EDGE_OUT_ADJ, EDGE_IN_ADJ, NODE_ID, AdjacencyIndex, GfqlIndexRegistry, NodeIdIndex
@@ -289,7 +289,7 @@ def index_seeded_hop(
     # an int32 edge-endpoint key wraps large ids → false match). lookup promotes both
     # sides to a common dtype; numpy/cupy set ops promote on concat. So we keep ids at
     # their natural width throughout and only ever widen.
-    seed = xp.unique(ids_to_array(nodes, node_col, engine))
+    seed = sorted_unique(xp, ids_to_array(nodes, node_col, engine))
 
     frontier = seed
     visited = seed[:0]
@@ -340,10 +340,10 @@ def index_seeded_hop(
             matched_all = (
                 matched_parts[0] if len(matched_parts) == 1 else xp.concatenate(matched_parts)
             )
-            visited = xp.unique(matched_all)
+            visited = sorted_unique(xp, matched_all)
         first = False
 
-        cand = xp.unique(neighbors)
+        cand = sorted_unique(xp, neighbors)
         new_frontier = set_difference(cand, visited, xp)
         visited = union1d(visited, new_frontier, xp)
         frontier = new_frontier
@@ -354,7 +354,7 @@ def index_seeded_hop(
             if len(edge_rows_parts) == 1
             else xp.concatenate(edge_rows_parts)
         )
-        all_rows = xp.unique(concat_rows)
+        all_rows = sorted_unique(xp, concat_rows)
     else:
         all_rows = indices[0].row_positions[:0]
 
@@ -365,7 +365,7 @@ def index_seeded_hop(
     if materialize_endpoints and int(all_rows.shape[0]) > 0:
         src_vals = col_to_array(out_edges, src, engine)
         dst_vals = col_to_array(out_edges, dst, engine)
-        endpoints = xp.unique(xp.concatenate([src_vals, dst_vals]))  # natural dtype, never narrowed
+        endpoints = sorted_unique(xp, xp.concatenate([src_vals, dst_vals]))  # natural dtype, never narrowed
         needed = union1d(needed, endpoints, xp)
 
     # Materialize node rows: node_id index searchsorted gather when available, else isin scan.
@@ -380,7 +380,7 @@ def index_seeded_hop(
         out_nodes = select_by_ids(g._nodes, node_col, needed, engine)
 
     present = col_to_array(out_nodes, node_col, engine)
-    present_unique = xp.unique(present)
+    present_unique = sorted_unique(xp, present)
     reached_an_endpoint_with_no_node_row = (
         int(set_difference(needed, present_unique, xp).shape[0]) > 0)
     if reached_an_endpoint_with_no_node_row:

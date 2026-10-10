@@ -213,9 +213,25 @@ def set_difference(cand: ArrayLike, visited: ArrayLike, xp: ArrayNamespace) -> A
     return cand[~ismember]
 
 
+def sorted_unique(xp: ArrayNamespace, values: ArrayLike) -> ArrayLike:
+    """Sorted distinct values of a 1-D array, identical to ``xp.unique(values)``.
+
+    Integer and bool keys use sort plus an adjacent-difference mask: numpy >= 2.3
+    routes ``np.unique`` through a hash table that is an order of magnitude slower on
+    large int64 id arrays. Other dtypes keep ``xp.unique`` (float NaNs collapse there).
+    """
+    if values.dtype.kind not in "iub" or int(values.shape[0]) <= 1:
+        return xp.unique(values)
+    ordered = xp.sort(values)
+    keep = xp.empty(ordered.shape[0], dtype=bool)
+    keep[0] = True
+    keep[1:] = ordered[1:] != ordered[:-1]
+    return ordered[keep]
+
+
 def union1d(a: ArrayLike, b: ArrayLike, xp: ArrayNamespace) -> ArrayLike:
     if int(a.shape[0]) == 0:
-        return xp.unique(b)
+        return sorted_unique(xp, b)
     if int(b.shape[0]) == 0:
-        return xp.unique(a)
-    return xp.unique(xp.concatenate([a, b]))
+        return sorted_unique(xp, a)
+    return sorted_unique(xp, xp.concatenate([a, b]))

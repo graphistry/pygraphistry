@@ -14,7 +14,7 @@ from graphistry.Engine import Engine, POLARS_ENGINES, resolve_engine
 from graphistry.compute.predicates.ASTPredicate import ASTPredicate
 from graphistry.compute.predicates.is_in import IsIn
 from graphistry.compute.typing import ArrayLike, ArrayNamespace, DataFrameT, DType, IndexT, SeriesT
-from .engine_arrays import array_namespace, as_eager_polars_frame
+from .engine_arrays import array_namespace, as_eager_polars_frame, sorted_unique
 from .registry import ColStatsRole, GfqlIndexRegistry, NodePropIndex
 
 if TYPE_CHECKING:
@@ -90,7 +90,7 @@ def _float_query_values(index: NodePropIndex, members: Sequence[object], xp: Arr
         values = xp.asarray(members, dtype=index.keys_sorted.dtype)
     except (TypeError, ValueError, OverflowError):
         return None  # Canonical filtering owns incomparable/out-of-range query behavior.
-    return values if int(values.shape[0]) <= 1 else xp.unique(values)
+    return values if int(values.shape[0]) <= 1 else sorted_unique(xp, values)
 
 
 def is_categorical_property(frame: DataFrameT, column: str, engine: Engine) -> bool:
@@ -280,7 +280,7 @@ def _timestamp_query_values(
             return None
         timestamp_ticks.append(stamp.asm8.astype(f"datetime64[{unit}]").astype(np.int64))
     encoded_ticks = xp.asarray(timestamp_ticks, dtype=xp.int64)
-    return encoded_ticks if int(encoded_ticks.shape[0]) <= 1 else xp.unique(encoded_ticks)
+    return encoded_ticks if int(encoded_ticks.shape[0]) <= 1 else sorted_unique(xp, encoded_ticks)
 
 
 
@@ -438,7 +438,7 @@ def _string_query_codes(index: NodePropIndex, members: Sequence[str], xp: ArrayN
         clipped = xp.minimum(positions, size - 1)
         equal = keys.iloc[clipped].reset_index(drop=True) == values
         hits = equal.values if index.engine == Engine.CUDF else equal.to_numpy(dtype=bool)
-    return xp.unique(positions[(positions < size) & hits])
+    return sorted_unique(xp, positions[(positions < size) & hits])
 
 
 def string_literals_are_utf8(predicate: object) -> bool:
@@ -497,7 +497,7 @@ def property_query_values(index: NodePropIndex, predicate: object, xp: ArrayName
         else:
             values = pd.Index(members, dtype=object)
         codes = xp.asarray(index.category_keys.get_indexer(values))
-        return xp.unique(codes[codes > -1])
+        return sorted_unique(xp, codes[codes > -1])
     if index.string_keys is not None:
         if not all(isinstance(value, str) for value in members):
             return None
@@ -513,4 +513,4 @@ def property_query_values(index: NodePropIndex, predicate: object, xp: ArrayName
     if index.engine == Engine.CUDF and len(admitted) <= 1024:
         return xp.asarray(sorted(set(admitted)), dtype=index.keys_sorted.dtype)
     values = xp.asarray(admitted, dtype=index.keys_sorted.dtype)
-    return values if int(values.shape[0]) <= 1 else xp.unique(values)
+    return values if int(values.shape[0]) <= 1 else sorted_unique(xp, values)
