@@ -237,6 +237,13 @@ as eager Polars frames, and node id, source, destination and edge id columns kee
 input dtypes. A ``LazyFrame`` is collected first. ``call_mode`` applies only to GFQL
 ``call()``.
 
+Layout methods follow the same rule on pandas: ``circle_layout``, ``tree_layout``,
+``ring_categorical_layout``, ``ring_continuous_layout``, ``time_ring_layout``,
+``group_in_a_box_layout``, ``modularity_weighted_layout``, ``mercator_layout`` and
+``fa2_layout``. Passing ``engine='pandas'`` (or ``'cudf'``) to a layout returns frames of that
+engine instead. ``fa2_layout`` still needs a GPU engine or ``allow_cpu_fallback=True``, as it
+does for pandas input.
+
 cuDF vs Polars-GPU
 ------------------
 

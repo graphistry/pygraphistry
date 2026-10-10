@@ -216,6 +216,7 @@ POLARS_TEST_FILES=(
     # bridge_polars_graph contract and the igraph/cuGraph methods on Polars-bound graphs
     graphistry/tests/test_bridge_polars_graph.py
     graphistry/tests/plugins/test_polars_graph_bridge.py
+    graphistry/tests/layout/test_polars_layouts.py
 )
 
 # PARALLELISM. The py3.12 cell of this lane is the coverage cell and has repeatedly run out
