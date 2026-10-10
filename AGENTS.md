@@ -39,6 +39,11 @@ ln -s ../.agents/skills .claude/skills
 2. Keep edits minimal and verifiable.
 3. Run relevant lint/tests for touched areas.
 
+## Where Issues Go
+
+- File performance issues in [graphistry/pyg-bench](https://github.com/graphistry/pyg-bench), not here: slowdowns, regressions, profiling findings, benchmark results, and proposals whose motivation is speed or memory. Link the pygraphistry code path or PR from the pyg-bench issue.
+- Correctness, API, docs, and engine-support issues stay in pygraphistry. When a perf investigation finds a wrong result, file that bug here and cross-link it.
+
 ## Release Assistant Reminder
 
 - During publish assistance, after pushing tag `X.Y.Z`, always check `.github/workflows/publish-pypi.yml` run state.

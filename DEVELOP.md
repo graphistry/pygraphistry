@@ -229,6 +229,7 @@ last rule class on that stack still enforced only by human review.
 moving into a docstring — so they read docstrings too. Tests are exempt from
 `comment-block` and `issue-rationale` (a test may explain its oracle) but not
 from `perf-claim`: measurement belongs in pyg-bench wherever it is written.
+Performance issues are filed in pyg-bench as well; see `AGENTS.md` "Where Issues Go".
 
 The line limit is 127, so a constraint that genuinely cannot be expressed by a
 name or a test fits on one line. `regress` and `A/B` count only next to
