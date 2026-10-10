@@ -72,8 +72,6 @@ Do not pass stringified Python or JSON native-chain literals to
 ``g.gfql(...)``. Materialize those serialized values before calling GFQL, or
 emit Cypher text intentionally.
 
-.. doc-test: xfail
-
 .. code-block:: python
 
     result = g.gfql(
@@ -102,7 +100,9 @@ Node Matchers
 
 - **Parameters**:
 
-  - `filter_dict`: `{attribute: value}` or `{attribute: condition_function}`
+  - `filter_dict`: `{attribute: value}` or `{attribute: predicate}`, where a predicate is a
+    declarative GFQL predicate such as `gt(30)` or `is_in([...])` (see :doc:`predicates/quick`).
+    Python callables such as lambdas are rejected with a structured `GFQLTypeError`.
   - `name`: Optional label; adds a boolean column in the result.
   - `query`: Custom query string (e.g., `"age > 30 and country == 'USA'"`).
 
@@ -118,7 +118,9 @@ Node Matchers
 
   .. code-block:: python
 
-      n({"age": lambda x: x > 30})
+      from graphistry import n, gt
+
+      n({"age": gt(30)})
 
 - Use a custom query string:
 
@@ -144,7 +146,7 @@ Edge Matchers
 
 - **Parameters**:
 
-  - `edge_match`: `{attribute: value}` or `{attribute: condition_function}`
+  - `edge_match`: `{attribute: value}` or `{attribute: predicate}`
   - `edge_query`: Custom query string for edge attributes.
   - `hops`: `int`, number of hops to traverse.
   - `min_hops`/`max_hops`: Inclusive traversal bounds (min defaults to 1 unless max_hops is 0; max defaults to `hops`).
@@ -187,9 +189,11 @@ Edge Matchers
 
   .. code-block:: python
 
+      from graphistry import e_forward, lt
+
       e_forward(
           source_node_match={"status": "active"},
-          destination_node_match={"age": lambda x: x < 30}
+          destination_node_match={"age": lt(30)}
       )
 
 - Filter source and destination nodes with queries:
@@ -408,13 +412,21 @@ engine/query combinations are rejected before execution during validation, compi
 planning rather than silently falling back. Pick one with ``engine=``. See
 :doc:`Choosing an Engine <engines>` for the full decision matrix.
 
+With the default ``engine='auto'``, a Polars-bound graph runs features the Polars engine
+does not support yet, such as ``query=`` strings and same-path ``where=``, on pandas and
+returns pandas frames. Pass ``engine='polars'`` to raise for them instead.
+
 - **CPU columnar speedup (no GPU):** ``'polars'`` — often an order of magnitude faster on query-heavy workloads, identical results (measured numbers in :doc:`Performance <performance>`).
+
+  .. doc-test: skip
 
   .. code-block:: python
 
       g.gfql([...], engine='polars')   # keep your existing pandas frames; just the keyword changes
 
 - **NVIDIA GPU:** ``'cudf'`` (eager) or ``'polars-gpu'`` (fused plan on GPU).
+
+  .. doc-test: skip
 
   .. code-block:: python
 
@@ -542,18 +554,18 @@ Use Let bindings to create directed acyclic graph (DAG) patterns with named oper
 
       from graphistry import let, ref, n, e_forward, gt
 
-      result = g.gfql(let({
+      dag = let({
           'suspects': n({'risk_score': gt(80)}),
           'connections': [
               n({'risk_score': gt(80)}),
               e_forward({'type': 'transaction'}),
               n()
           ]
-      }))
+      })
 
-      # Access results by name
-      suspects = result._nodes[result._nodes['suspects']]
-      connections = result._edges[result._edges['connections']]
+      # The result is the last binding; pick another binding with output=
+      connections = g.gfql(dag)._edges
+      suspects = g.gfql(dag, output='suspects')._nodes
 
 - **Complex DAG with multiple references:**
 
@@ -598,7 +610,7 @@ Run graph algorithms like PageRank, community detection, and layouts directly wi
   .. code-block:: python
 
       g_enriched = g.gfql("CALL graphistry.degree.write()")
-      assert not g_enriched._edges.empty
+      assert len(g_enriched._edges) > 0
       top_degree = g_enriched.gfql(
           "MATCH (n) WHERE n.degree >= 2 RETURN n.id AS id, n.degree AS degree ORDER BY degree DESC LIMIT 10"
       )
@@ -611,7 +623,7 @@ Run graph algorithms like PageRank, community detection, and layouts directly wi
   .. code-block:: python
 
       degree_rows = g.gfql("CALL graphistry.degree()")
-      assert degree_rows._edges.empty
+      assert len(degree_rows._edges) == 0
 
       # Row state: _nodes has nodeId/degree columns and _edges is empty
       degree_rows._nodes
@@ -669,21 +681,29 @@ Tip: For subset-based coloring after GFQL, use ``result.collections(...)`` and s
 Remote Graph References
 -----------------------
 
-Reference graphs on remote servers for distributed computing:
+Reference graphs on remote servers for distributed computing. ``remote()`` is a
+``let()`` binding that later bindings ``ref()``; it is not a step inside a plain chain list.
+These examples need a logged-in Graphistry server.
 
 - **Basic remote reference:**
+
+  .. doc-test: skip
 
   .. code-block:: python
 
       from graphistry.compute import remote
 
-      result = g.gfql([
-          remote(dataset_id='fraud-network-2024'),
-          n({'risk_score': gt(90)}),
-          e_forward()
-      ])
+      result = g.gfql(let({
+          'fraud': remote(dataset_id='fraud-network-2024'),
+          'risky': ref('fraud', [
+              n({'risk_score': gt(90)}),
+              e_forward()
+          ])
+      }))
 
 - **Combine remote and local data in Let:**
+
+  .. doc-test: skip
 
   .. code-block:: python
 
@@ -783,11 +803,13 @@ Examples at a Glance
           n({g._node: "Bob"})
       ])
 
-- **Match nodes with IDs in a range:**
+- **Match nodes with a numeric attribute in a range (inclusive):**
 
   .. code-block:: python
 
-      n(query="100 <= id <= 200")
+      from graphistry import n, between
+
+      n({"age": between(25, 35)})
 
 - **Traverse edges with specific labels:**
 
