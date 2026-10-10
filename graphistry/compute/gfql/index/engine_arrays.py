@@ -220,7 +220,7 @@ def sorted_unique(xp: ArrayNamespace, values: ArrayLike) -> ArrayLike:
     routes ``np.unique`` through a hash table that is an order of magnitude slower on
     large int64 id arrays. Other dtypes keep ``xp.unique`` (float NaNs collapse there).
     """
-    if values.dtype.kind not in "iub" or int(values.shape[0]) <= 1:
+    if values.ndim != 1 or values.dtype.kind not in "iub" or int(values.shape[0]) <= 1:
         return xp.unique(values)
     ordered = xp.sort(values)
     keep = xp.empty(ordered.shape[0], dtype=bool)

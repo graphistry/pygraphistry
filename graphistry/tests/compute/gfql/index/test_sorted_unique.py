@@ -9,6 +9,7 @@ rng = np.random.default_rng(0)
 CASES = [
     np.array([], dtype=np.int64),
     np.array([7], dtype=np.int64),
+    np.array(5, dtype=np.int64),
     np.array([3, 1, 3, 2, 1], dtype=np.int32),
     (rng.integers(0, 3_000_000, 5_000) * 1024 + 2**42).astype(np.int64),
     np.array([np.iinfo(np.uint64).max, 0, np.iinfo(np.uint64).max, 1], dtype=np.uint64),
@@ -19,7 +20,7 @@ CASES = [
 ]
 
 
-@pytest.mark.parametrize("values", CASES, ids=[f"{c.dtype}-{c.shape[0]}" for c in CASES])
+@pytest.mark.parametrize("values", CASES, ids=[f"{c.dtype}-{c.shape[0] if c.ndim else '0d'}" for c in CASES])
 def test_sorted_unique_matches_numpy_unique(values: np.ndarray) -> None:
     got = sorted_unique(np, values)
     expected = np.unique(values)
