@@ -413,6 +413,15 @@ Row And Row-Pipeline Forms
 - Aggregation/grouping via Cypher projection semantics, including ``count``,
   ``count(DISTINCT ...)``, ``collect``,
   ``collect(DISTINCT ...)``, ``sum``, ``max``, and ``size(...)``.
+- Aggregates over a relationship pattern count one row per matched path. In a single
+  required ``MATCH``, group keys and aggregate arguments can reference any node or
+  relationship alias, for example
+  ``MATCH (a)-[r]->(b) RETURN a, count(*) AS c, sum(r.weight) AS w, collect(b.id) AS ids``.
+  ``OPTIONAL MATCH``, aggregates inside ``ORDER BY``, and items that combine an
+  ungrouped alias with an aggregate (``a.name + count(b)``) keep the narrower subset and
+  report an unsupported-query error otherwise. On Polars, whole-entity keys such as
+  ``RETURN a, count(*)`` and bare relationship counts such as ``count(r)`` raise
+  ``NotImplementedError``.
 - Top-level ``UNWIND ... RETURN ...`` queries.
 - Mixed graph/row queries such as ``MATCH ... UNWIND ... RETURN ...``.
 - Connected multi-alias scalar projection such as

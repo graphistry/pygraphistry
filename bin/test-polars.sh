@@ -213,6 +213,8 @@ POLARS_TEST_FILES=(
     # these dispatch helpers are only measured when this lane covers graphistry (see cov widen below)
     graphistry/tests/test_engine_frame_helpers.py
     graphistry/tests/test_public_apis_do_not_mutate_inputs.py
+    # relationship-row aggregates vs a path oracle: the polars params only run here
+    graphistry/tests/compute/gfql/cypher/test_relationship_row_aggregates.py
 )
 
 # PARALLELISM. The py3.12 cell of this lane is the coverage cell and has repeatedly run out

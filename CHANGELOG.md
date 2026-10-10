@@ -8,6 +8,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [Development]
 <!-- Do Not Erase This Section - Used for tracking unreleased changes -->
 
+### Added
+
+- **GFQL Cypher aggregates over relationship rows**: in a single required `MATCH`, aggregates such as `MATCH (a)-[r]->(b) RETURN a, count(*), sum(r.w), collect(b.id)` run on per-path binding rows, so group keys and arguments can reference any node or relationship alias, including `DISTINCT`, post-aggregate arithmetic (`count(b) + 1`) and multi-alias keys. These shapes previously raised unsupported-query errors.
+
+### Fixed
+
+- **GFQL Cypher `count(DISTINCT <alias>)` on binding rows**: counted the active alias instead of the named one, so `MATCH (a)-[r]->(b) WITH a, count(DISTINCT b) AS c` returned 1 per group. It now counts distinct `b`; on Polars the shape runs natively instead of declining.
+
 ## [0.60.0 - 2026-10-08]
 
 ### Added
