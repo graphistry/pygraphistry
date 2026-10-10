@@ -12,6 +12,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 - **Graph algorithms on Polars-bound graphs** (#2025): `compute_igraph`, `layout_igraph`, `compute_cugraph` and `layout_cugraph` accept graphs bound to Polars `DataFrame` or `LazyFrame` frames. igraph runs on pandas and cuGraph on cuDF (via Arrow); results return as eager Polars frames with node id, source, destination and edge id dtypes preserved. This is the contract GFQL `call()` already applied under Polars, now shared through `bridge_polars_graph`.
 
+- **Layouts on Polars-bound graphs** (#1966): `circle_layout`, `tree_layout`, `ring_categorical_layout`, `ring_continuous_layout`, `time_ring_layout`, `group_in_a_box_layout`, `modularity_weighted_layout`, `mercator_layout` and `fa2_layout` accept Polars `DataFrame` or `LazyFrame` frames. They run on pandas and return eager Polars frames, instead of crashing or silently returning pandas. Explicit `engine='pandas'`/`'cudf'` returns that engine's frames.
+
 ## [0.60.0 - 2026-10-08]
 
 ### Added

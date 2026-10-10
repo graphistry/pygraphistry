@@ -1,6 +1,7 @@
 from typing import cast, List, Optional, Union
 import math
 import pandas as pd
+from .Engine import Engine, bridge_polars_graph
 from .Plottable import Plottable
 from .layout import (
     SugiyamaLayout,
@@ -17,6 +18,15 @@ from .layout.graph import Graph
 from .util import deprecated, setup_logger
 logger = setup_logger(__name__)
 
+_on_pandas = bridge_polars_graph(Engine.PANDAS)
+_circle_layout = _on_pandas(circle_layout_base)
+_group_in_a_box_layout = _on_pandas(group_in_a_box_layout_base)
+_modularity_weighted_layout = _on_pandas(modularity_weighted_layout_base)
+_time_ring_layout = _on_pandas(time_ring_base)
+_ring_categorical_layout = _on_pandas(ring_categorical_base)
+_ring_continuous_layout = _on_pandas(ring_continuous_base)
+_mercator_layout = _on_pandas(mercator_layout_base)
+
 
 class LayoutsMixin(Plottable):
 
@@ -24,31 +34,32 @@ class LayoutsMixin(Plottable):
         super().__init__(*a, **kw)
 
     def circle_layout(self, *args, **kwargs):
-        return circle_layout_base(self, *args, **kwargs)
+        return _circle_layout(self, *args, **kwargs)
     circle_layout.__doc__ = circle_layout_base.__doc__
 
-    fa2_layout = fa2_layout
+    fa2_layout = _on_pandas(fa2_layout)
 
     def group_in_a_box_layout(self, *args, **kwargs):
-        return group_in_a_box_layout_base(self, *args, **kwargs)
+        return _group_in_a_box_layout(self, *args, **kwargs)
     group_in_a_box_layout.__doc__ = group_in_a_box_layout_base.__doc__
 
     def modularity_weighted_layout(self, *args, **kwargs):
-        return modularity_weighted_layout_base(self, *args, **kwargs)
+        return _modularity_weighted_layout(self, *args, **kwargs)
     modularity_weighted_layout.__doc__ = modularity_weighted_layout_base.__doc__
 
     def time_ring_layout(self, *args, **kwargs):
-        return time_ring_base(self, *args, **kwargs)
+        return _time_ring_layout(self, *args, **kwargs)
     time_ring_layout.__doc__ = time_ring_base.__doc__
 
     def ring_categorical_layout(self, *args, **kwargs):
-        return ring_categorical_base(self, *args, **kwargs)
+        return _ring_categorical_layout(self, *args, **kwargs)
     ring_categorical_layout.__doc__ = ring_categorical_base.__doc__
 
     def ring_continuous_layout(self, *args, **kwargs):
-        return ring_continuous_base(self, *args, **kwargs)
+        return _ring_continuous_layout(self, *args, **kwargs)
     ring_continuous_layout.__doc__ = ring_continuous_base.__doc__
 
+    @_on_pandas
     def tree_layout(self,
                     level_col: Optional[str] = None,
                     level_sort_values_by: Optional[Union[str, List[str]]] = None,
@@ -151,7 +162,7 @@ class LayoutsMixin(Plottable):
         return g2
 
     def mercator_layout(self, *args, **kwargs):
-        return mercator_layout_base(self, *args, **kwargs)
+        return _mercator_layout(self, *args, **kwargs)
     mercator_layout.__doc__ = mercator_layout_base.__doc__
 
     def label_components(self):
