@@ -8,6 +8,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [Development]
 <!-- Do Not Erase This Section - Used for tracking unreleased changes -->
 
+### Fixed
+
+- **Graph algorithms on Polars-bound graphs** (#2025): `compute_igraph`, `layout_igraph`, `compute_cugraph` and `layout_cugraph` accept graphs bound to Polars `DataFrame` or `LazyFrame` frames. igraph runs on pandas and cuGraph on cuDF (via Arrow); results return as eager Polars frames with node id, source, destination and edge id dtypes preserved. This is the contract GFQL `call()` already applied under Polars, now shared through `bridge_polars_graph`.
+
 ## [0.60.0 - 2026-10-08]
 
 ### Added

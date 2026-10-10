@@ -230,6 +230,13 @@ a Python setting overrides the environment:
    set_call_mode('strict')   # raise on off-engine analytics (pass None to reset to env/default)
    # or: export GFQL_POLARS_CALL_MODE=strict
 
+Calling these analytics directly on a Polars-bound graph follows the same rule.
+``g.compute_igraph(...)`` and ``g.layout_igraph(...)`` run on pandas, and
+``g.compute_cugraph(...)`` and ``g.layout_cugraph(...)`` run on cuDF. The result comes back
+as eager Polars frames, and node id, source, destination and edge id columns keep their
+input dtypes. A ``LazyFrame`` is collected first. ``call_mode`` applies only to GFQL
+``call()``.
+
 cuDF vs Polars-GPU
 ------------------
 

@@ -346,8 +346,9 @@ def compute_igraph(
     """Enrich or replace graph using igraph methods
 
     igraph is a CPU-only library. cuDF DataFrames are automatically converted to pandas
-    before calling igraph, and the result is converted back. For a GPU-native alternative,
-    see :meth:`compute_cugraph`.
+    before calling igraph, and the result is converted back. Polars frames (eager or lazy)
+    also run on pandas and come back as eager Polars frames with their identifier dtypes.
+    For a GPU-native alternative, see :meth:`compute_cugraph`.
 
     :param alg: Name of an igraph.Graph method like `pagerank`
     :type alg: str
