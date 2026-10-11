@@ -507,7 +507,7 @@ def _try_indexed_connected_bindings_state(
     for edge_index in range(1, len(ops), 2):
         edge_op = cast(ASTEdge, ops[edge_index])
         indexes = _indices_for_direction(
-            registry, edge_op.direction, edges, (src, dst), engine,
+            registry, edge_op.direction, edges, (src, dst), engine, edge_op.edge_match,
         )
         if candidate_edge_rows is not None:
             from graphistry.compute.chain_fast_paths import _resident_seed_indexes

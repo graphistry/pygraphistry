@@ -19,7 +19,7 @@ from .registry import (
     AdjacencyIndex, ColStatsFact, PartitionValue, ColStatsRole, GfqlIndexRegistry, EMPTY_REGISTRY, NodeIdIndex,
     EDGE_OUT_ADJ, EDGE_IN_ADJ, NODE_ID, NODE_PROP, EDGE_PROP, ADJ_KINDS, ALL_KINDS, PROPERTY_ROLES,
 )
-from .build import build_adjacency_index, build_node_id_index, build_property_index
+from .build import build_adjacency_index, build_node_id_index, build_property_index, build_typed_adjacency_indexes
 from .traverse import index_seeded_hop
 from .cost import cost_gate_frac, seed_deg_sum, seed_id_array
 from .policy import IndexPolicy, validate_index_policy
@@ -571,6 +571,28 @@ def show_indexes(
             "usable": usable,
             "reason": reason,
         })
+    for column, value, kind in sorted(
+        registry.typed_adjacencies, key=lambda key: (key[0], str(key[1]), key[2]),
+    ):
+        typed = registry.typed_adjacencies[(column, value, kind)]
+        valid = (
+            g._edges is not None and g._source is not None and g._destination is not None
+            and registry.get_typed_adjacency_valid(
+                column, value, kind, g._edges, g._source, g._destination, typed.engine,
+            ) is typed
+        )
+        usable, reason = _index_usability(kind, typed.engine, valid, query_engine)
+        # other_values is shared with the ordinary adjacency index, not added memory.
+        nbytes = sum(int(getattr(typed, name).nbytes) for name in (
+            "keys_sorted", "group_offsets", "row_positions",
+        ))
+        rows.append({
+            "name": typed.name or f"typed:{column}={value}:{kind}",
+            "kind": kind, "key_col": typed.key_col, "engine": typed.engine.value,
+            "backend": typed.backend, "n_keys": typed.n_keys, "n_rows": typed.n_edges,
+            "nbytes": nbytes, "valid": valid, "query_engine": query_engine.value,
+            "usable": usable, "reason": reason,
+        })
     for kind, role in PROPERTY_ROLES:
         frame = g._nodes if role == "nodes" else g._edges
         for column in sorted(registry.property_indexes(role)):
@@ -607,6 +629,52 @@ def gfql_index_edges(g: Plottable, direction: EdgeIndexDirection = "both",
     if direction in ("reverse", "both"):
         g = create_index(g, EDGE_IN_ADJ, engine=engine)
     return g
+
+
+def gfql_index_edge_types(
+    g: Plottable, column: str, values: Sequence[PartitionValue],
+    engine: EngineAbstractType = EngineAbstract.AUTO,
+) -> Plottable:
+    """Eagerly index only the requested scalar relationship types in both directions.
+
+    This is an explicit setup cost. Queries without a matching, live typed index
+    retain the ordinary adjacency path, and all queries retain canonical edge
+    predicate filtering after candidate lookup.
+    """
+    if not values:
+        raise ValueError("edge type index requires at least one value")
+    if any(not isinstance(value, (str, int)) for value in values):
+        raise TypeError("edge type index values must be strings or integers")
+    from graphistry.compute.ComputeMixin import _coerce_input_formats
+
+    eng = resolve_index_engine(engine, g)
+    g = _coerce_input_formats(g, eng)
+    edges, src, dst = g._edges, g._source, g._destination
+    if edges is None or src is None or dst is None or column not in edges.columns:
+        raise ValueError("edge type index requires bound edges and a present type column")
+    registry = get_registry(g)
+    out = registry.get_valid(EDGE_OUT_ADJ, edges, (src, dst), eng)
+    into = registry.get_valid(EDGE_IN_ADJ, edges, (src, dst), eng)
+    if not isinstance(out, AdjacencyIndex) or not isinstance(into, AdjacencyIndex):
+        g = gfql_index_edges(g, engine=eng.value)
+        registry = get_registry(g)
+        edges = g._edges
+        assert edges is not None
+        out = registry.get_valid(EDGE_OUT_ADJ, edges, (src, dst), eng)
+        into = registry.get_valid(EDGE_IN_ADJ, edges, (src, dst), eng)
+    assert isinstance(out, AdjacencyIndex) and isinstance(into, AdjacencyIndex)
+    for value in dict.fromkeys(values):
+        if (
+            registry.get_typed_adjacency_valid(column, value, EDGE_OUT_ADJ, edges, src, dst, eng)
+            and registry.get_typed_adjacency_valid(column, value, EDGE_IN_ADJ, edges, src, dst, eng)
+        ):
+            continue
+        typed_out, typed_in = build_typed_adjacency_indexes(
+            edges, column, value, src, dst, eng, out, into,
+        )
+        registry = registry.with_typed_adjacency(column, value, typed_out)
+        registry = registry.with_typed_adjacency(column, value, typed_in)
+    return _attach(g, registry)
 
 
 def gfql_index_node_props(g: Plottable, columns: Sequence[str],

@@ -684,6 +684,16 @@ class ComputeMixin(Plottable):
         from graphistry.compute.gfql.index import gfql_index_edges as _gie
         return _gie(self, direction, engine=engine)
 
+    def gfql_index_edge_types(self, column: str, values: Sequence[Union[str, int]],
+                              engine: EngineAbstractType = 'auto') -> 'Plottable':
+        """Build explicit adjacency sidecars for selected relationship types.
+
+        Call at graph setup, after or instead of ``gfql_index_edges``; this pays
+        only for the listed values and leaves unrelated queries unchanged.
+        """
+        from graphistry.compute.gfql.index import gfql_index_edge_types as _giet
+        return _giet(self, column, values, engine=engine)
+
     def gfql_index_all(self, col_stats_by_type: bool = False, engine='auto'):
         """Convenience: build all GFQL physical indexes (both edge adjacencies + node_id). Returns a new Plottable.
 

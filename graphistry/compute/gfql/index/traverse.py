@@ -54,7 +54,24 @@ def _indices_for_direction(
     edges: DataFrameT,
     cols: Tuple[str, str],
     engine: Engine,
+    edge_match: Optional[EdgeMatch] = None,
 ) -> Optional[List[AdjacencyIndex]]:
+    kinds = (
+        (EDGE_OUT_ADJ,) if direction == "forward" else
+        (EDGE_IN_ADJ,) if direction == "reverse" else
+        (EDGE_OUT_ADJ, EDGE_IN_ADJ)
+    )
+    if edge_match:
+        for column, value in edge_match.items():
+            if not isinstance(column, str) or not isinstance(value, (str, int)):
+                continue
+            typed = [
+                registry.get_typed_adjacency_valid(
+                    column, value, kind, edges, cols[0], cols[1], engine,
+                ) for kind in kinds
+            ]
+            if all(index is not None for index in typed):
+                return cast(List[AdjacencyIndex], typed)
     out_idx = cast(Optional[AdjacencyIndex], registry.get_valid(EDGE_OUT_ADJ, edges, cols, engine))
     in_idx = cast(Optional[AdjacencyIndex], registry.get_valid(EDGE_IN_ADJ, edges, cols, engine))
     if direction == "forward":
@@ -262,7 +279,7 @@ def index_seeded_hop(
     nodes = df_to_engine(nodes, seed_engine)
 
     edges = g._edges
-    indices = _indices_for_direction(registry, direction, edges, (src, dst), engine)
+    indices = _indices_for_direction(registry, direction, edges, (src, dst), engine, edge_match)
     if indices is None:
         return None
 

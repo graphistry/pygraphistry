@@ -6,6 +6,7 @@ is never reordered.
 """
 from __future__ import annotations
 
+from dataclasses import replace
 from typing import Any, List, Optional, Sequence, Tuple, Union, cast
 
 import numpy as np
@@ -107,6 +108,57 @@ def build_adjacency_index(
         source_ref=cast(DataFrameT, edges),
         n_edges=len(edges),
         n_keys=int(unique_keys.shape[0]),
+    )
+
+
+def build_typed_adjacency_indexes(
+    edges: DataFrameT,
+    type_column: str,
+    type_value: PartitionValue,
+    src: str,
+    dst: str,
+    engine: Engine,
+    base_out: AdjacencyIndex,
+    base_in: AdjacencyIndex,
+) -> Tuple[AdjacencyIndex, AdjacencyIndex]:
+    """Build both directions over one scalar type, retaining original edge positions.
+
+    Filtering uses the canonical engine predicate once at setup; querying still
+    applies the ordinary residual edge filter. Base indexes own the full-length
+    neighbor arrays, so typed sidecars add only their CSR arrays.
+    """
+    from graphistry.compute.filter_by_dict import filter_by_dict
+    from .registry import EDGE_IN_ADJ, EDGE_OUT_ADJ
+
+    xp, _ = array_namespace(engine)
+    columns = list(dict.fromkeys((src, dst, type_column)))
+    position_column = "__gfql_typed_edge_position__"
+    while position_column in edges.columns:
+        position_column += "_"
+    if engine in (Engine.POLARS, Engine.POLARS_GPU):
+        import polars as pl
+
+        if not isinstance(edges, pl.DataFrame):
+            raise TypeError("typed Polars adjacency requires an eager Polars edge frame")
+        positioned: DataFrameT = edges.select(columns).with_row_index(position_column)
+    else:
+        positioned = edges[columns].assign(
+            **{position_column: xp.arange(len(edges), dtype=xp.int64)}
+        )
+    matching = filter_by_dict(positioned, {type_column: type_value}, engine=engine.value)
+    original_rows = col_to_array(matching, position_column, engine)
+    subset = (
+        matching.select([src, dst]) if engine in (Engine.POLARS, Engine.POLARS_GPU)
+        else matching[[src, dst]]
+    )
+    fingerprint = frame_fingerprint(edges, tuple(sorted(set(columns))), engine)
+    out = build_adjacency_index(subset, EDGE_OUT_ADJ, src, dst, None, engine, (src, dst))
+    into = build_adjacency_index(subset, EDGE_IN_ADJ, dst, src, None, engine, (src, dst))
+    return (
+        replace(out, row_positions=original_rows[out.row_positions],
+                other_values=base_out.other_values, fingerprint=fingerprint, source_ref=edges),
+        replace(into, row_positions=original_rows[into.row_positions],
+                other_values=base_in.other_values, fingerprint=fingerprint, source_ref=edges),
     )
 
 

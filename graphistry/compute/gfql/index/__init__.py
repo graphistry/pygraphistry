@@ -16,7 +16,7 @@ from .registry import (
     AdjacencyIndex, NodeIdIndex, NodePropIndex,
 )
 from .api import (
-    create_index, drop_index, show_indexes, gfql_index_edges, gfql_index_all,
+    create_index, drop_index, show_indexes, gfql_index_edges, gfql_index_edge_types, gfql_index_all,
     gfql_index_col_stats,
     gfql_index_node_props,
     GfqlIndexUnsupportedError,
@@ -38,7 +38,7 @@ __all__ = [
     "GfqlIndexRegistry", "EMPTY_REGISTRY",
     "EDGE_OUT_ADJ", "EDGE_IN_ADJ", "NODE_ID", "NODE_PROP", "EDGE_PROP", "ADJ_KINDS", "ALL_KINDS",
     "AdjacencyIndex", "NodeIdIndex", "NodePropIndex",
-    "create_index", "drop_index", "show_indexes", "gfql_index_edges",
+    "create_index", "drop_index", "show_indexes", "gfql_index_edges", "gfql_index_edge_types",
     "gfql_index_all", "gfql_index_col_stats", "gfql_index_node_props", "GfqlIndexUnsupportedError", "GfqlIndexNotImplementedError",
     "get_registry", "with_index_policy", "set_registry", "get_index_policy", "maybe_index_hop", "index_name",
     "index_trace",
