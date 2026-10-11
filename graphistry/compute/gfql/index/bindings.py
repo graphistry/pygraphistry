@@ -593,10 +593,9 @@ def _try_indexed_connected_bindings_state(
             )
             if int(frontier.shape[0]) >= threshold:
                 return None
-        gather_estimate = sum(
-            lookup_degree(index, frontier, xp) for index in edge_indexes
-        )
-        if policy != "force":
+            gather_estimate = sum(
+                lookup_degree(index, frontier, xp) for index in edge_indexes
+            )
             if gather_estimate >= gather_frac * n_edges:
                 return None
 
