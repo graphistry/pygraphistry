@@ -641,9 +641,11 @@ def gfql_index_edge_types(
     retain the ordinary adjacency path, and all queries retain canonical edge
     predicate filtering after candidate lookup.
     """
+    if isinstance(values, (str, bytes)):
+        raise TypeError("edge type index values must be a sequence, not a scalar string")
     if not values:
         raise ValueError("edge type index requires at least one value")
-    if any(not isinstance(value, (str, int)) for value in values):
+    if any(isinstance(value, bool) or not isinstance(value, (str, int)) for value in values):
         raise TypeError("edge type index values must be strings or integers")
     from graphistry.compute.ComputeMixin import _coerce_input_formats
 

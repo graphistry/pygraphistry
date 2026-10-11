@@ -170,6 +170,26 @@ The lifecycle calls. Each returns a new ``g``, like the rest of the API:
 ``gfql_index_all()`` skips the ``node_id`` index when node ids repeat. An explicit
 ``create_index("node_id")`` raises an error instead.
 
+Index selected relationship types
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+For repeated hops that filter a heterogeneous edge table by relationship type,
+build adjacency sidecars only for the scalar values those queries need:
+
+.. code-block:: python
+
+   g = g.gfql_index_all().gfql_index_edge_types("type", ["KNOWS", "HAS_CREATOR"])
+   g.show_indexes()[["name", "nbytes", "valid", "usable"]]
+
+``gfql_index_edge_types()`` builds both directions for each listed string or
+integer value. It is an explicit load-time cost; ``gfql_index_all()`` alone does
+not build type sidecars. Queries with a matching live sidecar can inspect fewer
+edge rows, while other queries use ordinary adjacency indexes and retain the
+same results. GFQL still applies the complete edge predicate after lookup.
+The ``typed:`` rows in ``show_indexes()`` report incremental CSR bytes; they
+share the ordinary adjacency's neighbor arrays. Build for the engine used by
+the query, and rebuild after binding a new edge frame or changing edges in place.
+
 Start from a property column
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 

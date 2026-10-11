@@ -63,7 +63,11 @@ def _indices_for_direction(
     )
     if edge_match:
         for column, value in edge_match.items():
-            if not isinstance(column, str) or not isinstance(value, (str, int)):
+            if (
+                not isinstance(column, str)
+                or isinstance(value, bool)
+                or not isinstance(value, (str, int))
+            ):
                 continue
             typed = [
                 registry.get_typed_adjacency_valid(

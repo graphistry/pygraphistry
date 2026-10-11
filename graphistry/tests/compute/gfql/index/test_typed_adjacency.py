@@ -118,3 +118,9 @@ def test_typed_sidecar_keeps_use_route_when_key_universe_is_sparse() -> None:
                            graph.gfql(ops + [rows()], engine="pandas", index_policy="off"))
     finally:
         reset_cost_gate_frac(Engine.PANDAS)
+
+
+@pytest.mark.parametrize("values", ["KNOWS", b"KNOWS", [True]])
+def test_typed_adjacency_rejects_ambiguous_setup_values(values) -> None:
+    with pytest.raises(TypeError, match="edge type index values"):
+        _graph("pandas").gfql_index_edge_types("type", values, engine="pandas")
