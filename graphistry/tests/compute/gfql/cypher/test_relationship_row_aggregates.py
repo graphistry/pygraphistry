@@ -8,6 +8,7 @@ self-loops and null properties, using Cypher null rules (sum/avg/min/max/count(e
 and collect skip nulls).
 """
 import math
+import os
 import random
 from collections import defaultdict
 from typing import Any, Callable, Dict, List, Sequence, Tuple
@@ -172,6 +173,31 @@ def test_whole_row_group_counts_paths_on_pandas() -> None:
         {"a.id": "a", "a.kind": "A", "c": 3},
         {"a.id": "b", "a.kind": "B", "c": 1},
     ]
+
+
+@pytest.mark.parametrize("engine", [
+    "pandas",
+    pytest.param("cudf", marks=pytest.mark.skipif(os.environ.get("TEST_CUDF") != "1", reason="GPU test lane")),
+])
+def test_relationship_row_aggregate_combined_aliases_matches_path_oracle(engine: str) -> None:
+    nodes = pd.DataFrame({"id": ["a", "b", "c"]})
+    edges = pd.DataFrame({"s": ["a", "a", "a", "b"], "d": ["b", "b", "c", "b"], "w": [1.0, 2.0, 3.0, 5.0]})
+    expected = _grouped(_paths(nodes, edges), A_ID, [
+        len,
+        lambda rows: len({row["b"]["id"] for row in rows}),
+        lambda rows: _sum(_vals(rows, "r", "w")),
+    ])
+    if engine == "cudf":
+        cudf = pytest.importorskip("cudf")
+        g = graphistry.nodes(cudf.from_pandas(nodes), "id").edges(cudf.from_pandas(edges), "s", "d")
+    else:
+        g = graphistry.nodes(nodes, "id").edges(edges, "s", "d")
+    out = g.gfql(
+        "MATCH (a)-[r]->(b) RETURN a.id AS k, count(*) AS paths, "
+        "count(DISTINCT b) AS unique_b, sum(r.w) AS total",
+        engine=engine,
+    )._nodes
+    assert _rows(out.to_pandas() if engine == "cudf" else out) == sorted(expected, key=repr)
 
 
 @pytest.mark.parametrize("engine", ENGINES)
