@@ -131,3 +131,29 @@ def test_internal_hop_column_does_not_shadow_user_alias(engine: str) -> None:
     assert canonical == [(0, 1, 2)]
     assert indexed == canonical
     assert not any(s.get("seam") == "connected_bindings" and s.get("served") for s in steps)
+
+
+@pytest.mark.parametrize("engine", _engines())
+def test_property_seeded_path_reuses_nodes_but_not_relationships(engine: str) -> None:
+    """A node-property seed reaches the same edge-identity guard as scan seeding."""
+    nodes = pd.DataFrame({"id": range(100), "k": [0] + [1] * 99})
+    edges = pd.DataFrame({"s": [0, 0, 1], "d": [0, 1, 0], "type": ["K"] * 3})
+    query = (
+        "MATCH (a {k: 0})-[r1:K]->(b)-[r2:K]->(c) "
+        "RETURN a.id AS a, b.id AS b, c.id AS c"
+    )
+    plain = _bind(nodes, edges, engine)
+    canonical = _rows(plain.gfql(query, engine=engine, index_policy="off"))
+    with index_trace() as no_property_steps:
+        no_property = _rows(
+            plain.gfql_index_all(engine=engine).gfql(query, engine=engine, index_policy="force")
+        )
+    indexed = plain.gfql_index_all(engine=engine).gfql_index_node_props(["k"], engine=engine)
+    with index_trace() as steps:
+        actual = _rows(indexed.gfql(query, engine=engine, index_policy="force"))
+
+    assert canonical == [(0, 0, 1), (0, 1, 0)]
+    assert no_property == canonical
+    assert not any(s.get("seam") == "connected_bindings" and s.get("served") for s in no_property_steps)
+    assert actual == canonical
+    assert any(s.get("seam") == "connected_bindings" and s.get("served") for s in steps)
