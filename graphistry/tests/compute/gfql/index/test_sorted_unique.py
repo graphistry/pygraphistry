@@ -39,7 +39,8 @@ def test_union1d_matches_numpy_union1d() -> None:
 def test_sorted_unique_cupy_matches_cupy_unique() -> None:
     cp = pytest.importorskip("cupy")
     try:
-        values = cp.asarray(CASES[3])
-    except Exception:  # no usable GPU
-        pytest.skip("no GPU")
+        cp.asarray([1]).copy()  # A usable device and NVRTC are needed for CuPy kernels.
+    except (OSError, RuntimeError):
+        pytest.skip("CuPy kernels unavailable")
+    values = cp.asarray(CASES[3])
     assert bool((sorted_unique(cp, values) == cp.unique(values)).all())
