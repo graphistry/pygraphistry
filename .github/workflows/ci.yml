@@ -1555,7 +1555,8 @@ jobs:
       if: ${{ matrix.python-version != '3.14' }}
       run: |
         source pygraphistry/bin/activate
-        ./bin/test.sh
+        # GFQL core still runs this full-corpus parity test on 3.12/3.14 (3.12 with coverage).
+        ./bin/test.sh -n auto --ignore=graphistry/tests/compute/gfql/cypher/test_differential_grammar_parity.py
 
     - name: Core tests with changed-line coverage
       if: ${{ matrix.python-version == '3.14' }}
@@ -1563,7 +1564,8 @@ jobs:
         source pygraphistry/bin/activate
         mkdir -p "$RUNNER_TEMP/changed-line-coverage"
         COVERAGE_FILE="$RUNNER_TEMP/changed-line-coverage/coverage.core-py3.14" \
-          ./bin/test.sh -n auto --cov=graphistry --cov-report=
+          ./bin/test.sh -n auto --cov=graphistry --cov-report= \
+            --ignore=graphistry/tests/compute/gfql/cypher/test_differential_grammar_parity.py
 
     - name: Upload core coverage data
       if: ${{ matrix.python-version == '3.14' }}
