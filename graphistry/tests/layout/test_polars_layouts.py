@@ -111,3 +111,18 @@ def test_tree_layout_keeps_legacy_ignored_cudf_keyword_on_polars(lazy: bool) -> 
     assert isinstance(out._nodes, pd.DataFrame) and isinstance(out._edges, pd.DataFrame)
     pd.testing.assert_frame_equal(out._nodes, ref._nodes)
     pd.testing.assert_frame_equal(out._edges, ref._edges)
+
+
+@pytest.mark.parametrize("layout", ["circle_layout", "tree_layout"])
+def test_layout_preserves_nullable_large_edge_id(layout: str) -> None:
+    big = 2**53 + 1
+    nodes = pl.DataFrame({"id": [1, 2, 3]})
+    edges = pl.DataFrame({
+        "s": [1, 2], "d": [2, 3],
+        "eid": pl.Series("eid", [big, None], dtype=pl.Int64),
+    })
+    graph = graphistry.nodes(nodes, "id").edges(edges, "s", "d", edge="eid")
+    kwargs = {"bounding_box": (0, 0, 10, 10)} if layout == "circle_layout" else {}
+    out = getattr(graph, layout)(**kwargs)
+    assert out._edges.schema["eid"] == pl.Int64
+    assert out._edges["eid"].to_list() == [big, None]
