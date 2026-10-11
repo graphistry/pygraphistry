@@ -93,7 +93,7 @@ def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
     if not directory:
         return
     worker = getattr(session.config, "workerinput", None)
-    if worker is None and session.config.pluginmanager.hasplugin("xdist"):
+    if worker is None and getattr(session.config.option, "numprocesses", None):
         return
     name = worker["workerid"] if worker is not None else "standalone"
     Path(directory).mkdir(parents=True, exist_ok=True)
