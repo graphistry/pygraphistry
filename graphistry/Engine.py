@@ -386,6 +386,8 @@ def _restore_binding_dtypes(
     binding columns are restored, and only when the cast is exact: a value that does not
     survive the cast back (0.5 truncated to 0, for example) keeps the analytic's dtype.
     """
+    from polars.exceptions import PolarsError
+
     before = dict(original.collect_schema())
     restored = []
     for c in cols:
@@ -396,7 +398,7 @@ def _restore_binding_dtypes(
             cast_col = current.cast(before[c], strict=True)
             if cast_col.cast(current.dtype).equals(current):
                 restored.append(cast_col)
-        except Exception:
+        except (PolarsError, TypeError, ValueError, OverflowError):
             continue
     return df.with_columns(restored) if restored else df
 
