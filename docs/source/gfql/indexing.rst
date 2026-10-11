@@ -178,8 +178,16 @@ build adjacency sidecars only for the scalar values those queries need:
 
 .. code-block:: python
 
-   g = g.gfql_index_all().gfql_index_edge_types("type", ["KNOWS", "HAS_CREATOR"])
-   g.show_indexes()[["name", "nbytes", "valid", "usable"]]
+   typed_edges = pd.DataFrame({
+       "src": [0, 1], "dst": [1, 2], "type": ["KNOWS", "HAS_CREATOR"],
+   })
+   typed_g = graphistry.edges(typed_edges, "src", "dst").nodes(
+       pd.DataFrame({"id": [0, 1, 2]}), "id"
+   )
+   typed_g = typed_g.gfql_index_all().gfql_index_edge_types(
+       "type", ["KNOWS", "HAS_CREATOR"]
+   )
+   typed_g.show_indexes()[["name", "nbytes", "valid", "usable"]]
 
 ``gfql_index_edge_types()`` builds both directions for each listed string or
 integer value. It is an explicit load-time cost; ``gfql_index_all()`` alone does
