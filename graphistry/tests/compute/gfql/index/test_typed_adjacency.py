@@ -90,6 +90,7 @@ def test_typed_adjacency_lifecycle_and_fallback(engine: str) -> None:
                        stale.gfql(query, engine=engine, index_policy="off"))
 
 
+@pytest.mark.route_engaged("indexed-kernel")
 def test_typed_sidecar_keeps_use_route_when_key_universe_is_sparse() -> None:
     """A smaller typed key set must not make the old served route decline."""
     from graphistry.compute.gfql.index import reset_cost_gate_frac, set_cost_gate_frac, with_index_policy
