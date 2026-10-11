@@ -418,9 +418,10 @@ Row And Row-Pipeline Forms
   relationship alias, for example
   ``MATCH (a)-[r]->(b) RETURN a, count(*) AS c, sum(r.weight) AS w, collect(b.id) AS ids``.
   ``OPTIONAL MATCH``, aggregates inside ``ORDER BY``, and items that combine an
-  ungrouped alias with an aggregate (``a.name + count(b)``) keep the narrower subset and
-  report an unsupported-query error otherwise. On Polars, whole-entity keys such as
-  ``RETURN a, count(*)`` and bare relationship counts such as ``count(r)`` raise
+  ungrouped alias with an aggregate (``a.name + count(b)``) retain their existing
+  lowering behavior; this per-path route does not expand those shapes. On Polars,
+  whole-entity keys such as ``RETURN a, count(*)`` and bare relationship counts such
+  as ``count(r)`` raise
   ``NotImplementedError``.
 - Top-level ``UNWIND ... RETURN ...`` queries.
 - Mixed graph/row queries such as ``MATCH ... UNWIND ... RETURN ...``.
