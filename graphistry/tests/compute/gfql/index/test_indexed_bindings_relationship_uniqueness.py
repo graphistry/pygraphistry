@@ -134,7 +134,11 @@ def test_internal_hop_column_does_not_shadow_user_alias(engine: str) -> None:
 
 
 @pytest.mark.parametrize("engine", _engines())
-def test_property_seeded_path_reuses_nodes_but_not_relationships(engine: str) -> None:
+@pytest.mark.parametrize("check_engagement", [
+    False,
+    pytest.param(True, marks=pytest.mark.route_engaged("indexed-kernel")),
+])
+def test_property_seeded_path_reuses_nodes_but_not_relationships(engine: str, check_engagement: bool) -> None:
     """A node-property seed reaches the same edge-identity guard as scan seeding."""
     nodes = pd.DataFrame({"id": range(100), "k": [0] + [1] * 99})
     edges = pd.DataFrame({"s": [0, 0, 1], "d": [0, 1, 0], "type": ["K"] * 3})
@@ -156,4 +160,5 @@ def test_property_seeded_path_reuses_nodes_but_not_relationships(engine: str) ->
     assert no_property == canonical
     assert not any(s.get("seam") == "connected_bindings" and s.get("served") for s in no_property_steps)
     assert actual == canonical
-    assert any(s.get("seam") == "connected_bindings" and s.get("served") for s in steps)
+    if check_engagement:
+        assert any(s.get("seam") == "connected_bindings" and s.get("served") for s in steps)
