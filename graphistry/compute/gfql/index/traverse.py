@@ -75,7 +75,7 @@ def _indices_for_direction(
                 ) for kind in kinds
             ]
             if all(index is not None for index in typed):
-                return cast(List[AdjacencyIndex], typed)
+                return [index for index in typed if index is not None]
     out_idx = cast(Optional[AdjacencyIndex], registry.get_valid(EDGE_OUT_ADJ, edges, cols, engine))
     in_idx = cast(Optional[AdjacencyIndex], registry.get_valid(EDGE_IN_ADJ, edges, cols, engine))
     if direction == "forward":
