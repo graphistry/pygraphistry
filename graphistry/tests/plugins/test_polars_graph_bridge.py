@@ -103,6 +103,27 @@ def test_compute_igraph_does_not_confuse_vertex_attribute_with_edge_collision_na
 
 
 @pytest.mark.skipif(not has_igraph, reason="Requires igraph")
+@pytest.mark.parametrize("polars_frame", ["nodes", "edges"])
+@pytest.mark.parametrize("lazy", [False, True], ids=["eager", "lazy"])
+def test_compute_igraph_mixed_polars_pandas_frames(polars_frame: str, lazy: bool) -> None:
+    nodes: Any = NODES
+    edges: Any = EDGES
+    if polars_frame == "nodes":
+        nodes = pl.from_pandas(NODES)
+        if lazy:
+            nodes = nodes.lazy()
+    else:
+        edges = pl.from_pandas(EDGES)
+        if lazy:
+            edges = edges.lazy()
+    out = graphistry.nodes(nodes, "id").edges(edges, "s", "d").compute_igraph("pagerank")
+    assert isinstance(out._nodes, pl.DataFrame)
+    assert isinstance(out._edges, pl.DataFrame)
+    assert out._nodes["id"].to_list() == NODES["id"].tolist()
+    assert out._edges["s"].to_list() == EDGES["s"].tolist()
+
+
+@pytest.mark.skipif(not has_igraph, reason="Requires igraph")
 @pytest.mark.parametrize("null_location", ["node", "endpoint"])
 def test_compute_igraph_rejects_null_structural_ids(null_location: str) -> None:
     big = 2**53 + 1

@@ -474,9 +474,9 @@ def bridge_polars_graph(compute_engine: Engine = Engine.PANDAS) -> Callable[[_An
             if not restore or not hasattr(out, "_nodes"):
                 return out
             result = graph_frames_to_engine(out, Engine.POLARS)  # type: ignore[arg-type]  # has _nodes: a Plottable
-            if result._nodes is not None and g._nodes is not None:
+            if result._nodes is not None and is_polars_df(g._nodes):
                 result = result.nodes(_restore_binding_dtypes(result._nodes, g._nodes, [result._node]), result._node)
-            if result._edges is not None and g._edges is not None:
+            if result._edges is not None and is_polars_df(g._edges):
                 result = result.edges(
                     _restore_binding_dtypes(
                         result._edges, g._edges, [result._source, result._destination, result._edge]
