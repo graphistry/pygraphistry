@@ -517,10 +517,7 @@ def _try_indexed_connected_bindings_state(
         if indexes is None or not all(_integer_index(index) for index in indexes):
             return None
         direction_indexes[edge_index] = indexes
-        # An explicit type sidecar narrows the keys stored, but does not make
-        # probing a frontier more expensive than the ordinary resident CSR.
-        # Keep the existing key-frontier crossover as the planner baseline;
-        # the degree/gather estimate below uses the smaller typed sidecar.
+        # Preserve the ordinary-key frontier crossover; typed CSR narrows only the gather estimate.
         if candidate_edge_rows is None:
             baseline_counts = []
             for adjacency in indexes:
