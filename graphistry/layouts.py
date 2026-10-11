@@ -1,7 +1,8 @@
-from typing import cast, List, Optional, Union
+from typing import Callable, cast, List, Optional, Union
 import math
 import pandas as pd
-from .Engine import Engine, bridge_polars_graph
+from functools import wraps
+from .Engine import Engine, bridge_polars_graph, is_polars_df
 from .Plottable import Plottable
 from .layout import (
     SugiyamaLayout,
@@ -26,6 +27,19 @@ _time_ring_layout = _on_pandas(time_ring_base)
 _ring_categorical_layout = _on_pandas(ring_categorical_base)
 _ring_continuous_layout = _on_pandas(ring_continuous_base)
 _mercator_layout = _on_pandas(mercator_layout_base)
+
+
+def _tree_on_pandas(fn: Callable[..., Plottable]) -> Callable[..., Plottable]:
+    bridged = _on_pandas(fn)
+
+    @wraps(fn)
+    def wrapper(g: Plottable, *args: object, **kwargs: object) -> Plottable:
+        requested = kwargs.get("engine")
+        if (is_polars_df(g._nodes) or is_polars_df(g._edges)) and getattr(requested, "value", requested) == "cudf":
+            kwargs = {**kwargs, "engine": "pandas"}
+        return bridged(g, *args, **kwargs)
+
+    return wrapper
 
 
 class LayoutsMixin(Plottable):
@@ -59,7 +73,7 @@ class LayoutsMixin(Plottable):
         return _ring_continuous_layout(self, *args, **kwargs)
     ring_continuous_layout.__doc__ = ring_continuous_base.__doc__
 
-    @_on_pandas
+    @_tree_on_pandas
     def tree_layout(self,
                     level_col: Optional[str] = None,
                     level_sort_values_by: Optional[Union[str, List[str]]] = None,

@@ -101,3 +101,13 @@ def test_fa2_layout_on_polars_without_gpu_engine_declines_like_pandas() -> None:
         g_pd.fa2_layout()
     with pytest.raises(NotImplementedError, match="GPU-enabled engine"):
         g_pl.fa2_layout()
+
+
+@pytest.mark.parametrize("lazy", [False, True], ids=["eager", "lazy"])
+def test_tree_layout_keeps_legacy_ignored_cudf_keyword_on_polars(lazy: bool) -> None:
+    g_pd, g_pl = _graphs(lazy)
+    ref = g_pd.tree_layout(engine="cudf")
+    out = g_pl.tree_layout(engine="cudf")
+    assert isinstance(out._nodes, pd.DataFrame) and isinstance(out._edges, pd.DataFrame)
+    pd.testing.assert_frame_equal(out._nodes, ref._nodes)
+    pd.testing.assert_frame_equal(out._edges, ref._edges)
