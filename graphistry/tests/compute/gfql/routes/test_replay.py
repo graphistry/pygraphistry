@@ -65,13 +65,19 @@ def test_hosted_replay_failures_fail_the_workflow():
     assert all(value == "false" for value in allowances), allowances
 
 
+def test_route_recorder_preserves_chain_introspection():
+    from graphistry.compute.chain import chain, _try_chain_fast_path
+    assert hasattr(chain, "__wrapped__")
+    assert not hasattr(_try_chain_fast_path, "__wrapped__")
+
+
 def test_route_engagement_manifest_selects_affected_tests_and_rejects_stale_collection(tmp_path):
     root = Path(__file__).resolve().parents[5]
     affected = "graphistry/tests/compute/test_gfql.py::TestGFQL::test_gfql_deprecation_and_migration"
     unaffected = "graphistry/tests/compute/test_gfql.py::TestGFQLAPI::test_public_api_methods"
     introspection = (
-        "graphistry/tests/compute/gfql/test_engine_polars_cypher_conformance.py"
-        "::test_chain_otel_decorator_on_public_chain"
+        "graphistry/tests/compute/gfql/routes/test_replay.py"
+        "::test_route_recorder_preserves_chain_introspection"
     )
     tests = [affected, unaffected, introspection]
     plugin = "graphistry.tests.compute.gfql.routes.engagement_manifest"
