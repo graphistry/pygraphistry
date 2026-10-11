@@ -260,6 +260,25 @@ def active_frames_are_polars(g: Any) -> bool:
     return is_polars_df(g._edges)
 
 
+def _polars_to_pandas_exact(df: "pl.DataFrame") -> pd.DataFrame:
+    """Avoid float64 rounding of nullable 64-bit integers during Polars conversion."""
+    import polars as pl
+
+    out = df.to_pandas()
+    repairs = {}
+    for name, dtype in df.schema.items():
+        if dtype not in (pl.Int64, pl.UInt64):
+            continue
+        col = df.get_column(name)
+        if not col.null_count():
+            continue
+        low, high = col.min(), col.max()
+        if (low is not None and low < -(2**53)) or (high is not None and high > 2**53):
+            target_dtype = object if dtype == pl.Int64 else "UInt64"
+            repairs[name] = pd.Series(col.to_list(), index=out.index, dtype=target_dtype)
+    return out.assign(**repairs) if repairs else out
+
+
 def df_to_engine(df, engine: Engine, *, validate: Optional[ValidationParam] = None, warn: bool = True):
     """Convert ``df`` to ``engine``'s frame type.
 
@@ -297,9 +316,9 @@ def df_to_engine(df, engine: Engine, *, validate: Optional[ValidationParam] = No
         if 'polars' in type_module:
             import polars as pl
             if isinstance(df, pl.LazyFrame):
-                return df.collect().to_pandas()
+                return _polars_to_pandas_exact(df.collect())
             if isinstance(df, pl.DataFrame):
-                return df.to_pandas()
+                return _polars_to_pandas_exact(df)
         raise ValueError(f'Cannot convert type {type(df)} to pandas')
     elif engine == Engine.CUDF:
         import cudf
@@ -386,6 +405,8 @@ def _restore_binding_dtypes(
     binding columns are restored, and only when the cast is exact: a value that does not
     survive the cast back (0.5 truncated to 0, for example) keeps the analytic's dtype.
     """
+    from polars.exceptions import PolarsError
+
     before = dict(original.collect_schema())
     restored = []
     for c in cols:
@@ -396,7 +417,7 @@ def _restore_binding_dtypes(
             cast_col = current.cast(before[c], strict=True)
             if cast_col.cast(current.dtype).equals(current):
                 restored.append(cast_col)
-        except Exception:
+        except (PolarsError, TypeError, ValueError, OverflowError):
             continue
     return df.with_columns(restored) if restored else df
 
@@ -453,9 +474,9 @@ def bridge_polars_graph(compute_engine: Engine = Engine.PANDAS) -> Callable[[_An
             if not restore or not hasattr(out, "_nodes"):
                 return out
             result = graph_frames_to_engine(out, Engine.POLARS)  # type: ignore[arg-type]  # has _nodes: a Plottable
-            if result._nodes is not None and g._nodes is not None:
+            if result._nodes is not None and is_polars_df(g._nodes):
                 result = result.nodes(_restore_binding_dtypes(result._nodes, g._nodes, [result._node]), result._node)
-            if result._edges is not None and g._edges is not None:
+            if result._edges is not None and is_polars_df(g._edges):
                 result = result.edges(
                     _restore_binding_dtypes(
                         result._edges, g._edges, [result._source, result._destination, result._edge]

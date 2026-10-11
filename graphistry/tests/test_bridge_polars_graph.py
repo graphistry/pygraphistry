@@ -5,7 +5,7 @@ import pandas as pd
 import pytest
 
 import graphistry
-from graphistry.Engine import Engine, bridge_polars_graph
+from graphistry.Engine import Engine, _restore_binding_dtypes, bridge_polars_graph
 
 pl = pytest.importorskip("polars")
 
@@ -102,6 +102,35 @@ def test_unrepresentable_binding_values_keep_analytic_dtype() -> None:
     out = bridge_polars_graph(Engine.PANDAS)(fractional_ids)(_polars_graph())
     assert out._nodes.schema["id"] == pl.Float64
     assert out._nodes["id"].to_list() == [0.5, 1.5, 2.5]
+
+
+@pytest.mark.parametrize("lazy", [False, True], ids=["eager", "lazy"])
+@pytest.mark.parametrize("dtype,big", [(pl.Int64, 2**53 + 1), (pl.UInt64, 2**63 + 1)])
+def test_nullable_large_integer_bindings_are_exact(lazy: bool, dtype: Any, big: int) -> None:
+    nodes = pl.DataFrame({"id": pl.Series("id", [big, None], dtype=dtype)})
+    edges = pl.DataFrame({"s": [big], "d": [big]})
+    if lazy:
+        nodes, edges = nodes.lazy(), edges.lazy()
+
+    def identity(g: Any) -> Any:
+        assert g._nodes["id"].tolist()[0] == big
+        return g
+
+    out = bridge_polars_graph(Engine.PANDAS)(identity)(graphistry.nodes(nodes, "id").edges(edges, "s", "d"))
+    assert out._nodes.schema["id"] == dtype
+    assert out._nodes["id"].to_list() == [big, None]
+
+
+def test_unexpected_dtype_restore_error_is_not_swallowed(monkeypatch: Any) -> None:
+    original = pl.DataFrame({"id": pl.Series([1, 2], dtype=pl.Int32)})
+    result = pl.DataFrame({"id": pl.Series([1.0, 2.0], dtype=pl.Float64)})
+
+    def unexpected_error(*args: Any, **kwargs: Any) -> Any:
+        raise RuntimeError("unexpected cast bug")
+
+    monkeypatch.setattr(pl.Series, "cast", unexpected_error)
+    with pytest.raises(RuntimeError, match="unexpected cast bug"):
+        _restore_binding_dtypes(result, original, ["id"])
 
 
 def test_other_engines_are_left_to_the_analytic() -> None:

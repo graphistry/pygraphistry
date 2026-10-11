@@ -1,9 +1,12 @@
 import pandas as pd
-from typing import Any, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union
 from graphistry.constants import NODE
 from graphistry.Plottable import Plottable
 from graphistry.util import setup_logger
 logger = setup_logger(__name__)
+
+if TYPE_CHECKING:
+    import igraph
 
 
 def ensure_pandas(df: Any) -> pd.DataFrame:
@@ -24,6 +27,33 @@ def restore_engine(g: Plottable, original_nodes: Any, original_edges: Any) -> Pl
     """
     from graphistry.compute.engine_coercion import restore_engine as _impl
     return _impl(g, original_nodes, original_edges)
+
+
+def _restore_igraph_large_nullable_ints(
+    df: pd.DataFrame, attributes: Union["igraph.VertexSeq", "igraph.EdgeSeq"],
+    renamed_attributes: Optional[Dict[str, str]] = None,
+) -> pd.DataFrame:
+    """Keep exact nullable integers across igraph's pandas DataFrame export."""
+    repairs = {}
+    for name in attributes.attributes():
+        target = renamed_attributes.get(name, name) if renamed_attributes is not None else name
+        if target not in df or not (
+            pd.api.types.is_float_dtype(df[target].dtype) or pd.api.types.is_object_dtype(df[target].dtype)
+        ):
+            continue
+        if not df[target].isna().any():
+            continue
+        values = attributes[name]
+        non_null = [value for value in values if value is not None and value is not pd.NA]
+        if not non_null or len(non_null) == len(values):
+            continue
+        if not all(isinstance(value, int) and not isinstance(value, bool) for value in non_null):
+            continue
+        if not any(abs(value) > 2**53 for value in non_null):
+            continue
+        dtype = "UInt64" if max(non_null) > 2**63 - 1 else object
+        repairs[target] = pd.Series([None if value is pd.NA else value for value in values], index=df.index, dtype=dtype)
+    return df.assign(**repairs) if repairs else df
 
 
 # preferring igraph naming convetions over graphistry.constants
@@ -99,7 +129,7 @@ def from_igraph(self,
 
     node_col = g._node or NODE
     
-    ig_vs_df = ig.get_vertex_dataframe()
+    ig_vs_df = _restore_igraph_large_nullable_ints(ig.get_vertex_dataframe(), ig.vs)
     nodes_df = ig_vs_df
 
 
@@ -173,6 +203,7 @@ def from_igraph(self,
         src_col = g._source or SRC_IGRAPH
         dst_col = g._destination or DST_IGRAPH
         edges_df = ig.get_edge_dataframe()
+        renamed_attrs: Dict[str, str] = {}
 
         # igraph edge attributes named 'source' or 'target' collide with the
         # endpoint columns from get_edge_dataframe(); endpoints come first,
@@ -183,12 +214,16 @@ def from_igraph(self,
             for c in edges_df.columns:
                 n = counts.get(c, 0) + 1
                 counts[c] = n
-                new_cols.append(c if n == 1 else f'__attr_{c}_{n}__')
+                new_name = c if n == 1 else f'__attr_{c}_{n}__'
+                new_cols.append(new_name)
+                if n > 1:
+                    renamed_attrs[c] = new_name
             edges_df.columns = new_cols
             logger.warning(
                 'igraph edge attribute names collide with endpoint columns; '
                 'renamed duplicate columns to __attr_<name>_<n>__'
             )
+        edges_df = _restore_igraph_large_nullable_ints(edges_df, ig.es, renamed_attrs)
 
         if ig_index_to_node_id_df is not None:
             edges_df['source'] = edges_df[['source']].merge(
@@ -288,11 +323,15 @@ def to_igraph(
     edge_attrs = g._edges.columns if edge_attributes is None else edge_attributes
     edge_attrs = [x for x in edge_attrs if x not in [g._source, g._destination]]
     edges_df = ensure_pandas(g._edges[[g._source, g._destination] + edge_attrs])
+    if edges_df[[g._source, g._destination]].isna().any().any():
+        raise ValueError("igraph cannot preserve null edge endpoint IDs")
 
     #igraph expects node first
     node_attrs = g._nodes if node_attributes is None else node_attributes
     node_attrs = [x for x in node_attrs if x != g._node]
     nodes_df = ensure_pandas(g._nodes[[g._node] + node_attrs])
+    if nodes_df[g._node].isna().any():
+        raise ValueError("igraph cannot preserve null node IDs")
     return igraph.Graph.DataFrame(
         edges_df, directed=directed, vertices=nodes_df, use_vids=use_vids
     )

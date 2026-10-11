@@ -71,6 +71,69 @@ def test_compute_igraph_integer_ids_keep_polars_dtype() -> None:
     assert out._nodes["id"].to_list() == [0, 1, 2]
 
 
+@pytest.mark.skipif(not has_igraph, reason="Requires igraph")
+@pytest.mark.parametrize("dtype,big", [(pl.Int64, 2**53 + 1), (pl.UInt64, 2**63 + 1)])
+def test_compute_igraph_nullable_large_edge_ids_are_exact(dtype: Any, big: int) -> None:
+    nodes = pl.DataFrame({"id": [1, 2], "value": pl.Series("value", [big, None], dtype=dtype)})
+    edges = pl.DataFrame({
+        "s": [1, 2], "d": [2, 1],
+        "eid": pl.Series("eid", [big, None], dtype=dtype),
+    })
+    out = graphistry.nodes(nodes, "id").edges(edges, "s", "d", edge="eid").compute_igraph("pagerank")
+    assert out._edges.schema["eid"] == dtype
+    assert out._edges["eid"].to_list() == [big, None]
+    assert out._nodes.schema["value"] == dtype
+    assert out._nodes["value"].to_list() == [big, None]
+
+
+@pytest.mark.skipif(not has_igraph, reason="Requires igraph")
+@pytest.mark.parametrize("name", ["source", "target"])
+def test_compute_igraph_does_not_confuse_vertex_attribute_with_edge_collision_name(name: str) -> None:
+    big = 2**53 + 1
+    similar = f"__attr_{name}_2__"
+    nodes = pl.DataFrame({
+        "id": [1, 2],
+        name: pl.Series(name, [big, None], dtype=pl.Int64),
+        similar: ["keep", None],
+    })
+    edges = pl.DataFrame({"s": [1], "d": [2]})
+    out = graphistry.nodes(nodes, "id").edges(edges, "s", "d").compute_igraph("pagerank")
+    assert out._nodes[name].to_list() == [big, None]
+    assert out._nodes[similar].to_list() == ["keep", None]
+
+
+@pytest.mark.skipif(not has_igraph, reason="Requires igraph")
+@pytest.mark.parametrize("polars_frame", ["nodes", "edges"])
+@pytest.mark.parametrize("lazy", [False, True], ids=["eager", "lazy"])
+def test_compute_igraph_mixed_polars_pandas_frames(polars_frame: str, lazy: bool) -> None:
+    nodes: Any = NODES
+    edges: Any = EDGES
+    if polars_frame == "nodes":
+        nodes = pl.from_pandas(NODES)
+        if lazy:
+            nodes = nodes.lazy()
+    else:
+        edges = pl.from_pandas(EDGES)
+        if lazy:
+            edges = edges.lazy()
+    out = graphistry.nodes(nodes, "id").edges(edges, "s", "d").compute_igraph("pagerank")
+    assert isinstance(out._nodes, pl.DataFrame)
+    assert isinstance(out._edges, pl.DataFrame)
+    assert out._nodes["id"].to_list() == NODES["id"].tolist()
+    assert out._edges["s"].to_list() == EDGES["s"].tolist()
+
+
+@pytest.mark.skipif(not has_igraph, reason="Requires igraph")
+@pytest.mark.parametrize("null_location", ["node", "endpoint"])
+def test_compute_igraph_rejects_null_structural_ids(null_location: str) -> None:
+    big = 2**53 + 1
+    nodes = pl.DataFrame({"id": pl.Series("id", [big, None] if null_location == "node" else [big, big + 1], dtype=pl.Int64)})
+    edges = pl.DataFrame({"s": [big], "d": [None if null_location == "endpoint" else big]})
+    graph = graphistry.nodes(nodes, "id").edges(edges, "s", "d")
+    with pytest.raises(ValueError, match="igraph cannot preserve null (node|edge endpoint) IDs"):
+        graph.compute_igraph("pagerank")
+
+
 @pytest.mark.skipif(not test_cugraph, reason="Requires TEST_CUGRAPH=1")
 @pytest.mark.parametrize("lazy", [False, True], ids=["eager", "lazy"])
 @pytest.mark.parametrize("method, arg", [("compute_cugraph", "pagerank"), ("layout_cugraph", "force_atlas2")])
