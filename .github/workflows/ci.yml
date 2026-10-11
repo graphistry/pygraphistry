@@ -2167,10 +2167,10 @@ jobs:
     - name: Test building docs
       env:
         VALIDATE_NOTEBOOK_EXECUTION: 1
-        # PRs already get full HTML/EPUB/PDF builds from Read the Docs previews.
-        # Keep the faster HTML + example/notebook audits here; retain all formats
-        # on push, scheduled, and manual runs for independent release coverage.
-        DOCS_FORMAT: ${{ github.event_name == 'pull_request' && 'html' || 'all' }}
+        # Same-repo PRs get full HTML/EPUB/PDF Read the Docs previews.
+        # Keep HTML + example/notebook audits here; build all formats for forks
+        # and push/scheduled/manual runs that may lack an RTD preview.
+        DOCS_FORMAT: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && 'html' || 'all' }}
       run: |
         cd docs && ./ci.sh
 
