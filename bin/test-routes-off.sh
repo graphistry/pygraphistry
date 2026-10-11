@@ -15,6 +15,9 @@ pytest_args=()
 if [ -n "${GFQL_ROUTE_SELECT_MANIFEST:-}" ]; then
   pytest_args=(-p graphistry.tests.compute.gfql.routes.engagement_manifest)
 fi
+if [ -n "${ROUTES_XDIST:-}" ]; then
+  pytest_args+=(-n "$ROUTES_XDIST")
+fi
 for mode in $MODES; do
   if [ "$mode" = all-off ]; then routes=$ALL_ROUTES; else routes=$mode; fi
   GFQL_ROUTES_OFF=$routes python -m pytest $SUITES "${pytest_args[@]}" -q -p no:cacheprovider -o addopts="" -rfE > "$OUT/$mode.log" 2>&1 || status=1

@@ -1744,7 +1744,7 @@ jobs:
     - name: Routes-off replay (${{ matrix.mode }})
       run: |
         source pygraphistry/bin/activate
-        GFQL_ROUTE_SELECT_MANIFEST=build/route-engagement/manifest.json MODES=${{ matrix.mode }} ./bin/test-routes-off.sh
+        GFQL_ROUTE_SELECT_MANIFEST=build/route-engagement/manifest.json ROUTES_XDIST=2 MODES=${{ matrix.mode }} ./bin/test-routes-off.sh
         echo "## routes-off: ${{ matrix.mode }}" >> "$GITHUB_STEP_SUMMARY"
         sed 's/^/- /' build/routes-off/${{ matrix.mode }}.divergences >> "$GITHUB_STEP_SUMMARY"
 

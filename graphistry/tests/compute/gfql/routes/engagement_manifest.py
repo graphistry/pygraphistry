@@ -5,8 +5,9 @@ The normal replay records calls to every route switch target. A disabled route c
 only change a test that called its target on the normal path; all-off uses the union.
 """
 
+from __future__ import annotations
+
 from collections import defaultdict
-from functools import wraps
 import hashlib
 import json
 import os
@@ -38,7 +39,6 @@ def _install_wrappers() -> None:
         if getattr(original, "_gfql_route_recording", False):
             continue
 
-        @wraps(original)
         def record(*args: Any, _original: Any = original, _routes: frozenset[str] = frozenset(routes), **kwargs: Any) -> Any:
             if _active is not None:
                 for route in _routes:
@@ -46,6 +46,8 @@ def _install_wrappers() -> None:
             return _original(*args, **kwargs)
 
         record._gfql_route_recording = True  # type: ignore[attr-defined]
+        record.__name__ = getattr(original, "__name__", name)
+        record.__doc__ = getattr(original, "__doc__", None)
         setattr(module, name, record)
 
 
