@@ -219,7 +219,7 @@ def sorted_unique(xp: ArrayNamespace, values: ArrayLike) -> ArrayLike:
     Integer and bool keys use sort plus adjacent differences. Other dtypes keep
     ``xp.unique`` so float NaNs retain their existing behavior.
     """
-    if values.ndim != 1 or values.dtype.kind not in "iub" or int(values.shape[0]) <= 1:
+    if len(values.shape) != 1 or values.dtype.kind not in "iub" or int(values.shape[0]) <= 1:
         return xp.unique(values)
     ordered = xp.sort(values)
     keep = xp.empty(ordered.shape[0], dtype=bool)
