@@ -177,7 +177,7 @@ def test_whole_row_group_counts_paths_on_pandas() -> None:
 
 @pytest.mark.parametrize("engine", [
     "pandas",
-    pytest.param("cudf", marks=pytest.mark.skipif(os.environ.get("TEST_CUDF") != "1", reason="GPU test lane")),
+    pytest.param("cudf", marks=pytest.mark.skipif(os.environ.get("TEST_CUDF") != "1", reason="TEST_CUDF GPU test lane")),
 ])
 def test_relationship_row_aggregate_combined_aliases_matches_path_oracle(engine: str) -> None:
     nodes = pd.DataFrame({"id": ["a", "b", "c"]})
