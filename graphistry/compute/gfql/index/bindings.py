@@ -596,11 +596,9 @@ def _try_indexed_connected_bindings_state(
         gather_estimate = sum(
             lookup_degree(index, frontier, xp) for index in edge_indexes
         )
-        if (
-            policy != "force"
-            and gather_estimate >= gather_frac * n_edges
-        ):
-            return None
+        if policy != "force":
+            if gather_estimate >= gather_frac * n_edges:
+                return None
 
         row_parts = [
             lookup_edge_rows(index, frontier, xp)[0] for index in edge_indexes
