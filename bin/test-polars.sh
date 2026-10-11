@@ -215,6 +215,8 @@ POLARS_TEST_FILES=(
     graphistry/tests/test_public_apis_do_not_mutate_inputs.py
     # indexed bindings relationship uniqueness: the polars params only run here
     graphistry/tests/compute/gfql/index/test_indexed_bindings_relationship_uniqueness.py
+    # relationship-row aggregates vs a path oracle: the polars params only run here
+    graphistry/tests/compute/gfql/cypher/test_relationship_row_aggregates.py
 )
 
 # PARALLELISM. The py3.12 cell of this lane is the coverage cell and has repeatedly run out
