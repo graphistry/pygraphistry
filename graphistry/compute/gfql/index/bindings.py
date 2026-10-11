@@ -581,10 +581,7 @@ def _try_indexed_connected_bindings_state(
         frontier = sorted_unique(xp, col_to_array(state, _CURRENT, engine))
         edge_indexes = direction_indexes[edge_index]
         if policy != "force":
-            # Official SF1 IC4 gathers 4.94% of edges and reaches 3.36% of
-            # direction keys. On that graph the indexed Polars path wins at
-            # least through 14.4%/10.4% in local stress diagnostics. Scope the
-            # provisional defaults to this seam; explicit tuning still wins.
+            # Polars-only SF1 IC4 defaults; explicit cost-gate tuning still wins.
             key_frac = cost_gate_frac(
                 engine, default=0.04 if engine == Engine.POLARS else None,
             )

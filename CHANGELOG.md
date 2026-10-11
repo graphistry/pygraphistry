@@ -10,6 +10,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- **GFQL Polars indexed connected bindings**: the default planner gate now admits moderately sized key frontiers and edge gathers that measured faster than scanning on the official SF1 IC4 graph. Explicit cost-gate overrides still take precedence; other index paths and engines retain their defaults.
+
 - **GFQL indexed traversal on NumPy 2.4**: integer and Boolean index arrays now use sorted deduplication, avoiding the slower `numpy.unique` hash path on large frontiers while preserving sorted, unique results. Other dtypes and cuPy retain their existing uniqueness semantics. IC4 benchmark evidence and follow-up are tracked in graphistry/pyg-bench#303.
 
 ## [0.60.0 - 2026-10-08]

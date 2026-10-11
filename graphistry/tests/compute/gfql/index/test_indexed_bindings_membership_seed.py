@@ -116,7 +116,7 @@ def test_a_seed_set_covering_most_of_the_graph_takes_the_scan_and_still_agrees(e
     ids=["key-frontier-above-two-percent", "gather-above-two-percent"],
 )
 def test_polars_connected_bindings_mid_frontier_default_and_override(
-    seed_count: int, extra_seed_edges: int,
+    seed_count: int, extra_seed_edges: int, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """A measured winning frontier is served by the Polars bindings gate.
 
@@ -130,6 +130,9 @@ def test_polars_connected_bindings_mid_frontier_default_and_override(
     from graphistry.Engine import Engine
 
     _require("polars")
+    monkeypatch.delenv("GFQL_INDEX_COST_GATE_FRAC", raising=False)
+    monkeypatch.delenv("GFQL_INDEX_COST_GATE_FRAC_POLARS", raising=False)
+    reset_cost_gate_frac(Engine.POLARS)
     ids = list(range(4_000))
     g, edges = _graph(ids, "polars")
     if extra_seed_edges:
@@ -142,6 +145,14 @@ def test_polars_connected_bindings_mid_frontier_default_and_override(
         g = graphistry.edges(native_edges, "src", "dst").nodes(native_nodes, "id")
         g = g.gfql("CREATE GFQL INDEX FOR edge_out_adj", engine="polars")
         g = g.gfql("CREATE GFQL INDEX FOR node_id", engine="polars")
+        edges = pd.concat([edges, extra], ignore_index=True)
+    key_fraction = seed_count / len(ids)
+    gather_fraction = float(edges["src"].lt(seed_count).sum()) / len(edges)
+    if extra_seed_edges:
+        assert key_fraction < 0.02 < gather_fraction < 0.06
+    else:
+        assert 0.02 < key_fraction < 0.04
+        assert 0.02 < gather_fraction < 0.06
     query = [n({"id": is_in(list(range(seed_count)))}, name="a"), e_forward(name="r"), n(name="b"), rows()]
 
     def run(policy: str) -> tuple:
