@@ -8,6 +8,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [Development]
 <!-- Do Not Erase This Section - Used for tracking unreleased changes -->
 
+### Fixed
+
+- **GFQL indexed traversal on NumPy 2.4**: integer and Boolean index arrays now use sorted deduplication, avoiding the slower `numpy.unique` hash path on large frontiers while preserving sorted, unique results. Other dtypes and cuPy retain their existing uniqueness semantics. IC4 benchmark evidence and follow-up are tracked in graphistry/pyg-bench#303.
+
 ## [0.60.0 - 2026-10-08]
 
 ### Added
