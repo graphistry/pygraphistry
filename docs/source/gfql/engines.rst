@@ -240,9 +240,12 @@ input dtypes. A ``LazyFrame`` is collected first. ``call_mode`` applies only to 
 Layout methods follow the same rule on pandas: ``circle_layout``, ``tree_layout``,
 ``ring_categorical_layout``, ``ring_continuous_layout``, ``time_ring_layout``,
 ``group_in_a_box_layout``, ``modularity_weighted_layout``, ``mercator_layout`` and
-``fa2_layout``. Passing ``engine='pandas'`` (or ``'cudf'``) to a layout returns frames of that
-engine instead. ``fa2_layout`` still needs a GPU engine or ``allow_cpu_fallback=True``, as it
-does for pandas input.
+``fa2_layout``. Layouts with an ``engine`` parameter accept ``engine='pandas'`` or
+``'cudf'`` when that backend supports the layout, returning frames of the selected engine.
+``mercator_layout`` has no ``engine`` parameter. ``tree_layout`` is pandas-only: its legacy
+``engine='cudf'`` keyword is ignored and returns pandas frames, as it does on pandas input.
+``fa2_layout`` still needs a GPU engine or ``allow_cpu_fallback=True``, as it does for
+pandas input.
 
 cuDF vs Polars-GPU
 ------------------
