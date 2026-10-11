@@ -164,6 +164,7 @@ def test_labeled_destination_filter_disables_narrowing(engine: str) -> None:
 
 
 @pytest.mark.parametrize("engine", ["pandas", "polars"])
+@pytest.mark.route_engaged("cypher-fast")
 def test_fast_path_still_serves_the_colliding_shape(engine: str) -> None:
     """ANTI-VACUITY: the fix narrows INSIDE the fast path rather than declining it.
 
