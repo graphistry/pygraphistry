@@ -1,4 +1,6 @@
 """``sorted_unique`` returns exactly ``xp.unique`` for every dtype the index layer sees."""
+from types import SimpleNamespace
+
 import numpy as np
 import pytest
 
@@ -34,6 +36,12 @@ def test_union1d_matches_numpy_union1d() -> None:
     np.testing.assert_array_equal(union1d(a, b, np), np.union1d(a, b))
     np.testing.assert_array_equal(union1d(a[:0], b, np), np.unique(b))
     np.testing.assert_array_equal(union1d(a, b[:0], np), np.unique(a))
+
+
+def test_non_numpy_namespace_keeps_its_unique_kernel() -> None:
+    values = np.array([3, 1, 3, 2], dtype=np.int64)
+    backend = SimpleNamespace(unique=np.unique)
+    np.testing.assert_array_equal(sorted_unique(backend, values), np.unique(values))
 
 
 def test_sorted_unique_cupy_matches_cupy_unique() -> None:
