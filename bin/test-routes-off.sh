@@ -11,9 +11,13 @@ SUITES=${SUITES:-graphistry/tests/compute/test_chain.py graphistry/tests/compute
 OUT=${OUT:-build/routes-off}
 mkdir -p "$OUT"
 status=0
+pytest_args=()
+if [ -n "${GFQL_ROUTE_SELECT_MANIFEST:-}" ]; then
+  pytest_args=(-p graphistry.tests.compute.gfql.routes.engagement_manifest)
+fi
 for mode in $MODES; do
   if [ "$mode" = all-off ]; then routes=$ALL_ROUTES; else routes=$mode; fi
-  GFQL_ROUTES_OFF=$routes python -m pytest $SUITES -q -p no:cacheprovider -o addopts="" -rfE > "$OUT/$mode.log" 2>&1 || status=1
+  GFQL_ROUTES_OFF=$routes python -m pytest $SUITES "${pytest_args[@]}" -q -p no:cacheprovider -o addopts="" -rfE > "$OUT/$mode.log" 2>&1 || status=1
   grep -E "^(FAILED|ERROR) " "$OUT/$mode.log" | sed 's/ - .*//' | sort -u > "$OUT/$mode.divergences"
   echo "$mode: $(wc -l < "$OUT/$mode.divergences") divergence id(s); $(tail -1 "$OUT/$mode.log")"
 done

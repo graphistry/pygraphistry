@@ -58,3 +58,36 @@ def test_hosted_replay_failures_fail_the_workflow():
     # The shell runner's nonzero exit must not be suppressed at job or step scope.
     allowances = re.findall(r"^\s+continue-on-error:\s*(.*?)\s*$", _hosted_replay_job(), re.M)
     assert all(value == "false" for value in allowances), allowances
+
+
+def test_route_engagement_manifest_selects_affected_tests_and_rejects_stale_collection(tmp_path):
+    root = Path(__file__).resolve().parents[5]
+    affected = "graphistry/tests/compute/test_gfql.py::TestGFQL::test_gfql_deprecation_and_migration"
+    unaffected = "graphistry/tests/compute/test_gfql.py::TestGFQLAPI::test_public_api_methods"
+    tests = [affected, unaffected]
+    plugin = "graphistry.tests.compute.gfql.routes.engagement_manifest"
+    args = [sys.executable, "-m", "pytest", *tests, "-q", "-p", plugin,
+            "-p", "no:cacheprovider", "-o", "addopts="]
+    env = {key: value for key, value in os.environ.items()
+           if key not in {"GFQL_ROUTES_OFF", "GFQL_ROUTE_SELECT_MANIFEST", "GFQL_ROUTE_RECORD_DIR"}}
+    record_dir = tmp_path / "records"
+    baseline = subprocess.run(args, cwd=root, env={**env, "GFQL_ROUTE_RECORD_DIR": str(record_dir)},
+                              text=True, capture_output=True)
+    assert baseline.returncode == 0, baseline.stdout + baseline.stderr
+    manifest = tmp_path / "manifest.json"
+    build = subprocess.run([sys.executable, "-m", "bin.ci.build_route_manifest",
+                            str(record_dir), str(manifest), "--workers", "1"],
+                           cwd=root, env=env, text=True, capture_output=True)
+    assert build.returncode == 0, build.stdout + build.stderr
+    selected = subprocess.run(args, cwd=root,
+                              env={**env, "GFQL_ROUTES_OFF": "point-rows",
+                                   "GFQL_ROUTE_SELECT_MANIFEST": str(manifest)},
+                              text=True, capture_output=True)
+    assert selected.returncode == 0, selected.stdout + selected.stderr
+    assert "1 passed, 1 deselected" in selected.stdout
+    stale = subprocess.run([*args[:3], affected, *args[5:]], cwd=root,
+                           env={**env, "GFQL_ROUTES_OFF": "point-rows",
+                                "GFQL_ROUTE_SELECT_MANIFEST": str(manifest)},
+                           text=True, capture_output=True)
+    assert stale.returncode != 0
+    assert "does not match this test collection" in stale.stdout + stale.stderr
