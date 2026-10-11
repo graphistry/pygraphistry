@@ -2,7 +2,8 @@ from typing import Callable, cast, List, Optional, Union
 import math
 import pandas as pd
 from functools import wraps
-from .Engine import Engine, bridge_polars_graph, is_polars_df
+from .Engine import Engine, is_polars_df
+from .graph_bridge import bridge_polars_graph
 from .Plottable import Plottable
 from .layout import (
     SugiyamaLayout,

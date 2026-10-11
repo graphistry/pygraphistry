@@ -15,7 +15,8 @@ from graphistry.models.surfaces.graphistry_frontend.url_params import URLParamsD
 from graphistry.validate.validate_react_encodings import parse_apply_encodings_ops
 from graphistry.plugins_types.hypergraph import HypergraphResult
 from graphistry.render.resolve_render_mode import resolve_render_mode
-from graphistry.Engine import Engine, EngineAbstractType, bridge_polars_graph, df_to_engine
+from graphistry.Engine import Engine, EngineAbstractType, df_to_engine
+from graphistry.graph_bridge import bridge_polars_graph
 import copy, hashlib, numpy as np, pandas as pd, pyarrow as pa, sys, uuid, warnings
 from functools import lru_cache, partialmethod
 from weakref import WeakValueDictionary

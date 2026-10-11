@@ -5,7 +5,8 @@ import pandas as pd
 import pytest
 
 import graphistry
-from graphistry.Engine import Engine, _restore_binding_dtypes, bridge_polars_graph
+from graphistry.Engine import Engine
+from graphistry.graph_bridge import _restore_binding_dtypes, bridge_polars_graph
 
 pl = pytest.importorskip("polars")
 
