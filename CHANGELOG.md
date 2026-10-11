@@ -14,6 +14,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- **GFQL indexed bindings relationship uniqueness** (#2177): the indexed connected-bindings and array path-bag routes could bind one relationship to two hops of a Cypher MATCH pattern (for example `(a)-[:K]->(b)<-[:K]-(c)` returned `c = a` through a single edge) under the default `use`/`auto` index policies. Both routes now drop paths that reuse an edge whenever two hops could match the same relationship; hops with pairwise-distinct edge types skip the check. With uniqueness enforced, undirected hops in multi-hop patterns are admitted to the indexed path.
 - **GFQL Cypher `count(DISTINCT <alias>)` on binding rows**: counted the active alias instead of the named one, so `MATCH (a)-[r]->(b) WITH a, count(DISTINCT b) AS c` returned 1 per group. It now counts distinct `b`; on Polars the shape runs natively instead of declining.
 
 ## [0.60.0 - 2026-10-08]

@@ -303,6 +303,8 @@ def try_array_path_bag(
         src, dst, node_id, edges, nodes, engine,
     )
     estimated_rows = int(current_ids.shape[0])
+    enforce_unique_edges = frame_bindings._hops_may_share_edges(ops)
+    hop_edges: List[ArrayLike] = []
 
     for edge_position in range(1, len(ops), 2):
         edge_op, next_op = ops[edge_position], ops[edge_position + 1]
@@ -360,6 +362,19 @@ def try_array_path_bag(
         picked = low[left] + (xp.arange(total) - starts[left])
         node_rows = {alias: rows[left] for alias, rows in node_rows.items()}
         edge_rows = {alias: rows[left] for alias, rows in edge_rows.items()}
+        new_edges = edge_sorted[picked]
+        if enforce_unique_edges:
+            # Cypher relationship uniqueness: a path may not bind one edge to two hops.
+            hop_edges = [rows[left] for rows in hop_edges]
+            if hop_edges:
+                fresh = xp.ones(total, dtype=bool)
+                for earlier in hop_edges:
+                    fresh &= earlier != new_edges
+                picked, new_edges = picked[fresh], new_edges[fresh]
+                node_rows = {alias: rows[fresh] for alias, rows in node_rows.items()}
+                edge_rows = {alias: rows[fresh] for alias, rows in edge_rows.items()}
+                hop_edges = [rows[fresh] for rows in hop_edges]
+            hop_edges.append(new_edges)
         current_ids = to_sorted[picked]
         if rows_sorted is not None:
             current_rows: ArrayLike = rows_sorted[picked]
@@ -371,7 +386,7 @@ def try_array_path_bag(
         if isinstance(next_op._name, str):
             node_rows[next_op._name] = current_rows
         if isinstance(edge_op._name, str):
-            edge_rows[edge_op._name] = edge_sorted[picked]
+            edge_rows[edge_op._name] = new_edges
 
     return ArrayPathBag(
         node_rows=node_rows,

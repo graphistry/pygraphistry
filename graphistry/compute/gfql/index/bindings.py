@@ -127,6 +127,57 @@ def _simple_filter_dict(value: Any, *, allow_empty: bool = True) -> bool:
     )
 
 
+_HOP_EDGE_PREFIX = "__gfql_ib_hop_edge_"
+
+
+def _edge_matches_disjoint(
+    left: Optional[Mapping[str, object]], right: Optional[Mapping[str, object]],
+) -> bool:
+    """True when no edge can satisfy both hops: a shared ``edge_match`` key with distinct values.
+
+    Only same-type ``str`` or non-bool ``int`` values count, so ``True``/``1`` and NaN
+    never prove disjointness.
+    """
+    left_match: Mapping[str, object] = left or {}
+    right_match: Mapping[str, object] = right or {}
+    for key, value in left_match.items():
+        other = right_match.get(key)
+        if (
+            key in right_match
+            and type(value) is type(other)
+            and isinstance(value, (str, int))
+            and not isinstance(value, bool)
+            and value != other
+        ):
+            return True
+    return False
+
+
+def _hops_may_share_edges(ops: Sequence[Any]) -> bool:
+    """Whether two edge steps of a pattern could bind the same relationship."""
+    edge_matches = [op.edge_match for op in ops[1::2]]
+    return any(
+        not _edge_matches_disjoint(edge_matches[i], edge_matches[j])
+        for i in range(len(edge_matches))
+        for j in range(i + 1, len(edge_matches))
+    )
+
+
+def _drop_reused_edges(state: DataFrameT, hop_col: str, earlier: Sequence[str], engine: Engine) -> DataFrameT:
+    """Cypher relationship uniqueness: drop paths whose new hop reuses an earlier hop's edge."""
+    if not earlier:
+        return state
+    if engine == Engine.POLARS:
+        import polars as pl
+
+        keep = pl.all_horizontal([pl.col(hop_col) != pl.col(col) for col in earlier])
+        return state.filter(keep)  # type: ignore[arg-type]
+    mask = state[hop_col] != state[earlier[0]]
+    for col in earlier[1:]:
+        mask &= state[hop_col] != state[col]
+    return state.loc[mask].reset_index(drop=True)
+
+
 def _integer_index(index: Union[AdjacencyIndex, NodeIdIndex, NodePropIndex]) -> bool:
     """Whether an index's keys (and, for adjacency, its neighbor ids) are integral.
 
@@ -455,11 +506,11 @@ def _try_indexed_connected_bindings_state(
                 or not _filter_compatible(edges, op.edge_match)
             ):
                 return None
-    if any(
-        isinstance(op, ASTEdge) and op.direction == "undirected" for op in ops
-    ) and len(ops) != 3:
+    enforce_unique_edges = _hops_may_share_edges(ops)
+    if enforce_unique_edges and set(aliases).intersection(
+        f"{_HOP_EDGE_PREFIX}{edge_index}__" for edge_index in range(1, len(ops), 2)
+    ):
         return None
-
     if engine in (Engine.PANDAS, Engine.CUDF):
         unaliased_edges = sum(
             isinstance(op, ASTEdge) and not isinstance(op._name, str)
@@ -575,6 +626,7 @@ def _try_indexed_connected_bindings_state(
     estimated_rows = int(state.shape[0])
     policy = get_index_policy(base_graph)
     n_edges = int(edges.shape[0])
+    hop_edge_cols: List[str] = []
 
     for edge_index in range(1, len(ops), 2):
         edge_op = cast(ASTEdge, ops[edge_index])
@@ -630,6 +682,14 @@ def _try_indexed_connected_bindings_state(
                 oriented, next_nodes, left_on=_TO, right_on=node_id, engine=engine,
             )
 
+        hop_edge_col = f"{_HOP_EDGE_PREFIX}{edge_index}__"
+        if enforce_unique_edges:
+            if engine == Engine.POLARS:
+                import polars as pl
+
+                oriented = oriented.with_columns(pl.col(_EDGE_ORD).alias(hop_edge_col))  # type: ignore[operator]
+            else:
+                oriented = oriented.assign(**{hop_edge_col: oriented[_EDGE_ORD]})
         expansion = plan_path_ordered_expand_join(
             state,
             oriented,
@@ -645,8 +705,17 @@ def _try_indexed_connected_bindings_state(
         if policy != "force" and estimated_rows > 0 and estimated_rows >= n_edges:
             return None
         state = expansion.expand()
+        if enforce_unique_edges:
+            state = _drop_reused_edges(state, hop_edge_col, hop_edge_cols, engine)
+            hop_edge_cols.append(hop_edge_col)
         if isinstance(next_op._name, str):
             alias_frames[next_op._name] = next_alias_frame
+
+    if hop_edge_cols:
+        if engine == Engine.POLARS:
+            state = state.drop(hop_edge_cols)  # type: ignore[operator]
+        else:
+            state = state.drop(columns=hop_edge_cols)
 
     return IndexedBindingsState(
         state, alias_frames, engine, (len(ops) - 1) // 2, estimated_rows,
