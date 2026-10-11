@@ -87,6 +87,22 @@ def test_compute_igraph_nullable_large_edge_ids_are_exact(dtype: Any, big: int) 
 
 
 @pytest.mark.skipif(not has_igraph, reason="Requires igraph")
+@pytest.mark.parametrize("name", ["source", "target"])
+def test_compute_igraph_does_not_confuse_vertex_attribute_with_edge_collision_name(name: str) -> None:
+    big = 2**53 + 1
+    similar = f"__attr_{name}_2__"
+    nodes = pl.DataFrame({
+        "id": [1, 2],
+        name: pl.Series(name, [big, None], dtype=pl.Int64),
+        similar: ["keep", None],
+    })
+    edges = pl.DataFrame({"s": [1], "d": [2]})
+    out = graphistry.nodes(nodes, "id").edges(edges, "s", "d").compute_igraph("pagerank")
+    assert out._nodes[name].to_list() == [big, None]
+    assert out._nodes[similar].to_list() == ["keep", None]
+
+
+@pytest.mark.skipif(not has_igraph, reason="Requires igraph")
 @pytest.mark.parametrize("null_location", ["node", "endpoint"])
 def test_compute_igraph_rejects_null_structural_ids(null_location: str) -> None:
     big = 2**53 + 1

@@ -1,5 +1,5 @@
 import pandas as pd
-from typing import TYPE_CHECKING, Any, List, Optional, Union
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union
 from graphistry.constants import NODE
 from graphistry.Plottable import Plottable
 from graphistry.util import setup_logger
@@ -30,12 +30,13 @@ def restore_engine(g: Plottable, original_nodes: Any, original_edges: Any) -> Pl
 
 
 def _restore_igraph_large_nullable_ints(
-    df: pd.DataFrame, attributes: Union["igraph.VertexSeq", "igraph.EdgeSeq"]
+    df: pd.DataFrame, attributes: Union["igraph.VertexSeq", "igraph.EdgeSeq"],
+    renamed_attributes: Optional[Dict[str, str]] = None,
 ) -> pd.DataFrame:
     """Keep exact nullable integers across igraph's pandas DataFrame export."""
     repairs = {}
     for name in attributes.attributes():
-        target = f"__attr_{name}_2__" if name in ("source", "target") and f"__attr_{name}_2__" in df else name
+        target = renamed_attributes.get(name, name) if renamed_attributes is not None else name
         if target not in df or not (
             pd.api.types.is_float_dtype(df[target].dtype) or pd.api.types.is_object_dtype(df[target].dtype)
         ):
@@ -202,6 +203,7 @@ def from_igraph(self,
         src_col = g._source or SRC_IGRAPH
         dst_col = g._destination or DST_IGRAPH
         edges_df = ig.get_edge_dataframe()
+        renamed_attrs: Dict[str, str] = {}
 
         # igraph edge attributes named 'source' or 'target' collide with the
         # endpoint columns from get_edge_dataframe(); endpoints come first,
@@ -212,13 +214,16 @@ def from_igraph(self,
             for c in edges_df.columns:
                 n = counts.get(c, 0) + 1
                 counts[c] = n
-                new_cols.append(c if n == 1 else f'__attr_{c}_{n}__')
+                new_name = c if n == 1 else f'__attr_{c}_{n}__'
+                new_cols.append(new_name)
+                if n > 1:
+                    renamed_attrs[c] = new_name
             edges_df.columns = new_cols
             logger.warning(
                 'igraph edge attribute names collide with endpoint columns; '
                 'renamed duplicate columns to __attr_<name>_<n>__'
             )
-        edges_df = _restore_igraph_large_nullable_ints(edges_df, ig.es)
+        edges_df = _restore_igraph_large_nullable_ints(edges_df, ig.es, renamed_attrs)
 
         if ig_index_to_node_id_df is not None:
             edges_df['source'] = edges_df[['source']].merge(
