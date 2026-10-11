@@ -114,3 +114,20 @@ def test_default_policy_does_not_reuse_a_relationship(engine: str, check_engagem
         assert any(s.get("seam") == "connected_bindings" and s.get("served") for s in steps)
     assert (0, 5, 0) not in indexed
     assert indexed == canonical
+
+
+@pytest.mark.parametrize("engine", _engines())
+def test_internal_hop_column_does_not_shadow_user_alias(engine: str) -> None:
+    nodes = pd.DataFrame({"id": [0, 1, 2], "k": [0, 1, 1]})
+    edges = pd.DataFrame({"s": [0, 1], "d": [1, 2], "type": ["K", "K"]})
+    query = (
+        "MATCH (__gfql_ib_hop_edge_1__ {k: 0})-[r1:K]->(b)-[r2:K]->(c) "
+        "RETURN __gfql_ib_hop_edge_1__.id AS a, b.id AS b, c.id AS c"
+    )
+    g = _bind(nodes, edges, engine).gfql_index_all(engine=engine)
+    canonical = _rows(g.gfql(query, engine=engine, index_policy="off"))
+    with index_trace() as steps:
+        indexed = _rows(g.gfql(query, engine=engine, index_policy="force"))
+    assert canonical == [(0, 1, 2)]
+    assert indexed == canonical
+    assert not any(s.get("seam") == "connected_bindings" and s.get("served") for s in steps)

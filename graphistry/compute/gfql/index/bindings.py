@@ -506,6 +506,11 @@ def _try_indexed_connected_bindings_state(
                 or not _filter_compatible(edges, op.edge_match)
             ):
                 return None
+    enforce_unique_edges = _hops_may_share_edges(ops)
+    if enforce_unique_edges and set(aliases).intersection(
+        f"{_HOP_EDGE_PREFIX}{edge_index}__" for edge_index in range(1, len(ops), 2)
+    ):
+        return None
     if engine in (Engine.PANDAS, Engine.CUDF):
         unaliased_edges = sum(
             isinstance(op, ASTEdge) and not isinstance(op._name, str)
@@ -621,7 +626,6 @@ def _try_indexed_connected_bindings_state(
     estimated_rows = int(state.shape[0])
     policy = get_index_policy(base_graph)
     n_edges = int(edges.shape[0])
-    enforce_unique_edges = _hops_may_share_edges(ops)
     hop_edge_cols: List[str] = []
 
     for edge_index in range(1, len(ops), 2):
