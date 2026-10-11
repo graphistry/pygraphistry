@@ -112,5 +112,3 @@ def bridge_polars_graph(compute_engine: Engine = Engine.PANDAS) -> Callable[[_An
         return cast(_AnalyticT, wrapper)  # functools.wraps keeps the signature
 
     return decorate
-
-
