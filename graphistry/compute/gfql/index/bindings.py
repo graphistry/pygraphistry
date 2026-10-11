@@ -504,6 +504,7 @@ def _try_indexed_connected_bindings_state(
         return None
 
     direction_indexes: Dict[int, Sequence[AdjacencyIndex]] = {}
+    key_gate_counts: Dict[int, int] = {}
     for edge_index in range(1, len(ops), 2):
         edge_op = cast(ASTEdge, ops[edge_index])
         indexes = _indices_for_direction(
@@ -516,6 +517,21 @@ def _try_indexed_connected_bindings_state(
         if indexes is None or not all(_integer_index(index) for index in indexes):
             return None
         direction_indexes[edge_index] = indexes
+        # An explicit type sidecar narrows the keys stored, but does not make
+        # probing a frontier more expensive than the ordinary resident CSR.
+        # Keep the existing key-frontier crossover as the planner baseline;
+        # the degree/gather estimate below uses the smaller typed sidecar.
+        if candidate_edge_rows is None:
+            baseline_counts = []
+            for adjacency in indexes:
+                ordinary = registry.get_valid(adjacency.kind, edges, (src, dst), engine)
+                baseline_counts.append(max(
+                    adjacency.n_keys,
+                    ordinary.n_keys if isinstance(ordinary, AdjacencyIndex) else 0,
+                ))
+            key_gate_counts[edge_index] = min(baseline_counts)
+        else:
+            key_gate_counts[edge_index] = min(adjacency.n_keys for adjacency in indexes)
 
     first_filter = first_op.filter_dict or {}
     xp, _ = array_namespace(engine)
@@ -588,9 +604,7 @@ def _try_indexed_connected_bindings_state(
             gather_frac = cost_gate_frac(
                 engine, default=0.06 if engine == Engine.POLARS else None,
             )
-            threshold = key_frac * min(
-                index.n_keys for index in edge_indexes
-            )
+            threshold = key_frac * key_gate_counts[edge_index]
             if int(frontier.shape[0]) >= threshold:
                 return None
             gather_estimate = sum(

@@ -88,3 +88,33 @@ def test_typed_adjacency_lifecycle_and_fallback(engine: str) -> None:
     query = [n({"id": 1}), e_forward({"type": "K"}), n()]
     _assert_same_graph(stale.gfql(query, engine=engine, index_policy="force"),
                        stale.gfql(query, engine=engine, index_policy="off"))
+
+
+def test_typed_sidecar_keeps_use_route_when_key_universe_is_sparse() -> None:
+    """A smaller typed key set must not make the old served route decline."""
+    from graphistry.compute.gfql.index import reset_cost_gate_frac, set_cost_gate_frac, with_index_policy
+    from graphistry.compute.gfql.index.bindings import try_indexed_connected_bindings_state
+
+    broad_src = list(range(1000))
+    typed_src = [0] * 20 + list(range(1, 21))
+    edge_frame = pd.DataFrame({
+        "src": broad_src + typed_src,
+        "dst": broad_src + list(range(1, 21)) + list(range(1000, 1020)),
+        "type": ["X"] * 1000 + ["K"] * 40,
+    })
+    graph = graphistry.bind(node="id", source="src", destination="dst").nodes(
+        pd.DataFrame({"id": list(range(1020))})
+    ).edges(edge_frame)
+    indexed = with_index_policy(
+        graph.gfql_index_all(engine="pandas").gfql_index_edge_types("type", ["K"], engine="pandas"),
+        "use",
+    )
+    ops = [n({"id": 0}, name="a"), e_forward({"type": "K"}, name="r"),
+           n(name="b"), e_forward({"type": "K"}, name="s"), n(name="c")]
+    set_cost_gate_frac(Engine.PANDAS, 0.25)
+    try:
+        assert try_indexed_connected_bindings_state(indexed, ops, engine=Engine.PANDAS) is not None
+        _assert_same_graph(indexed.gfql(ops + [rows()], engine="pandas", index_policy="use"),
+                           graph.gfql(ops + [rows()], engine="pandas", index_policy="off"))
+    finally:
+        reset_cost_gate_frac(Engine.PANDAS)
