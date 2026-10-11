@@ -216,9 +216,8 @@ def set_difference(cand: ArrayLike, visited: ArrayLike, xp: ArrayNamespace) -> A
 def sorted_unique(xp: ArrayNamespace, values: ArrayLike) -> ArrayLike:
     """Sorted distinct values of a 1-D array, identical to ``xp.unique(values)``.
 
-    Integer and bool keys use sort plus an adjacent-difference mask: numpy >= 2.3
-    routes ``np.unique`` through a hash table that is an order of magnitude slower on
-    large int64 id arrays. Other dtypes keep ``xp.unique`` (float NaNs collapse there).
+    Integer and bool keys use sort plus adjacent differences. Other dtypes keep
+    ``xp.unique`` so float NaNs retain their existing behavior.
     """
     if values.ndim != 1 or values.dtype.kind not in "iub" or int(values.shape[0]) <= 1:
         return xp.unique(values)
