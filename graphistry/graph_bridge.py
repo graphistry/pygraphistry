@@ -97,7 +97,7 @@ def bridge_polars_graph(compute_engine: Engine = Engine.PANDAS) -> Callable[[_An
             out = fn(graph_frames_to_engine(g, target), *args, **kwargs)
             if not restore or not hasattr(out, "_nodes"):
                 return out
-            result = graph_frames_to_engine(cast("Plottable", out), Engine.POLARS)
+            result = graph_frames_to_engine(cast("Plottable", out), Engine.POLARS)  # hygiene-ok: explicit-cast -- analytic Plottable result has graph frames after the shape guard
             if result._nodes is not None and is_polars_df(g._nodes):
                 result = result.nodes(_restore_binding_dtypes(result._nodes, g._nodes, [result._node]), result._node)
             if result._edges is not None and is_polars_df(g._edges):
@@ -109,6 +109,6 @@ def bridge_polars_graph(compute_engine: Engine = Engine.PANDAS) -> Callable[[_An
                 )
             return result
 
-        return cast(_AnalyticT, wrapper)  # functools.wraps keeps the signature
+        return cast(_AnalyticT, wrapper)  # hygiene-ok: explicit-cast -- functools.wraps preserves the analytic signature at runtime
 
     return decorate
