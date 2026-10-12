@@ -44,7 +44,8 @@ def test_non_numpy_namespace_keeps_its_unique_kernel() -> None:
     np.testing.assert_array_equal(sorted_unique(backend, values), np.unique(values))
 
 
-def test_numpy_integer_policy_boundary(monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.mark.parametrize("dtype", [np.int32, np.int64, np.uint64, np.bool_])
+def test_numpy_integer_policy_boundary(monkeypatch: pytest.MonkeyPatch, dtype: type) -> None:
     original_unique = np.unique
     original_sort = np.sort
     calls = {"unique": 0, "sort": 0}
@@ -60,8 +61,8 @@ def test_numpy_integer_policy_boundary(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(np, "unique", tracked_unique)
     monkeypatch.setattr(np, "sort", tracked_sort)
     for size in (127, 128):
-        values = np.arange(size, dtype=np.int64)[::-1]
-        np.testing.assert_array_equal(sorted_unique(np, values), np.arange(size))
+        values = (np.arange(size) % 7).astype(dtype)[::-1]
+        np.testing.assert_array_equal(sorted_unique(np, values), original_unique(values))
     assert calls == {"unique": 1, "sort": 1}
 
 
