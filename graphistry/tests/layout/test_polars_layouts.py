@@ -1,4 +1,4 @@
-"""Layouts on Polars-bound graphs and explicitly converted Cypher results (#1966).
+"""Layouts on Polars-bound graphs and direct GFQL Cypher GRAPH results (#1966).
 
 Each layout runs on pandas and returns eager Polars frames whose rows and values match
 the same layout on a pandas-bound graph; explicit ``engine='pandas'`` returns pandas.
@@ -46,7 +46,7 @@ IGRAPH_LAYOUTS: Dict[str, Callable[..., Any]] = {
 DETERMINISTIC = set(LAYOUTS) | {"modularity_weighted_layout"}
 NO_ENGINE_PARAM = {"mercator_layout"}
 GPU_TESTS = os.environ.get("TEST_CUGRAPH") == "1"
-CYPHER_NODE_QUERY = "MATCH (n) WHERE n.id <= 3 RETURN n"
+CYPHER_GRAPH_QUERY = "GRAPH { MATCH (a)-[r]->(b) WHERE r.eid <= 12 }"
 
 
 def _graphs(lazy: bool) -> Any:
@@ -131,29 +131,14 @@ def test_layout_preserves_nullable_large_edge_id(layout: str) -> None:
     assert out._edges["eid"].to_list() == [big, None]
 
 
-def _cypher_selected_graph(engine: str, lazy: bool = False) -> Any:
-    """Make topology explicit: Cypher RETURN is rows, not a matched-edge graph."""
+def _cypher_graph_result(engine: str, lazy: bool = False) -> Any:
+    """Run the graph-result Cypher extension; its output must be layout-ready."""
     edges = pl.from_pandas(EDGES.assign(eid=[10, 11, 12, 13]))
     nodes = pl.from_pandas(NODES)
     source = graphistry.edges(edges.lazy() if lazy else edges, "s", "d", edge="eid").nodes(
         nodes.lazy() if lazy else nodes, "id"
     )
-    rows = source.gfql(CYPHER_NODE_QUERY, engine=engine)
-    assert isinstance(rows._nodes, pl.DataFrame)
-    assert rows._edges is not None and len(rows._edges) == 0
-    columns = {f"n.{column}": column for column in NODES.columns}
-    assert set(columns) <= set(rows._nodes.columns)
-    selected_nodes = rows._nodes.rename(columns)
-    assert selected_nodes["id"].n_unique() == len(selected_nodes)
-    ids = selected_nodes.select("id")
-    selected_edges = (
-        edges.join(ids.rename({"id": "s"}), on="s", how="semi")
-        .join(ids.rename({"id": "d"}), on="d", how="semi")
-        .sort("eid")
-    )
-    return graphistry.edges(selected_edges, "s", "d", edge="eid").nodes(selected_nodes, "id").bind(
-        point_latitude="lat", point_longitude="lon"
-    )
+    return source.bind(point_latitude="lat", point_longitude="lon").gfql(CYPHER_GRAPH_QUERY, engine=engine)
 
 
 @pytest.mark.parametrize("engine", [
@@ -162,19 +147,20 @@ def _cypher_selected_graph(engine: str, lazy: bool = False) -> Any:
 ])
 @pytest.mark.parametrize("lazy", [False, True], ids=["eager-input", "lazy-input"])
 @pytest.mark.parametrize("name, layout", list(_cases()))
-def test_cypher_polars_result_explicit_graph_conversion_runs_layouts(
+def test_cypher_graph_result_directly_runs_layouts(
     name: str, layout: Callable[..., Any], engine: str, lazy: bool,
 ) -> None:
     if engine == "polars-gpu":
         pytest.importorskip("cudf")
         pytest.importorskip("cudf_polars")
-    selected = _cypher_selected_graph(engine, lazy)
+    selected = _cypher_graph_result(engine, lazy)
     assert selected._node == "id" and selected._source == "s" and selected._destination == "d"
     assert selected._edge == "eid"
     assert selected._nodes.schema["id"] == pl.Int64
     assert selected._edges.schema["eid"] == pl.Int64
-    assert selected._nodes["id"].to_list() == [0, 1, 2, 3]
-    assert selected._edges["eid"].to_list() == [10, 11, 12]
+    assert sorted(selected._nodes["id"].to_list()) == [0, 1, 2, 3]
+    assert sorted(selected._edges["eid"].to_list()) == [10, 11, 12]
+    assert selected._point_latitude == "lat" and selected._point_longitude == "lon"
 
     out = layout(selected)
     assert isinstance(out._nodes, pl.DataFrame) and isinstance(out._edges, pl.DataFrame)
@@ -183,8 +169,8 @@ def test_cypher_polars_result_explicit_graph_conversion_runs_layouts(
     assert sorted(out._nodes["id"].to_list()) == [0, 1, 2, 3]
     assert sorted(out._edges["eid"].to_list()) == [10, 11, 12]
     if name in DETERMINISTIC:
-        ref_nodes = NODES.loc[NODES["id"] <= 3].reset_index(drop=True)
-        ref_edges = EDGES.assign(eid=[10, 11, 12, 13]).iloc[:3].reset_index(drop=True)
+        ref_nodes = NODES.loc[NODES["id"] <= 3].assign(a=[True, True, False, False], b=[False, True, True, True]).reset_index(drop=True)
+        ref_edges = EDGES.assign(eid=[10, 11, 12, 13]).iloc[:3].assign(r=True).reset_index(drop=True)
         ref = graphistry.edges(ref_edges, "s", "d", edge="eid").nodes(ref_nodes, "id").bind(
             point_latitude="lat", point_longitude="lon"
         )
@@ -201,7 +187,7 @@ def test_cypher_result_graph_layout_backend_is_explicit(query_engine: str) -> No
     if query_engine == "polars-gpu":
         pytest.importorskip("cudf")
         pytest.importorskip("cudf_polars")
-    selected = _cypher_selected_graph(query_engine)
+    selected = _cypher_graph_result(query_engine)
     kwargs = {"bounding_box": (0, 0, 10, 10)}
     default = selected.circle_layout(**kwargs)
     assert isinstance(default._nodes, pl.DataFrame)
@@ -225,7 +211,7 @@ def test_cypher_result_graph_layout_backend_is_explicit(query_engine: str) -> No
     "polars",
     pytest.param("polars-gpu", marks=pytest.mark.skipif(not GPU_TESTS, reason="Requires real RAPIDS GPU")),
 ])
-def test_cypher_result_graph_conversion_keeps_large_nullable_ids(query_engine: str) -> None:
+def test_cypher_graph_result_keeps_large_nullable_edge_property(query_engine: str) -> None:
     if query_engine == "polars-gpu":
         pytest.importorskip("cudf")
         pytest.importorskip("cudf_polars")
@@ -235,20 +221,15 @@ def test_cypher_result_graph_conversion_keeps_large_nullable_ids(query_engine: s
         "s": [big, big + 1, big + 2], "d": [big + 1, big + 2, big + 3],
         "eid": pl.Series("eid", [big + 10, None, big + 11], dtype=pl.Int64),
     })
-    source = graphistry.edges(edges, "s", "d", edge="eid").nodes(nodes, "id")
-    rows = source.gfql("MATCH (n) WHERE n.keep = true RETURN n", engine=query_engine)
-    assert rows._edges is not None and len(rows._edges) == 0
-    selected_nodes = rows._nodes.rename({"n.id": "id", "n.keep": "keep"})
-    ids = selected_nodes.select("id")
-    selected_edges = edges.join(ids.rename({"id": "s"}), on="s", how="semi").join(
-        ids.rename({"id": "d"}), on="d", how="semi"
-    )
-    selected = graphistry.edges(selected_edges, "s", "d", edge="eid").nodes(selected_nodes, "id")
+    source = graphistry.edges(edges, "s", "d").nodes(nodes, "id")
+    selected = source.gfql("GRAPH { MATCH (a)-[r]->(b) WHERE b.keep = true }", engine=query_engine)
+    assert sorted(selected._nodes["id"].to_list()) == [big, big + 1, big + 2]
+    assert selected._edges["eid"].to_list() == [big + 10, None]
     out = selected.circle_layout(bounding_box=(0, 0, 10, 10))
     assert out._nodes.schema["id"] == pl.Int64 and out._edges.schema["eid"] == pl.Int64
     assert sorted(out._nodes["id"].to_list()) == [big, big + 1, big + 2]
     assert out._edges["eid"].to_list() == [big + 10, None]
-    assert out._node == "id" and out._source == "s" and out._destination == "d" and out._edge == "eid"
+    assert out._node == "id" and out._source == "s" and out._destination == "d" and out._edge is None
 
 
 @pytest.mark.parametrize("query_engine", [

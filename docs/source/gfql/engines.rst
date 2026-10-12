@@ -235,36 +235,10 @@ Direct ``compute_igraph`` / ``layout_igraph`` calls on Polars graphs use pandas;
 with binding ID dtypes preserved, collecting lazy input first. ``call_mode`` governs
 GFQL ``call()`` only; these direct methods choose their backend by algorithm.
 
-Direct layouts also accept Polars input. They default to pandas computation and
-return eager Polars frames, regardless of an earlier GFQL CPU/GPU engine choice.
-Where supported, pass ``engine='pandas'`` or ``'cudf'`` to select that backend and
-its frame type, or ``engine='polars-gpu'`` for cuDF computation with Polars output.
-Exceptions: ``mercator_layout`` has no ``engine`` argument; ``tree_layout`` remains
-pandas-only and ignores its legacy ``engine='cudf'``; ``fa2_layout`` needs a GPU
-engine or ``allow_cpu_fallback=True``.
-
-Cypher ``RETURN`` produces rows, not a graph of matched edges. To lay out a
-selected node set, choose its edges explicitly and bind the graph first. For a
-Polars graph ``g`` with ``id`` nodes and ``src``/``dst`` edges:
-
-.. doc-test: skip
-
-.. code-block:: python
-
-   rows = g.gfql("MATCH (n) WHERE n.score > 0 RETURN n", engine="polars")
-   nodes = rows._nodes.rename({col: col[2:] for col in rows._nodes.columns})
-   ids = nodes.select("id")
-   edges = (g._edges
-       .join(ids.rename({"id": "src"}), on="src", how="semi")
-       .join(ids.rename({"id": "dst"}), on="dst", how="semi"))
-   selected = graphistry.edges(edges, "src", "dst").nodes(nodes, "id")
-   selected.circle_layout(bounding_box=(0, 0, 10, 10))
-
-This selects the induced edges from ``g``; they may differ from the edges matched
-by the Cypher query.
-
-The same conversion works after ``engine='polars-gpu'``. A later direct layout
-still defaults to pandas computation; select a supported GPU layout engine explicitly.
+Direct layouts accept Polars input and return eager Polars frames by default;
+they do not inherit a previous GFQL query's engine. See the
+:doc:`Cypher graph-result example </api/gfql/cypher>` and
+:doc:`layout API </api/layout/index>` for usage and backend choices.
 
 cuDF vs Polars-GPU
 ------------------
