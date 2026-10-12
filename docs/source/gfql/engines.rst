@@ -243,6 +243,26 @@ Exceptions: ``mercator_layout`` has no ``engine`` argument; ``tree_layout`` rema
 pandas-only and ignores its legacy ``engine='cudf'``; ``fa2_layout`` needs a GPU
 engine or ``allow_cpu_fallback=True``.
 
+Cypher ``RETURN`` produces rows, not a graph of matched edges. To lay out a
+selected node set, choose its edges explicitly and bind the graph first. For a
+Polars graph ``g`` with ``id`` nodes and ``src``/``dst`` edges:
+
+.. doc-test: skip
+
+.. code-block:: python
+
+   rows = g.gfql("MATCH (n) WHERE n.score > 0 RETURN n", engine="polars")
+   nodes = rows._nodes.rename({col: col[2:] for col in rows._nodes.columns})
+   ids = nodes.select("id")
+   edges = (g._edges
+       .join(ids.rename({"id": "src"}), on="src", how="semi")
+       .join(ids.rename({"id": "dst"}), on="dst", how="semi"))
+   selected = graphistry.edges(edges, "src", "dst").nodes(nodes, "id")
+   selected.circle_layout(bounding_box=(0, 0, 10, 10))
+
+The same conversion works after ``engine='polars-gpu'``. A later direct layout
+still defaults to pandas computation; select a supported GPU layout engine explicitly.
+
 cuDF vs Polars-GPU
 ------------------
 
