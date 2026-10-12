@@ -64,7 +64,10 @@ from graphistry.compute.predicates.logical import all_of
 from graphistry.compute.predicates.str import contains as str_contains, endswith, fullmatch, never_match, startswith
 from graphistry.compute.gfql.cypher.parser import _mask_quoted_backticked_and_commented_for_scan
 from graphistry.compute.gfql.cypher.aggregate_bindings import (
+    aggregate_runtime_spec as _aggregate_runtime_spec,
+    distinct_aggregate_expr_text as _distinct_aggregate_expr_text,
     is_multiplicity_sensitive_aggregate as _is_multiplicity_sensitive_aggregate,
+    per_path_aggregate_bindings_apply as _per_path_aggregate_bindings_apply,
     requires_aggregate_bindings as _requires_aggregate_bindings,
 )
 from graphistry.compute.gfql.cypher.aggregate_identity import (
@@ -5208,6 +5211,7 @@ def _lower_match_alias_aggregate_stage(
         runtime_func, runtime_expr = _aggregate_runtime_spec(
             agg_spec,
             alias_targets=scope.alias_targets,
+            binding_rows=bool(scope.allowed_match_aliases),
         )
         if runtime_expr is None:
             aggregations.append((agg_spec.output_name, runtime_func))
@@ -6974,58 +6978,6 @@ def _row_where_predicate_text(predicate: WherePredicate) -> Optional[str]:
     )
 
 
-def _distinct_aggregate_expr_text(
-    agg_spec: _AggregateSpec,
-    *,
-    alias_targets: Mapping[str, ASTObject],
-) -> Optional[str]:
-    expr_text = agg_spec.expr_text
-    if expr_text is None:
-        return None
-    target = alias_targets.get(expr_text)
-    if isinstance(target, ASTNode):
-        return NODE_IDENTITY_COLUMN
-    if isinstance(target, ASTEdge):
-        if agg_spec.func == "collect":
-            raise _unsupported(
-                "collect(DISTINCT rel_alias) is not yet supported in local Cypher lowering",
-                field="return.item",
-                value=agg_spec.source_text,
-                line=agg_spec.span_line,
-                column=agg_spec.span_column,
-            )
-        return EDGE_IDENTITY_COLUMN
-    return expr_text
-
-
-def _aggregate_runtime_spec(
-    agg_spec: _AggregateSpec,
-    *,
-    alias_targets: Mapping[str, ASTObject],
-) -> Tuple[str, Optional[str]]:
-    func = agg_spec.func
-    expr_text = agg_spec.expr_text
-    if expr_text is not None:
-        target = alias_targets.get(expr_text)
-        if isinstance(target, ASTNode) and func in {"collect", "collect_distinct"}:
-            expr_text = f"__node_entity__({expr_text})"
-        elif isinstance(target, ASTEdge) and func in {"collect", "collect_distinct"}:
-            expr_text = f"__edge_entity__({expr_text})"
-    if not agg_spec.distinct:
-        return func, expr_text
-    if func == "count":
-        return "count_distinct", _distinct_aggregate_expr_text(agg_spec, alias_targets=alias_targets)
-    if func == "collect":
-        return "collect_distinct", _distinct_aggregate_expr_text(agg_spec, alias_targets=alias_targets)
-    raise _unsupported(
-        "Cypher DISTINCT aggregates are currently supported for count() and collect() only",
-        field="return.item",
-        value=agg_spec.source_text,
-        line=agg_spec.span_line,
-        column=agg_spec.span_column,
-    )
-
-
 def _whole_row_group_entity_expr(
     alias_name: str,
     *,
@@ -7119,13 +7071,23 @@ def _lower_general_row_projection(
 
     binding_row_aliases = _binding_row_aliases_for_match(query.match, alias_targets=alias_targets)
     forced_binding_row_aliases = False
-    if _requires_aggregate_bindings(
+    requires_bindings = _requires_aggregate_bindings(
         aggregate_specs=aggregate_specs,
         relationship_count=relationship_count,
         clause=query.return_,
         alias_targets=alias_targets,
         params=params,
+    )
+    if requires_bindings and _per_path_aggregate_bindings_apply(
+        query,
+        aggregate_specs=aggregate_specs,
+        non_aggregate_items=non_aggregate_items,
+        alias_targets=alias_targets,
+        params=params,
     ):
+        binding_row_aliases = set(alias_targets.keys())
+        forced_binding_row_aliases = True
+    elif requires_bindings:
         base_active_alias: Optional[str] = None
         can_force_bindings = True
         whole_row_group_alias_refs = {
@@ -7477,6 +7439,7 @@ def _lower_general_row_projection(
             runtime_func, runtime_expr = _aggregate_runtime_spec(
                 agg_spec,
                 alias_targets=alias_targets,
+                binding_rows=bool(binding_row_aliases),
             )
             if runtime_expr is None:
                 aggregations.append((agg_spec.output_name, runtime_func))

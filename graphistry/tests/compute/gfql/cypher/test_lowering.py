@@ -4179,7 +4179,7 @@ def test_string_cypher_supports_relationship_row_multiplicity_sensitive_aggregat
     assert result._nodes.to_dict(orient="records") == expected_rows
 
 
-def test_string_cypher_failfast_relationship_whole_row_grouped_count_star_boundary() -> None:
+def test_string_cypher_relationship_whole_row_grouped_count_star_counts_paths() -> None:
     graph = _mk_graph(
         pd.DataFrame(
             {
@@ -4196,8 +4196,8 @@ def test_string_cypher_failfast_relationship_whole_row_grouped_count_star_bounda
         ),
     )
 
-    with pytest.raises(GFQLValidationError, match="repeated MATCH rows"):
-        graph.gfql("MATCH (a:L)-[rel]->(b) RETURN a, count(*)")
+    out = graph.gfql("MATCH (a:L)-[rel]->(b) RETURN a, count(*)")._nodes
+    assert out.to_dict(orient="records") == [{"a.id": "a", "a.label__L": True, "count(*)": 2}]
 
 
 def test_string_cypher_failfast_optional_match_collect_null_whole_row_return_boundary() -> None:
@@ -4329,16 +4329,17 @@ def test_string_cypher_supports_relationship_row_grouped_count_sum_and_avg() -> 
 
 
 @pytest.mark.parametrize(
-    "query",
+    "query, expected",
     [
-        "MATCH (a:L)-[r]->(b) RETURN a.id AS aid, count(r) AS cnt",
-        "MATCH (a:L)-[r]->(b) RETURN a.id AS aid, sum(r.weight) AS total",
-        "MATCH (a:L)-[r]->(b) RETURN a.id AS aid, avg(r.weight) AS avg_w",
+        ("MATCH (a:L)-[r]->(b) RETURN a.id AS aid, count(r) AS cnt", [{"aid": "a", "cnt": 2}]),
+        ("MATCH (a:L)-[r]->(b) RETURN a.id AS aid, sum(r.weight) AS total", [{"aid": "a", "total": 5}]),
+        ("MATCH (a:L)-[r]->(b) RETURN a.id AS aid, avg(r.weight) AS avg_w", [{"aid": "a", "avg_w": 2.5}]),
     ],
 )
-def test_string_cypher_direct_return_grouped_relationship_aggregate_one_source_boundary(
-    query: str,
+def test_string_cypher_direct_return_grouped_relationship_aggregate_matches_with_form(
+    query: str, expected: list,
 ) -> None:
+    """RETURN-form relationship aggregates equal the WITH-form results pinned above."""
     graph = _mk_graph(
         pd.DataFrame(
             {
@@ -4357,8 +4358,7 @@ def test_string_cypher_direct_return_grouped_relationship_aggregate_one_source_b
         ),
     )
 
-    with pytest.raises(GFQLValidationError, match="one MATCH source alias at a time"):
-        graph.gfql(query)
+    assert graph.gfql(query)._nodes.to_dict(orient="records") == expected
 
 
 def test_string_cypher_keeps_single_edge_relationship_grouped_count_star() -> None:
