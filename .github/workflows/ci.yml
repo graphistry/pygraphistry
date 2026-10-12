@@ -1517,7 +1517,7 @@ jobs:
     needs: [changes, test-minimal-python, generate-lockfiles]
     if: ${{ ((needs.changes.outputs.python == 'true' && needs.changes.outputs.narrow_python_only != 'true') || needs.changes.outputs.gfql == 'true' || needs.changes.outputs.core == 'true' || needs.changes.outputs.infra == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule') && !(needs.changes.outputs.docs_only_latest == 'true' && (github.event_name == 'push' || github.event_name == 'pull_request')) }}
     runs-on: ubuntu-latest
-    timeout-minutes: 8
+    timeout-minutes: 12
 
     strategy:
       matrix:
@@ -1639,11 +1639,66 @@ jobs:
         source pygraphistry/bin/activate
         ./bin/test-graphviz.sh
 
+  gfql-route-manifest:
+    # One normal Polars-enabled pass records which tests actually call each route.
+    # Every replay compares its collection hash before deselecting unaffected tests.
+    needs: [changes, python-lint-types, generate-lockfiles]
+    if: ${{ needs.changes.outputs.gfql == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    steps:
+    - name: Checkout repo
+      uses: actions/checkout@v4
+      with:
+        lfs: true
+        persist-credentials: false
+
+    - name: Set up Python 3.12
+      uses: actions/setup-python@v5
+      with:
+        python-version: 3.12
+
+    - name: Download lockfiles
+      uses: actions/download-artifact@v4
+      with:
+        name: lockfiles
+        path: requirements
+
+    - name: Install Python dependencies
+      run: |
+        python -m venv pygraphistry
+        source pygraphistry/bin/activate
+        python -m pip install --upgrade pip uv
+        uv pip install --require-hashes -r requirements/test-polars-py3.12.lock
+        uv pip install -e . --no-deps
+
+    - name: Record normal route engagement
+      run: |
+        source pygraphistry/bin/activate
+        mkdir -p build/route-engagement/records
+        GFQL_ROUTE_RECORD_DIR=build/route-engagement/records python -m pytest -n 2 \
+          graphistry/tests/compute/test_chain.py \
+          graphistry/tests/compute/test_hop.py \
+          graphistry/tests/compute/test_gfql.py \
+          graphistry/tests/compute/gfql \
+          -q -p graphistry.tests.compute.gfql.routes.engagement_manifest \
+          -p no:cacheprovider -o addopts="" -rfE
+        python -m bin.ci.build_route_manifest \
+          build/route-engagement/records build/route-engagement/manifest.json --workers 2
+
+    - name: Upload route engagement manifest
+      uses: actions/upload-artifact@v4
+      with:
+        name: gfql-route-engagement
+        path: build/route-engagement/manifest.json
+        if-no-files-found: error
+
   gfql-routes-off:
     # Required replay: run the GFQL suites with one hot path declined per cell
     # (GFQL_ROUTES_OFF); engagement pins are skipped via the route_engaged marker, so the
     # uploaded lists hold route-vs-general result divergences only.
-    needs: [changes, python-lint-types, generate-lockfiles]
+    needs: [changes, python-lint-types, generate-lockfiles, gfql-route-manifest]
     if: ${{ needs.changes.outputs.gfql == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' }}
     runs-on: ubuntu-latest
     timeout-minutes: 45
@@ -1672,6 +1727,12 @@ jobs:
         name: lockfiles
         path: requirements
 
+    - name: Download route engagement manifest
+      uses: actions/download-artifact@v4
+      with:
+        name: gfql-route-engagement
+        path: build/route-engagement
+
     - name: Install Python dependencies
       run: |
         python -m venv pygraphistry
@@ -1683,7 +1744,7 @@ jobs:
     - name: Routes-off replay (${{ matrix.mode }})
       run: |
         source pygraphistry/bin/activate
-        MODES=${{ matrix.mode }} ./bin/test-routes-off.sh
+        GFQL_ROUTE_SELECT_MANIFEST=build/route-engagement/manifest.json ROUTES_XDIST=2 MODES=${{ matrix.mode }} ./bin/test-routes-off.sh
         echo "## routes-off: ${{ matrix.mode }}" >> "$GITHUB_STEP_SUMMARY"
         sed 's/^/- /' build/routes-off/${{ matrix.mode }}.divergences >> "$GITHUB_STEP_SUMMARY"
 
@@ -1699,9 +1760,9 @@ jobs:
     needs: [changes, test-minimal-python, generate-lockfiles]
     if: ${{ ((needs.changes.outputs.python == 'true' && needs.changes.outputs.narrow_python_only != 'true') || needs.changes.outputs.gfql == 'true' || needs.changes.outputs.pandas_compat == 'true' || needs.changes.outputs.core == 'true' || needs.changes.outputs.infra == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule') && !(needs.changes.outputs.docs_only_latest == 'true' && (github.event_name == 'push' || github.event_name == 'pull_request')) }}
     runs-on: ubuntu-latest
-    # The py3.12 coverage cell takes ~9m40s on a 2-vCPU hosted runner before
-    # setup, the coverage audit, and artifact upload; keep deterministic margin.
-    timeout-minutes: 15
+    # The py3.12 coverage cell can exceed 15 minutes including setup and
+    # artifact work; retain enough margin for a completed test verdict.
+    timeout-minutes: 20
 
     strategy:
       matrix:
