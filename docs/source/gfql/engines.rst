@@ -230,23 +230,18 @@ a Python setting overrides the environment:
    set_call_mode('strict')   # raise on off-engine analytics (pass None to reset to env/default)
    # or: export GFQL_POLARS_CALL_MODE=strict
 
-Calling these analytics directly on a Polars-bound graph uses the same conversions.
-``g.compute_igraph(...)`` and ``g.layout_igraph(...)`` run on pandas, and
-``g.compute_cugraph(...)`` and ``g.layout_cugraph(...)`` run on cuDF. The result comes back
-as eager Polars frames, and node id, source, destination and edge id columns keep their
-input dtypes. A ``LazyFrame`` is collected first. ``call_mode`` applies only to GFQL
-``call()``. These direct methods do not take an ``engine`` argument; the selected
-algorithm determines whether pandas or cuDF executes it.
+Direct ``compute_igraph`` / ``layout_igraph`` calls on Polars graphs use pandas;
+``compute_cugraph`` / ``layout_cugraph`` use cuDF. They return eager Polars frames
+with binding ID dtypes preserved, collecting lazy input first. ``call_mode`` governs
+GFQL ``call()`` only; these direct methods choose their backend by algorithm.
 
-Layout methods follow the same rule on pandas: ``circle_layout``, ``tree_layout``,
-``ring_categorical_layout``, ``ring_continuous_layout``, ``time_ring_layout``,
-``group_in_a_box_layout``, ``modularity_weighted_layout``, ``mercator_layout`` and
-``fa2_layout``. Layouts with an ``engine`` parameter accept ``engine='pandas'`` or
-``'cudf'`` when that backend supports the layout, returning frames of the selected engine.
-``mercator_layout`` has no ``engine`` parameter. ``tree_layout`` is pandas-only: its legacy
-``engine='cudf'`` keyword is ignored and returns pandas frames, as it does on pandas input.
-``fa2_layout`` still needs a GPU engine or ``allow_cpu_fallback=True``, as it does for
-pandas input.
+Direct layouts also accept Polars input. They default to pandas computation and
+return eager Polars frames, regardless of an earlier GFQL CPU/GPU engine choice.
+Where supported, pass ``engine='pandas'`` or ``'cudf'`` to select that backend and
+its frame type, or ``engine='polars-gpu'`` for cuDF computation with Polars output.
+Exceptions: ``mercator_layout`` has no ``engine`` argument; ``tree_layout`` remains
+pandas-only and ignores its legacy ``engine='cudf'``; ``fa2_layout`` needs a GPU
+engine or ``allow_cpu_fallback=True``.
 
 cuDF vs Polars-GPU
 ------------------
