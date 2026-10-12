@@ -336,8 +336,9 @@ Install
    # 'polars-gpu' additionally uses cudf_polars.
 
 .. note::
-   Layouts, plotting and featurization accept Polars frames as input and compute in
-   pandas. The engine behavior on this page applies to GFQL query execution.
+   Layouts, plotting and featurization accept Polars input. Direct layouts default
+   to pandas computation unless a supported GPU engine is selected. The ``engine=``
+   behavior above applies to GFQL query execution.
 
 Provenance
 ----------
