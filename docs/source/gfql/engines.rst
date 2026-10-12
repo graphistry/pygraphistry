@@ -260,6 +260,9 @@ Polars graph ``g`` with ``id`` nodes and ``src``/``dst`` edges:
    selected = graphistry.edges(edges, "src", "dst").nodes(nodes, "id")
    selected.circle_layout(bounding_box=(0, 0, 10, 10))
 
+This selects the induced edges from ``g``; they may differ from the edges matched
+by the Cypher query.
+
 The same conversion works after ``engine='polars-gpu'``. A later direct layout
 still defaults to pandas computation; select a supported GPU layout engine explicitly.
 

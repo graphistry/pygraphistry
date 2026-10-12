@@ -249,3 +249,20 @@ def test_cypher_result_graph_conversion_keeps_large_nullable_ids(query_engine: s
     assert sorted(out._nodes["id"].to_list()) == [big, big + 1, big + 2]
     assert out._edges["eid"].to_list() == [big + 10, None]
     assert out._node == "id" and out._source == "s" and out._destination == "d" and out._edge == "eid"
+
+
+@pytest.mark.parametrize("query_engine", [
+    "polars",
+    pytest.param("polars-gpu", marks=pytest.mark.skipif(not GPU_TESTS, reason="Requires real RAPIDS GPU")),
+])
+def test_cypher_return_rows_do_not_implicitly_claim_matched_edges(query_engine: str) -> None:
+    if query_engine == "polars-gpu":
+        pytest.importorskip("cudf")
+        pytest.importorskip("cudf_polars")
+    source = graphistry.edges(pl.from_pandas(EDGES), "s", "d").nodes(pl.from_pandas(NODES), "id")
+    rows = source.gfql("MATCH (a)-[e]->(b) RETURN b", engine=query_engine)
+    assert isinstance(rows._nodes, pl.DataFrame)
+    assert rows._edges is not None and len(rows._edges) == 0
+    assert rows._source is None and rows._destination is None
+    with pytest.raises(ValueError, match="Missing source/destination bindings"):
+        rows.circle_layout(bounding_box=(0, 0, 10, 10))
