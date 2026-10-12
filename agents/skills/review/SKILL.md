@@ -231,7 +231,8 @@ python -m pytest -q [targeted_test]
   assertion in pygraphistry tests is a finding.
   A new route also updates the hosted replay matrix and runs `graphistry/tests/compute/gfql/routes/test_replay.py`;
   focused local replay does not check hosted matrix coverage.
-- **Perf claims live in pyg-bench.** A number in a PR body or CHANGELOG needs a pyg-bench measurement
+- **Perf claims and perf issues live in pyg-bench.** File perf follow-ups found in review in pyg-bench, not pygraphistry.
+  A number in a PR body or CHANGELOG needs a pyg-bench measurement
   with an A/A control beside the A/B, pinned in that repo's thresholds + contract test; pygraphistry
   carries results and data contracts only. Local-box numbers do not close a perf PR.
 - **Cypher surface.** A change reachable from a Cypher query (parser, DDL, row pipeline, WHERE/RETURN
