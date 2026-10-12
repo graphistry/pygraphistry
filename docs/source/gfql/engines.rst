@@ -335,11 +335,6 @@ Install
    # 'cudf' and 'polars-gpu' require the NVIDIA RAPIDS stack (GPU);
    # 'polars-gpu' additionally uses cudf_polars.
 
-.. note::
-   Layouts, plotting and featurization accept Polars input. Direct layouts default
-   to pandas computation unless a supported GPU engine is selected. The ``engine=``
-   behavior above applies to GFQL query execution.
-
 Provenance
 ----------
 
