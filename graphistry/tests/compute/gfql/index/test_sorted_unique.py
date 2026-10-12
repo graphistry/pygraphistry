@@ -44,6 +44,49 @@ def test_non_numpy_namespace_keeps_its_unique_kernel() -> None:
     np.testing.assert_array_equal(sorted_unique(backend, values), np.unique(values))
 
 
+@pytest.mark.parametrize("dtype", [np.int32, np.int64, np.uint64])
+def test_numpy_integer_policy_boundary(monkeypatch: pytest.MonkeyPatch, dtype: type) -> None:
+    original_unique = np.unique
+    original_sort = np.sort
+    calls = {"unique": 0, "sort": 0}
+
+    def tracked_unique(values: np.ndarray) -> np.ndarray:
+        calls["unique"] += 1
+        return original_unique(values)
+
+    def tracked_sort(values: np.ndarray) -> np.ndarray:
+        calls["sort"] += 1
+        return original_sort(values)
+
+    monkeypatch.setattr(np, "unique", tracked_unique)
+    monkeypatch.setattr(np, "sort", tracked_sort)
+    for size in (127, 128):
+        values = (np.arange(size) % 7).astype(dtype)[::-1]
+        np.testing.assert_array_equal(sorted_unique(np, values), original_unique(values))
+    assert calls == {"unique": 1, "sort": 1}
+
+
+def test_numpy_boolean_uses_sorted_path_above_one_entry(monkeypatch: pytest.MonkeyPatch) -> None:
+    original_unique = np.unique
+    original_sort = np.sort
+    calls = {"unique": 0, "sort": 0}
+
+    def tracked_unique(values: np.ndarray) -> np.ndarray:
+        calls["unique"] += 1
+        return original_unique(values)
+
+    def tracked_sort(values: np.ndarray) -> np.ndarray:
+        calls["sort"] += 1
+        return original_sort(values)
+
+    monkeypatch.setattr(np, "unique", tracked_unique)
+    monkeypatch.setattr(np, "sort", tracked_sort)
+    for size in (1, 2, 127, 128):
+        values = (np.arange(size) % 2).astype(bool)
+        np.testing.assert_array_equal(sorted_unique(np, values), original_unique(values))
+    assert calls == {"unique": 1, "sort": 3}
+
+
 def test_sorted_unique_cupy_matches_cupy_unique() -> None:
     cp = pytest.importorskip("cupy")
     try:
