@@ -8,9 +8,17 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [Development]
 <!-- Do Not Erase This Section - Used for tracking unreleased changes -->
 
+### Added
+
+- **GFQL Cypher aggregates over relationship rows**: in a single required `MATCH`, aggregates such as `MATCH (a)-[r]->(b) RETURN a, count(*), sum(r.w), collect(b.id)` run on per-path binding rows, so group keys and arguments can reference any node or relationship alias, including `DISTINCT`, post-aggregate arithmetic (`count(b) + 1`) and multi-alias keys. These shapes previously raised unsupported-query errors.
+
 ### Fixed
 
 - **GFQL indexed traversal on NumPy 2.4**: integer and Boolean index arrays now use sorted deduplication, avoiding the slower `numpy.unique` hash path on large frontiers while preserving sorted, unique results. Other dtypes and cuPy retain their existing uniqueness semantics. IC4 benchmark evidence and follow-up are tracked in graphistry/pyg-bench#303.
+
+- **Graph algorithms on Polars-bound graphs** (#2025): `compute_igraph`, `layout_igraph`, `compute_cugraph` and `layout_cugraph` accept graphs bound to Polars `DataFrame` or `LazyFrame` frames. igraph runs on pandas and cuGraph on cuDF (via Arrow); results return as eager Polars frames with node id, source, destination and edge id dtypes preserved. The frame conversion helper is shared with GFQL `call()`.
+- **GFQL indexed bindings relationship uniqueness** (#2177): the indexed connected-bindings and array path-bag routes could bind one relationship to two hops of a Cypher MATCH pattern (for example `(a)-[:K]->(b)<-[:K]-(c)` returned `c = a` through a single edge) under the default `use`/`auto` index policies. Both routes now drop paths that reuse an edge whenever two hops could match the same relationship; hops with pairwise-distinct edge types skip the check. With uniqueness enforced, undirected hops in multi-hop patterns are admitted to the indexed path.
+- **GFQL Cypher `count(DISTINCT <alias>)` on binding rows**: counted the active alias instead of the named one, so `MATCH (a)-[r]->(b) WITH a, count(DISTINCT b) AS c` returned 1 per group. It now counts distinct `b`; on Polars the shape runs natively instead of declining.
 
 ## [0.60.0 - 2026-10-08]
 

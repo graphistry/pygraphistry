@@ -107,16 +107,10 @@ def _bridge_graph_for_offengine_call(g: Plottable, function: str, engine: Engine
             "Use engine='pandas', or set call_mode='auto' (the default) to run it off-engine."
         )
     compute_engine = _compute_engine_for_offengine_call(engine, function)
-    # df_to_engine, not ensure_engine_match: the conversion must key on the frame's
-    # actual type (no-op only when it already matches compute_engine).
-    from graphistry.Engine import df_to_engine
-    bridged = g
-    if g._nodes is not None:
-        bridged = bridged.nodes(df_to_engine(g._nodes, compute_engine), g._node)
-    if g._edges is not None:
-        bridged = bridged.edges(
-            df_to_engine(g._edges, compute_engine), g._source, g._destination, edge=g._edge
-        )
+    # Keys on each frame's actual type (no-op only when it already matches compute_engine),
+    # unlike ensure_engine_match.
+    from graphistry.Engine import graph_frames_to_engine
+    bridged = graph_frames_to_engine(g, compute_engine)
     if function not in _OFFENGINE_BRIDGE_WARNED:
         _OFFENGINE_BRIDGE_WARNED.add(function)
         warnings.warn(
