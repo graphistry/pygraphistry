@@ -218,12 +218,14 @@ def set_difference(cand: ArrayLike, visited: ArrayLike, xp: ArrayNamespace) -> A
 def sorted_unique(xp: ArrayNamespace, values: ArrayLike) -> ArrayLike:
     """Sorted distinct values of a 1-D array, identical to ``xp.unique(values)``.
 
-    NumPy integer and bool keys use sort plus adjacent differences for bulk
-    frontiers. Tiny frontiers and other backends/dtypes keep ``xp.unique``.
+    NumPy integer keys use sort plus adjacent differences for bulk frontiers;
+    Boolean keys use it above one entry. Other backends/dtypes keep ``xp.unique``.
     """
-    # On NumPy 2.4, the extra mask allocation costs more below this size;
-    # above it, the sort path wins across measured cardinality regimes.
-    if xp is not np or len(values.shape) != 1 or values.dtype.kind not in "iub" or int(values.shape[0]) < 128:
+    if xp is not np or len(values.shape) != 1 or values.dtype.kind not in "iub":
+        return xp.unique(values)
+    # NumPy 2.4 favors native unique for tiny integers, but sort for booleans.
+    size = int(values.shape[0])
+    if size <= 1 or (values.dtype.kind != "b" and size < 128):
         return xp.unique(values)
     ordered = xp.sort(values)
     keep = xp.empty(ordered.shape[0], dtype=bool)
