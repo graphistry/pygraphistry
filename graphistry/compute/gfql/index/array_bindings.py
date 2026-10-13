@@ -13,7 +13,7 @@ costs correctness nothing.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from numbers import Integral
 from typing import TYPE_CHECKING, Dict, List, Mapping, Optional, Sequence, Tuple
 
@@ -27,7 +27,7 @@ from graphistry.Plottable import Plottable
 from graphistry.compute.typing import ArrayLike, ArrayNamespace, DataFrameT
 
 from . import bindings as frame_bindings
-from .api import get_index_policy, get_registry
+from .api import _trace_active, get_index_policy, get_registry
 from .cost import cost_gate_frac
 from .engine_arrays import array_namespace, col_to_array, sorted_unique, take_rows
 from .lookup import lookup_degree, lookup_edge_rows, lookup_node_rows
@@ -43,6 +43,7 @@ class ArrayPathBag:
     height: int
     hop_count: int
     estimated_rows: int
+    admission_details: List[Dict[str, object]] = field(default_factory=list)
 
 
 def _aligned_node_rows(
@@ -305,6 +306,7 @@ def try_array_path_bag(
     estimated_rows = int(current_ids.shape[0])
     enforce_unique_edges = frame_bindings._hops_may_share_edges(ops)
     hop_edges: List[ArrayLike] = []
+    admission_details: List[Dict[str, object]] = []
 
     for edge_position in range(1, len(ops), 2):
         edge_op, next_op = ops[edge_position], ops[edge_position + 1]
@@ -312,13 +314,33 @@ def try_array_path_bag(
         reverse = edge_op.direction == "reverse"
         hop_indexes = direction_indexes[edge_position]
         frontier = sorted_unique(xp, current_ids)
-        if policy != "force":
-            threshold = cost_gate_frac(engine) * min(index.n_keys for index in hop_indexes)
+        trace_active = _trace_active()
+        key_frac = cost_gate_frac(
+            engine, default=0.04 if engine == Engine.POLARS else None,
+        )
+        gather_frac = cost_gate_frac(
+            engine, default=0.06 if engine == Engine.POLARS else None,
+        )
+        threshold = key_frac * min(index.n_keys for index in hop_indexes)
+        gather_estimate: Optional[int] = None
+        if trace_active or policy != "force":
+            gather_estimate = sum(lookup_degree(index, frontier, xp) for index in hop_indexes)
             if int(frontier.shape[0]) >= threshold:
                 return None
-            gathered = sum(lookup_degree(index, frontier, xp) for index in hop_indexes)
-            if gathered >= cost_gate_frac(engine) * n_edges:
+            if gather_estimate >= gather_frac * n_edges:
                 return None
+            if trace_active:
+                admission_details.append({
+                    "hop": (edge_position // 2) + 1,
+                    "frontier_n": int(frontier.shape[0]),
+                    "n_keys": int(min(index.n_keys for index in hop_indexes)),
+                    "key_threshold_frac": key_frac,
+                    "key_threshold": threshold,
+                    "gather_estimate": int(gather_estimate),
+                    "n_edges": n_edges,
+                    "gather_threshold_frac": gather_frac,
+                    "gather_threshold": gather_frac * n_edges,
+                })
 
         candidates = sorted_unique(xp, lookup_edge_rows(hop_indexes[0], frontier, xp)[0])
         kept = _filtered_positions(edges, candidates, edge_op.edge_match, engine, xp, base_graph, "edges")
@@ -355,6 +377,8 @@ def try_array_path_bag(
         counts = high - low
         total = int(counts.sum())
         estimated_rows = total
+        if trace_active and admission_details:
+            admission_details[-1]["estimated_rows"] = estimated_rows
         if policy != "force" and total > 0 and total >= n_edges:
             return None
         left = xp.repeat(xp.arange(int(current_ids.shape[0])), counts)
@@ -394,6 +418,7 @@ def try_array_path_bag(
         height=int(current_ids.shape[0]),
         hop_count=(len(ops) - 1) // 2,
         estimated_rows=estimated_rows,
+        admission_details=admission_details,
     )
 
 

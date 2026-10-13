@@ -679,20 +679,16 @@ class ComputeMixin(Plottable):
         from graphistry.compute.gfql.index import show_indexes as _si
         return _si(self, engine=engine)
 
-    def gfql_index_edges(self, direction='both', engine='auto'):
-        """Convenience: build the edge adjacency index(es) — 'forward', 'reverse', or 'both'. Returns a new Plottable."""
-        from graphistry.compute.gfql.index import gfql_index_edges as _gie
-        return _gie(self, direction, engine=engine)
+    def gfql_index_edges(self, direction='both', engine='auto', *,
+                         type_column: Optional[str] = None,
+                         type_values: Optional[Sequence[Union[str, int]]] = None) -> 'Plottable':
+        """Build the edge adjacency index(es) — 'forward', 'reverse', or 'both'.
 
-    def gfql_index_edge_types(self, column: str, values: Sequence[Union[str, int]],
-                              engine: EngineAbstractType = 'auto') -> 'Plottable':
-        """Build explicit adjacency sidecars for selected relationship types.
-
-        Call at graph setup, after or instead of ``gfql_index_edges``; this pays
-        only for the listed values and leaves unrelated queries unchanged.
+        With ``type_column`` and ``type_values``, also build typed sidecars for
+        those scalar relationship types in the requested direction(s). Returns a new Plottable.
         """
-        from graphistry.compute.gfql.index import gfql_index_edge_types as _giet
-        return _giet(self, column, values, engine=engine)
+        from graphistry.compute.gfql.index import gfql_index_edges as _gie
+        return _gie(self, direction, type_column=type_column, type_values=type_values, engine=engine)
 
     def gfql_index_all(self, col_stats_by_type: bool = False, engine='auto'):
         """Convenience: build all GFQL physical indexes (both edge adjacencies + node_id). Returns a new Plottable.

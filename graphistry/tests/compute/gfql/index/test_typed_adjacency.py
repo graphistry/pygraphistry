@@ -50,7 +50,7 @@ def _assert_same_graph(actual, expected) -> None:
 def test_explicit_typed_adjacency_matches_scan(engine: str, query) -> None:
     graph = _graph(engine)
     expected = graph.gfql(query, engine=engine, index_policy="off")
-    indexed = graph.gfql_index_all(engine=engine).gfql_index_edge_types("type", ["K", "T"], engine=engine)
+    indexed = graph.gfql_index_all(engine=engine).gfql_index_edges(type_column="type", type_values=["K", "T"], engine=engine)
     actual = indexed.gfql(query, engine=engine, index_policy="force")
     _assert_same_graph(actual, expected)
 
@@ -58,7 +58,7 @@ def test_explicit_typed_adjacency_matches_scan(engine: str, query) -> None:
 @pytest.mark.parametrize("engine", ["pandas", "polars", "cudf"])
 def test_typed_adjacency_lifecycle_and_fallback(engine: str) -> None:
     graph = _graph(engine)
-    indexed = graph.gfql_index_all(engine=engine).gfql_index_edge_types("type", ["K"], engine=engine)
+    indexed = graph.gfql_index_all(engine=engine).gfql_index_edges(type_column="type", type_values=["K"], engine=engine)
     registry = get_registry(indexed)
     edges = indexed._edges
     assert edges is not None
@@ -107,7 +107,7 @@ def test_typed_sidecar_keeps_use_route_when_key_universe_is_sparse() -> None:
         pd.DataFrame({"id": list(range(1020))})
     ).edges(edge_frame)
     indexed = with_index_policy(
-        graph.gfql_index_all(engine="pandas").gfql_index_edge_types("type", ["K"], engine="pandas"),
+        graph.gfql_index_all(engine="pandas").gfql_index_edges(type_column="type", type_values=["K"], engine="pandas"),
         "use",
     )
     ops = [n({"id": 0}, name="a"), e_forward({"type": "K"}, name="r"),
@@ -124,4 +124,113 @@ def test_typed_sidecar_keeps_use_route_when_key_universe_is_sparse() -> None:
 @pytest.mark.parametrize("values", ["KNOWS", b"KNOWS", [True]])
 def test_typed_adjacency_rejects_ambiguous_setup_values(values) -> None:
     with pytest.raises(TypeError, match="edge type index values"):
-        _graph("pandas").gfql_index_edge_types("type", values, engine="pandas")
+        _graph("pandas").gfql_index_edges(type_column="type", type_values=values, engine="pandas")
+
+
+@pytest.mark.parametrize("engine", ["pandas", "polars", "cudf"])
+def test_gfql_index_edges_type_selection_consolidated(engine: str) -> None:
+    """Typed selection is extra keyword data on the established edges API."""
+    graph = _graph(engine)
+    indexed = (
+        graph.gfql_index_all(engine=engine)
+        .gfql_index_edges(type_column="type", type_values=["K", "T"], engine=engine)
+    )
+    shown = indexed.show_indexes(engine=engine)
+    typed = shown[shown["name"].str.startswith("typed:")]
+    assert len(typed) == 4 and typed["valid"].all()  # 2 values x 2 directions
+
+    # Default (no type args) builds no sidecars.
+    plain = graph.gfql_index_edges(engine=engine)
+    assert not get_registry(plain).typed_adjacencies
+
+
+@pytest.mark.parametrize("engine", ["pandas", "polars"])
+def test_gfql_index_edges_keeps_legacy_direction_engine_positional(engine: str) -> None:
+    """The keyword-only typed options do not disturb (direction, engine)."""
+    graph = _graph(engine)
+    forward = graph.gfql_index_edges("forward", engine)
+    registry = get_registry(forward)
+    assert registry.get(EDGE_OUT_ADJ) is not None
+    assert registry.get(EDGE_IN_ADJ) is None
+    assert not registry.typed_adjacencies
+
+
+@pytest.mark.parametrize("engine", ["pandas", "polars", "cudf"])
+def test_gfql_index_edges_type_direction_aware(engine: str) -> None:
+    graph = _graph(engine)
+    forward_only = (
+        graph.gfql_index_all(engine=engine)
+        .gfql_index_edges(direction="forward", type_column="type", type_values=["K"], engine=engine)
+    )
+    registry = get_registry(forward_only)
+    edges = forward_only._edges
+    assert edges is not None
+    eng = Engine(engine)
+    assert ("type", "K", EDGE_OUT_ADJ) in registry.typed_adjacencies
+    assert ("type", "K", EDGE_IN_ADJ) not in registry.typed_adjacencies
+    # A reverse lookup has no live pair, so traversal falls back to ordinary.
+    selected = _indices_for_direction(registry, "reverse", edges, ("src", "dst"), eng, {"type": "K"})
+    assert selected is not None and selected[0] is registry.get(EDGE_IN_ADJ)
+
+
+@pytest.mark.parametrize("engine", ["pandas", "polars", "cudf"])
+def test_gfql_index_edges_type_validation(engine: str) -> None:
+    graph = _graph(engine)
+    with pytest.raises(ValueError, match="both type_column and type_values"):
+        graph.gfql_index_edges(type_column="type", engine=engine)
+    with pytest.raises(ValueError, match="both type_column and type_values"):
+        graph.gfql_index_edges(type_values=["K"], engine=engine)
+    with pytest.raises(TypeError, match="sequence"):
+        graph.gfql_index_edges(type_column="type", type_values="K", engine=engine)
+    with pytest.raises(ValueError, match="at least one value"):
+        graph.gfql_index_edges(type_column="type", type_values=[], engine=engine)
+    with pytest.raises(TypeError, match="strings or integers"):
+        graph.gfql_index_edges(type_column="type", type_values=[1.5], engine=engine)
+    with pytest.raises(TypeError, match="strings or integers"):
+        graph.gfql_index_edges(type_column="type", type_values=[True], engine=engine)
+
+
+@pytest.mark.parametrize("engine", ["pandas", "polars"])
+def test_same_type_two_hop_sidecar_matches_scan(engine: str) -> None:
+    """Same-type two-hop exercises relationship-uniqueness and typed sidecars."""
+    query = [
+        n({"id": 1}, name="a"), e_forward({"type": "K"}, name="r"), n(name="b"),
+        e_forward({"type": "K"}, name="s"), n(name="c"),
+    ]
+    graph = _graph(engine)
+    expected = graph.gfql(query, engine=engine, index_policy="off")
+    indexed = (
+        graph.gfql_index_all(engine=engine)
+        .gfql_index_edges(type_column="type", type_values=["K"], engine=engine)
+    )
+    actual = indexed.gfql(query, engine=engine, index_policy="force")
+    _assert_same_graph(actual, expected)
+
+
+def test_mixed_typed_untyped_two_hop_keeps_int64_edge_positions() -> None:
+    """Polars UInt32 sidecar positions must survive #2177's edge-reuse guard."""
+    pytest.importorskip("polars")
+    import polars as pl
+
+    nodes = pd.DataFrame({"id": [1, 2, 3, 4]})
+    edges = pd.DataFrame({
+        "src": [1, 2, 3, 2],
+        "dst": [2, 3, 4, 4],
+        "type": ["K", "T", "T", "K"],
+    })
+    graph = graphistry.bind(node="id", source="src", destination="dst").nodes(
+        pl.from_pandas(nodes),
+    ).edges(pl.from_pandas(edges))
+    graph = (
+        graph.gfql_index_all(engine="polars")
+        .gfql_index_edges(type_column="type", type_values=["K"], engine="polars")
+    )
+    typed = get_registry(graph).typed_adjacencies[("type", "K", EDGE_OUT_ADJ)]
+    assert typed.row_positions.dtype.kind == "i" and typed.row_positions.dtype.itemsize == 8
+    query = [
+        n({"id": 1}, name="a"), e_forward({"type": "K"}, name="r"), n(name="b"),
+        e_forward(), n(name="c"), rows(),
+    ]
+    indexed = graph.gfql(query, engine="polars", index_policy="force")
+    expected = graph.gfql(query, engine="polars", index_policy="off")
+    _assert_same_graph(indexed, expected)
