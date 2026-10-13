@@ -6,6 +6,7 @@ is never reordered.
 """
 from __future__ import annotations
 
+from dataclasses import replace
 from typing import Any, List, Optional, Sequence, Tuple, Union, cast
 
 import numpy as np
@@ -110,6 +111,73 @@ def build_adjacency_index(
     )
 
 
+def build_typed_adjacency_indexes(
+    edges: DataFrameT,
+    type_column: str,
+    type_value: PartitionValue,
+    src: str,
+    dst: str,
+    engine: Engine,
+    base_out: Optional[AdjacencyIndex],
+    base_in: Optional[AdjacencyIndex],
+) -> Tuple[Optional[AdjacencyIndex], Optional[AdjacencyIndex]]:
+    """Build the requested directions over one scalar type, retaining original edge positions.
+
+    Filtering uses the canonical engine predicate once at setup; querying still
+    applies the ordinary residual edge filter. Base indexes own the full-length
+    neighbor arrays, so typed sidecars add only their CSR arrays.
+    """
+    from graphistry.compute.filter_by_dict import filter_by_dict
+    from .registry import EDGE_IN_ADJ, EDGE_OUT_ADJ
+
+    xp, _ = array_namespace(engine)
+    columns = list(dict.fromkeys((src, dst, type_column)))
+    position_column = "__gfql_typed_edge_position__"
+    while position_column in edges.columns:
+        position_column += "_"
+    if engine in (Engine.POLARS, Engine.POLARS_GPU):
+        import polars as pl
+
+        if not isinstance(edges, pl.DataFrame):
+            raise TypeError("typed Polars adjacency requires an eager Polars edge frame")
+        positioned: DataFrameT = edges.select(columns).with_row_index(position_column)
+    else:
+        positioned = edges[columns].assign(
+            **{position_column: xp.arange(len(edges), dtype=xp.int64)}
+        )
+    matching = filter_by_dict(positioned, {type_column: type_value}, engine=engine.value)
+    # Stable int64 positions keep cross-hop edge identities comparable.
+    original_rows = xp.asarray(
+        col_to_array(matching, position_column, engine), dtype=xp.int64,
+    )
+    subset = (
+        matching.select([src, dst]) if engine in (Engine.POLARS, Engine.POLARS_GPU)
+        else matching[[src, dst]]
+    )
+    fingerprint = frame_fingerprint(edges, tuple(sorted(set(columns))), engine)
+    out = None
+    into = None
+    if base_out is not None:
+        built_out = build_adjacency_index(subset, EDGE_OUT_ADJ, src, dst, None, engine, (src, dst))
+        out = replace(
+            built_out,
+            row_positions=original_rows[built_out.row_positions],
+            other_values=base_out.other_values,
+            fingerprint=fingerprint,
+            source_ref=edges,
+        )
+    if base_in is not None:
+        built_in = build_adjacency_index(subset, EDGE_IN_ADJ, dst, src, None, engine, (src, dst))
+        into = replace(
+            built_in,
+            row_positions=original_rows[built_in.row_positions],
+            other_values=base_in.other_values,
+            fingerprint=fingerprint,
+            source_ref=edges,
+        )
+    return out, into
+
+
 def build_node_id_index(
     nodes: DataFrameT,
     node_col: str,
@@ -160,11 +228,12 @@ def build_property_index(
     including only non-null rows. Integer columns use their non-null values
     directly. Categorical keys use native codes; timestamps use physical integer
     candidates with their key dtype. Floats exclude NaNs and retain native
-    precision candidates with canonical residual comparisons. Other dtypes decline.
+    precision candidates with canonical residual comparisons. Boolean columns
+    index False/True keys directly. Other dtypes decline.
     """
     from .property_keys import (
-        bounded_string_key_positions, categorical_property_keys, float_property_keys, is_categorical_property, is_float_property, is_integer_property,
-        is_string_property, is_timestamp_property, string_property_keys, timestamp_property_keys,
+        bool_property_keys, bounded_string_key_positions, categorical_property_keys, float_property_keys, is_bool_property, is_categorical_property,
+        is_float_property, is_integer_property, is_string_property, is_timestamp_property, string_property_keys, timestamp_property_keys,
     )
 
     xp, backend = array_namespace(engine)
@@ -184,6 +253,9 @@ def build_property_index(
     elif is_string_property(nodes, column, engine):
         valid_nodes, original_rows = _non_null_id_rows(nodes, (column,), engine, xp)
         keys, dictionary = string_property_keys(valid_nodes, column, engine)
+    elif is_bool_property(nodes, column, engine):
+        valid_nodes, original_rows = _non_null_id_rows(nodes, (column,), engine, xp)
+        keys = bool_property_keys(valid_nodes, column, engine)
     else:
         valid_nodes = nodes
         if is_integer_property(nodes, column, engine) and (
@@ -197,7 +269,7 @@ def build_property_index(
             keys = col_to_array(valid_nodes, column, engine)
         except (AttributeError, KeyError, TypeError, ValueError):
             return None
-    if str(keys.dtype.kind) not in ("i", "u", "f"):  # numpy/cupy arrays always carry dtype.kind
+    if str(keys.dtype.kind) not in ("i", "u", "f", "b"):  # numpy/cupy arrays always carry dtype.kind
         return None
     unique_keys, group_offsets, row_positions = _csr_from_keys(keys, xp)
     if original_rows is not None:

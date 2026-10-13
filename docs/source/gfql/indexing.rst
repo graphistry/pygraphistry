@@ -59,7 +59,7 @@ There are five kinds. ``gfql_index_all()`` builds the first three.
    * - ``node_prop``
      - Analogous to an ordinary column index on the node table. Finds start nodes by a
        column other than the node id, such as an account number. You choose the columns.
-       String, integer, categorical, timestamp, and Float32/Float64 columns can be indexed. Nullable
+       String, integer, categorical, timestamp, Float32/Float64, and Boolean columns can be indexed. Nullable
        columns are supported. Null property rows and float NaNs are excluded;
        queries on unsupported column types scan.
 
@@ -69,7 +69,7 @@ There are five kinds. ``gfql_index_all()`` builds the first three.
 
    * - ``edge_prop``
      - Analogous to a column index on the edge table. Finds edges by a property such as
-       a transaction id. String, integer, categorical, timestamp, and Float32/Float64
+       a transaction id. String, integer, categorical, timestamp, Float32/Float64, and Boolean
        lookups retain duplicate rows. Null property rows and float NaNs are excluded.
 
        | Cypher: ``CREATE GFQL INDEX FOR edge_prop ON (txn_id)``
@@ -170,6 +170,36 @@ The lifecycle calls. Each returns a new ``g``, like the rest of the API:
 ``gfql_index_all()`` skips the ``node_id`` index when node ids repeat. An explicit
 ``create_index("node_id")`` raises an error instead.
 
+Index selected relationship types
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+For repeated hops that filter a heterogeneous edge table by relationship type,
+build adjacency sidecars only for the scalar values those queries need:
+
+.. code-block:: python
+
+   typed_edges = pd.DataFrame({
+       "src": [0, 1], "dst": [1, 2], "type": ["KNOWS", "HAS_CREATOR"],
+   })
+   typed_g = graphistry.edges(typed_edges, "src", "dst").nodes(
+       pd.DataFrame({"id": [0, 1, 2]}), "id"
+   )
+   typed_g = typed_g.gfql_index_all().gfql_index_edges(
+       "both", type_column="type", type_values=["KNOWS", "HAS_CREATOR"]
+   )
+   typed_g.show_indexes()[["name", "nbytes", "valid", "usable"]]
+
+``gfql_index_edges(direction, type_column=..., type_values=...)`` builds
+sidecars only for the requested direction(s) and scalar values. Typed selection
+options are keyword-only; ``direction`` and ``engine`` keep their positional
+slots. Type sidecars are an explicit load-time cost; ``gfql_index_all()`` alone does not build them. Queries
+with a matching live sidecar can inspect fewer edge rows, while other queries use
+ordinary adjacency indexes and retain the same results. GFQL still applies the
+complete edge predicate after lookup.
+The ``typed:`` rows in ``show_indexes()`` report incremental CSR bytes; they
+share the ordinary adjacency's neighbor arrays. Build for the engine used by
+the query, and rebuild after binding a new edge frame or changing edges in place.
+
 Start from a property column
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
@@ -185,7 +215,7 @@ different column, such as a business key, index that column with ``node_prop``:
    g.gfql('CREATE GFQL INDEX FOR node_prop ON id')
    g = g.drop_index("node_prop", column="id")             # or drop_index("node_prop") for all
 
-String, integer, categorical, timestamp, and Float32/Float64 columns can be indexed. When one query filters on
+String, integer, categorical, timestamp, Float32/Float64, and Boolean columns can be indexed. When one query filters on
 several indexed columns, GFQL starts from the most selective one and applies the other
 filters to its matches, so results do not depend on which indexes exist.
 
@@ -454,7 +484,7 @@ tests:
 - ``index_path_unavailable`` -- the index path could not serve this query as planned, so
   the scan answered; ``decision_reason`` says what was missing (e.g. ``index_missing``).
 - ``not_index_coverable`` -- the shape or predicate has no supported index encoding;
-  it scans. This includes unsupported column storage, such as Boolean, even when
+  it scans. This includes unsupported column storage, such as binary, even when
   no index is resident. Property decisions identify the column and index kind
   being assessed; supported missing/stale indexes retain their separate reasons.
 - ``missing_graph_columns`` -- the graph lacks a bound column the index needs.

@@ -262,6 +262,7 @@ class TemporalTextFact:
 class GfqlIndexRegistry:
     """Immutable kind -> index map. ``with_index`` / ``without`` return copies."""
     indexes: Dict[IndexKind, Union[AdjacencyIndex, NodeIdIndex]] = field(default_factory=dict)
+    typed_adjacencies: Dict[Tuple[str, PartitionValue, AdjacencyIndexKind], AdjacencyIndex] = field(default_factory=dict)
     # Property indexes are keyed by COLUMN, not kind: a graph may carry several.
     node_props: Dict[str, NodePropIndex] = field(default_factory=dict)
     edge_props: Dict[str, NodePropIndex] = field(default_factory=dict)
@@ -281,6 +282,25 @@ class GfqlIndexRegistry:
         new = dict(self.indexes)
         new[kind] = index
         return replace(self, indexes=new)
+
+    def with_typed_adjacency(
+        self, column: str, value: PartitionValue, index: AdjacencyIndex,
+    ) -> "GfqlIndexRegistry":
+        typed = dict(self.typed_adjacencies)
+        typed[(column, value, index.kind)] = index
+        return replace(self, typed_adjacencies=typed)
+
+    def get_typed_adjacency_valid(
+        self, column: str, value: PartitionValue, kind: AdjacencyIndexKind,
+        edges: DataFrameT, src: str, dst: str, engine: Engine,
+    ) -> Optional[AdjacencyIndex]:
+        index = self.typed_adjacencies.get((column, value, kind))
+        if index is None or index.engine != engine or index.source_ref is not edges:
+            return None
+        cols = tuple(sorted({src, dst, column}))
+        if index.fingerprint != frame_fingerprint(edges, cols, engine):
+            return None
+        return index
 
     def with_node_prop(self, column: str, index: "NodePropIndex") -> "GfqlIndexRegistry":
         props = dict(self.node_props)
@@ -461,7 +481,11 @@ class GfqlIndexRegistry:
             return self.without_property("nodes" if kind == NODE_PROP else "edges")
         new = dict(self.indexes)
         new.pop(kind, None)
-        return replace(self, indexes=new)
+        typed = (
+            {key: index for key, index in self.typed_adjacencies.items() if key[2] != kind}
+            if kind in ADJ_KINDS else self.typed_adjacencies
+        )
+        return replace(self, indexes=new, typed_adjacencies=typed)
 
     def without_node_prop(self, column: str) -> "GfqlIndexRegistry":
         props = dict(self.node_props)
@@ -539,7 +563,22 @@ class GfqlIndexRegistry:
                 props[column] = replace(prop, source_ref=new_edges)
             else:
                 props.pop(column, None)
-        return replace(self, indexes=new, edge_props=props)
+        typed = dict(self.typed_adjacencies)
+        for (column, value, kind), index in self.typed_adjacencies.items():
+            key = (column, value, kind)
+            if self.get_typed_adjacency_valid(
+                column, value, kind, old_edges, index.key_col, index.other_col, index.engine,
+            ) is not index:
+                continue
+            cols = tuple(index.fingerprint[1])
+            valid_structure = set(cols).issubset(set(new_edges.columns)) and (
+                index.fingerprint == frame_fingerprint(new_edges, cols, index.engine)
+            )
+            if not valid_structure:
+                typed.pop(key, None)
+            else:
+                typed[key] = replace(index, source_ref=new_edges)
+        return replace(self, indexes=new, edge_props=props, typed_adjacencies=typed)
 
     def get(self, kind: IndexKind) -> Optional[Union[AdjacencyIndex, NodeIdIndex]]:
         return self.indexes.get(kind)
@@ -551,7 +590,7 @@ class GfqlIndexRegistry:
         return cast(Tuple[IndexKind, ...], tuple(sorted(self.indexes.keys())))
 
     def is_empty(self) -> bool:
-        return not self.indexes and not self.node_props and not self.edge_props and not self.col_stats
+        return not self.indexes and not self.typed_adjacencies and not self.node_props and not self.edge_props and not self.col_stats
 
     def get_valid(self, kind: IndexKind, df: DataFrameT, cols: Tuple[str, ...], engine: Engine) -> Optional[Union[AdjacencyIndex, NodeIdIndex]]:
         """Return the index for ``kind`` only if its fingerprint still matches the

@@ -19,7 +19,7 @@ from .registry import (
     AdjacencyIndex, ColStatsFact, PartitionValue, ColStatsRole, GfqlIndexRegistry, EMPTY_REGISTRY, NodeIdIndex,
     EDGE_OUT_ADJ, EDGE_IN_ADJ, NODE_ID, NODE_PROP, EDGE_PROP, ADJ_KINDS, ALL_KINDS, PROPERTY_ROLES,
 )
-from .build import build_adjacency_index, build_node_id_index, build_property_index
+from .build import build_adjacency_index, build_node_id_index, build_property_index, build_typed_adjacency_indexes
 from .traverse import index_seeded_hop
 from .cost import cost_gate_frac, seed_deg_sum, seed_id_array
 from .policy import IndexPolicy, validate_index_policy
@@ -435,7 +435,7 @@ def create_index(
         if prop_idx is None:
             raise GfqlIndexNotImplementedError(
                 f"Cannot build a {kind!r} index on {column!r} "
-                f"(dtype {frame[column].dtype}): only string, integer, categorical, timestamp and float columns "
+                f"(dtype {frame[column].dtype}): only string, integer, categorical, timestamp, float and Boolean columns "
                 f"are indexable today; other column types are not implemented yet "
                 f"(tracked in {INDEX_SUPPORT_ISSUE_URL}). Seeded queries still work via "
                 f"the un-indexed scan path."
@@ -571,6 +571,28 @@ def show_indexes(
             "usable": usable,
             "reason": reason,
         })
+    for column, value, kind in sorted(
+        registry.typed_adjacencies, key=lambda key: (key[0], str(key[1]), key[2]),
+    ):
+        typed = registry.typed_adjacencies[(column, value, kind)]
+        valid = (
+            g._edges is not None and g._source is not None and g._destination is not None
+            and registry.get_typed_adjacency_valid(
+                column, value, kind, g._edges, g._source, g._destination, typed.engine,
+            ) is typed
+        )
+        usable, reason = _index_usability(kind, typed.engine, valid, query_engine)
+        # other_values is shared with the ordinary adjacency index, not added memory.
+        nbytes = sum(int(getattr(typed, name).nbytes) for name in (
+            "keys_sorted", "group_offsets", "row_positions",
+        ))
+        rows.append({
+            "name": typed.name or f"typed:{column}={value}:{kind}",
+            "kind": kind, "key_col": typed.key_col, "engine": typed.engine.value,
+            "backend": typed.backend, "n_keys": typed.n_keys, "n_rows": typed.n_edges,
+            "nbytes": nbytes, "valid": valid, "query_engine": query_engine.value,
+            "usable": usable, "reason": reason,
+        })
     for kind, role in PROPERTY_ROLES:
         frame = g._nodes if role == "nodes" else g._edges
         for column in sorted(registry.property_indexes(role)):
@@ -599,14 +621,91 @@ def show_indexes(
     return pd.DataFrame(rows, columns=cols)
 
 
-def gfql_index_edges(g: Plottable, direction: EdgeIndexDirection = "both",
-                     engine: EngineAbstractType = EngineAbstract.AUTO) -> Plottable:
-    """Convenience: build edge adjacency index(es). direction: 'forward'|'reverse'|'both'."""
+def gfql_index_edges(
+    g: Plottable, direction: EdgeIndexDirection = "both",
+    engine: EngineAbstractType = EngineAbstract.AUTO, *,
+    type_column: Optional[str] = None,
+    type_values: Optional[Sequence[PartitionValue]] = None,
+) -> Plottable:
+    """Build edge adjacency index(es); direction: 'forward'|'reverse'|'both'.
+
+    With ``type_column`` and ``type_values``, additionally build typed CSR
+    sidecars for the requested scalar relationship types in the requested
+    direction(s). Ordinary adjacency indexes are always built first because the
+    sidecars share their neighbor arrays. Type sidecars are an explicit setup
+    cost: ``gfql_index_all()`` does not build them, queries without a matching,
+    live typed index retain the ordinary adjacency path, and all queries retain
+    canonical edge predicate filtering after candidate lookup.
+    """
+    typed_column: Optional[str] = None
+    if (type_column is None) != (type_values is None):
+        raise ValueError("edge type index requires both type_column and type_values")
+    if type_column is not None and type_values is not None:
+        if not isinstance(type_column, str) or not type_column:
+            raise TypeError("edge type column must be a non-empty string")
+        if isinstance(type_values, (str, bytes)):
+            raise TypeError("edge type index values must be a sequence, not a scalar string")
+        values = list(type_values)
+        if not values:
+            raise ValueError("edge type index requires at least one value")
+        if any(isinstance(value, bool) or not isinstance(value, (str, int)) for value in values):
+            raise TypeError("edge type index values must be strings or integers")
+        typed_column = type_column
+    else:
+        values = None
     if direction in ("forward", "both"):
         g = create_index(g, EDGE_OUT_ADJ, engine=engine)
     if direction in ("reverse", "both"):
         g = create_index(g, EDGE_IN_ADJ, engine=engine)
-    return g
+    if values is None or typed_column is None:
+        return g
+    from graphistry.compute.ComputeMixin import _coerce_input_formats
+
+    eng = resolve_index_engine(engine, g)
+    g = _coerce_input_formats(g, eng)
+    edges, src, dst = g._edges, g._source, g._destination
+    if edges is None or src is None or dst is None or typed_column not in edges.columns:
+        raise ValueError("edge type index requires bound edges and a present type column")
+    registry = get_registry(g)
+    kinds = (
+        (EDGE_OUT_ADJ,) if direction == "forward" else
+        (EDGE_IN_ADJ,) if direction == "reverse" else
+        (EDGE_OUT_ADJ, EDGE_IN_ADJ)
+    )
+    base_adj: Dict[AdjacencyIndexKind, AdjacencyIndex] = {}
+    for kind in kinds:
+        found = registry.get_valid(kind, edges, (src, dst), eng)
+        if isinstance(found, AdjacencyIndex):
+            base_adj[kind] = found
+    if set(base_adj) != set(kinds):
+        g = gfql_index_edges(g, direction=direction, engine=eng.value)
+        registry = get_registry(g)
+        edges = g._edges
+        assert edges is not None
+        base_adj = {}
+        for kind in kinds:
+            found = registry.get_valid(kind, edges, (src, dst), eng)
+            assert isinstance(found, AdjacencyIndex)
+            base_adj[kind] = found
+    for value in dict.fromkeys(values):
+        need = {
+            kind for kind in kinds if registry.get_typed_adjacency_valid(
+                typed_column, value, kind, edges, src, dst, eng,
+            ) is None
+        }
+        if not need:
+            continue
+        typed_out, typed_in = build_typed_adjacency_indexes(
+            edges, typed_column, value, src, dst, eng,
+            base_adj.get(EDGE_OUT_ADJ), base_adj.get(EDGE_IN_ADJ),
+        )
+        if EDGE_OUT_ADJ in need:
+            assert typed_out is not None
+            registry = registry.with_typed_adjacency(typed_column, value, typed_out)
+        if EDGE_IN_ADJ in need:
+            assert typed_in is not None
+            registry = registry.with_typed_adjacency(typed_column, value, typed_in)
+    return _attach(g, registry)
 
 
 def gfql_index_node_props(g: Plottable, columns: Sequence[str],

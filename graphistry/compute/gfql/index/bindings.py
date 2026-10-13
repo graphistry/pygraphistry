@@ -8,7 +8,7 @@ attachment and every suffix operation.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from numbers import Integral
 from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple, Union, cast
 
@@ -73,6 +73,7 @@ class IndexedBindingsState:
     hop_count: int
     estimated_rows: int
     edge_template: Optional[DataFrameT] = None
+    admission_details: List[Dict[str, object]] = field(default_factory=list)
 
 
 def _plain_scalar_filter(value: Any) -> bool:
@@ -555,10 +556,11 @@ def _try_indexed_connected_bindings_state(
         return None
 
     direction_indexes: Dict[int, Sequence[AdjacencyIndex]] = {}
+    key_gate_counts: Dict[int, int] = {}
     for edge_index in range(1, len(ops), 2):
         edge_op = cast(ASTEdge, ops[edge_index])
         indexes = _indices_for_direction(
-            registry, edge_op.direction, edges, (src, dst), engine,
+            registry, edge_op.direction, edges, (src, dst), engine, edge_op.edge_match,
         )
         if candidate_edge_rows is not None:
             from graphistry.compute.chain_fast_paths import _resident_seed_indexes
@@ -567,6 +569,18 @@ def _try_indexed_connected_bindings_state(
         if indexes is None or not all(_integer_index(index) for index in indexes):
             return None
         direction_indexes[edge_index] = indexes
+        # Preserve the ordinary-key frontier crossover; typed CSR narrows only the gather estimate.
+        if candidate_edge_rows is None:
+            baseline_counts = []
+            for adjacency in indexes:
+                ordinary = registry.get_valid(adjacency.kind, edges, (src, dst), engine)
+                baseline_counts.append(max(
+                    adjacency.n_keys,
+                    ordinary.n_keys if isinstance(ordinary, AdjacencyIndex) else 0,
+                ))
+            key_gate_counts[edge_index] = min(baseline_counts)
+        else:
+            key_gate_counts[edge_index] = min(adjacency.n_keys for adjacency in indexes)
 
     first_filter = first_op.filter_dict or {}
     xp, _ = array_namespace(engine)
@@ -626,28 +640,43 @@ def _try_indexed_connected_bindings_state(
     estimated_rows = int(state.shape[0])
     policy = get_index_policy(base_graph)
     n_edges = int(edges.shape[0])
+    admission_details: List[Dict[str, object]] = []
     hop_edge_cols: List[str] = []
 
     for edge_index in range(1, len(ops), 2):
         edge_op = cast(ASTEdge, ops[edge_index])
         frontier = sorted_unique(xp, col_to_array(state, _CURRENT, engine))
         edge_indexes = direction_indexes[edge_index]
-        if policy != "force":
-            # Polars-only SF1 IC4 defaults; explicit cost-gate tuning still wins.
-            key_frac = cost_gate_frac(
-                engine, default=0.04 if engine == Engine.POLARS else None,
-            )
-            gather_frac = cost_gate_frac(
-                engine, default=0.06 if engine == Engine.POLARS else None,
-            )
-            threshold = key_frac * min(
-                index.n_keys for index in edge_indexes
-            )
-            if int(frontier.shape[0]) >= threshold:
-                return None
+        # Polars-only IC4 defaults; trace needs per-hop, not engine-wide, fractions.
+        trace_active = _trace_active()
+        key_frac = cost_gate_frac(
+            engine, default=0.04 if engine == Engine.POLARS else None,
+        )
+        gather_frac = cost_gate_frac(
+            engine, default=0.06 if engine == Engine.POLARS else None,
+        )
+        threshold = key_frac * key_gate_counts[edge_index]
+        gather_estimate: Optional[int] = None
+        if trace_active or policy != "force":
             gather_estimate = sum(
                 lookup_degree(index, frontier, xp) for index in edge_indexes
             )
+            if trace_active:
+                admission_details.append({
+                    "hop": (edge_index // 2) + 1,
+                    "frontier_n": int(frontier.shape[0]),
+                    "n_keys": int(key_gate_counts[edge_index]),
+                    "key_threshold_frac": key_frac,
+                    "key_threshold": threshold,
+                    "gather_estimate": int(gather_estimate),
+                    "n_edges": n_edges,
+                    "gather_threshold_frac": gather_frac,
+                    "gather_threshold": gather_frac * n_edges,
+                })
+        if policy != "force":
+            if int(frontier.shape[0]) >= threshold:
+                return None
+            assert gather_estimate is not None
             if gather_estimate >= gather_frac * n_edges:
                 return None
 
@@ -706,6 +735,8 @@ def _try_indexed_connected_bindings_state(
             engine=engine,
         )
         estimated_rows = expansion.rows
+        if trace_active and admission_details:
+            admission_details[-1]["estimated_rows"] = estimated_rows
         if policy != "force" and estimated_rows > 0 and estimated_rows >= n_edges:
             return None
         state = expansion.expand()
@@ -723,6 +754,7 @@ def _try_indexed_connected_bindings_state(
 
     return IndexedBindingsState(
         state, alias_frames, engine, (len(ops) - 1) // 2, estimated_rows,
+        admission_details=admission_details,
     )
 
 
@@ -848,9 +880,11 @@ def try_indexed_connected_bindings_state(
         reason="served",
         hop_count=result.hop_count,
         public_seed_scan=public_seed_scan,
-        hop_details=[
-            {"hop": hop + 1, "estimated_rows": result.estimated_rows}
-            for hop in range(result.hop_count)
-        ],
+        hop_details=(
+            result.admission_details
+            if result.admission_details
+            else [{"hop": hop + 1, "estimated_rows": result.estimated_rows}
+                  for hop in range(result.hop_count)]
+        ),
     )
     return result
