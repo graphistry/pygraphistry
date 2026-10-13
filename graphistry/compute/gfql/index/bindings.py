@@ -30,7 +30,7 @@ from graphistry.compute.dataframe.join import (
 )
 
 from .cost import cost_gate_frac
-from .engine_arrays import array_namespace, col_to_array, take_rows
+from .engine_arrays import array_namespace, col_to_array, sorted_unique, take_rows
 from .lookup import (
     lookup_degree,
     lookup_edge_rows,
@@ -285,7 +285,7 @@ def _covers_ids(
     frame: DataFrameT, column: str, ids: ArrayLike, engine: Engine, xp: ArrayNamespace,
 ) -> bool:
     """Whether ``frame[column]`` (a gather by ``ids``) still holds EVERY id in ``ids``."""
-    found = xp.unique(col_to_array(frame, column, engine))
+    found = sorted_unique(xp, col_to_array(frame, column, engine))
     return int(found.shape[0]) == int(ids.shape[0])
 
 
@@ -573,7 +573,7 @@ def _try_indexed_connected_bindings_state(
     if candidate_edge_rows is not None:
         candidate_edges = take_rows(edges, candidate_edge_rows, engine)
         seed_column = dst if ops[1].direction == "reverse" else src
-        seed_ids = xp.unique(col_to_array(candidate_edges, seed_column, engine))
+        seed_ids = sorted_unique(xp, col_to_array(candidate_edges, seed_column, engine))
         seed_rows = xp.sort(lookup_node_rows(node_index, seed_ids, xp))
         first_nodes = _filter_frame(take_rows(nodes, seed_rows, engine), first_filter, engine)
     elif node_id in first_filter:
@@ -630,22 +630,26 @@ def _try_indexed_connected_bindings_state(
 
     for edge_index in range(1, len(ops), 2):
         edge_op = cast(ASTEdge, ops[edge_index])
-        frontier = xp.unique(col_to_array(state, _CURRENT, engine))
+        frontier = sorted_unique(xp, col_to_array(state, _CURRENT, engine))
         edge_indexes = direction_indexes[edge_index]
         if policy != "force":
-            threshold = cost_gate_frac(engine) * min(
+            # Polars-only SF1 IC4 defaults; explicit cost-gate tuning still wins.
+            key_frac = cost_gate_frac(
+                engine, default=0.04 if engine == Engine.POLARS else None,
+            )
+            gather_frac = cost_gate_frac(
+                engine, default=0.06 if engine == Engine.POLARS else None,
+            )
+            threshold = key_frac * min(
                 index.n_keys for index in edge_indexes
             )
             if int(frontier.shape[0]) >= threshold:
                 return None
-        gather_estimate = sum(
-            lookup_degree(index, frontier, xp) for index in edge_indexes
-        )
-        if (
-            policy != "force"
-            and gather_estimate >= cost_gate_frac(engine) * n_edges
-        ):
-            return None
+            gather_estimate = sum(
+                lookup_degree(index, frontier, xp) for index in edge_indexes
+            )
+            if gather_estimate >= gather_frac * n_edges:
+                return None
 
         row_parts = [
             lookup_edge_rows(index, frontier, xp)[0] for index in edge_indexes
@@ -654,7 +658,7 @@ def _try_indexed_connected_bindings_state(
             row_parts[0] if len(row_parts) == 1
             else xp.concatenate(row_parts)
         )
-        rows = xp.unique(rows)
+        rows = sorted_unique(xp, rows)
         if candidate_edge_rows is not None:
             rows = rows[xp.isin(rows, candidate_edge_rows)]
         gathered = take_rows(edges, rows, engine)
@@ -672,7 +676,7 @@ def _try_indexed_connected_bindings_state(
         next_op = ops[edge_index + 1]
         if not isinstance(next_op, ASTNode):
             return None
-        endpoint_ids = xp.unique(col_to_array(oriented, _TO, engine))
+        endpoint_ids = sorted_unique(xp, col_to_array(oriented, _TO, engine))
         node_rows = xp.sort(lookup_node_rows(node_index, endpoint_ids, xp))
         next_nodes = _take_filtered_rows(nodes, node_rows, next_op.filter_dict, engine)
         next_alias_frame = _with_marker(next_nodes, next_op._name, engine)

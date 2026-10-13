@@ -29,7 +29,7 @@ from graphistry.compute.typing import ArrayLike, ArrayNamespace, DataFrameT
 from . import bindings as frame_bindings
 from .api import get_index_policy, get_registry
 from .cost import cost_gate_frac
-from .engine_arrays import array_namespace, col_to_array, take_rows
+from .engine_arrays import array_namespace, col_to_array, sorted_unique, take_rows
 from .lookup import lookup_degree, lookup_edge_rows, lookup_node_rows
 from .registry import AdjacencyIndex, ColStatsRole, NodeIdIndex, NODE_ID
 
@@ -311,7 +311,7 @@ def try_array_path_bag(
         assert isinstance(edge_op, ASTEdge) and isinstance(next_op, ASTNode)  # _admits
         reverse = edge_op.direction == "reverse"
         hop_indexes = direction_indexes[edge_position]
-        frontier = xp.unique(current_ids)
+        frontier = sorted_unique(xp, current_ids)
         if policy != "force":
             threshold = cost_gate_frac(engine) * min(index.n_keys for index in hop_indexes)
             if int(frontier.shape[0]) >= threshold:
@@ -320,7 +320,7 @@ def try_array_path_bag(
             if gathered >= cost_gate_frac(engine) * n_edges:
                 return None
 
-        candidates = xp.unique(lookup_edge_rows(hop_indexes[0], frontier, xp)[0])
+        candidates = sorted_unique(xp, lookup_edge_rows(hop_indexes[0], frontier, xp)[0])
         kept = _filtered_positions(edges, candidates, edge_op.edge_match, engine, xp, base_graph, "edges")
         if kept is None:
             return None
@@ -331,9 +331,9 @@ def try_array_path_bag(
         if endpoint_rows_fact is not None:
             # Endpoint node rows were resolved at build time; gather, do not search.
             to_rows = (endpoint_rows_fact.src_rows if reverse else endpoint_rows_fact.dst_rows)[kept]
-            endpoint_rows = xp.unique(to_rows)
+            endpoint_rows = sorted_unique(xp, to_rows)
         else:
-            endpoint_ids = xp.unique(to_ids)
+            endpoint_ids = sorted_unique(xp, to_ids)
             endpoint_rows = xp.sort(lookup_node_rows(node_index, endpoint_ids, xp))
             to_rows = None
         surviving = _filtered_positions(nodes, endpoint_rows, next_op.filter_dict, engine, xp, base_graph, "nodes")
