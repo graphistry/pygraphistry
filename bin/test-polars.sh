@@ -193,6 +193,7 @@ POLARS_TEST_FILES=(
     graphistry/tests/compute/gfql/test_unseeded_binding_limit.py
     graphistry/tests/compute/gfql/index/test_indexed_bindings.py
     graphistry/tests/compute/gfql/index/test_typed_adjacency.py
+    graphistry/tests/compute/gfql/index/test_node_type_segments.py
     graphistry/tests/compute/gfql/index/test_indexed_bindings_membership_seed.py
     graphistry/tests/compute/gfql/index/test_index_ddl_in_one_call.py
     graphistry/tests/compute/gfql/cypher/test_in_list_seeds_the_pattern.py

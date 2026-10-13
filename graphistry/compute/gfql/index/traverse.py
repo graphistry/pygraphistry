@@ -7,10 +7,10 @@ scan/join path).
 
 Covered (v1): seeded (nodes given), integer ``hops`` >= 1 or ``to_fixed_point``,
 direction forward/reverse/undirected, ``return_as_wave_front``, and a simple
-scalar-equality ``edge_match`` (typed edges, e.g. Cypher ``-[:KNOWS]->``) applied on
-the wavefront path. Not covered (returns None): predicate/membership edge_match,
-source/destination match or query, edge_query, target_wave_front, min_hops>1,
-output_min/max_hops, labeling, missing node table.
+scalar-equality ``edge_match`` or source/destination node match on the wavefront
+path. Not covered (returns None): predicate/membership edge_match, node queries,
+edge_query, target_wave_front, min_hops>1, output_min/max_hops, labeling,
+missing node table.
 """
 from __future__ import annotations
 
@@ -28,7 +28,7 @@ from .engine_arrays import (
 from .lookup import lookup_edge_rows, lookup_node_rows
 from .registry import EDGE_OUT_ADJ, EDGE_IN_ADJ, NODE_ID, AdjacencyIndex, GfqlIndexRegistry, NodeIdIndex
 from .types import (
-    ArrayLike, EdgeMatch, HopDirection, ScalarMatchValue, SimpleEqualityEdgeMatch,
+    ArrayLike, ArrayNamespace, EdgeMatch, HopDirection, ScalarMatchValue, SimpleEqualityEdgeMatch,
 )
 
 _EAGER_MASK_SWITCH_DIVISOR = 8
@@ -111,6 +111,58 @@ def is_simple_equality_edge_match(
         if _is_membership_filter_value(v) or isinstance(v, dict):
             return False
     return True
+
+
+def is_simple_equality_node_match(
+    node_match: Optional[object],
+) -> bool:
+    """True iff ``node_match`` is None or a SINGLE-key plain scalar-equality dict.
+
+    The only node-match shape the node type-segment path accelerates parity-exact
+    in v1: the segment covers one (column, value) pair, and residual keys would
+    need id->row candidate filtering the segment path does not yet plumb. Boolean
+    ``True``/``False`` values ARE scalar here (the canonical Cypher ``label__X``
+    shape), unlike the typed-edge value check which rejects them.
+    """
+    if node_match is None:
+        return True
+    from graphistry.compute.predicates.ASTPredicate import ASTPredicate
+    from graphistry.compute.filter_by_dict import _is_membership_filter_value
+    if not isinstance(node_match, dict) or len(node_match) != 1:
+        return False
+    for column, value in node_match.items():
+        if not isinstance(column, str):
+            return False
+        if isinstance(value, ASTPredicate) or _is_membership_filter_value(value) or isinstance(value, dict):
+            return False
+    return True
+
+
+def _sorted_id_mask(values: ArrayLike, sorted_ids: ArrayLike, xp: ArrayNamespace) -> ArrayLike:
+    """Boolean mask over ``values`` marking membership in sorted-unique ``ids``.
+
+    Promotes BOTH sides to a common dtype (never narrows the query side — the
+    int64-cast lesson from the typed edge positions applies to id comparisons too).
+    """
+    n = int(values.shape[0])
+    if n == 0 or int(sorted_ids.shape[0]) == 0:
+        return xp.zeros(n, dtype=bool)
+    v = values
+    keys = sorted_ids
+    if v.dtype != keys.dtype:
+        common = xp.promote_types(v.dtype, keys.dtype)
+        v = v.astype(common)
+        keys = keys.astype(common)
+    pos = xp.searchsorted(keys, v)
+    pos_clipped = xp.where(pos < int(keys.shape[0]), pos, int(keys.shape[0]) - 1)
+    return keys[pos_clipped] == v
+
+
+def _sorted_intersection(a: ArrayLike, b: ArrayLike, xp: ArrayNamespace) -> ArrayLike:
+    """Sorted-unique intersection of two sorted-unique id arrays."""
+    if int(a.shape[0]) == 0 or int(b.shape[0]) == 0:
+        return a[:0]
+    return a[_sorted_id_mask(a, b, xp)]
 
 
 class _EdgeMatchRowFilter:
@@ -255,6 +307,36 @@ def _build_edge_row_filter(
         return None
 
 
+def _node_match_allowed_ids(
+    g: Plottable, registry: GfqlIndexRegistry, node_match: Optional[object],
+    node_col: Optional[str], engine: Engine,
+) -> Optional[ArrayLike]:
+    """Sorted-unique ids admitted by one single-key scalar node match, or None to
+    decline the indexed path (caller falls back to the scan).
+
+    Membership comes from the LIVE node type segment, whose rows were decided by
+    the canonical filter_by_dict predicate at build time — parity with the scan's
+    allowed-id construction by construction. An EMPTY segment is a real zero-row
+    answer (empty sorted array), NOT a decline."""
+    from .engine_arrays import array_namespace, col_to_array, sorted_unique, take_rows
+
+    if not is_simple_equality_node_match(node_match) or node_col is None or g._nodes is None:
+        return None
+    assert isinstance(node_match, dict)
+    xp, _backend = array_namespace(engine)
+    (column, value), = node_match.items()
+    if not isinstance(value, (str, int)):  # bool is an int subclass; guards exotic literals
+        return None
+    segment = registry.get_node_segment_valid(column, value, g._nodes, engine)
+    if segment is None:
+        return None
+    segment_rows = segment.row_positions
+    if int(segment_rows.shape[0]) == 0:
+        return segment_rows[:0]
+    ids = col_to_array(take_rows(g._nodes, segment_rows, engine), node_col, engine)
+    return sorted_unique(xp, ids)
+
+
 def index_seeded_hop(
     g: Plottable,
     registry: GfqlIndexRegistry,
@@ -269,6 +351,8 @@ def index_seeded_hop(
     direction: HopDirection,
     return_as_wave_front: bool,
     edge_match: Optional[EdgeMatch] = None,
+    source_node_match: Optional[object] = None,
+    destination_node_match: Optional[object] = None,
 ) -> Optional[Plottable]:
     if nodes is None or g._edges is None or g._nodes is None:
         return None
@@ -297,6 +381,22 @@ def index_seeded_hop(
         edge_filter = _build_edge_row_filter(edges, edge_match, engine)
         if edge_filter is None:
             return None
+
+    # Node matches resolve to allowed ids; empty is an answer, missing is a decline.
+    source_allowed: Optional[ArrayLike] = None
+    dest_allowed: Optional[ArrayLike] = None
+    if source_node_match is not None:
+        source_allowed = _node_match_allowed_ids(
+            g, registry, source_node_match, node_col, engine,
+        )
+        if source_allowed is None:
+            return None
+    if destination_node_match is not None:
+        dest_allowed = _node_match_allowed_ids(
+            g, registry, destination_node_match, node_col, engine,
+        )
+        if dest_allowed is None:
+            return None
     # Guard for the candidate-row form (see _EdgeMatchRowFilter.full_mask): once cumulative
     # gathered rows cross the threshold, build the whole-column mask once and reuse it.
     gathered_rows = 0
@@ -323,6 +423,11 @@ def index_seeded_hop(
             break
         if int(frontier.shape[0]) == 0:
             break
+        # Source restriction applies to seeds and every carried-forward frontier.
+        if source_allowed is not None:
+            frontier = _sorted_intersection(frontier, source_allowed, xp)
+            if int(frontier.shape[0]) == 0:
+                break
         hop_count += 1
 
         matched_parts: List[ArrayLike] = []
@@ -352,6 +457,9 @@ def index_seeded_hop(
                         # observable has been mutated, so this stays parity-safe.
                         return None
                     rows = rows[keep]
+            if dest_allowed is not None:
+                # Destination matching drops both frontier ids and edge rows.
+                rows = rows[_sorted_id_mask(ix.other_values[rows], dest_allowed, xp)]
             edge_rows_parts.append(rows)
             neigh_parts.append(ix.other_values[rows])
             matched_parts.append(matched)

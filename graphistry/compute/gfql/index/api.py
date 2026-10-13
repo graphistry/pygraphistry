@@ -17,9 +17,10 @@ from graphistry.compute.typing import DataFrameT
 from graphistry.Plottable import Plottable
 from .registry import (
     AdjacencyIndex, ColStatsFact, PartitionValue, ColStatsRole, GfqlIndexRegistry, EMPTY_REGISTRY, NodeIdIndex,
-    EDGE_OUT_ADJ, EDGE_IN_ADJ, NODE_ID, NODE_PROP, EDGE_PROP, ADJ_KINDS, ALL_KINDS, PROPERTY_ROLES,
+    EDGE_OUT_ADJ, EDGE_IN_ADJ, NODE_ID, NODE_PROP, EDGE_PROP, NODE_TYPE_SEGMENT,
+    ADJ_KINDS, ALL_KINDS, PROPERTY_ROLES,
 )
-from .build import build_adjacency_index, build_node_id_index, build_property_index, build_typed_adjacency_indexes
+from .build import build_adjacency_index, build_node_id_index, build_node_type_segment, build_property_index, build_typed_adjacency_indexes
 from .traverse import index_seeded_hop
 from .cost import cost_gate_frac, seed_deg_sum, seed_id_array
 from .policy import IndexPolicy, validate_index_policy
@@ -450,14 +451,21 @@ def create_index(
 
 
 def drop_index(
-    g: Plottable, kind: Optional[IndexKind] = None, *, column: Optional[str] = None
+    g: Plottable, kind: Optional[IndexKind] = None, *,
+    column: Optional[str] = None, value: Optional[PartitionValue] = None,
 ) -> Plottable:
     """Drop one index (by kind, or one property index by column) or all (kind=None).
 
-    Idempotent."""
+    For ``node_type_segment``, omit ``column`` to drop all segments, pass
+    ``column`` to drop that column's segments, or pass ``column`` and ``value``
+    to drop one segment. Idempotent."""
     registry = get_registry(g)
     if kind is None:
         return _attach(g, EMPTY_REGISTRY)
+    if kind == NODE_TYPE_SEGMENT:
+        if value is not None and column is None:
+            raise ValueError("dropping one node type segment requires type_column")
+        return _attach(g, registry.without_node_segments(column, value))
     if kind in (NODE_PROP, EDGE_PROP) and column is not None:
         return _attach(g, registry.without_property("nodes" if kind == NODE_PROP else "edges", column))
     return _attach(g, registry.without(kind))
@@ -593,6 +601,27 @@ def show_indexes(
             "nbytes": nbytes, "valid": valid, "query_engine": query_engine.value,
             "usable": usable, "reason": reason,
         })
+    for column, value in sorted(
+        registry.node_type_segments, key=lambda key: (key[0], str(key[1])),
+    ):
+        segment = registry.node_type_segments[(column, value)]
+        valid = (
+            g._nodes is not None
+            and registry.get_node_segment_valid(column, value, g._nodes, segment.engine)
+            is segment
+        )
+        usable, reason = _index_usability(NODE_TYPE_SEGMENT, segment.engine, valid, query_engine)
+        nbytes = sum(int(getattr(segment, name).nbytes) for name in (
+            "keys_sorted", "group_offsets", "row_positions",
+        ))
+        rows.append({
+            "name": f"typed_node:{column}={value}",
+            "kind": NODE_TYPE_SEGMENT, "key_col": segment.key_col,
+            "engine": segment.engine.value, "backend": segment.backend,
+            "n_keys": segment.n_keys, "n_rows": int(segment.row_positions.shape[0]),
+            "nbytes": nbytes, "valid": valid, "query_engine": query_engine.value,
+            "usable": usable, "reason": reason,
+        })
     for kind, role in PROPERTY_ROLES:
         frame = g._nodes if role == "nodes" else g._edges
         for column in sorted(registry.property_indexes(role)):
@@ -705,6 +734,55 @@ def gfql_index_edges(
         if EDGE_IN_ADJ in need:
             assert typed_in is not None
             registry = registry.with_typed_adjacency(typed_column, value, typed_in)
+    return _attach(g, registry)
+
+
+def gfql_index_node_types(
+    g: Plottable, engine: EngineAbstractType = EngineAbstract.AUTO, *,
+    type_column: Optional[str] = None,
+    type_values: Optional[Sequence[PartitionValue]] = None,
+) -> Plottable:
+    """Build node type/label segments: the dual of ``gfql_index_edges``'s typed
+    edge sidecars.
+
+    With ``type_column`` and ``type_values``, register per-value row-position
+    segments over the node frame — a scalar type column gives partition semantics,
+    Boolean ``label__<Label>`` columns give membership semantics (one node may
+    appear in several segments). Membership is decided once at setup by the
+    canonical engine predicate, so segment selection is parity-exact with the
+    scan's node filter, including null rows. Segments are an explicit setup cost:
+    ``gfql_index_all()`` does not build them, and queries without a matching,
+    live segment retain the ordinary scan path.
+    """
+    if (type_column is None) != (type_values is None):
+        raise ValueError("node type index requires both type_column and type_values")
+    if type_column is not None and type_values is not None:
+        if not isinstance(type_column, str) or not type_column:
+            raise TypeError("node type column must be a non-empty string")
+        if isinstance(type_values, (str, bytes)):
+            raise TypeError("node type index values must be a sequence, not a scalar string")
+        values = list(type_values)
+        if not values:
+            raise ValueError("node type index requires at least one value")
+        if any(not isinstance(value, (str, int, bool)) for value in values):
+            raise TypeError("node type index values must be strings, integers, or booleans")
+    else:
+        values = []
+    if not values or type_column is None:
+        return g
+    from graphistry.compute.ComputeMixin import _coerce_input_formats
+
+    eng = resolve_index_engine(engine, g)
+    g = _coerce_input_formats(g, eng)
+    nodes = g._nodes
+    if nodes is None or type_column not in nodes.columns:
+        raise ValueError("node type index requires bound nodes and a present type column")
+    registry = get_registry(g)
+    for value in dict.fromkeys(values):
+        if registry.get_node_segment_valid(type_column, value, nodes, eng) is not None:
+            continue
+        segment = build_node_type_segment(nodes, type_column, value, eng)
+        registry = registry.with_node_segment(type_column, value, segment)
     return _attach(g, registry)
 
 
@@ -1078,9 +1156,16 @@ def _hop_is_index_coverable(
     if any(x is not None for x in (
         min_hops if (min_hops is not None and min_hops > 1) else None,
         output_min_hops, output_max_hops, label_node_hops, label_edge_hops,
-        source_node_match, destination_node_match,
         source_node_query, destination_node_query, edge_query, target_wave_front,
     )):
+        return False
+    # Node segments: simple scalar equality only; residency declines later to scan.
+    from .traverse import is_simple_equality_node_match
+    if (source_node_match is not None or destination_node_match is not None) and not (
+        return_as_wave_front
+        and is_simple_equality_node_match(source_node_match)
+        and is_simple_equality_node_match(destination_node_match)
+    ):
         return False
     # Typed-edge edge_match: coverable only as a simple scalar-equality filter on the
     # wavefront (chain/Cypher) path, where index_seeded_hop applies it per-hop parity-
@@ -1146,6 +1231,25 @@ def _ensure_indexes(
         if node_idx is not None:  # None => non-unique ids; skip (scan materialization)
             registry = registry.with_index(NODE_ID, node_idx)
     return registry
+
+
+def _node_segment_trace_state(
+    registry: GfqlIndexRegistry,
+    g: Plottable,
+    node_col: Optional[str],
+    engine: Engine,
+    node_match: Optional[object],
+) -> str:
+    if node_match is None:
+        return "not_present"
+    from .traverse import is_simple_equality_node_match
+    if not is_simple_equality_node_match(node_match):
+        return "unsupported"
+    assert isinstance(node_match, dict)
+    column, value = next(iter(node_match.items()))
+    if not isinstance(value, (str, int)) or node_col is None or g._nodes is None:
+        return "unsupported"
+    return "resident" if registry.get_node_segment_valid(column, value, g._nodes, engine) is not None else "missing_or_stale"
 
 
 def maybe_index_hop(
@@ -1270,12 +1374,19 @@ def maybe_index_hop(
     # (compute/hop.py); the index must run the SAME number of accumulating hops.
     # (regression: max_hops was passed through *rest and silently ignored — the index ran
     # `hops` (default 1) while the scan ran max_hops → wrong answer.)
+    if trace:
+        diag["node_segments"] = {
+            "source": _node_segment_trace_state(registry, g, node_col, engine, rest.get("source_node_match")),
+            "destination": _node_segment_trace_state(registry, g, node_col, engine, rest.get("destination_node_match")),
+        }
     eff_hops = max_hops if max_hops is not None else hops
     result = index_seeded_hop(
         g, registry, nodes=nodes, node_col=node_col, src=src, dst=dst, engine=engine,
         hops=eff_hops, to_fixed_point=to_fixed_point, direction=direction,
         return_as_wave_front=return_as_wave_front,
         edge_match=cast(Optional[dict], rest.get("edge_match")),
+        source_node_match=rest.get("source_node_match"),
+        destination_node_match=rest.get("destination_node_match"),
     )
     if trace:
         engine_mismatch_reason = (

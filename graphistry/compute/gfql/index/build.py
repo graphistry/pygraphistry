@@ -178,6 +178,62 @@ def build_typed_adjacency_indexes(
     return out, into
 
 
+def build_node_type_segment(
+    nodes: DataFrameT,
+    type_column: str,
+    type_value: PartitionValue,
+    engine: Engine,
+) -> NodePropIndex:
+    """Row positions of nodes matching one scalar/Boolean type value, as a
+    single-bucket :class:`NodePropIndex`.
+
+    The dual of the typed edge sidecar: the canonical engine predicate
+    (``filter_by_dict``) decides membership ONCE at setup, so segment selection is
+    parity-exact with the scan's node filter by construction — including null rows
+    (null == value filters out on the scan path, and the canonical predicate encodes
+    that here). Original node row positions are retained through a position column,
+    mirroring ``build_typed_adjacency_indexes``; the user's ``.nodes`` frame is never
+    reordered. Boolean label columns give MEMBERSHIP semantics (a node appears in
+    several segments); a scalar type column gives partition semantics — the storage
+    is the same either way.
+    """
+    from graphistry.compute.filter_by_dict import filter_by_dict
+
+    xp, backend = array_namespace(engine)
+    position_column = "__gfql_typed_node_position__"
+    while position_column in nodes.columns:
+        position_column += "_"
+    if engine in (Engine.POLARS, Engine.POLARS_GPU):
+        import polars as pl
+
+        if not isinstance(nodes, pl.DataFrame):
+            raise TypeError("typed Polars node segment requires an eager Polars node frame")
+        positioned: DataFrameT = nodes.select([type_column]).with_row_index(position_column)
+    else:
+        positioned = nodes[[type_column]].assign(
+            **{position_column: xp.arange(len(nodes), dtype=xp.int64)}
+        )
+    matching = filter_by_dict(positioned, {type_column: type_value}, engine=engine.value)
+    # Stable int64 positions preserve cross-hop node identities.
+    row_positions = xp.asarray(
+        col_to_array(matching, position_column, engine), dtype=xp.int64,
+    )
+    keys = xp.asarray([type_value])
+    return NodePropIndex(
+        key_col=type_column,
+        keys_sorted=keys,
+        group_offsets=xp.asarray([0, int(row_positions.shape[0])], dtype=xp.int64),
+        row_positions=row_positions,
+        backend=backend,
+        engine=engine,
+        fingerprint=frame_fingerprint(nodes, (type_column,), engine),
+        source_ref=nodes,
+        n_nodes=len(nodes),
+        n_keys=1,
+        min_group_count=int(row_positions.shape[0]),
+    )
+
+
 def build_node_id_index(
     nodes: DataFrameT,
     node_col: str,
@@ -210,7 +266,7 @@ def build_node_id_index(
         backend=backend,
         engine=engine,
         fingerprint=frame_fingerprint(nodes, (node_col,), engine),
-        source_ref=cast(DataFrameT, nodes),
+        source_ref=nodes,
         n_nodes=n_keys,
     )
 
@@ -283,7 +339,7 @@ def build_property_index(
         backend=backend,
         engine=engine,
         fingerprint=frame_fingerprint(nodes, (column,), engine),
-        source_ref=cast(DataFrameT, nodes),
+        source_ref=nodes,
         string_keys=dictionary,
         string_key_positions=string_key_positions,
         string_key_positions_bytes=string_key_positions_bytes,

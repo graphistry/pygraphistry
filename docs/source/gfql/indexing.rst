@@ -200,6 +200,39 @@ The ``typed:`` rows in ``show_indexes()`` report incremental CSR bytes; they
 share the ordinary adjacency's neighbor arrays. Build for the engine used by
 the query, and rebuild after binding a new edge frame or changing edges in place.
 
+Select node types or labels
+~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+For repeated hops that filter nodes by type or label, build row-position sidecars
+for the scalar or Boolean values those queries need:
+
+.. code-block:: python
+
+   labeled_nodes = pd.DataFrame({
+       "id": [0, 1, 2], "type": ["PERSON", "ROBOT", "PERSON"],
+       "label__Active": [True, False, True],
+   })
+   labeled_g = graphistry.nodes(labeled_nodes, "id")
+   labeled_g = labeled_g.gfql_index_node_types(
+       type_column="type", type_values=["PERSON"]
+   )
+   labeled_g = labeled_g.gfql_index_node_types(
+       type_column="label__Active", type_values=[True]
+   )
+   labeled_g.show_indexes()[["name", "nbytes", "valid", "usable"]]
+
+``gfql_index_node_types(type_column=..., type_values=...)`` is the node-frame dual
+of relationship-type sidecars. A scalar column partitions rows; a Boolean
+``label__<Label>`` column records membership. The options are keyword-only.
+Node sidecars are an explicit load-time cost; ``gfql_index_all()`` alone does not
+build them. Queries with matching live sidecars can narrow the wavefront while
+GFQL still applies the complete node predicate; other queries use the ordinary
+paths and retain the same results. Rebuild after binding a new node frame or
+changing nodes in place. ``show_indexes()`` reports these as
+``node_type_segment`` rows. Drop all with ``drop_index("node_type_segment")``,
+one column with ``column=...``, or one segment with both ``column=...`` and
+``value=...``.
+
 Start from a property column
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 

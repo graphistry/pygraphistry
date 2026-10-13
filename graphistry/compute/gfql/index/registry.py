@@ -23,9 +23,12 @@ EDGE_IN_ADJ: AdjacencyIndexKind = "edge_in_adj"
 NODE_ID: IndexKind = "node_id"
 NODE_PROP: IndexKind = "node_prop"
 EDGE_PROP: IndexKind = "edge_prop"
+NODE_TYPE_SEGMENT: IndexKind = "node_type_segment"
 
 ADJ_KINDS: Tuple[AdjacencyIndexKind, ...] = (EDGE_OUT_ADJ, EDGE_IN_ADJ)
-ALL_KINDS: Tuple[IndexKind, ...] = (EDGE_OUT_ADJ, EDGE_IN_ADJ, NODE_ID, NODE_PROP, EDGE_PROP)
+ALL_KINDS: Tuple[IndexKind, ...] = (
+    EDGE_OUT_ADJ, EDGE_IN_ADJ, NODE_ID, NODE_PROP, EDGE_PROP, NODE_TYPE_SEGMENT,
+)
 
 FrameFingerprint = Tuple[int, Tuple[str, ...], str]
 
@@ -152,7 +155,7 @@ class CategoryIndex:
 #: column are the same registry key. That is unreachable in practice (a column
 #: is bool-dtyped or int-dtyped, not both) and harmless where it is reachable
 #: (a query asking ``flag == 1`` of a bool column does select the True rows).
-PartitionValue = Union[str, int]
+PartitionValue = Union[str, int, bool]
 
 
 @dataclass(frozen=True)
@@ -263,6 +266,8 @@ class GfqlIndexRegistry:
     """Immutable kind -> index map. ``with_index`` / ``without`` return copies."""
     indexes: Dict[IndexKind, Union[AdjacencyIndex, NodeIdIndex]] = field(default_factory=dict)
     typed_adjacencies: Dict[Tuple[str, PartitionValue, AdjacencyIndexKind], AdjacencyIndex] = field(default_factory=dict)
+    # Node type/label segments keyed by (column, value); see NodePropIndex.
+    node_type_segments: Dict[Tuple[str, PartitionValue], NodePropIndex] = field(default_factory=dict)
     # Property indexes are keyed by COLUMN, not kind: a graph may carry several.
     node_props: Dict[str, NodePropIndex] = field(default_factory=dict)
     edge_props: Dict[str, NodePropIndex] = field(default_factory=dict)
@@ -299,6 +304,31 @@ class GfqlIndexRegistry:
             return None
         cols = tuple(sorted({src, dst, column}))
         if index.fingerprint != frame_fingerprint(edges, cols, engine):
+            return None
+        return index
+
+    def with_node_segment(
+        self, column: str, value: PartitionValue, index: "NodePropIndex",
+    ) -> "GfqlIndexRegistry":
+        segments = dict(self.node_type_segments)
+        segments[(column, value)] = index
+        return replace(self, node_type_segments=segments)
+
+    def get_node_segment_valid(
+        self, column: str, value: PartitionValue,
+        nodes: Optional[DataFrameT], engine: Engine,
+    ) -> Optional["NodePropIndex"]:
+        """Live node type segment for (column, value), or None.
+
+        A miss (never built, stale frame, foreign engine) declines to the scan —
+        never a wrong answer. Residency matters for parity: an EMPTY segment is a
+        real zero-row answer, distinct from an absent one."""
+        index = self.node_type_segments.get((column, value))
+        if index is None or nodes is None or index.engine != engine:
+            return None
+        if index.source_ref is not None and index.source_ref is not nodes:
+            return None
+        if index.fingerprint != frame_fingerprint(nodes, (column,), engine):
             return None
         return index
 
@@ -463,6 +493,19 @@ class GfqlIndexRegistry:
             return None
         return fact
 
+    def without_node_segments(
+        self, column: Optional[str] = None, value: Optional[PartitionValue] = None,
+    ) -> "GfqlIndexRegistry":
+        segments = dict(self.node_type_segments)
+        if column is None:
+            segments.clear()
+        else:
+            if value is None:
+                segments = {key: idx for key, idx in segments.items() if key[0] != column}
+            else:
+                segments.pop((column, value), None)
+        return replace(self, node_type_segments=segments)
+
     def without_temporal_text(self) -> "GfqlIndexRegistry":
         return replace(self, temporal_text={})
 
@@ -590,7 +633,7 @@ class GfqlIndexRegistry:
         return cast(Tuple[IndexKind, ...], tuple(sorted(self.indexes.keys())))
 
     def is_empty(self) -> bool:
-        return not self.indexes and not self.typed_adjacencies and not self.node_props and not self.edge_props and not self.col_stats
+        return not self.indexes and not self.typed_adjacencies and not self.node_props and not self.edge_props and not self.col_stats and not self.node_type_segments
 
     def get_valid(self, kind: IndexKind, df: DataFrameT, cols: Tuple[str, ...], engine: Engine) -> Optional[Union[AdjacencyIndex, NodeIdIndex]]:
         """Return the index for ``kind`` only if its fingerprint still matches the
