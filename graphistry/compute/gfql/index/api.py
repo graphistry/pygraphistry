@@ -650,6 +650,31 @@ def show_indexes(
     return pd.DataFrame(rows, columns=cols)
 
 
+def _parse_type_partition(
+    label: str, type_column: Optional[str],
+    type_values: Optional[Sequence[PartitionValue]], allow_bool: bool,
+) -> Optional[List[PartitionValue]]:
+    """Shared type_column/type_values validation for ``gfql_index_edges`` /
+    ``gfql_index_node_types``: returns the parsed values, or None if untyped."""
+    if (type_column is None) != (type_values is None):
+        raise ValueError(f"{label} type index requires both type_column and type_values")
+    if type_column is None or type_values is None:
+        return None
+    if not isinstance(type_column, str) or not type_column:
+        raise TypeError(f"{label} type column must be a non-empty string")
+    if isinstance(type_values, (str, bytes)):
+        raise TypeError(f"{label} type index values must be a sequence, not a scalar string")
+    values = list(type_values)
+    if not values:
+        raise ValueError(f"{label} type index requires at least one value")
+    if allow_bool:
+        if any(not isinstance(value, (str, int, bool)) for value in values):
+            raise TypeError(f"{label} type index values must be strings, integers, or booleans")
+    elif any(isinstance(value, bool) or not isinstance(value, (str, int)) for value in values):
+        raise TypeError(f"{label} type index values must be strings or integers")
+    return values
+
+
 def gfql_index_edges(
     g: Plottable, direction: EdgeIndexDirection = "both",
     engine: EngineAbstractType = EngineAbstract.AUTO, *,
@@ -667,21 +692,9 @@ def gfql_index_edges(
     canonical edge predicate filtering after candidate lookup.
     """
     typed_column: Optional[str] = None
-    if (type_column is None) != (type_values is None):
-        raise ValueError("edge type index requires both type_column and type_values")
-    if type_column is not None and type_values is not None:
-        if not isinstance(type_column, str) or not type_column:
-            raise TypeError("edge type column must be a non-empty string")
-        if isinstance(type_values, (str, bytes)):
-            raise TypeError("edge type index values must be a sequence, not a scalar string")
-        values = list(type_values)
-        if not values:
-            raise ValueError("edge type index requires at least one value")
-        if any(isinstance(value, bool) or not isinstance(value, (str, int)) for value in values):
-            raise TypeError("edge type index values must be strings or integers")
+    values = _parse_type_partition("edge", type_column, type_values, allow_bool=False)
+    if values is not None:
         typed_column = type_column
-    else:
-        values = None
     if direction in ("forward", "both"):
         g = create_index(g, EDGE_OUT_ADJ, engine=engine)
     if direction in ("reverse", "both"):
@@ -754,20 +767,7 @@ def gfql_index_node_types(
     ``gfql_index_all()`` does not build them, and queries without a matching,
     live segment retain the ordinary scan path.
     """
-    if (type_column is None) != (type_values is None):
-        raise ValueError("node type index requires both type_column and type_values")
-    if type_column is not None and type_values is not None:
-        if not isinstance(type_column, str) or not type_column:
-            raise TypeError("node type column must be a non-empty string")
-        if isinstance(type_values, (str, bytes)):
-            raise TypeError("node type index values must be a sequence, not a scalar string")
-        values = list(type_values)
-        if not values:
-            raise ValueError("node type index requires at least one value")
-        if any(not isinstance(value, (str, int, bool)) for value in values):
-            raise TypeError("node type index values must be strings, integers, or booleans")
-    else:
-        values = []
+    values = _parse_type_partition("node", type_column, type_values, allow_bool=True)
     if not values or type_column is None:
         return g
     from graphistry.compute.ComputeMixin import _coerce_input_formats

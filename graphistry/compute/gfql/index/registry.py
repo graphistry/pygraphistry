@@ -266,7 +266,7 @@ class GfqlIndexRegistry:
     """Immutable kind -> index map. ``with_index`` / ``without`` return copies."""
     indexes: Dict[IndexKind, Union[AdjacencyIndex, NodeIdIndex]] = field(default_factory=dict)
     typed_adjacencies: Dict[Tuple[str, PartitionValue, AdjacencyIndexKind], AdjacencyIndex] = field(default_factory=dict)
-    # Node type/label segments keyed by (column, value); see NodePropIndex.
+    # Unlike typed edge sidecars (per-value instances of adjacency kinds), these row-position facts keyed (column, value) need their own kind and selective drop.
     node_type_segments: Dict[Tuple[str, PartitionValue], NodePropIndex] = field(default_factory=dict)
     # Property indexes are keyed by COLUMN, not kind: a graph may carry several.
     node_props: Dict[str, NodePropIndex] = field(default_factory=dict)
