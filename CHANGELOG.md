@@ -8,7 +8,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [Development]
 <!-- Do Not Erase This Section - Used for tracking unreleased changes -->
 
-## [0.61.0 - 2026-10-13]
+## [0.60.1 - 2026-10-13]
 
 ### Added
 
