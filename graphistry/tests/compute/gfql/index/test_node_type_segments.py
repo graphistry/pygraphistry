@@ -153,7 +153,7 @@ def test_node_segment_direct_hop_engagement(
     } for step in steps)
 
 
-@pytest.mark.route_engaged("index-hop")
+@pytest.mark.route_engaged("index-hop", "polars-plain")
 def test_plain_polars_chain_consumes_destination_node_segment() -> None:
     """A destination node-type filter is lowered into the indexed single hop.
 
