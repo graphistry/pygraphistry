@@ -471,8 +471,7 @@ def index_seeded_hop(
                     matched_parts[0] if len(matched_parts) == 1 else xp.concatenate(matched_parts)
                 )
             else:
-                # A row filter can reject a source's only edge; its stale lookup match
-                # must not seed visited. First-hop visited = surviving rows' sources.
+                # A filter can reject a source's only edge: first-hop visited = surviving rows' sources.
                 surviving = (
                     edge_rows_parts[0] if len(edge_rows_parts) == 1
                     else xp.concatenate(edge_rows_parts)
