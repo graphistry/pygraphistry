@@ -219,7 +219,7 @@ def build_node_type_segment(
         col_to_array(matching, position_column, engine), dtype=xp.int64,
     )
     if engine == Engine.CUDF and isinstance(type_value, str):
-        # cupy cannot encode text scalars; segments are looked up by registry key, so retain string values natively.
+        # cupy cannot encode text; registry keys drive lookup, not keys_sorted.
         import cudf  # type: ignore[import]
 
         keys = cast(ArrayLike, cudf.Series([type_value]))

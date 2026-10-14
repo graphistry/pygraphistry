@@ -1,9 +1,10 @@
 """``polars_plain_single_hop_admits`` is the polars chain's own gate for its plain single-hop
 branches.
 
-Pins: the decision table over the shared corpus (``"seeded-index"`` for a directed seeded hop
-without a destination filter, ``"skip-combine"`` for the other plain single hops except the
-filtered undirected one, None otherwise), a seeded chain (``start_nodes``) declines, and every
+Pins: the decision table over the shared corpus (``"seeded-index"`` for a directed seeded hop,
+including a simple destination node filter, ``"skip-combine"`` for the other plain single hops
+except the filtered undirected one, None otherwise), a seeded chain (``start_nodes``) declines,
+and every
 admitted shape stays value-identical to the pandas full path.
 """
 import pandas as pd
@@ -22,7 +23,7 @@ EXPECTED = {
     "plain single hop, unseeded": "skip-combine",
     "plain single hop, seeded": "seeded-index",
     "plain single hop, seeded, reverse": "seeded-index",
-    "plain single hop, seeded, destination filter": "skip-combine",
+    "plain single hop, seeded, destination filter": "seeded-index",
     "plain single hop, undirected, unconstrained": "skip-combine",
     "plain single hop, undirected, seeded": None,
     "single hop, prune to endpoints": None,

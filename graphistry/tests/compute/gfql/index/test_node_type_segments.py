@@ -153,6 +153,30 @@ def test_node_segment_direct_hop_engagement(
     } for step in steps)
 
 
+@pytest.mark.route_engaged("index-hop")
+def test_plain_polars_chain_consumes_destination_node_segment() -> None:
+    """A destination node-type filter is lowered into the indexed single hop.
+
+    The chain seed has already applied the source filter, so this shape admits a
+    destination-only node match without asking the segment path to re-filter seeds.
+    """
+    engine = "polars"
+    graph = _graph(engine)
+    indexed = _indexed(graph, engine)
+    query = [
+        n({"id": 1, "type": "P"}), e_forward(), n({"type": "Q"}), rows(),
+    ]
+    expected = graph.gfql(query, engine=engine, index_policy="off")
+    with index_trace() as steps:
+        actual = indexed.gfql(query, engine=engine, index_policy="force")
+    _assert_same_graph(actual, expected)
+    assert any(
+        step.get("path") == "index"
+        and step.get("node_segments", {}).get("destination") == "resident"
+        for step in steps
+    ), steps
+
+
 @pytest.mark.parametrize("engine", ["pandas", "polars", "cudf"])
 def test_node_segment_two_hop_chain_matches_scan(engine: str) -> None:
     """The IC4-realistic shape: labeled nodes on every pattern of a two-hop chain."""

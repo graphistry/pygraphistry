@@ -1165,6 +1165,10 @@ def _hop_is_index_coverable(
         return_as_wave_front
         and is_simple_equality_node_match(source_node_match)
         and is_simple_equality_node_match(destination_node_match)
+    ) and not (
+        not return_as_wave_front
+        and source_node_match is None
+        and is_simple_equality_node_match(destination_node_match)
     ):
         return False
     # Typed-edge edge_match: coverable only as a simple scalar-equality filter on the
