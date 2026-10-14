@@ -466,9 +466,18 @@ def index_seeded_hop(
 
         neighbors = neigh_parts[0] if len(neigh_parts) == 1 else xp.concatenate(neigh_parts)
         if first and not return_as_wave_front:
-            matched_all = (
-                matched_parts[0] if len(matched_parts) == 1 else xp.concatenate(matched_parts)
-            )
+            if edge_filter is None and dest_allowed is None:
+                matched_all = (
+                    matched_parts[0] if len(matched_parts) == 1 else xp.concatenate(matched_parts)
+                )
+            else:
+                # A row filter can reject a source's only edge; its stale lookup match
+                # must not seed visited. First-hop visited = surviving rows' sources.
+                surviving = (
+                    edge_rows_parts[0] if len(edge_rows_parts) == 1
+                    else xp.concatenate(edge_rows_parts)
+                )
+                matched_all = col_to_array(edges, src, engine)[surviving]
             visited = sorted_unique(xp, matched_all)
         first = False
 
