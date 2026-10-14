@@ -1132,7 +1132,9 @@ class RowPipelineMixin:
                     if restore_col in table_df.columns:
                         # the alias marker overwrote this same-named user column; rows() re-keyed it
                         return True, table_df[restore_col]
-                if "." not in alias_name and RowPipelineMixin._gfql_has_bindings_alias_prefix(table_df, alias_name):
+                # Quoted aliases are raw user identifiers; punctuation in their spelling
+                # is not qualified-column syntax.
+                if (node.value.quoted or "." not in alias_name) and RowPipelineMixin._gfql_has_bindings_alias_prefix(table_df, alias_name):
                     if node.property == NODE_IDENTITY_COLUMN:
                         node_id = self._gfql_node_id_column()
                         identity_col = f"{alias_name}.{node_id}" if node_id else None
@@ -1150,7 +1152,7 @@ class RowPipelineMixin:
                     or RowPipelineMixin._gfql_table_has_graph_shape(table_df)
                 )
                 if (
-                    "." not in alias_name
+                    (node.value.quoted or "." not in alias_name)
                     and alias_name in table_df.columns
                     and has_bound_graph_table
                     and RowPipelineMixin._gfql_series_bool_like(table_df[alias_name])

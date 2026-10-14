@@ -169,7 +169,7 @@ from graphistry.compute.gfql.same_path_types import (
 from graphistry.compute.gfql.cypher.reentry import naming as _reentry_naming, scope as _reentry_scope
 from graphistry.compute.gfql.cypher.ast import CypherParams
 from graphistry.compute.gfql.cypher.where_membership import peel_literal_membership_where
-from graphistry.compute.gfql.identifiers import shortest_path_hops_column
+from graphistry.compute.gfql.identifiers import render_cypher_identifier, shortest_path_hops_column
 
 
 @dataclass(frozen=True)
@@ -1121,7 +1121,7 @@ def _validate_with_projection_aliasing(stage: ProjectionStage) -> None:
 
 def _rewrite_expr_identifiers(node: ExprNode, replacements: Mapping[str, str]) -> ExprNode:
     if isinstance(node, Identifier):
-        return Identifier(replacements.get(node.name, node.name))
+        return Identifier(replacements.get(node.name, node.name), quoted=node.quoted)
     if isinstance(node, CaseWhen):
         return CaseWhen(
             _rewrite_expr_identifiers(node.condition, replacements),
@@ -6928,7 +6928,7 @@ def _fresh_temp_name(existing: Set[str], prefix: str) -> str:
 
 def _render_row_where_operand_text(value: Union[PropertyRef, CypherLiteral]) -> str:
     if isinstance(value, PropertyRef):
-        return f"{value.alias}.{value.property}"
+        return f"{render_cypher_identifier(value.alias)}.{render_cypher_identifier(value.property)}"
     if isinstance(value, ParameterRef):
         return f"${value.name}"
     if value is None:
