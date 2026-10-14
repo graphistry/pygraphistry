@@ -8,7 +8,7 @@ import pytest
 
 import graphistry
 from graphistry.Engine import Engine
-from graphistry.compute.exceptions import GFQLTypeError
+from graphistry.compute.exceptions import GFQLCallExecutionError
 from graphistry.compute.gfql.call.executor import execute_call
 
 TRIANGLE_EDGES = pd.DataFrame({'s': [0, 1, 2], 'd': [1, 2, 0]})
@@ -209,7 +209,7 @@ def test_cudf_null_partition_key_names_the_partition_column() -> None:
 def test_gfql_call_surface_reports_the_missing_bounding_box() -> None:
     n = pd.DataFrame({'id': [0, 1, 2]})
     g = graphistry.edges(TRIANGLE_EDGES, 's', 'd').nodes(n, 'id')
-    with pytest.raises(GFQLTypeError, match='requires either bounding_box= or existing x/y node positions'):
+    with pytest.raises(GFQLCallExecutionError, match='requires either bounding_box= or existing x/y node positions'):
         execute_call(g, 'circle_layout', {}, Engine.PANDAS)
 
 

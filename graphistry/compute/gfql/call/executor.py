@@ -16,7 +16,7 @@ from graphistry.compute.gfql.row.pipeline import (
     execute_row_pipeline_call,
     is_row_pipeline_call,
 )
-from graphistry.compute.exceptions import ErrorCode, GFQLSchemaError, GFQLTypeError
+from graphistry.compute.exceptions import ErrorCode, GFQLCallExecutionError, GFQLSchemaError, GFQLTypeError, GFQLValidationError
 from graphistry.compute.engine_coercion import ensure_engine_match
 from graphistry.compute.gfql.policy import PolicyContext, PolicyException
 from graphistry.compute.gfql.policy.stats import extract_graph_stats
@@ -295,6 +295,17 @@ def execute_call(g: Plottable, function: str, params: Dict[str, Any], engine: En
         if error is not None:
             raise policy_error from error
         raise policy_error
+    engine_name = str(getattr(engine, "value", engine))
+    if error is not None and not isinstance(error, (PolicyException, GFQLValidationError, NotImplementedError)):
+        raise GFQLCallExecutionError(
+            ErrorCode.E306,
+            f"Call execution failed in '{function}': {error}",
+            field="function",
+            value=function,
+            suggestion="The query passed validation; inspect the chained engine error and engine compatibility.",
+            engine=engine_name,
+            original_exception=type(error).__name__,
+        ) from error
     if isinstance(error, TypeError):
         raise GFQLTypeError(
             ErrorCode.E201,
