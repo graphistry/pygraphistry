@@ -218,7 +218,14 @@ def build_node_type_segment(
     row_positions = xp.asarray(
         col_to_array(matching, position_column, engine), dtype=xp.int64,
     )
-    keys = xp.asarray([type_value])
+    if engine == Engine.CUDF and isinstance(type_value, str):
+        # cupy cannot encode text scalars; node segments are looked up by their
+        # registry key, not by scanning keys_sorted, so retain the value natively.
+        import cudf  # type: ignore[import]
+
+        keys = cast(ArrayLike, cudf.Series([type_value]))
+    else:
+        keys = xp.asarray([type_value])
     return NodePropIndex(
         key_col=type_column,
         keys_sorted=keys,
