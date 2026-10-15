@@ -2135,7 +2135,7 @@ class TestRowPipelineSafelist:
 
         with pytest.raises(GFQLTypeError) as exc_info:
             g.gfql(steps + [return_([("id", "id")])])
-        assert exc_info.value.code == ErrorCode.E303
+        assert exc_info.value.code == ErrorCode.E306
         assert expected_message in exc_info.value.message
 
     @pytest.mark.parametrize(
@@ -2563,7 +2563,7 @@ class TestRowPipelineSafelist:
                     ),
                 ]
             )
-        assert exc_info.value.code == ErrorCode.E303
+        assert exc_info.value.code == ErrorCode.E306
         assert "join_aliases" in exc_info.value.message
 
     def test_row_pipeline_apply_helpers_use_prefixed_join_key_and_payload(self, monkeypatch):
