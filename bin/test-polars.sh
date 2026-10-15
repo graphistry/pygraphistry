@@ -171,6 +171,9 @@ POLARS_TEST_FILES=(
     graphistry/tests/compute/gfql/test_temporal_leak_family_1915.py
     # #1934 incomparable-ordering-null pins: the polars typed-decline cells only run here
     graphistry/tests/compute/gfql/test_incomparable_ordering_null_1934.py
+    # #2194 explicit epoch-ms contract: pandas oracle plus native Polars lowering in one file
+    graphistry/tests/compute/gfql/test_epoch_datetime_value_contract.py
+    graphistry/tests/compute/gfql/test_epoch_repair_regressions.py
     # #1937 split-month duration scaling: every case is parametrized pandas AND polars,
     # and the polars params only run here
     graphistry/tests/compute/gfql/test_duration_month_division_1937.py
