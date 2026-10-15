@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 from graphistry.compute.gfql.cypher import lowering as _lowering
+from graphistry.compute.gfql.identifiers import render_cypher_identifier
 
 globals().update(vars(_lowering))
 
@@ -30,11 +31,16 @@ def _qualified_ref_from_node(
     column: int,
 ) -> Optional[Tuple[str, Optional[str]]]:
     if isinstance(node, Identifier):
+        if node.quoted:
+            return node.name, None
         try:
             return _split_qualified_name(node.name, line=line, column=column)
         except GFQLValidationError:
             return None
     if isinstance(node, PropertyAccessExpr) and isinstance(node.value, Identifier):
+        if node.value.quoted:
+            # A quoted root is one raw alias, even when its spelling contains ``.``.
+            return node.value.name, node.property
         try:
             alias_name, prop = _split_qualified_name(node.value.name, line=line, column=column)
         except GFQLValidationError:
@@ -318,7 +324,7 @@ def _build_projection_plan(
             field=f"{clause.kind}.items",
         )
         runtime_expr = (
-            f"{alias_name}.{prop}"
+            f"{render_cypher_identifier(alias_name)}.{render_cypher_identifier(prop)}"
             if simple_ref and prop is not None
             else (
                 binding.source_name
@@ -335,7 +341,11 @@ def _build_projection_plan(
         available_columns.add(output_name)
         if simple_ref and prop is not None:
             projected_property_outputs.setdefault(prop, output_name)
-            source_property_name = prop if alias_name == source_alias else f"{alias_name}.{prop}"
+            source_property_name = (
+                prop
+                if alias_name == source_alias
+                else f"{render_cypher_identifier(alias_name)}.{render_cypher_identifier(prop)}"
+            )
             output_to_source_property[output_name] = source_property_name
             projection_columns.append(
                 ResultProjectionColumn(
