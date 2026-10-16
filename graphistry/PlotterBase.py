@@ -4123,7 +4123,7 @@ class PlotterBase(Plottable):
 
         The optional ``opts={...}`` configuration options are:
 
-        * 'EVENTID': Column name to inspect for a row ID. By default, uses the row index.
+        * 'EVENTID': Column name to inspect for a row ID. By default, uses the row index; an input column named 'EventID' is ignored unless passed here.
         * 'CATEGORIES': Dictionary mapping a category name to inhabiting columns. E.g., {'IP': ['srcAddress', 'dstAddress']}.  If the same IP appears in both columns, this makes the transform generate one node for it, instead of one for each column.
         * 'DELIM': When creating node IDs, defines the separator used between the column name and node value
         * 'SKIP': List of column names to not turn into nodes. For example, dates and numbers are often skipped.

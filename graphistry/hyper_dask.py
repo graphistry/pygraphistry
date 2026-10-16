@@ -5,7 +5,7 @@
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union
 from typing_extensions import Literal
 from .Engine import Engine, EngineAbstractType, DataframeLike, DataframeLocalLike, resolve_input_engine, df_to_engine
-import numpy as np, pandas as pd, pyarrow as pa, sys
+import numpy as np, pandas as pd, pyarrow as pa, sys, warnings
 from .util import setup_logger
 logger = setup_logger(__name__)
 
@@ -17,7 +17,7 @@ class HyperBindings():
         DELIM: str = '::',
         NODEID: str = 'nodeID',
         ATTRIBID: str = 'attribID',
-        EVENTID: str = 'EventID',
+        EVENTID: Optional[str] = None,
         EVENTTYPE: str = 'event',
         SOURCE: str = 'src',
         DESTINATION: str = 'dst',
@@ -33,7 +33,8 @@ class HyperBindings():
         self.delim = DELIM
         self.node_id = NODEID
         self.attrib_id = ATTRIBID
-        self.event_id = EVENTID
+        self.event_id = EVENTID if EVENTID is not None else 'EventID'
+        self.event_id_explicit = EVENTID is not None
         self.event_type = EVENTTYPE
         self.source = SOURCE
         self.destination = DESTINATION
@@ -684,12 +685,23 @@ def clean_events(
     """
     logger.debug('@clean: %s', events.dtypes)
 
-    # FIXME https://github.com/rapidsai/cudf/issues/7735
-    # None -> np.nan
+    # Implicit EventID input col would collide with row-keyed event nodes
+    if (not defs.event_id_explicit) and (defs.event_id in events.columns):
+        warnings.warn(
+            f"hypergraph(): ignoring input column '{defs.event_id}' and numbering events by row. "
+            f"To key events by this column, pass opts={{'EVENTID': '{defs.event_id}'}}; "
+            f"to keep its values as an attribute, rename the column.",
+            UserWarning,
+            stacklevel=3
+        )
+        events = events.drop(columns=[defs.event_id])
+
     custom_event_id_flag = False
     if (engine in [Engine.DASK, Engine.DASK_CUDF]) and (defs.event_id not in events.columns):
-        events[defs.event_id] = range(0, len(events))
+        events = events.assign(**{defs.event_id: range(0, len(events))})
         custom_event_id_flag = True
+    # FIXME https://github.com/rapidsai/cudf/issues/7735
+    # None -> np.nan
     if dropna and (engine == Engine.DASK_CUDF):
         import cudf, numpy as np
         if isinstance(events, pd.DataFrame):  # or isinstance(events, cudf.DataFrame):
