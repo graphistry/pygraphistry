@@ -10,6 +10,7 @@ from graphistry.compute.ast import e_forward, n, rows
 from graphistry.compute.gfql.index import (
     get_registry, index_trace, maybe_index_hop, with_index_policy,
 )
+from graphistry.compute.gfql.index.api import _series_nbytes
 from graphistry.compute.gfql.index.cypher_ddl import parse_index_ddl
 from graphistry.compute.gfql.index.wire import apply_index_op
 
@@ -35,6 +36,42 @@ def _graph(engine: str):
         cudf = pytest.importorskip("cudf")
         nodes, edges = cudf.from_pandas(nodes), cudf.from_pandas(edges)
     return graphistry.bind(node="id", source="src", destination="dst").nodes(nodes).edges(edges)
+
+
+def test_node_segment_show_indexes_reports_cudf_bytes() -> None:
+    pytest.importorskip("cudf")
+    cupy = pytest.importorskip("cupy")
+    try:
+        device_count = cupy.cuda.runtime.getDeviceCount()
+    except Exception:
+        pytest.skip("CUDA device detection failed")
+    if device_count == 0:
+        pytest.skip("cuDF requires a CUDA device")
+    indexed = _indexed(_graph("cudf"), "cudf")
+    rows = indexed.show_indexes()
+    segment_rows = rows[rows["kind"] == "node_type_segment"]
+    assert not segment_rows.empty
+    assert segment_rows["nbytes"].sum() > 0
+
+
+@pytest.mark.parametrize("attribute,value,expected", [
+    ("estimated_size", 7, 7),
+    ("nbytes", 3, 3),
+    ("memory_usage", 4, 4),
+])
+def test_series_nbytes_uses_engine_measurement(attribute: str, value: int, expected: int) -> None:
+    class _MeasuredSeries:
+        pass
+
+    if attribute == "nbytes":
+        setattr(_MeasuredSeries, attribute, property(lambda self: value))
+    else:
+        setattr(_MeasuredSeries, attribute, lambda self: value)
+    assert _series_nbytes(_MeasuredSeries()) == expected
+
+
+def test_series_nbytes_defaults_to_zero_for_unknown_series() -> None:
+    assert _series_nbytes(object()) == 0
 
 
 def _pandas(frame):

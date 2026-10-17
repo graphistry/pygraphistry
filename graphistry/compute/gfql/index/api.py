@@ -13,7 +13,7 @@ from typing import Dict, List, Literal, Mapping, Optional, Sequence, Set, Tuple,
 import pandas as pd
 
 from graphistry.Engine import EngineAbstract, Engine, EngineAbstractType, POLARS_ENGINES, is_polars_df, resolve_engine
-from graphistry.compute.typing import DataFrameT
+from graphistry.compute.typing import DataFrameT, SeriesT
 from graphistry.Plottable import Plottable
 from .registry import (
     AdjacencyIndex, ColStatsFact, PartitionValue, ColStatsRole, GfqlIndexRegistry, EMPTY_REGISTRY, NodeIdIndex,
@@ -37,6 +37,16 @@ from .types import (
 # Private Plottable attachment keys. Keep access behind helpers.
 POLICY_ATTR = "_gfql_index_policy"
 REGISTRY_ATTR = "_gfql_index_registry"
+
+
+def _series_nbytes(value: SeriesT) -> int:
+    if hasattr(value, "estimated_size"):
+        return int(value.estimated_size())
+    if hasattr(value, "nbytes"):
+        return int(value.nbytes)
+    if hasattr(value, "memory_usage"):
+        return int(value.memory_usage())
+    return 0
 
 
 # --- lightweight, thread-local index decision trace (for gfql_explain) -------
@@ -591,7 +601,7 @@ def show_indexes(
         )
         usable, reason = _index_usability(kind, typed.engine, valid, query_engine)
         # other_values is shared with the ordinary adjacency index, not added memory.
-        nbytes = sum(int(getattr(typed, name).nbytes) for name in (
+        nbytes = sum(_series_nbytes(getattr(typed, name)) for name in (
             "keys_sorted", "group_offsets", "row_positions",
         ))
         rows.append({
@@ -611,7 +621,7 @@ def show_indexes(
             is segment
         )
         usable, reason = _index_usability(NODE_TYPE_SEGMENT, segment.engine, valid, query_engine)
-        nbytes = sum(int(getattr(segment, name).nbytes) for name in (
+        nbytes = sum(_series_nbytes(getattr(segment, name)) for name in (
             "keys_sorted", "group_offsets", "row_positions",
         ))
         rows.append({
