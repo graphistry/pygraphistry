@@ -16,6 +16,7 @@ if TYPE_CHECKING:
     from graphistry.compute.typing import DataFrameT, PolarsFrame, PolarsSeriesT, SeriesT
     from graphistry.Plottable import Plottable
     import cudf
+    import cupy
     import polars as pl
     # TypeGuard, NOT TypeIs (PEP 742). TypeIs additionally narrows the negative branch, and to
     # do that soundly it REQUIRES the narrowed type to be consistent with the declared input
@@ -261,6 +262,19 @@ def is_cudf_series(series: object) -> "TypeGuard[cudf.Series]":
     import cudf
 
     return isinstance(series, cudf.Series)
+
+
+def is_cupy_array(array: object) -> "TypeGuard[cupy.ndarray]":
+    """True if ``array`` is a CuPy array.
+
+    The module check avoids importing the optional GPU dependency for other
+    engines; the exact ``isinstance`` check rejects look-alikes.
+    """
+    if array is None or "cupy" not in type(array).__module__:
+        return False
+    import cupy
+
+    return isinstance(array, cupy.ndarray)
 
 
 def active_frames_are_polars(g: Any) -> bool:

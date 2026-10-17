@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import pandas as pd
 import pytest
+import numpy as np
 
 import graphistry
 from graphistry.Engine import Engine
@@ -10,7 +11,8 @@ from graphistry.compute.ast import e_forward, n, rows
 from graphistry.compute.gfql.index import (
     get_registry, index_trace, maybe_index_hop, with_index_policy,
 )
-from graphistry.compute.gfql.index.api import _series_nbytes
+from graphistry.Engine import is_cupy_array
+from graphistry.compute.gfql.index.api import _byte_source_nbytes
 from graphistry.compute.gfql.index.cypher_ddl import parse_index_ddl
 from graphistry.compute.gfql.index.wire import apply_index_op
 
@@ -54,18 +56,18 @@ def test_node_segment_show_indexes_reports_cudf_bytes() -> None:
     assert segment_rows["nbytes"].sum() > 0
 
 
-def test_series_nbytes_uses_pandas_measurement() -> None:
+def test_byte_source_nbytes_uses_pandas_measurement() -> None:
     series = pd.Series([1], dtype="int64")
-    assert _series_nbytes(series) == series.memory_usage()
+    assert _byte_source_nbytes(series) == series.memory_usage()
 
 
-def test_series_nbytes_uses_polars_measurement() -> None:
+def test_byte_source_nbytes_uses_polars_measurement() -> None:
     pl = pytest.importorskip("polars")
     series = pl.Series([1], dtype=pl.Int64)
-    assert _series_nbytes(series) == series.estimated_size()
+    assert _byte_source_nbytes(series) == series.estimated_size()
 
 
-def test_series_nbytes_uses_cudf_measurement() -> None:
+def test_byte_source_nbytes_uses_cudf_measurement() -> None:
     cudf = pytest.importorskip("cudf")
     try:
         device_count = cudf.cuda.runtime.getDeviceCount()
@@ -74,11 +76,28 @@ def test_series_nbytes_uses_cudf_measurement() -> None:
     if device_count == 0:
         pytest.skip("cuDF requires a CUDA device")
     series = cudf.Series([1], dtype="int64")
-    assert _series_nbytes(series) == series.memory_usage()
+    assert _byte_source_nbytes(series) == series.memory_usage()
 
 
-def test_series_nbytes_defaults_to_zero_for_unknown_series() -> None:
-    assert _series_nbytes(object()) == 0
+def test_byte_source_nbytes_defaults_to_zero_for_unknown_byte_source() -> None:
+    assert _byte_source_nbytes(object()) == 0
+
+
+def test_byte_source_nbytes_uses_numpy_measurement() -> None:
+    assert _byte_source_nbytes(np.asarray([1], dtype="int64")) == 8
+
+
+def test_byte_source_nbytes_uses_cupy_measurement() -> None:
+    cupy = pytest.importorskip("cupy")
+    try:
+        device_count = cupy.cuda.runtime.getDeviceCount()
+    except Exception:
+        pytest.skip("CUDA device detection failed")
+    if device_count == 0:
+        pytest.skip("CuPy requires a CUDA device")
+    array = cupy.asarray([1], dtype="int64")
+    assert _byte_source_nbytes(array) == 8
+    assert is_cupy_array(array)
 
 
 def _pandas(frame):

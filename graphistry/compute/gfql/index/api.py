@@ -10,11 +10,12 @@ from __future__ import annotations
 import copy
 from typing import TYPE_CHECKING, Dict, List, Literal, Mapping, Optional, Sequence, Set, Tuple, Union, cast
 
+import numpy as np
 import pandas as pd
 
 from graphistry.Engine import (
     EngineAbstract, Engine, EngineAbstractType, POLARS_ENGINES,
-    is_cudf_series, is_polars_df, is_polars_series, resolve_engine,
+    is_cudf_series, is_cupy_array, is_polars_df, is_polars_series, resolve_engine,
 )
 from graphistry.compute.typing import DataFrameT, SeriesT
 from graphistry.Plottable import Plottable
@@ -39,20 +40,24 @@ from .types import (
 
 if TYPE_CHECKING:
     import cudf
-    from graphistry.compute.typing import PolarsSeriesT
+    from graphistry.compute.typing import ArrayLike, PolarsSeriesT
 
-    CrossEngineSeriesT = Union[SeriesT, PolarsSeriesT, "cudf.Series"]
+    CrossEngineByteSourceT = Union[ArrayLike, SeriesT, PolarsSeriesT, "cudf.Series"]
 
 # Private Plottable attachment keys. Keep access behind helpers.
 POLICY_ATTR = "_gfql_index_policy"
 REGISTRY_ATTR = "_gfql_index_registry"
 
 
-def _series_nbytes(value: CrossEngineSeriesT) -> int:
+def _byte_source_nbytes(value: CrossEngineByteSourceT) -> int:
     if is_polars_series(value):
         return int(value.estimated_size())
     if is_cudf_series(value):
         return int(value.memory_usage())
+    if isinstance(value, np.ndarray):
+        return int(value.nbytes)
+    if is_cupy_array(value):
+        return int(value.nbytes)
     if isinstance(value, pd.Series):
         return int(value.memory_usage())
     return 0
@@ -610,7 +615,7 @@ def show_indexes(
         )
         usable, reason = _index_usability(kind, typed.engine, valid, query_engine)
         # other_values is shared with the ordinary adjacency index, not added memory.
-        nbytes = sum(_series_nbytes(getattr(typed, name)) for name in (
+        nbytes = sum(_byte_source_nbytes(getattr(typed, name)) for name in (
             "keys_sorted", "group_offsets", "row_positions",
         ))
         rows.append({
@@ -630,7 +635,7 @@ def show_indexes(
             is segment
         )
         usable, reason = _index_usability(NODE_TYPE_SEGMENT, segment.engine, valid, query_engine)
-        nbytes = sum(_series_nbytes(getattr(segment, name)) for name in (
+        nbytes = sum(_byte_source_nbytes(getattr(segment, name)) for name in (
             "keys_sorted", "group_offsets", "row_positions",
         ))
         rows.append({
