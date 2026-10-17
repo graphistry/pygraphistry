@@ -18,10 +18,12 @@ from graphistry.compute.ast import e
 from graphistry.compute.ast_temporal import DateTimeValue, temporal_value_from_json
 from graphistry.compute.exceptions import ErrorCode, GFQLTypeError
 from graphistry.compute.predicates.comparison import ge
+from graphistry.compute.gfql.lazy.engine.polars.predicates import predicate_to_expr
 from graphistry.models.gfql.coercions.temporal import to_ast
 
 
 YEAR_5138_MS = 10**14  # 5138-11-16T09:46:40Z, inside JSON-safe and ms-representable range
+YEAR_2020_MS = 1577836800000
 
 
 def _polars():
@@ -55,12 +57,32 @@ def test_r1_wide_bound_no_match_is_empty_not_crash():
 
 def test_r1_finest_than_column_bound_still_declines_not_crashes():
     pl = _polars()
-    # Exact-ms bound is representable on a us column; a sub-unit instant cannot be
-    # and must decline (empty match via fallback), never raise raw overflow.
-    edges = pl.DataFrame({"s": [1], "d": [2], "ts": [1577836800000]}).with_columns(
-        pl.col("ts").cast(pl.Datetime("us"))
+    # A 2020 row stays 2020 on the ms column. The +1us instant cannot be represented
+    # at ms resolution, so Polars lowering must decline explicitly rather than round.
+    edges = pl.DataFrame({"s": [1], "d": [2], "ts": [YEAR_2020_MS]}).with_columns(
+        pl.col("ts").cast(pl.Datetime("ms"))
     )
-    bound = DateTimeValue("2020-01-01T00:00:00.000001+00:00")  # 1us after the only row
+    dtype = edges.schema["ts"]
+    bound = DateTimeValue("2020-01-01T00:00:00.000001+00:00")
+    assert predicate_to_expr("ts", ge(bound), dtype=dtype) is None
+
+
+def test_r1_exact_ms_bound_matches_ms_column():
+    pl = _polars()
+    edges = pl.DataFrame({"s": [1], "d": [2], "ts": [YEAR_2020_MS]}).with_columns(
+        pl.col("ts").cast(pl.Datetime("ms"))
+    )
+    bound = DateTimeValue("2020-01-01T00:00:00+00:00")
+    result = graphistry.edges(edges, "s", "d").gfql([e(edge_match={"ts": ge(bound)})], engine="polars")
+    assert result._edges["s"].to_list() == [1]
+
+
+def test_r1_exact_ms_bound_no_match_is_empty():
+    pl = _polars()
+    edges = pl.DataFrame({"s": [1], "d": [2], "ts": [YEAR_2020_MS]}).with_columns(
+        pl.col("ts").cast(pl.Datetime("ms"))
+    )
+    bound = DateTimeValue("2020-01-02T00:00:00+00:00")
     result = graphistry.edges(edges, "s", "d").gfql([e(edge_match={"ts": ge(bound)})], engine="polars")
     assert result._edges["s"].to_list() == []
 
