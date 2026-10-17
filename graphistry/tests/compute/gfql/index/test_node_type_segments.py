@@ -74,7 +74,7 @@ def test_series_nbytes_uses_cudf_measurement() -> None:
     if device_count == 0:
         pytest.skip("cuDF requires a CUDA device")
     series = cudf.Series([1], dtype="int64")
-    assert _series_nbytes(series) == series.nbytes
+    assert _series_nbytes(series) == series.memory_usage()
 
 
 def test_series_nbytes_defaults_to_zero_for_unknown_series() -> None:

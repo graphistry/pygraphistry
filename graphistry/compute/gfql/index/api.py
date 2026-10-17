@@ -52,7 +52,7 @@ def _series_nbytes(value: CrossEngineSeriesT) -> int:
     if is_polars_series(value):
         return int(value.estimated_size())
     if is_cudf_series(value):
-        return int(value.nbytes)
+        return int(value.memory_usage())
     if isinstance(value, pd.Series):
         return int(value.memory_usage())
     return 0
