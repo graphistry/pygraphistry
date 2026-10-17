@@ -15,6 +15,7 @@ if TYPE_CHECKING:
     # triggers ``graphistry.compute`` package init at runtime (would be circular).
     from graphistry.compute.typing import DataFrameT, PolarsFrame, PolarsSeriesT, SeriesT
     from graphistry.Plottable import Plottable
+    import cudf
     import polars as pl
     # TypeGuard, NOT TypeIs (PEP 742). TypeIs additionally narrows the negative branch, and to
     # do that soundly it REQUIRES the narrowed type to be consistent with the declared input
@@ -247,6 +248,19 @@ def is_polars_df(df: object) -> "TypeGuard[PolarsFrame]":
     type is deliberate — it is the widest input a predicate can accept while still checking
     its own body."""
     return df is not None and "polars" in type(df).__module__
+
+
+def is_cudf_series(series: object) -> "TypeGuard[cudf.Series]":
+    """True if ``series`` is a cuDF ``Series``.
+
+    The module check avoids importing the optional cuDF dependency for other engines;
+    the exact ``isinstance`` check prevents look-alike classes from taking the cuDF path.
+    """
+    if series is None or "cudf" not in type(series).__module__:
+        return False
+    import cudf
+
+    return isinstance(series, cudf.Series)
 
 
 def active_frames_are_polars(g: Any) -> bool:

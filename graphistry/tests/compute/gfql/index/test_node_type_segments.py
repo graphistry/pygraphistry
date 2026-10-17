@@ -54,20 +54,26 @@ def test_node_segment_show_indexes_reports_cudf_bytes() -> None:
     assert segment_rows["nbytes"].sum() > 0
 
 
-@pytest.mark.parametrize("attribute,value,expected", [
-    ("estimated_size", 7, 7),
-    ("nbytes", 3, 3),
-    ("memory_usage", 4, 4),
-])
-def test_series_nbytes_uses_engine_measurement(attribute: str, value: int, expected: int) -> None:
-    class _MeasuredSeries:
-        pass
+def test_series_nbytes_uses_pandas_measurement() -> None:
+    series = pd.Series([1], dtype="int64")
+    assert _series_nbytes(series) == series.memory_usage()
 
-    if attribute == "nbytes":
-        setattr(_MeasuredSeries, attribute, property(lambda self: value))
-    else:
-        setattr(_MeasuredSeries, attribute, lambda self: value)
-    assert _series_nbytes(_MeasuredSeries()) == expected
+
+def test_series_nbytes_uses_polars_measurement() -> None:
+    pl = pytest.importorskip("polars")
+    assert _series_nbytes(pl.Series([1], dtype=pl.Int64)) == 8
+
+
+def test_series_nbytes_uses_cudf_measurement() -> None:
+    cudf = pytest.importorskip("cudf")
+    try:
+        device_count = cudf.cuda.runtime.getDeviceCount()
+    except Exception:
+        pytest.skip("CUDA device detection failed")
+    if device_count == 0:
+        pytest.skip("cuDF requires a CUDA device")
+    series = cudf.Series([1], dtype="int64")
+    assert _series_nbytes(series) == series.nbytes
 
 
 def test_series_nbytes_defaults_to_zero_for_unknown_series() -> None:

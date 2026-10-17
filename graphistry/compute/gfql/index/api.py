@@ -8,11 +8,14 @@ stale indexes (treated as absent, never a wrong answer).
 from __future__ import annotations
 
 import copy
-from typing import Dict, List, Literal, Mapping, Optional, Sequence, Set, Tuple, cast
+from typing import TYPE_CHECKING, Dict, List, Literal, Mapping, Optional, Sequence, Set, Tuple, Union, cast
 
 import pandas as pd
 
-from graphistry.Engine import EngineAbstract, Engine, EngineAbstractType, POLARS_ENGINES, is_polars_df, resolve_engine
+from graphistry.Engine import (
+    EngineAbstract, Engine, EngineAbstractType, POLARS_ENGINES,
+    is_cudf_series, is_polars_df, is_polars_series, resolve_engine,
+)
 from graphistry.compute.typing import DataFrameT, SeriesT
 from graphistry.Plottable import Plottable
 from .registry import (
@@ -34,17 +37,23 @@ from .types import (
     TraceEngine, SidecarFactKind,
 )
 
+if TYPE_CHECKING:
+    import cudf
+    from graphistry.compute.typing import PolarsSeriesT
+
+    CrossEngineSeriesT = Union[SeriesT, PolarsSeriesT, "cudf.Series"]
+
 # Private Plottable attachment keys. Keep access behind helpers.
 POLICY_ATTR = "_gfql_index_policy"
 REGISTRY_ATTR = "_gfql_index_registry"
 
 
-def _series_nbytes(value: SeriesT) -> int:
-    if hasattr(value, "estimated_size"):
+def _series_nbytes(value: CrossEngineSeriesT) -> int:
+    if is_polars_series(value):
         return int(value.estimated_size())
-    if hasattr(value, "nbytes"):
+    if is_cudf_series(value):
         return int(value.nbytes)
-    if hasattr(value, "memory_usage"):
+    if isinstance(value, pd.Series):
         return int(value.memory_usage())
     return 0
 
