@@ -54,17 +54,19 @@ def test_node_segment_show_indexes_reports_cudf_bytes() -> None:
     assert segment_rows["nbytes"].sum() > 0
 
 
-def test_series_nbytes_uses_pandas_measurement() -> None:
+def test_series_nbytes_uses_pandas_measurement(monkeypatch: pytest.MonkeyPatch) -> None:
     series = pd.Series([1], dtype="int64")
-    assert _series_nbytes(series) == series.memory_usage()
+    monkeypatch.setattr(pd.Series, "memory_usage", lambda self: 4)
+    assert _series_nbytes(series) == 4
 
 
-def test_series_nbytes_uses_polars_measurement() -> None:
+def test_series_nbytes_uses_polars_measurement(monkeypatch: pytest.MonkeyPatch) -> None:
     pl = pytest.importorskip("polars")
-    assert _series_nbytes(pl.Series([1], dtype=pl.Int64)) == 8
+    monkeypatch.setattr(pl.Series, "estimated_size", lambda self: 7)
+    assert _series_nbytes(pl.Series([1], dtype=pl.Int64)) == 7
 
 
-def test_series_nbytes_uses_cudf_measurement() -> None:
+def test_series_nbytes_uses_cudf_measurement(monkeypatch: pytest.MonkeyPatch) -> None:
     cudf = pytest.importorskip("cudf")
     try:
         device_count = cudf.cuda.runtime.getDeviceCount()
@@ -73,7 +75,8 @@ def test_series_nbytes_uses_cudf_measurement() -> None:
     if device_count == 0:
         pytest.skip("cuDF requires a CUDA device")
     series = cudf.Series([1], dtype="int64")
-    assert _series_nbytes(series) == series.nbytes
+    monkeypatch.setattr(cudf.Series, "nbytes", 3)
+    assert _series_nbytes(series) == 3
 
 
 def test_series_nbytes_defaults_to_zero_for_unknown_series() -> None:
