@@ -8,6 +8,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [Development]
 <!-- Do Not Erase This Section - Used for tracking unreleased changes -->
 
+## [0.60.1 - 2026-10-13]
+
 ### Added
 
 - **GFQL relationship-type adjacency sidecars** (#2184): `gfql_index_edges(..., type_column=..., type_values=...)` explicitly builds forward and reverse adjacency indexes for selected string or integer relationship values. Matching queries can narrow candidate edge rows while retaining the full edge predicate and canonical results; queries without a live sidecar use ordinary adjacency. Sidecars are built at graph setup, share neighbor arrays with ordinary indexes, and appear as `typed:` rows with incremental CSR bytes in `show_indexes()`. Typed options are keyword-only. cuDF builds may add overhead on dense-community shapes, and sidecars must be rebuilt after rebinding or changing edges.
