@@ -1,9 +1,11 @@
 """Node type-segment index must preserve canonical GFQL results (edge typed-index dual)."""
 from __future__ import annotations
 
+import numpy as np
 import pandas as pd
 import pytest
-import numpy as np
+import sys
+import types
 
 import graphistry
 from graphistry.Engine import Engine
@@ -15,6 +17,22 @@ from graphistry.Engine import is_cupy_array
 from graphistry.compute.gfql.index.api import _byte_source_nbytes
 from graphistry.compute.gfql.index.cypher_ddl import parse_index_ddl
 from graphistry.compute.gfql.index.wire import apply_index_op
+
+
+class _CpuCudfSeries:
+    def __init__(self, values: list[int]) -> None:
+        self.values = values
+
+    def memory_usage(self) -> int:
+        return 16
+
+
+class _CpuCuPyArray:
+    nbytes = 8
+
+
+_CpuCudfSeries.__module__ = "cudf"
+_CpuCuPyArray.__module__ = "cupy"
 
 
 def _graph(engine: str):
@@ -79,6 +97,12 @@ def test_byte_source_nbytes_uses_cudf_measurement() -> None:
     assert _byte_source_nbytes(series) == series.memory_usage()
 
 
+def test_byte_source_nbytes_uses_cudf_guard_without_cuda(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setitem(sys.modules, "cudf", types.SimpleNamespace(Series=_CpuCudfSeries))
+    series = _CpuCudfSeries([1])
+    assert _byte_source_nbytes(series) == 16
+
+
 def test_byte_source_nbytes_defaults_to_zero_for_unknown_byte_source() -> None:
     assert _byte_source_nbytes(object()) == 0
 
@@ -96,6 +120,13 @@ def test_byte_source_nbytes_uses_cupy_measurement() -> None:
     if device_count == 0:
         pytest.skip("CuPy requires a CUDA device")
     array = cupy.asarray([1], dtype="int64")
+    assert _byte_source_nbytes(array) == 8
+    assert is_cupy_array(array)
+
+
+def test_byte_source_nbytes_uses_cupy_guard_without_cuda(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setitem(sys.modules, "cupy", types.SimpleNamespace(ndarray=_CpuCuPyArray))
+    array = _CpuCuPyArray()
     assert _byte_source_nbytes(array) == 8
     assert is_cupy_array(array)
 
