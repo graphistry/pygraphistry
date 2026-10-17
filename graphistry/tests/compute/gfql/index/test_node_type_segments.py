@@ -1,8 +1,11 @@
 """Node type-segment index must preserve canonical GFQL results (edge typed-index dual)."""
 from __future__ import annotations
 
+import numpy as np
 import pandas as pd
 import pytest
+import sys
+import types
 
 import graphistry
 from graphistry.Engine import Engine
@@ -10,8 +13,26 @@ from graphistry.compute.ast import e_forward, n, rows
 from graphistry.compute.gfql.index import (
     get_registry, index_trace, maybe_index_hop, with_index_policy,
 )
+from graphistry.Engine import is_cupy_array
+from graphistry.compute.gfql.index.api import _byte_source_nbytes
 from graphistry.compute.gfql.index.cypher_ddl import parse_index_ddl
 from graphistry.compute.gfql.index.wire import apply_index_op
+
+
+class _CpuCudfSeries:
+    def __init__(self, values: list[int]) -> None:
+        self.values = values
+
+    def memory_usage(self) -> int:
+        return 16
+
+
+class _CpuCuPyArray:
+    nbytes = 8
+
+
+_CpuCudfSeries.__module__ = "cudf"
+_CpuCuPyArray.__module__ = "cupy"
 
 
 def _graph(engine: str):
@@ -35,6 +56,79 @@ def _graph(engine: str):
         cudf = pytest.importorskip("cudf")
         nodes, edges = cudf.from_pandas(nodes), cudf.from_pandas(edges)
     return graphistry.bind(node="id", source="src", destination="dst").nodes(nodes).edges(edges)
+
+
+def test_node_segment_show_indexes_reports_cudf_bytes() -> None:
+    pytest.importorskip("cudf")
+    cupy = pytest.importorskip("cupy")
+    try:
+        device_count = cupy.cuda.runtime.getDeviceCount()
+    except Exception:
+        pytest.skip("CUDA device detection failed")
+    if device_count == 0:
+        pytest.skip("cuDF requires a CUDA device")
+    indexed = _indexed(_graph("cudf"), "cudf")
+    rows = indexed.show_indexes()
+    segment_rows = rows[rows["kind"] == "node_type_segment"]
+    assert not segment_rows.empty
+    assert segment_rows["nbytes"].sum() > 0
+
+
+def test_byte_source_nbytes_uses_pandas_measurement() -> None:
+    series = pd.Series([1], dtype="int64")
+    assert _byte_source_nbytes(series) == series.memory_usage()
+
+
+def test_byte_source_nbytes_uses_polars_measurement() -> None:
+    pl = pytest.importorskip("polars")
+    series = pl.Series([1], dtype=pl.Int64)
+    assert _byte_source_nbytes(series) == series.estimated_size()
+
+
+def test_byte_source_nbytes_uses_cudf_measurement() -> None:
+    cudf = pytest.importorskip("cudf")
+    try:
+        device_count = cudf.cuda.runtime.getDeviceCount()
+    except Exception:
+        pytest.skip("CUDA device detection failed")
+    if device_count == 0:
+        pytest.skip("cuDF requires a CUDA device")
+    series = cudf.Series([1], dtype="int64")
+    assert _byte_source_nbytes(series) == series.memory_usage()
+
+
+def test_byte_source_nbytes_uses_cudf_guard_without_cuda(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setitem(sys.modules, "cudf", types.SimpleNamespace(Series=_CpuCudfSeries))
+    series = _CpuCudfSeries([1])
+    assert _byte_source_nbytes(series) == 16
+
+
+def test_byte_source_nbytes_defaults_to_zero_for_unknown_byte_source() -> None:
+    assert _byte_source_nbytes(object()) == 0
+
+
+def test_byte_source_nbytes_uses_numpy_measurement() -> None:
+    assert _byte_source_nbytes(np.asarray([1], dtype="int64")) == 8
+
+
+def test_byte_source_nbytes_uses_cupy_measurement() -> None:
+    cupy = pytest.importorskip("cupy")
+    try:
+        device_count = cupy.cuda.runtime.getDeviceCount()
+    except Exception:
+        pytest.skip("CUDA device detection failed")
+    if device_count == 0:
+        pytest.skip("CuPy requires a CUDA device")
+    array = cupy.asarray([1], dtype="int64")
+    assert _byte_source_nbytes(array) == 8
+    assert is_cupy_array(array)
+
+
+def test_byte_source_nbytes_uses_cupy_guard_without_cuda(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setitem(sys.modules, "cupy", types.SimpleNamespace(ndarray=_CpuCuPyArray))
+    array = _CpuCuPyArray()
+    assert _byte_source_nbytes(array) == 8
+    assert is_cupy_array(array)
 
 
 def _pandas(frame):
