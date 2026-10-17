@@ -12,6 +12,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 - **GFQL relationship-type adjacency sidecars** (#2184): `gfql_index_edges(..., type_column=..., type_values=...)` explicitly builds forward and reverse adjacency indexes for selected string or integer relationship values. Matching queries can narrow candidate edge rows while retaining the full edge predicate and canonical results; queries without a live sidecar use ordinary adjacency. Sidecars are built at graph setup, share neighbor arrays with ordinary indexes, and appear as `typed:` rows with incremental CSR bytes in `show_indexes()`. Typed options are keyword-only. cuDF builds may add overhead on dense-community shapes, and sidecars must be rebuilt after rebinding or changing edges.
 
+- **GFQL node-type wavefront segments**: `gfql_index_node_types(..., type_column=..., type_values=...)` builds node row-position segments for selected scalar types or Boolean labels. Matching seeded wavefront hops can narrow source and destination candidates while retaining canonical node filters and results; queries without a live segment use the ordinary paths. Node segments are built at graph setup and appear as `typed_node:` `node_type_segment` rows in `show_indexes()`; selective drop supports all segments, one column, or one segment.
+
 - **GFQL Cypher aggregates over relationship rows**: in a single required `MATCH`, aggregates such as `MATCH (a)-[r]->(b) RETURN a, count(*), sum(r.w), collect(b.id)` run on per-path binding rows, so group keys and arguments can reference any node or relationship alias, including `DISTINCT`, post-aggregate arithmetic (`count(b) + 1`) and multi-alias keys. These shapes previously raised unsupported-query errors.
 
 ### Fixed

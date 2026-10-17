@@ -32,6 +32,7 @@ from .filter_by_dict import (
 
 if TYPE_CHECKING:
     from graphistry.compute.gfql.index.types import IndexKind
+    from graphistry.compute.gfql.index.registry import PartitionValue
     from graphistry.compute.gfql.index.explain import GfqlExplainReport
     from graphistry.compute.gfql.index.policy import IndexPolicy
     from graphistry.compute.gfql.query_types import GFQLQuery
@@ -663,10 +664,13 @@ class ComputeMixin(Plottable):
         from graphistry.compute.gfql.index import create_index as _ci
         return _ci(self, kind, column=column, name=name, engine=engine)
 
-    def drop_index(self, kind: Optional['IndexKind'] = None, *, column: Optional[str] = None) -> 'Plottable':
+    def drop_index(
+        self, kind: Optional['IndexKind'] = None, *,
+        column: Optional[str] = None, value: Optional['PartitionValue'] = None,
+    ) -> 'Plottable':
         """Drop one resident GFQL index (by kind, or one property index by column) or all (kind=None). Idempotent; returns a new Plottable."""
         from graphistry.compute.gfql.index import drop_index as _di
-        return _di(self, kind, column=column)
+        return _di(self, kind, column=column, value=value)
 
     def show_indexes(self, engine: EngineAbstractType = 'auto'):
         """Return a pandas DataFrame describing resident GFQL indexes (name, kind, column, valid, usable). Empty if none.
@@ -689,6 +693,17 @@ class ComputeMixin(Plottable):
         """
         from graphistry.compute.gfql.index import gfql_index_edges as _gie
         return _gie(self, direction, type_column=type_column, type_values=type_values, engine=engine)
+
+    def gfql_index_node_types(self, engine: EngineAbstractType = 'auto', *,
+                              type_column: Optional[str] = None,
+                              type_values: Optional[Sequence[Union[str, int, bool]]] = None) -> 'Plottable':
+        """Build node type/label segments — the dual of ``gfql_index_edges``'s
+        typed sidecars. With ``type_column`` and ``type_values``, registers
+        per-value node row-position segments (scalar columns partition; Boolean
+        ``label__<Label>`` columns give multi-label membership). Returns a new Plottable.
+        """
+        from graphistry.compute.gfql.index import gfql_index_node_types as _gint
+        return _gint(self, type_column=type_column, type_values=type_values, engine=engine)
 
     def gfql_index_all(self, col_stats_by_type: bool = False, engine='auto'):
         """Convenience: build all GFQL physical indexes (both edge adjacencies + node_id). Returns a new Plottable.

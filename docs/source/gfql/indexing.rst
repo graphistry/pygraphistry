@@ -200,6 +200,30 @@ The ``typed:`` rows in ``show_indexes()`` report incremental CSR bytes; they
 share the ordinary adjacency's neighbor arrays. Build for the engine used by
 the query, and rebuild after binding a new edge frame or changing edges in place.
 
+Select node types or labels
+~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+For repeated hops that filter nodes by type or label, build row-position sidecars
+the same way as for relationship types (see the previous section):
+``gfql_index_node_types(type_column=..., type_values=...)`` is the node-frame dual
+of ``gfql_index_edges``. A scalar column partitions rows; a Boolean
+``label__<Label>`` column records membership, so one node can appear in several
+segments. Like edge sidecars, these are an explicit load-time cost
+(``gfql_index_all()`` does not build them), queries fall back to the ordinary
+paths and retain the same results, and GFQL still applies the complete node
+predicate after lookup. Rebuild after binding a new node frame or changing nodes
+in place; ``show_indexes()`` reports them as ``node_type_segment`` rows. Drop all
+with ``drop_index("node_type_segment")``, one column with ``column=...``, or one
+segment with both ``column=...`` and ``value=...``.
+
+.. code-block:: python
+
+   labeled_g = graphistry.nodes(pd.DataFrame({
+       "id": [0, 1, 2], "type": ["PERSON", "ROBOT", "PERSON"]}), "id")
+   labeled_g = labeled_g.gfql_index_node_types(
+       type_column="type", type_values=["PERSON"]
+   )
+
 Start from a property column
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
