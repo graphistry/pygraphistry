@@ -105,6 +105,76 @@ DIRECT_HOP_CASES = [
 ]
 
 
+def _partial_reject_graph(engine: str):
+    """Seed 2's only reverse candidate (4->2) fails a destination-Q filter.
+
+    Seed 1 also has a reverse Q candidate (3->1), while 4->2 exercises
+    rejection of the candidate itself rather than absence of an incoming edge.
+    """
+    nodes = pd.DataFrame({"id": [1, 2, 3, 4], "type": ["P", "P", "Q", "P"]})
+    edges = pd.DataFrame({"src": [1, 2, 3, 4], "dst": [3, 4, 1, 2]})
+    if engine == "polars":
+        pl = pytest.importorskip("polars")
+        nodes, edges = pl.from_pandas(nodes), pl.from_pandas(edges)
+    elif engine == "cudf":
+        cudf = pytest.importorskip("cudf")
+        nodes, edges = cudf.from_pandas(nodes), cudf.from_pandas(edges)
+    return graphistry.bind(node="id", source="src", destination="dst").nodes(nodes).edges(edges)
+
+
+@pytest.mark.parametrize("engine", ["pandas", "polars", "cudf"])
+@pytest.mark.parametrize("direction", ["forward", "reverse", "undirected"])
+def test_direct_hop_partial_seed_reject_matches_scan(engine: str, direction: str) -> None:
+    """First-hop visited must drop seeds whose only edge a destination filter rejects."""
+    graph = _partial_reject_graph(engine)
+    indexed = graph.gfql_index_all(engine=engine).gfql_index_node_types(
+        type_column="type", type_values=["Q"], engine=engine)
+    kw = dict(
+        hops=1, direction=direction, return_as_wave_front=False,
+        destination_node_match={"type": "Q"},
+    )
+    seeds = graph._nodes[graph._nodes["id"].isin([1, 2])] if engine == "pandas" else graph._nodes.head(2)
+    if direction == "reverse":
+        prefilter = graph.hop(
+            nodes=seeds, engine=engine, hops=1, direction=direction,
+            return_as_wave_front=False,
+        )
+        assert _hop_sig(prefilter) == (
+            [1, 2, 3, 4], [(3, 1), (4, 2)],
+        )
+    expected = graph.hop(nodes=seeds, engine=engine, **kw)
+    for policy in ["off", "force"]:
+        actual = with_index_policy(indexed, policy).hop(nodes=seeds, engine=engine, **kw)
+        assert actual is not None
+        assert _hop_sig(actual) == _hop_sig(expected), policy
+    # Node 4 is non-Q, so seed 2's only reverse candidate is rejected.
+    expected_edges = {
+        "forward": [(1, 3)],
+        "reverse": [(3, 1)],
+        "undirected": [(1, 3), (3, 1)],
+    }[direction]
+    assert _hop_sig(expected) == ([1, 3], expected_edges)
+
+
+@pytest.mark.parametrize("engine", ["pandas", "polars", "cudf"])
+def test_direct_hop_all_destinations_rejected_matches_scan(engine: str) -> None:
+    """A destination filter matching no node must yield the same empty result."""
+    graph = _partial_reject_graph(engine)
+    indexed = graph.gfql_index_all(engine=engine).gfql_index_node_types(
+        type_column="type", type_values=["Z"], engine=engine)
+    kw = dict(
+        hops=1, direction="forward", return_as_wave_front=False,
+        destination_node_match={"type": "Z"},
+    )
+    seeds = graph._nodes[graph._nodes["id"].isin([1, 2])] if engine == "pandas" else graph._nodes.head(2)
+    expected = graph.hop(nodes=seeds, engine=engine, **kw)
+    assert len(_pandas(expected._nodes)) == 0
+    for policy in ["off", "force"]:
+        actual = with_index_policy(indexed, policy).hop(nodes=seeds, engine=engine, **kw)
+        assert actual is not None
+        _assert_same_graph(actual, expected)
+
+
 @pytest.mark.parametrize("engine", ["pandas", "polars", "cudf"])
 @pytest.mark.parametrize("direction", ["forward", "reverse", "undirected"])
 @pytest.mark.parametrize("source_match,dest_match", DIRECT_HOP_CASES)
@@ -151,6 +221,30 @@ def test_node_segment_direct_hop_engagement(
     assert any(step.get("node_segments") == {
         "source": "resident", "destination": "resident"
     } for step in steps)
+
+
+@pytest.mark.route_engaged("index-hop", "polars-plain")
+def test_plain_polars_chain_consumes_destination_node_segment() -> None:
+    """A destination node-type filter is lowered into the indexed single hop.
+
+    The chain seed has already applied the source filter, so this shape admits a
+    destination-only node match without asking the segment path to re-filter seeds.
+    """
+    engine = "polars"
+    graph = _graph(engine)
+    indexed = _indexed(graph, engine)
+    query = [
+        n({"id": 1, "type": "P"}), e_forward(), n({"type": "Q"}), rows(),
+    ]
+    expected = graph.gfql(query, engine=engine, index_policy="off")
+    with index_trace() as steps:
+        actual = indexed.gfql(query, engine=engine, index_policy="force")
+    _assert_same_graph(actual, expected)
+    assert any(
+        step.get("path") == "index"
+        and step.get("node_segments", {}).get("destination") == "resident"
+        for step in steps
+    ), steps
 
 
 @pytest.mark.parametrize("engine", ["pandas", "polars", "cudf"])

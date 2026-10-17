@@ -54,8 +54,8 @@ def _plain_seeded_index_hop_polars(g: Plottable, ops: Sequence[ASTObject]) -> Op
     from graphistry.Engine import Engine
     from graphistry.compute.gfql.index import get_index_policy, get_registry, maybe_index_hop
     from graphistry.compute.gfql.lazy import active_target, ExecutionTarget
-    n0, e1 = ops[0], ops[1]
-    assert isinstance(n0, ASTNode) and isinstance(e1, ASTEdge)  # the predicate admitted this shape
+    n0, e1, n2 = ops
+    assert isinstance(n0, ASTNode) and isinstance(e1, ASTEdge) and isinstance(n2, ASTNode)  # the predicate admitted this shape
     policy = get_index_policy(g)
     if get_registry(g).is_empty() and policy not in ("auto", "force"):
         return None
@@ -65,6 +65,7 @@ def _plain_seeded_index_hop_polars(g: Plottable, ops: Sequence[ASTObject]) -> Op
     return maybe_index_hop(
         gf0, engine, nodes=seed0, hops=1, direction=e1.direction,
         return_as_wave_front=False, to_fixed_point=False, policy=policy,
+        destination_node_match=n2.filter_dict or None,
     )
 
 
