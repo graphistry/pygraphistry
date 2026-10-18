@@ -18,6 +18,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- **Hypergraph event IDs with an existing `EventID` column** (#228): `hypergraph()` used any input column named `EventID` as the event key even when `opts['EVENTID']` was not set, so data carrying its own `EventID` (for example Windows event codes) merged distinct rows into one event node. Events are now always numbered by row unless `EVENTID` is passed explicitly. An implicit `EventID` column is left out of the hypergraph and a `UserWarning` names it, pointing at `opts={'EVENTID': ...}` or renaming the column. An explicit `opts={'EVENTID': ...}` behaves as before.
+
 - **GFQL Polars indexed connected bindings**: the default planner gate now admits moderately sized key frontiers and edge gathers. Measured on LDBC SF1 IC4; other families showed no regression, and the relaxation is not claimed to generalize. Explicit cost-gate overrides still take precedence; other index paths and engines retain their defaults.
 
 - **GFQL indexed traversal uses faster sorted uniqueness**: integer index arrays with at least 128 entries and Boolean arrays with more than one entry use sorted deduplication, avoiding the slower `numpy.unique` path. Measured on NumPy 2.4; applies on all versions. Tiny integer arrays retain native `unique` because the extra sort/mask setup can cost more there; tiny Boolean arrays favor sorting. Other dtypes and cuPy retain their existing uniqueness semantics. IC4 benchmark evidence and follow-up are tracked in graphistry/pyg-bench#303.
