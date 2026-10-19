@@ -2,7 +2,7 @@
 name: review
 description: |
   Structured PR review for pygraphistry. Input: PR number/branch (default current branch PR).
-  Output: findings and convergence artifacts under plans/<task>/.
+  Output: findings and convergence artifacts under the local task plans directory.
   Method: multi-wave, evidence-first review across spec, correctness, tests, security,
   code quality, DRY, concurrency, performance, architecture, operability, and conventions.
 ---
@@ -151,6 +151,11 @@ Apply only relevant dimensions per PR:
 Guidance:
 - Keep dimensions independent (avoid blended "general review" prompts).
 - For file-heavy diffs, parallelize by `(dimension, file)` and aggregate.
+- Runtime comparisons must hold query/data, engine, index policy, and environment constant against the base. A successful `policy="off"` scan does not establish that a `force` failure is new.
+- Pin standalone and remote probe imports to the intended worktree; record the imported source path and revision before accepting results. An installed package or stale mount can otherwise invalidate a baseline comparison.
+- For archived source, verify a fresh reconstructed tree against the intended commit's exported files,
+  including declared `export-subst` output and embedded revision IDs. Verify cached overlays in full;
+  a list of hashes for changed files alone leaves the unchanged cached files unverified.
 - Verify pre-existing patterns are not misreported as regressions:
 
 ```bash
@@ -197,10 +202,57 @@ python -m pytest -q [targeted_test]
 - For GPU-affecting PRs, require GPU-path validation evidence:
   - Local GPU path: `cd docker && ./test-gpu-local.sh [targeted_test_or_path]`
   - No local GPU available: run equivalent GPU validation on `dgx-spark` and record exact command + output artifact path in wave evidence.
+- For optional-engine tests, check the declared CI dependency environment as well as installed-engine
+  integration; skip unavailable dependencies and explicitly exercise supported installed-engine cases.
+- For new, renamed, or moved Polars-gated test modules, verify explicit registration in
+  `bin/test-polars.sh` or a documented exclusion in the completeness guard. Before committing
+  or propagating the fix, run `python -m pytest -q graphistry/tests/compute/gfql/test_polars_lane_completeness.py`.
 - For RAPIDS/cuDF changes, prefer dual-version validation (`RAPIDS_VERSION=25.02` and `26.02`) and include at least one amplified pass beyond early-stop defaults (for example, avoid relying only on `--maxfail=1` harness behavior when triaging regression surface).
 - When shared GPU pressure blocks full-matrix execution, require explicit evidence of the constrained condition (for example `nvidia-smi` + failing stack site), then run targeted amplified subsets and document exactly which tests were excluded and why.
 - If startup/runtime claims are made, verify entrypoints/scripts in `bin/` and workflow behavior.
 - For docs-only PRs, prioritize spec/documentation accuracy and navigability (toctree links, anchors, cross-refs).
+
+### GFQL change boundaries, engines, engagement, perf (compute/**)
+
+- **Both sides of every boundary.** A fix carries a test that fails with the defect reinstated and
+  passes with the fix; the case that must still decline or raise is pinned next to it. A differential
+  with zero rows on both sides, or where another route served the query, tests nothing: assert the
+  expected row count and the serving route.
+- **Sweep the siblings.** A change to one engine, lane or shape is checked on every sibling before it
+  is landable: pandas, cuDF, polars, polars-gpu, and each specialization of the same shape
+  (`chain_specializations/`, `gfql/lazy/engine/polars/chain_specializations/`, the indexed bindings
+  kernel, the row pipeline). Report the siblings that were probed and what each did.
+- **Engagement is a pin, not a timing.** "The index/fast path is used" is proven by a `gfql_explain`
+  assertion (`used_index`, `decision_code`, the seam name) marked `@pytest.mark.route_engaged(...)`
+  so `bin/test-routes-off.sh` can replay the parity half with the route disabled. Parity stays an
+  unmarked result pin. Run `bin/test-routes-off.sh` with `MODES=all-off` and focused
+  test paths in `SUITES` before publication: another specialization can serve an
+  individual route decline and hide mixed result/engagement assertions. A wall-clock
+  assertion in pygraphistry tests is a finding.
+  A new route also updates the hosted replay matrix and runs `graphistry/tests/compute/gfql/routes/test_replay.py`;
+  focused local replay does not check hosted matrix coverage.
+- **Perf claims live in pyg-bench.** A number in a PR body or CHANGELOG needs a pyg-bench measurement
+  with an A/A control beside the A/B, pinned in that repo's thresholds + contract test; pygraphistry
+  carries results and data contracts only. Local-box numbers do not close a perf PR.
+- **Cypher surface.** A change reachable from a Cypher query (parser, DDL, row pipeline, WHERE/RETURN
+  lowering) runs the tck subset that covers it; engine-parametrize the result pin.
+- **Release notes and docs.** Every user-visible change has a CHANGELOG.md entry under
+  `[Development]` -- never inside a released `## [x.y.z - date]` section, which is history. Docs edits
+  are minimal, plain English (ASD-STE100: short sentences, one meaning per word, no internal jargon or
+  issue chatter), and a stale sentence is deleted rather than hedged.
+- **An identity claim is a measurement.** "Same answers", "value-identical", "cost only" needs an A/B
+  of old against new over adversarial shapes -- nulls first, a failing value past any sample, all-null,
+  empty, shorter than the sample, mixed element types, each engine dtype family -- and the claim states
+  how many shapes were compared and how many diverged. A surviving divergence is disclosed as a
+  correction in the CHANGELOG and pinned, never dropped from the count.
+- **Close the class, do not narrow the claim.** When a defect has siblings, prefer one chokepoint that
+  fixes every producer over a per-site patch plus a narrowed sentence. Narrowing is the fallback, and
+  it names the shapes left open.
+- **Never pin behavior that differs by environment.** A pin that passes locally and fails on another
+  Python or dependency set is pinning the environment, not the contract. Pin the invariant both
+  outcomes must satisfy (the error code and field, or the rows), and report the divergence.
+- **A comment run is one line.** `bin/lint.sh` counts a two-line comment as a finding, so say it in one
+  line or put it in a name.
 
 #### Vectorization & engine compatibility (GFQL / row pipeline / compute)
 
@@ -260,10 +312,12 @@ column.
 
 **Hot row path** = row pipeline executor, edge/node materialization, anything called per-query in `_execute_*` / `_compile_*` / `_lower_*` / row-pipeline ops. **Control plane** = one-shot config builders, error formatters, parser glue (lower bar).
 
+**Index engagement**: for property-index changes, verify an actual candidate gather through representative public queries and specialized execution paths that bypass canonical filters. Row parity alone can pass while every query still scans; explain receipts must describe the gather that really occurred. When adding shared-helper traces, check existing consumer-owned receipt fields and counts; preserve those contracts without hiding new gathers.
+
 **Paired cuDF coverage required** for changes in `compute/gfql/row/`, `compute/gfql/cypher/`, `compute/gfql_unified.py`, `compute/chain.py`, `compute/hop.py`, `compute/materialize_nodes.py`. Sibling pattern: `pytest.importorskip("cudf")` + engine-parametrized fixture. New DataFrame-touching helpers also need cuDF smoke if on a hot path.
 
 **Flag wording**:
-> [BLOCKER] `<file>:<line>` — `<pattern>` on hot row path. Use `<engine-polymorphic alt>`. See `agents/skills/review/SKILL.md#vectorization--engine-compatibility-gfql--row-pipeline--compute`.
+> [BLOCKER] `<file>:<line>` — `<pattern>` on hot row path. Use `<engine-polymorphic alt>`. See `.agents/skills/review/SKILL.md#vectorization--engine-compatibility-gfql--row-pipeline--compute`.
 
 **Don't flag**: `apply(axis=0)` (column-wise = vectorized); `iterrows()` in CLI/test fixtures; mutation of a df the function itself just constructed (no aliasing — SUGGESTION at most); `inplace=True` in throwaway setup code.
 

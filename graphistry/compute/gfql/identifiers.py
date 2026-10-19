@@ -12,6 +12,16 @@ from graphistry.compute.util.generate_safe_column_name import generate_safe_colu
 IDENTIFIER_TOKEN = re.compile(r'[A-Za-z_][A-Za-z0-9_]*')
 
 
+#: openCypher words that must render quoted so identifiers round-trip instead of becoming literals/syntax.
+CYPHER_RESERVED_WORDS: Final[FrozenSet[str]] = frozenset({
+    "AND", "AS", "ASC", "ASCENDING", "BY", "CALL", "CASE", "CONTAINS",
+    "DESC", "DESCENDING", "DISTINCT", "ELSE", "END", "ENDS", "FALSE", "IN",
+    "IS", "LIMIT", "MATCH", "NOT", "NULL", "OPTIONAL", "OR", "ORDER",
+    "RETURN", "SKIP", "STARTS", "THEN", "TRUE", "UNION", "UNWIND", "USE", "WHEN",
+    "WHERE", "WITH", "XOR", "ANY", "ALL", "NONE", "SINGLE",
+})
+
+
 def is_bare_identifier(text: str) -> bool:
     """The text is exactly one identifier: no dots, calls, operators or whitespace."""
     return IDENTIFIER_TOKEN.fullmatch(text) is not None
@@ -173,3 +183,24 @@ def cypher_pipeline() -> Iterator[None]:
         yield
     finally:
         _SHADOW_RESTORE_WANTED.reset(token)
+
+
+BACKTICK_IDENTIFIER_RE = re.compile(r"`(?:[^`]|``)*`")
+
+
+def parse_cypher_backtick_identifier(token: str) -> str:
+    """Decode a Cypher backtick identifier, including doubled-backtick escapes."""
+    if len(token) < 2 or token[0] != "`" or token[-1] != "`":
+        raise ValueError("Invalid backtick identifier")
+    return token[1:-1].replace("``", "`")
+
+
+def render_cypher_identifier(value: str) -> str:
+    """Render an identifier as Cypher source, quoting when spelling requires it.
+
+    Reserved words are always quoted: an identifier named ``true`` must not lose its
+    identity to the boolean literal when rendered and parsed again.
+    """
+    if IDENTIFIER_TOKEN.fullmatch(value) and value.upper() not in CYPHER_RESERVED_WORDS:
+        return value
+    return "`" + value.replace("`", "``") + "`"

@@ -46,6 +46,7 @@ def test_two_hop_count_fast_path_engages(engine: str) -> None:
 
 
 @pytest.mark.parametrize("engine", ENGINES)
+@pytest.mark.route_engaged("cypher-fast")
 def test_grouped_aggregate_fast_path_engages(engine: str) -> None:
     assert_fast_path(_graph(engine), Q_GROUPED, "single_hop_grouped_aggregate",
                      served=True, engine=engine)
@@ -87,6 +88,7 @@ def test_a_shape_neither_path_serves_declines_both(engine: str) -> None:
     assert [int(v) for v in out["x"]] == [0, 0, 0, 1, 2]
 
 
+@pytest.mark.route_engaged("cypher-fast")
 def test_short_circuit_is_distinguishable_from_decline() -> None:
     """When grouped-agg serves, two_hop_count is never CONSULTED -- absent from the
     map rather than present-and-False. Conflating those would let a genuinely dead
@@ -96,6 +98,7 @@ def test_short_circuit_is_distinguishable_from_decline() -> None:
     assert "two_hop_count" not in seen
 
 
+@pytest.mark.route_engaged("cypher-fast")
 def test_assert_fast_path_fails_when_the_path_did_not_fire() -> None:
     """An engagement pin that cannot fail is worse than none."""
     with pytest.raises(AssertionError, match="expected served=True"):

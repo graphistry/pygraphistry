@@ -4,6 +4,7 @@ from functools import lru_cache
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Set, Tuple, Union
 
 from graphistry.compute.exceptions import ErrorCode, GFQLSyntaxError, GFQLTypeError
+from graphistry.compute.gfql.identifiers import render_cypher_identifier
 from graphistry.compute.gfql.call.support import (
     EDGE_COLUMN_SCHEMA_EFFECTS,
     NODE_COLUMN_SCHEMA_EFFECTS,
@@ -134,7 +135,11 @@ def _where_rows_expr_required_cols(expr: str) -> List[str]:
     for name in names:
         if not isinstance(name, str) or name == "":
             continue
-        cols.add(name.split(".")[0])
+        # Atomic dotted names are allowed only when their quoted Cypher form survives lowering.
+        if "." in name and render_cypher_identifier(name) in expr:
+            cols.add(name)
+        else:
+            cols.add(name.split(".")[0])
     return sorted(cols)
 
 
@@ -316,6 +321,12 @@ _SIZE_ENCODING_VALIDATORS: Dict[str, ParamValidator] = {
 _COLUMN_ENCODING_VALIDATORS: Dict[str, ParamValidator] = {
     "column": is_string,
 }
+
+
+
+def _is_index_kind(v: object) -> bool:
+    from graphistry.compute.gfql.index.registry import ALL_KINDS
+    return isinstance(v, str) and v in ALL_KINDS
 
 
 def is_list_of_dicts(v: object) -> bool:
@@ -658,6 +669,27 @@ SAFELIST_V1: Dict[str, Dict[str, Any]] = {
         description='Filter edges by attribute values',
     ),
     
+    'create_index': _safelist_entry(
+        {'kind', 'column', 'name', 'engine'},
+        required_params={'kind'},
+        param_validators={
+            'kind': _is_index_kind,
+            'column': is_string,
+            'name': is_string,
+            'engine': is_string,
+        },
+        description='Build a resident GFQL index (edge_out_adj, edge_in_adj, node_id, node_prop/edge_prop ON column) so the ops after it can use it',
+    ),
+
+    'drop_index': _safelist_entry(
+        {'kind', 'column'},
+        param_validators={
+            'kind': _is_index_kind,
+            'column': is_string,
+        },
+        description='Drop one resident GFQL index by kind (or a property index by column), or all when no kind is given',
+    ),
+
     'materialize_nodes': _safelist_entry(
         {'engine', 'reuse'},
         param_validators={

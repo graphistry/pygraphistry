@@ -81,6 +81,46 @@ pred3 = gt({"type": "datetime", "value": "2023-01-01T00:00:00", "timezone": "UTC
 }
 ```
 
+## Explicit Epoch Instant Values
+
+Do not send a raw integer where a datetime is expected. Numeric predicates on
+datetime columns raise an incompatible-column-type error rather than silently
+matching nothing: a bare number does not express an instant, and its unit
+(seconds or milliseconds) cannot be inferred. To send the epoch counts
+commonly emitted for datetime columns, wrap them in an explicit datetime
+value with a required `unit`:
+
+```json
+{
+  "type": "Edge",
+  "edge_match": {
+    "event_time": {
+      "type": "GE",
+      "val": {
+        "type": "datetime",
+        "value": 1578528000000,
+        "unit": "ms"
+      }
+    }
+  }
+}
+```
+
+Rules:
+
+- `unit` is required for numeric values and must be `"s"` (seconds) or `"ms"`
+  (milliseconds); there is no default unit and no `epoch_ms` flag.
+- Epoch values denote UTC instants; `timezone` is not allowed on numeric
+  values. Use an ISO string value to declare a timezone.
+- Counts are integers (integral floats such as `1e3` are accepted and must be
+  exact) within the interoperable JSON integer range of +/- (2^53 - 1);
+  fractional values, booleans, and nonfinite values are rejected.
+- This value form composes with `GT`, `GE`, `LT`, `LE`, `EQ`, `NE`, and
+  `Between` bounds, and mixed-unit bounds are supported.
+- Serialization normalizes to the typed ISO datetime form in UTC, so
+  round-trips preserve the instant (not the original unit).
+- Typed ISO datetime values remain the preferred portable form.
+
 ## 1. DateTime Comparisons
 
 ### Python API
@@ -575,7 +615,7 @@ filter3 = n(filter_dict={"date": gt({"type": "datetime", "value": "2023-01-01T00
 
 ## Performance Considerations
 
-- Temporal predicates leverage pandas' optimized datetime operations
+- Temporal predicates use pandas' optimized datetime operations
 - Timezone conversions are handled efficiently
 - For large datasets, ensure datetime columns are properly typed (not object dtype)
 - Use `pd.Timestamp` for best performance when creating many predicates programmatically

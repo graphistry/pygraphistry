@@ -13,7 +13,7 @@ costs correctness nothing.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from numbers import Integral
 from typing import TYPE_CHECKING, Dict, List, Mapping, Optional, Sequence, Tuple
 
@@ -27,9 +27,9 @@ from graphistry.Plottable import Plottable
 from graphistry.compute.typing import ArrayLike, ArrayNamespace, DataFrameT
 
 from . import bindings as frame_bindings
-from .api import get_index_policy, get_registry
+from .api import _trace_active, get_index_policy, get_registry
 from .cost import cost_gate_frac
-from .engine_arrays import array_namespace, col_to_array, take_rows
+from .engine_arrays import array_namespace, col_to_array, sorted_unique, take_rows
 from .lookup import lookup_degree, lookup_edge_rows, lookup_node_rows
 from .registry import AdjacencyIndex, ColStatsRole, NodeIdIndex, NODE_ID
 
@@ -43,6 +43,7 @@ class ArrayPathBag:
     height: int
     hop_count: int
     estimated_rows: int
+    admission_details: List[Dict[str, object]] = field(default_factory=list)
 
 
 def _aligned_node_rows(
@@ -303,22 +304,45 @@ def try_array_path_bag(
         src, dst, node_id, edges, nodes, engine,
     )
     estimated_rows = int(current_ids.shape[0])
+    enforce_unique_edges = frame_bindings._hops_may_share_edges(ops)
+    hop_edges: List[ArrayLike] = []
+    admission_details: List[Dict[str, object]] = []
 
     for edge_position in range(1, len(ops), 2):
         edge_op, next_op = ops[edge_position], ops[edge_position + 1]
         assert isinstance(edge_op, ASTEdge) and isinstance(next_op, ASTNode)  # _admits
         reverse = edge_op.direction == "reverse"
         hop_indexes = direction_indexes[edge_position]
-        frontier = xp.unique(current_ids)
-        if policy != "force":
-            threshold = cost_gate_frac(engine) * min(index.n_keys for index in hop_indexes)
+        frontier = sorted_unique(xp, current_ids)
+        trace_active = _trace_active()
+        key_frac = cost_gate_frac(
+            engine, default=0.04 if engine == Engine.POLARS else None,
+        )
+        gather_frac = cost_gate_frac(
+            engine, default=0.06 if engine == Engine.POLARS else None,
+        )
+        threshold = key_frac * min(index.n_keys for index in hop_indexes)
+        gather_estimate: Optional[int] = None
+        if trace_active or policy != "force":
+            gather_estimate = sum(lookup_degree(index, frontier, xp) for index in hop_indexes)
             if int(frontier.shape[0]) >= threshold:
                 return None
-            gathered = sum(lookup_degree(index, frontier, xp) for index in hop_indexes)
-            if gathered >= cost_gate_frac(engine) * n_edges:
+            if gather_estimate >= gather_frac * n_edges:
                 return None
+            if trace_active:
+                admission_details.append({
+                    "hop": (edge_position // 2) + 1,
+                    "frontier_n": int(frontier.shape[0]),
+                    "n_keys": int(min(index.n_keys for index in hop_indexes)),
+                    "key_threshold_frac": key_frac,
+                    "key_threshold": threshold,
+                    "gather_estimate": int(gather_estimate),
+                    "n_edges": n_edges,
+                    "gather_threshold_frac": gather_frac,
+                    "gather_threshold": gather_frac * n_edges,
+                })
 
-        candidates = xp.unique(lookup_edge_rows(hop_indexes[0], frontier, xp)[0])
+        candidates = sorted_unique(xp, lookup_edge_rows(hop_indexes[0], frontier, xp)[0])
         kept = _filtered_positions(edges, candidates, edge_op.edge_match, engine, xp, base_graph, "edges")
         if kept is None:
             return None
@@ -329,9 +353,9 @@ def try_array_path_bag(
         if endpoint_rows_fact is not None:
             # Endpoint node rows were resolved at build time; gather, do not search.
             to_rows = (endpoint_rows_fact.src_rows if reverse else endpoint_rows_fact.dst_rows)[kept]
-            endpoint_rows = xp.unique(to_rows)
+            endpoint_rows = sorted_unique(xp, to_rows)
         else:
-            endpoint_ids = xp.unique(to_ids)
+            endpoint_ids = sorted_unique(xp, to_ids)
             endpoint_rows = xp.sort(lookup_node_rows(node_index, endpoint_ids, xp))
             to_rows = None
         surviving = _filtered_positions(nodes, endpoint_rows, next_op.filter_dict, engine, xp, base_graph, "nodes")
@@ -353,6 +377,8 @@ def try_array_path_bag(
         counts = high - low
         total = int(counts.sum())
         estimated_rows = total
+        if trace_active and admission_details:
+            admission_details[-1]["estimated_rows"] = estimated_rows
         if policy != "force" and total > 0 and total >= n_edges:
             return None
         left = xp.repeat(xp.arange(int(current_ids.shape[0])), counts)
@@ -360,6 +386,19 @@ def try_array_path_bag(
         picked = low[left] + (xp.arange(total) - starts[left])
         node_rows = {alias: rows[left] for alias, rows in node_rows.items()}
         edge_rows = {alias: rows[left] for alias, rows in edge_rows.items()}
+        new_edges = edge_sorted[picked]
+        if enforce_unique_edges:
+            # Cypher relationship uniqueness: a path may not bind one edge to two hops.
+            hop_edges = [rows[left] for rows in hop_edges]
+            if hop_edges:
+                fresh = xp.ones(total, dtype=bool)
+                for earlier in hop_edges:
+                    fresh &= earlier != new_edges
+                picked, new_edges = picked[fresh], new_edges[fresh]
+                node_rows = {alias: rows[fresh] for alias, rows in node_rows.items()}
+                edge_rows = {alias: rows[fresh] for alias, rows in edge_rows.items()}
+                hop_edges = [rows[fresh] for rows in hop_edges]
+            hop_edges.append(new_edges)
         current_ids = to_sorted[picked]
         if rows_sorted is not None:
             current_rows: ArrayLike = rows_sorted[picked]
@@ -371,7 +410,7 @@ def try_array_path_bag(
         if isinstance(next_op._name, str):
             node_rows[next_op._name] = current_rows
         if isinstance(edge_op._name, str):
-            edge_rows[edge_op._name] = edge_sorted[picked]
+            edge_rows[edge_op._name] = new_edges
 
     return ArrayPathBag(
         node_rows=node_rows,
@@ -379,6 +418,7 @@ def try_array_path_bag(
         height=int(current_ids.shape[0]),
         hop_count=(len(ops) - 1) // 2,
         estimated_rows=estimated_rows,
+        admission_details=admission_details,
     )
 
 

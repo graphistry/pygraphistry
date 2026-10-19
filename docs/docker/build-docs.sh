@@ -17,6 +17,9 @@ fi
 echo "Running GFQL doc example audit..."
 PYGRAPHISTRY_ROOT=/docs python3 -m pytest /docs/test_doc_examples.py -v --tb=short
 
+echo "Re-verifying the published benchmark numbers against their contract..."
+python3 -m pytest /docs/test_bench_numbers.py -v --tb=short
+
 build_html() {
     sphinx-build -b html -d /docs/doctrees . /docs/_build/html
 }
@@ -106,6 +109,9 @@ NOTEBOOKS_TO_VALIDATE=(
     "/docs/test_notebooks/test_graphistry_import.ipynb"
     "/docs/source/demos/gfql/temporal_predicates.ipynb"
     "/docs/source/gfql/hop_bounds.ipynb"
+    "/docs/source/gfql/indexing_examples.ipynb"
+    "/docs/source/demos/gfql/gfql_validation_fundamentals.ipynb"
+    "/docs/source/demos/demos_databases_apis/graphviz/static_rendering.ipynb"
 )
 
 for notebook in "${NOTEBOOKS_TO_VALIDATE[@]}"; do

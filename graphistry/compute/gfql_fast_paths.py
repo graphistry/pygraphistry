@@ -3445,7 +3445,11 @@ def _node_lookup_scan_reason(
     indexed = [c for c in registry.node_prop_cols() if c in n0f]
     if not indexed:
         return "index_missing"
-    return "cost_gate" if any(registry.get_node_prop_valid(c, base_graph._nodes, _frame_engine_of(base_graph._nodes)) is not None for c in indexed) else "index_stale"
+    from graphistry.compute.gfql.index.property_keys import valid_property_index
+    nodes = base_graph._nodes
+    assert nodes is not None
+    frame_engine = _frame_engine_of(nodes)
+    return "cost_gate" if any(valid_property_index(registry, "nodes", nodes, c, frame_engine) is not None for c in indexed) else "index_stale"
 
 
 def _frame_engine_of(frame: DataFrameT) -> Engine:
@@ -3552,16 +3556,19 @@ def _execute_seeded_node_lookup_fast_path(
             if "." in prop or prop not in nodes_frame_cols:
                 return None
             select_items.append((out_name, prop))
-    from graphistry.compute.gfql.index.api import _record_indexed_traversal
+    from graphistry.compute.gfql.index.api import _record_indexed_traversal, _trace_active
     nid_ctx = _resident_node_id_index(base_graph, nodes_frame, node)
     rows, how = _seed_node_rows(base_graph, nodes_frame, n0f, node, nid_ctx, n0.filter_dict)
     _record_indexed_traversal(
         seam="node_lookup",
         engine=requested_engine,
         served=how != "scan",
-        reason="served" if how != "scan" else _node_lookup_scan_reason(base_graph, node, n0f, nid_ctx),
+        reason="served" if how != "scan" else (
+            _node_lookup_scan_reason(base_graph, node, n0f, nid_ctx) if _trace_active() else "not_traced"
+        ),
         hop_count=0,
         public_seed_scan=node not in n0f,
+        seed_graph=base_graph, seed_filter=n0.filter_dict,
     )
     if select_items is not None:
         if is_polars:

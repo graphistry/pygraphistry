@@ -49,6 +49,27 @@ from .chain_lean_combine import (
 )
 
 
+
+def _is_index_op_json(op: object) -> bool:
+    from graphistry.compute.gfql.index.wire import is_index_op_json
+    return is_index_op_json(op)
+
+
+def _index_op_json_as_call(op: Dict[str, JSONVal]) -> ASTCall:
+    from graphistry.compute.gfql.index.wire import index_op_from_json, index_op_to_call
+    return index_op_to_call(index_op_from_json(dict(op)))
+
+
+def _index_ops_as_calls(ops: List[ASTObject]) -> List[ASTObject]:
+    """Index DDL wire ops (CreateIndex/DropIndex) in an op list become their call() form."""
+    if not isinstance(ops, list):
+        return ops  # validate() names the offending type
+    from graphistry.compute.gfql.index.wire import index_op_to_call, is_index_op
+    if not any(is_index_op(op) for op in ops):
+        return ops  # the caller's own list: a later mutation is still seen and re-validated on execute
+    return [index_op_to_call(op) if is_index_op(op) else op for op in ops]
+
+
 class Chain(ASTSerializable):
 
     def __init__(
@@ -57,7 +78,7 @@ class Chain(ASTSerializable):
         where: Optional[Sequence[WhereComparison]] = None,
         validate: bool = True,
     ) -> None:
-        self.chain = chain
+        self.chain = _index_ops_as_calls(chain)
         self.where = normalize_where_entries(where or [])
         self._constructor_validated: bool = validate
         self._gfql_validated_in_call: bool = False
@@ -154,7 +175,7 @@ class Chain(ASTSerializable):
         
         where = parse_where_json(d.get('where'))
         out = cls(
-            [ASTObject_from_json(op, validate=validate) for op in d['chain']],
+            [_index_op_json_as_call(op) if isinstance(op, dict) and _is_index_op_json(op) else ASTObject_from_json(op, validate=validate) for op in d['chain']],
             where=where,
             validate=validate,
         )
@@ -697,6 +718,12 @@ def _plan_indexed_middle(
     if engine_concrete not in (Engine.PANDAS, Engine.CUDF):
         return None
 
+    from .gfql.limit_bindings import record_binding_limit, try_limited_bindings_state
+    limited_state = try_limited_bindings_state(g, middle, suffix, engine_concrete)
+    if limited_state is not None:
+        record_binding_limit(engine_concrete)
+        return IndexedBindingsHandoff(binding_ops=plan, state=limited_state)
+
     from .gfql.index.bindings import try_indexed_connected_bindings_state
 
     state = try_indexed_connected_bindings_state(g, middle, engine=engine_concrete)
@@ -762,7 +789,7 @@ def _handle_boundary_calls(
 
     # Function-scope import: `gfql.index` transitively imports this module, so a
     # module-scope import would be a cycle.
-    from .gfql.index.handoff import attach_handoff
+    from .gfql.index.handoff import attach_handoff, clear_handoff, read_handoff
     from .gfql.exec_context import attach_row_exec_context, clear_row_exec_context
 
     g_temp = self
@@ -793,6 +820,9 @@ def _handle_boundary_calls(
     if served:
         assert handoff is not None  # narrowed by `served`
         g_temp = attach_handoff(self, handoff)
+        assert handoff.state is not None
+        if handoff.state.edge_template is not None:
+            g_temp = g_temp.edges(handoff.state.edge_template)
     else:
         if middle:
             logger.debug('Executing middle operations: %s', middle)
@@ -871,7 +901,11 @@ def _handle_boundary_calls(
 
     # Each site that attaches the row context also detaches it: the suffix chain has run,
     # so the context is spent, and a caller who queries THIS result must not inherit it.
-    return clear_row_exec_context(g_temp)
+    result = clear_row_exec_context(g_temp)
+    if read_handoff(result) is not None:
+        result = result.bind()
+        clear_handoff(result)
+    return result
 
 
 def _chain_otel_attrs(
@@ -1308,7 +1342,13 @@ def _chain_impl(
             g_out = g_stack[-1]
             if added_edge_index:
                 final_edges_df = g_out._edges.drop(columns=[g._edge])
+                called = g_out
                 g_out = self.nodes(g_out._nodes).edges(final_edges_df, edge=original_edge)
+                # A call such as create_index attaches an index registry to ITS result; rebuilding
+                # from `self` would lose it. Migrate it onto the de-indexed edge frame (same rows).
+                from graphistry.compute.gfql.index import get_registry, set_registry
+                _called_registry = get_registry(called)
+                g_out = set_registry(g_out, _called_registry.rebind_edges(final_edges_df, called._edges))
             else:
                 from .gfql.exec_context import clear_row_exec_context
                 g_out = clear_row_exec_context(g_out)

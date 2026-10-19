@@ -42,6 +42,18 @@ def from_json(d: Dict[str, JSONVal]) -> ASTPredicate:
     assert 'type' in d
     assert d['type'] in type_to_predicate
     assert isinstance(d['type'], str)
+    if 'epoch_ms' in d:
+        # Reject the removed flag instead of an opaque constructor TypeError.
+        from graphistry.compute.exceptions import ErrorCode, GFQLTypeError
+        raise GFQLTypeError(
+            ErrorCode.E201,
+            "'epoch_ms' is not a supported predicate field",
+            field='epoch_ms',
+            value=str(d['epoch_ms']),
+            suggestion='Explicit epoch instants use a typed datetime value: '
+                       '{"type": "datetime", "value": <count>, "unit": "s"|"ms"}; '
+                       'numeric-vs-datetime comparison is rejected without one',
+        )
     pred = type_to_predicate[d['type']]
     out = pred.from_json(d)
     assert isinstance(out, ASTPredicate)

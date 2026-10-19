@@ -1,14 +1,12 @@
 from typing import Any, Optional, Tuple, List, Union
 
-import numpy as np
-
 from graphistry.Engine import (
-    Engine,
     EngineAbstract,
     resolve_input_engine,
     df_cons,
     s_arange, s_cos, s_floor, s_full, s_isna, s_pi,
-    s_series, s_sin, s_sqrt, s_to_arr
+    s_series, s_sin, s_sqrt, s_to_arr,
+    series_to_pylist
 )
 from graphistry.Plottable import Plottable
 from graphistry.util import setup_logger
@@ -90,7 +88,7 @@ def circle_layout(
     :param self: Plottable
     :type self: Plottable
     
-    :param bounding_box: The bounding box for the circular layout, in the format (cx, cy, width, height), or a partition-keyed dataframe of the same. If not provided, the bounding box is determined based on the nodes' positions.
+    :param bounding_box: The bounding box for the circular layout, in the format (cx, cy, width, height), or a partition-keyed dataframe of the same. If not provided, the nodes must already carry x/y positions, from which the bounding box is derived. The dataframe form requires columns partition_key, cx, cy, w, h, at most one row per partition.
     :type bounding_box: Optional[Tuple[float, float, float, float] | df[[partition_key, cx, cy, w, h]]]
     
     :param ring_spacing: The spacing between successive rings. Defaults to 1.0 if not provided.
@@ -100,7 +98,8 @@ def circle_layout(
     :type point_spacing: Optional[float]
 
     :param partition_by: Column name or list of column names to partition nodes by, laying
-        out one circle per partition. Defaults to None, in which case a single circle is used.
+        out one circle per partition. The partition columns must have no null values.
+        Defaults to None, in which case a single circle is used.
     :type partition_by: Optional[Union[str, List[str]]]
 
     :param sort_by: Currently has NO effect on the layout. Node order around each circle is
@@ -148,11 +147,11 @@ def circle_layout(
     to_arr = s_to_arr(engine_concrete)
     cons = df_cons(engine_concrete)
 
-    num_nodes = len(self._nodes)
+    g = self.materialize_nodes()
+    num_nodes = len(g._nodes)
     if num_nodes == 0:
         return self
 
-    g = self.materialize_nodes()
     g = g.nodes(g._nodes.reset_index(drop=True))
 
     # Optional sorting (if 'by' is specified)
@@ -191,6 +190,9 @@ def circle_layout(
             partition_columns = partition_by
         else:
             raise ValueError(f"Invalid 'by' argument: must be None, str, or list[str], but got {partition_by}")
+        null_partition_columns = [col for col in partition_columns if g._nodes[col].isna().any()]
+        if len(null_partition_columns) > 0:
+            raise ValueError(f'circle_layout cannot partition on null values: partition_by columns with nulls: {null_partition_columns}')
     else:
         partition_columns = []
 
@@ -212,9 +214,13 @@ def circle_layout(
         # No partitioning; treat all nodes as a single group
 
         if bounding_box is not None:
+            if isinstance(bounding_box, cons):
+                raise ValueError('a partition-keyed bounding_box frame requires partition_by=; pass a (cx, cy, width, height) tuple for a single circle')
             assert len(bounding_box) == 4, f'Invalid bounding box: {bounding_box}, types: {[type(val) for val in bounding_box]}'
             center_x, center_y, width, height = bounding_box
         else:
+            if 'x' not in g._nodes.columns or 'y' not in g._nodes.columns:
+                raise ValueError('circle_layout requires either bounding_box= or existing x/y node positions')
             node_min_x = g._nodes['x'].min()
             node_max_x = g._nodes['x'].max()
             node_min_y = g._nodes['y'].min()
@@ -243,8 +249,20 @@ def circle_layout(
 
             assert isinstance(bounding_box, cons), f'Invalid bounding box type, expected {cons}, got {type(bounding_box)}'
 
+            bounding_box_keyed = bounding_box.rename(columns={'partition_key': partition_by})
+            missing_bounding_box_columns = [col for col in ['cx', 'cy', 'w', 'h'] if col not in bounding_box_keyed.columns]
+            if partition_by not in bounding_box_keyed.columns:
+                missing_bounding_box_columns = ['partition_key'] + missing_bounding_box_columns
+            if len(missing_bounding_box_columns) > 0:
+                raise ValueError(f'bounding_box frame is missing columns {missing_bounding_box_columns}; expected partition_key, cx, cy, w, h')
+
+            key_col = bounding_box_keyed[partition_by]
+            duplicated_keys = key_col[key_col.duplicated()]
+            if len(duplicated_keys) > 0:
+                raise ValueError(f'bounding_box has duplicate partition_key values: {sorted(set(series_to_pylist(duplicated_keys)), key=str)}')
+
             nodes_with_partitions = g._nodes.merge(
-                bounding_box.rename(columns={'partition_key': partition_by}),
+                bounding_box_keyed,
                 how='left',
                 on=partition_columns
             ).sort_values(by=partition_columns).reset_index(drop=True)
@@ -333,12 +351,7 @@ def circle_layout(
 
     # Compute angles for each node in the ring
     #node_angles = (2 * pi * node_indices_in_ring) / nodes_in_ring  # (num_nodes,)
-    if engine_concrete in [EngineAbstract.CUDF, 'cudf', 'Engine.CUDF'] or hasattr(node_idx_relative, 'to_pandas'):
-        # CUDA OOM bug despite small data
-        #node_angles = Series((2 * np.pi * node_idx_relative.to_pandas()) / nodes_in_ring.to_pandas()).fillna(0.0)  # (num_nodes,)
-        node_angles = 2 * np.pi * node_idx_relative.reset_index(drop=True) / nodes_in_ring.reset_index(drop=True)  # (num_nodes,)
-    else:
-        node_angles = ((2 * pi * node_idx_relative) / nodes_in_ring).fillna(0.0)  # (num_nodes,)
+    node_angles = 2 * pi * node_idx_relative.reset_index(drop=True) / nodes_in_ring.reset_index(drop=True)  # (num_nodes,)
     if is_na(node_angles).any():
         raise ValueError('Unexpected NaNs in node angles')
 

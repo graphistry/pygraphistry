@@ -379,3 +379,69 @@ class TestHopLazyInputEagernessMatrix:
             nodes=pd.DataFrame({"id": ["a"]}), engine="polars", **case)
         assert _node_set(oracle) == _node_set(got), f"node mismatch {case}"
         assert _edge_set(oracle) == _edge_set(got), f"edge mismatch {case}"
+
+
+@pytest.mark.parametrize("engine", ["polars", "polars-gpu"])
+@pytest.mark.parametrize("unit", ["ms", "us", "ns"])
+@pytest.mark.parametrize("policy", ["off", "use", "force"])
+@pytest.mark.parametrize("matches", [False, True])
+def test_temporal_text_traversal_matches_direct_filter(engine, unit, policy, matches):
+    from datetime import datetime
+    from graphistry import e_forward
+    from graphistry.compute.gfql.index import with_index_policy
+
+    if engine == "polars-gpu":
+        pytest.importorskip("cudf_polars")
+        from graphistry.compute.gfql.lazy import polars_gpu_available
+        if not polars_gpu_available():
+            pytest.skip("Installed cudf-polars cannot execute the configured GPU engine")
+    nodes = pl.DataFrame({"id": [0, 1, 2]})
+    stamp = datetime(2026, 1, 1, 12, 30, 1, 123000)
+    edges = pl.DataFrame({"s": [0, 1], "d": [1, 2], "eid": [7, 9],
+                          "time": pl.Series([stamp, stamp], dtype=pl.Datetime(unit))})
+    base = graphistry.nodes(nodes, "id").edges(edges, "s", "d").bind(edge="eid")
+    indexed = base.create_index("edge_prop", column="time", engine=engine)
+    indexed = with_index_policy(indexed, policy)
+    text = stamp.isoformat() if matches else "2099-01-01T00:00:00"
+    direct = indexed.filter_edges_by_dict({"time": text}, engine=engine)
+    native = indexed.gfql([e_forward({"time": text})], engine=engine, index_policy=policy)
+    rows = indexed.gfql(
+        "MATCH (a)-[e {time:'" + text + "'}]->(b) RETURN e.eid AS eid",
+        engine=engine, index_policy=policy,
+    )._nodes
+    expected = [7, 9] if matches else []
+    assert direct._edges.get_column("eid").to_list() == expected
+    assert native._edges.get_column("eid").to_list() == expected
+    assert rows.get_column("eid").to_list() == expected
+    assert native._edges.schema["time"] == edges.schema["time"]
+    assert native._edges.schema["eid"] == edges.schema["eid"]
+    assert native._nodes.schema == nodes.schema
+    assert rows.schema == {"eid": pl.Int64}
+    assert nodes.equals(base._nodes)
+    assert edges.equals(base._edges)
+    assert edges.equals(indexed._edges)
+
+
+@pytest.mark.parametrize("engine", ["polars", "polars-gpu"])
+@pytest.mark.parametrize("policy", ["off", "use", "force"])
+def test_temporal_text_traversal_preserves_malformed_error(engine, policy):
+    from datetime import datetime
+    from graphistry import e_forward
+    from graphistry.compute.exceptions import ErrorCode, GFQLSchemaError
+    from graphistry.compute.gfql.index import with_index_policy
+
+    if engine == "polars-gpu":
+        pytest.importorskip("cudf_polars")
+    base = graphistry.nodes(pl.DataFrame({"id": [0, 1]}), "id").edges(
+        pl.DataFrame({"s": [0], "d": [1], "time": [datetime(2026, 1, 1)]}), "s", "d",
+    )
+    indexed = with_index_policy(base.create_index("edge_prop", column="time", engine=engine), policy)
+    for query in [
+        [e_forward({"time": "invalid-temporal"})],
+        "MATCH (a)-[e {time:'invalid-temporal'}]->(b) RETURN e.s AS s",
+    ]:
+        with pytest.raises(GFQLSchemaError) as caught:
+            indexed.gfql(query, engine=engine, index_policy=policy)
+        assert caught.value.code == ErrorCode.E302
+        assert caught.value.context["field"] == "time"
+        assert caught.value.context["value"] == "invalid-temporal"

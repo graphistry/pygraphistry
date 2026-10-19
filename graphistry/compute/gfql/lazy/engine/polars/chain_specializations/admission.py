@@ -24,12 +24,14 @@ def _plain_edge(op: ASTObject) -> bool:
 
 
 def polars_plain_single_hop_admits(ops: Sequence[ASTObject], start_nodes: Optional[DataFrameT]) -> Optional[PolarsPlainSingleHopShape]:
-    """The polars chain's plain single-hop branch for ``ops``: ``"seeded-index"`` when the
-    resident-index hop is consulted first (seed filter, no destination filter, directed),
-    ``"skip-combine"`` when the one-hop endpoint filter serves it without the
-    forward/backward/combine passes, None when the full chain runs. The dispatcher calls
-    this; unnamed, unqueried nodes and an unnamed, unmatched simple edge are the shape.
-    A filtered undirected hop is the one plain shape that still takes the full chain."""
+    """The polars chain's plain single-hop branch for ``ops``.
+
+    ``"seeded-index"`` consults the resident-index hop first (seed filter, directed).
+    A simple destination node filter is also an index candidate: the indexed hop can
+    apply it as a node segment or canonical residual predicate. ``"skip-combine"``
+    serves the remaining plain single hops without forward/backward/combine; ``None``
+    means the full chain runs. A filtered undirected hop still takes the full chain.
+    """
     if start_nodes is not None or len(ops) != 3:
         return None
     n0, e1, n2 = ops
@@ -37,8 +39,10 @@ def polars_plain_single_hop_admits(ops: Sequence[ASTObject], start_nodes: Option
         return None
     assert isinstance(n0, ASTNode) and isinstance(e1, ASTEdge) and isinstance(n2, ASTNode)
     directed = e1.direction in ("forward", "reverse")
-    if n0.filter_dict and not n2.filter_dict and directed:
-        return "seeded-index"
+    if n0.filter_dict and directed:
+        from graphistry.compute.gfql.index.traverse import is_simple_equality_node_match
+        if not n2.filter_dict or is_simple_equality_node_match(n2.filter_dict):
+            return "seeded-index"
     unconstrained = not n0.filter_dict and not n2.filter_dict
     return "skip-combine" if (unconstrained or directed) else None
 
@@ -56,7 +60,7 @@ def polars_seeded_lane_admits(ops: Sequence[ASTObject]) -> bool:
     single hop whose seed node carries a filter, with no node queries, endpoint matches,
     endpoint or edge queries, zero-hop seed or endpoint pruning. The dispatcher calls this
     first; the frame conditions (polars frames, matching id dtypes, valid resident indexes,
-    scalar-only filters, no colliding aliases) are decided by the body and can still decline
+    scalar or integral-membership seeds, scalar residuals, no colliding aliases) are decided by the body and can still decline
     an admitted shape."""
     if len(ops) != 3:
         return False

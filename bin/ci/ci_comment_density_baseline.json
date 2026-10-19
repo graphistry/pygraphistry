@@ -107,7 +107,7 @@
       "graphistry/gremlin.py": 5,
       "graphistry/hyper_dask.py": 6,
       "graphistry/io/contracts/graphistry_server/contract_version.py": 1,
-      "graphistry/layout/circle.py": 17,
+      "graphistry/layout/circle.py": 16,
       "graphistry/layout/gib/_squarify.py": 3,
       "graphistry/layout/gib/gib.py": 1,
       "graphistry/layout/gib/partitioned_layout.py": 1,

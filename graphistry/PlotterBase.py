@@ -16,6 +16,7 @@ from graphistry.validate.validate_react_encodings import parse_apply_encodings_o
 from graphistry.plugins_types.hypergraph import HypergraphResult
 from graphistry.render.resolve_render_mode import resolve_render_mode
 from graphistry.Engine import Engine, EngineAbstractType, df_to_engine
+from graphistry.graph_bridge import bridge_polars_graph
 import copy, hashlib, numpy as np, pandas as pd, pyarrow as pa, sys, uuid, warnings
 from functools import lru_cache, partialmethod
 from weakref import WeakValueDictionary
@@ -2564,8 +2565,8 @@ class PlotterBase(Plottable):
     from_gexf = from_gexf
     to_gexf = to_gexf
     to_igraph = to_igraph
-    compute_igraph = compute_igraph
-    layout_igraph = layout_igraph
+    compute_igraph = bridge_polars_graph(Engine.PANDAS)(compute_igraph)
+    layout_igraph = bridge_polars_graph(Engine.PANDAS)(layout_igraph)
 
 
     def pandas2igraph(self, edges: pd.DataFrame, directed: bool = True) -> Any:
@@ -2773,8 +2774,8 @@ class PlotterBase(Plottable):
 
     from_cugraph = from_cugraph
     to_cugraph = to_cugraph
-    compute_cugraph = compute_cugraph
-    layout_cugraph = layout_cugraph
+    compute_cugraph = bridge_polars_graph(Engine.CUDF)(compute_cugraph)
+    layout_cugraph = bridge_polars_graph(Engine.CUDF)(layout_cugraph)
 
     layout_graphviz = layout_graphviz
     render_graphviz = render_graphviz

@@ -213,9 +213,11 @@ def try_bindings_select_polars(
         reason="served",
         hop_count=bag.hop_count,
         public_seed_scan=seed_scan,
-        hop_details=[
-            {"hop": hop + 1, "estimated_rows": bag.estimated_rows}
-            for hop in range(bag.hop_count)
-        ],
+        hop_details=(
+            bag.admission_details
+            if bag.admission_details
+            else [{"hop": hop + 1, "estimated_rows": bag.estimated_rows}
+                  for hop in range(bag.hop_count)]
+        ),
     )
     return out

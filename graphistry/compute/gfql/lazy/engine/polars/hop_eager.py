@@ -242,6 +242,10 @@ def hop_polars(
     all_nodes = g._nodes
 
     if edge_match is not None:
+        from graphistry.Engine import Engine
+        from graphistry.compute.gfql.index.property_lookup import property_candidate_frame
+
+        edges = property_candidate_frame(g, "edges", edges, edge_match, Engine.POLARS)
         edges = filter_by_dict_polars(edges, edge_match)
 
     # resolved_max_hops comes from the shared resolver above (None == run-to-closure).

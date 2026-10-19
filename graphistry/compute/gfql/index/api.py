@@ -8,41 +8,60 @@ stale indexes (treated as absent, never a wrong answer).
 from __future__ import annotations
 
 import copy
-from typing import Dict, List, Literal, Optional, Sequence, Set, Tuple, cast
+from typing import TYPE_CHECKING, Dict, List, Literal, Mapping, Optional, Sequence, Set, Tuple, Union, cast
 
+import numpy as np
 import pandas as pd
 
-from graphistry.Engine import EngineAbstract, Engine, EngineAbstractType, POLARS_ENGINES, is_polars_df, resolve_engine
-from graphistry.compute.typing import DataFrameT
+from graphistry.Engine import (
+    EngineAbstract, Engine, EngineAbstractType, POLARS_ENGINES,
+    is_cudf_series, is_cupy_array, is_polars_df, is_polars_series, resolve_engine,
+)
+from graphistry.compute.typing import DataFrameT, SeriesT
 from graphistry.Plottable import Plottable
 from .registry import (
     AdjacencyIndex, ColStatsFact, PartitionValue, ColStatsRole, GfqlIndexRegistry, EMPTY_REGISTRY, NodeIdIndex,
-    EDGE_OUT_ADJ, EDGE_IN_ADJ, NODE_ID, NODE_PROP, ADJ_KINDS, ALL_KINDS,
+    EDGE_OUT_ADJ, EDGE_IN_ADJ, NODE_ID, NODE_PROP, EDGE_PROP, NODE_TYPE_SEGMENT,
+    ADJ_KINDS, ALL_KINDS, PROPERTY_ROLES,
 )
-from .build import build_adjacency_index, build_node_id_index, build_node_prop_index
+from .build import build_adjacency_index, build_node_id_index, build_node_type_segment, build_property_index, build_typed_adjacency_indexes
 from .traverse import index_seeded_hop
 from .cost import cost_gate_frac, seed_deg_sum, seed_id_array
 from .policy import IndexPolicy, validate_index_policy
+from .errors import (
+    GfqlIndexNotImplementedError, GfqlIndexUnsupportedError, INDEX_SUPPORT_ISSUE_URL,
+    is_not_yet_implemented_kind, not_implemented_kind_error,
+)
 from .types import (
     AdjacencyIndexKind, EdgeIndexDirection, HopDirection, IndexKind,
     ColStatsOutcomeName, FastPathName, IndexDecisionCode, IndexTrace, IndexTraceStep,
     TraceEngine, SidecarFactKind,
 )
 
+if TYPE_CHECKING:
+    import cudf
+    from graphistry.compute.typing import ArrayLike, PolarsSeriesT
+
+    CrossEngineByteSourceT = Union[ArrayLike, SeriesT, PolarsSeriesT, "cudf.Series"]
+
 # Private Plottable attachment keys. Keep access behind helpers.
 POLICY_ATTR = "_gfql_index_policy"
 REGISTRY_ATTR = "_gfql_index_registry"
 
 
-class GfqlIndexUnsupportedError(ValueError):
-    """The DATA cannot support this index (duplicate node ids, an unindexable
-    property dtype). Distinct from a caller mistake — a missing column, an unknown
-    kind, unbound edges — which stays a plain ``ValueError`` and must propagate.
+def _byte_source_nbytes(value: CrossEngineByteSourceT) -> int:
+    if is_polars_series(value):
+        return int(value.estimated_size())
+    if is_cudf_series(value):
+        return int(value.memory_usage())
+    if isinstance(value, np.ndarray):
+        return int(value.nbytes)
+    if is_cupy_array(value):
+        return int(value.nbytes)
+    if isinstance(value, pd.Series):
+        return int(value.memory_usage())
+    return 0
 
-    Subclasses ``ValueError`` so existing ``except ValueError`` callers keep
-    working; the convenience builders catch only THIS type, so a real failure is
-    never silently skipped.
-    """
 
 # --- lightweight, thread-local index decision trace (for gfql_explain) -------
 import threading as _threading
@@ -147,12 +166,14 @@ def _record_indexed_traversal(
     hop_count: int,
     public_seed_scan: bool,
     hop_details: Optional[List[Dict[str, object]]] = None,
+    seed_graph: Optional[Plottable] = None,
+    seed_filter: Optional[Mapping[str, object]] = None,
 ) -> None:
     """Record one backward-compatible indexed traversal decision when tracing."""
     if not _trace_active():
         return
     path = "index" if served else "scan"
-    _record(cast(IndexTraceStep, {
+    decision = cast(IndexTraceStep, {
         "op": "indexed_traversal",
         "operation": "indexed_traversal",
         "seam": seam,
@@ -166,7 +187,26 @@ def _record_indexed_traversal(
         "path": path,
         "decision_reason": reason,
         "decision_code": "index_selected" if served else "index_path_unavailable",
-    }))
+    })
+    if (
+        not served and hop_count == 0 and reason in ("index_missing", "no_valid_resident_index", "cost_gate")
+        and seed_graph is not None and seed_graph._nodes is not None and seed_filter
+        and get_index_policy(seed_graph) != "off"
+    ):
+        from .property_keys import uncovered_property_column
+        column = uncovered_property_column(
+            seed_graph._nodes, seed_filter, engine,
+            registry=get_registry(seed_graph), binding_column=seed_graph._node,
+        )
+        if column is not None:
+            decision.update({
+                "decision_code": "not_index_coverable",
+                "decision_reason": "property predicate has no supported index encoding",
+                "column": column, "role": "nodes", "index_kind": "node_prop",
+            })
+            if reason == "cost_gate":
+                decision["reason"] = "unsupported_predicate"
+    _record(decision)
 
 
 ColStatsOutcome = ColStatsOutcomeName  # single definition, in types.py
@@ -363,7 +403,8 @@ def create_index(
 ) -> Plottable:
     """Eagerly build a GFQL physical index and return a new Plottable carrying it.
 
-    ``kind``: 'edge_out_adj' | 'edge_in_adj' | 'node_id'. ``column`` (if given) must
+    ``kind``: adjacency, node-id, or per-column node/edge property. ``column`` for
+    a property index names its property; for structural indexes it must
     match the index's natural binding (src/dst/node) — a mismatch raises rather than
     silently no-op. ``name`` overrides the display handle. Pay-as-you-go: cost is
     O(E log E) once, amortized over later seeded queries.
@@ -407,43 +448,50 @@ def create_index(
         registry = registry.with_index(NODE_ID, node_idx)
         return _attach(g2, registry)
 
-    if kind == NODE_PROP:
+    if kind in (NODE_PROP, EDGE_PROP):
+        role: ColStatsRole = "nodes" if kind == NODE_PROP else "edges"
         if not column:
-            raise ValueError(
-                f"A {NODE_PROP!r} index indexes one node PROPERTY column; pass "
-                f"column='<name>'."
-            )
-        g2 = g.materialize_nodes() if g._nodes is None else g
-        assert g2._nodes is not None
-        if column not in g2._nodes.columns:
-            raise ValueError(
-                f"Cannot build a {NODE_PROP!r} index: node column {column!r} not found."
-            )
-        prop_idx = build_node_prop_index(g2._nodes, column, eng)
+            raise ValueError(f"A {kind!r} index indexes one {role} PROPERTY column; pass column='<name>'.")
+        g2 = g.materialize_nodes() if role == "nodes" and g._nodes is None else g
+        frame = g2._nodes if role == "nodes" else g2._edges
+        if frame is None or column not in frame.columns:
+            raise ValueError(f"Cannot build a {kind!r} index: {role} column {column!r} not found.")
+        prop_idx = build_property_index(frame, column, eng)
         if prop_idx is None:
-            raise GfqlIndexUnsupportedError(
-                f"Cannot build a {NODE_PROP!r} index on {column!r}: only integer "
-                f"columns without nulls are indexable today. Seeded queries still "
-                f"work via the un-indexed scan path."
+            raise GfqlIndexNotImplementedError(
+                f"Cannot build a {kind!r} index on {column!r} "
+                f"(dtype {frame[column].dtype}): only string, integer, categorical, timestamp, float and Boolean columns "
+                f"are indexable today; other column types are not implemented yet "
+                f"(tracked in {INDEX_SUPPORT_ISSUE_URL}). Seeded queries still work via "
+                f"the un-indexed scan path."
             )
         prop_idx = replace(prop_idx, name=name or index_name(kind, column))
-        registry = registry.with_node_prop(column, prop_idx)
+        registry = registry.with_property(role, column, prop_idx)
         return _attach(g2, registry)
 
+    if is_not_yet_implemented_kind(kind):
+        raise not_implemented_kind_error(kind, ALL_KINDS)
     raise ValueError(f"Unknown GFQL index kind: {kind!r}. Expected one of {ALL_KINDS}.")
 
 
 def drop_index(
-    g: Plottable, kind: Optional[IndexKind] = None, *, column: Optional[str] = None
+    g: Plottable, kind: Optional[IndexKind] = None, *,
+    column: Optional[str] = None, value: Optional[PartitionValue] = None,
 ) -> Plottable:
     """Drop one index (by kind, or one property index by column) or all (kind=None).
 
-    Idempotent."""
+    For ``node_type_segment``, omit ``column`` to drop all segments, pass
+    ``column`` to drop that column's segments, or pass ``column`` and ``value``
+    to drop one segment. Idempotent."""
     registry = get_registry(g)
     if kind is None:
         return _attach(g, EMPTY_REGISTRY)
-    if kind == NODE_PROP and column is not None:
-        return _attach(g, registry.without_node_prop(column))
+    if kind == NODE_TYPE_SEGMENT:
+        if value is not None and column is None:
+            raise ValueError("dropping one node type segment requires type_column")
+        return _attach(g, registry.without_node_segments(column, value))
+    if kind in (NODE_PROP, EDGE_PROP) and column is not None:
+        return _attach(g, registry.without_property("nodes" if kind == NODE_PROP else "edges", column))
     return _attach(g, registry.without(kind))
 
 
@@ -555,24 +603,69 @@ def show_indexes(
             "usable": usable,
             "reason": reason,
         })
-    for column in registry.node_prop_cols():
-        prop = registry.node_props[column]
-        prop_valid = registry.get_node_prop_valid(column, g._nodes, prop.engine) is not None
-        usable, reason = _index_usability(NODE_PROP, prop.engine, prop_valid, query_engine)
+    for column, value, kind in sorted(
+        registry.typed_adjacencies, key=lambda key: (key[0], str(key[1]), key[2]),
+    ):
+        typed = registry.typed_adjacencies[(column, value, kind)]
+        valid = (
+            g._edges is not None and g._source is not None and g._destination is not None
+            and registry.get_typed_adjacency_valid(
+                column, value, kind, g._edges, g._source, g._destination, typed.engine,
+            ) is typed
+        )
+        usable, reason = _index_usability(kind, typed.engine, valid, query_engine)
+        # other_values is shared with the ordinary adjacency index, not added memory.
+        nbytes = sum(_byte_source_nbytes(getattr(typed, name)) for name in (
+            "keys_sorted", "group_offsets", "row_positions",
+        ))
         rows.append({
-            "name": prop.name or index_name(NODE_PROP, column),
-            "kind": NODE_PROP,
-            "key_col": column,
-            "engine": prop.engine.value,
-            "backend": prop.backend,
-            "n_keys": prop.n_keys,
-            "n_rows": prop.n_nodes,
-            "nbytes": index_nbytes(prop),
-            "valid": prop_valid,
-            "query_engine": query_engine.value,
-            "usable": usable,
-            "reason": reason,
+            "name": typed.name or f"typed:{column}={value}:{kind}",
+            "kind": kind, "key_col": typed.key_col, "engine": typed.engine.value,
+            "backend": typed.backend, "n_keys": typed.n_keys, "n_rows": typed.n_edges,
+            "nbytes": nbytes, "valid": valid, "query_engine": query_engine.value,
+            "usable": usable, "reason": reason,
         })
+    for column, value in sorted(
+        registry.node_type_segments, key=lambda key: (key[0], str(key[1])),
+    ):
+        segment = registry.node_type_segments[(column, value)]
+        valid = (
+            g._nodes is not None
+            and registry.get_node_segment_valid(column, value, g._nodes, segment.engine)
+            is segment
+        )
+        usable, reason = _index_usability(NODE_TYPE_SEGMENT, segment.engine, valid, query_engine)
+        nbytes = sum(_byte_source_nbytes(getattr(segment, name)) for name in (
+            "keys_sorted", "group_offsets", "row_positions",
+        ))
+        rows.append({
+            "name": f"typed_node:{column}={value}",
+            "kind": NODE_TYPE_SEGMENT, "key_col": segment.key_col,
+            "engine": segment.engine.value, "backend": segment.backend,
+            "n_keys": segment.n_keys, "n_rows": int(segment.row_positions.shape[0]),
+            "nbytes": nbytes, "valid": valid, "query_engine": query_engine.value,
+            "usable": usable, "reason": reason,
+        })
+    for kind, role in PROPERTY_ROLES:
+        frame = g._nodes if role == "nodes" else g._edges
+        for column in sorted(registry.property_indexes(role)):
+            prop = registry.property_indexes(role)[column]
+            prop_valid = registry.get_property_valid(role, column, frame, prop.engine) is not None
+            usable, reason = _index_usability(kind, prop.engine, prop_valid, query_engine)
+            rows.append({
+                "name": prop.name or index_name(kind, column),
+                "kind": kind,
+                "key_col": column,
+                "engine": prop.engine.value,
+                "backend": prop.backend,
+                "n_keys": prop.n_keys,
+                "n_rows": prop.n_nodes,
+                "nbytes": index_nbytes(prop),
+                "valid": prop_valid,
+                "query_engine": query_engine.value,
+                "usable": usable,
+                "reason": reason,
+            })
     rows.extend(_sidecar_fact_rows(g, registry, query_engine))
     cols = [
         "name", "kind", "key_col", "engine", "backend", "n_keys", "n_rows", "nbytes",
@@ -581,14 +674,140 @@ def show_indexes(
     return pd.DataFrame(rows, columns=cols)
 
 
-def gfql_index_edges(g: Plottable, direction: EdgeIndexDirection = "both",
-                     engine: EngineAbstractType = EngineAbstract.AUTO) -> Plottable:
-    """Convenience: build edge adjacency index(es). direction: 'forward'|'reverse'|'both'."""
+def _parse_type_partition(
+    label: str, type_column: Optional[str],
+    type_values: Optional[Sequence[PartitionValue]], allow_bool: bool,
+) -> Optional[List[PartitionValue]]:
+    """Shared type_column/type_values validation for ``gfql_index_edges`` /
+    ``gfql_index_node_types``: returns the parsed values, or None if untyped."""
+    if (type_column is None) != (type_values is None):
+        raise ValueError(f"{label} type index requires both type_column and type_values")
+    if type_column is None or type_values is None:
+        return None
+    if not isinstance(type_column, str) or not type_column:
+        raise TypeError(f"{label} type column must be a non-empty string")
+    if isinstance(type_values, (str, bytes)):
+        raise TypeError(f"{label} type index values must be a sequence, not a scalar string")
+    values = list(type_values)
+    if not values:
+        raise ValueError(f"{label} type index requires at least one value")
+    if allow_bool:
+        if any(not isinstance(value, (str, int, bool)) for value in values):
+            raise TypeError(f"{label} type index values must be strings, integers, or booleans")
+    elif any(isinstance(value, bool) or not isinstance(value, (str, int)) for value in values):
+        raise TypeError(f"{label} type index values must be strings or integers")
+    return values
+
+
+def gfql_index_edges(
+    g: Plottable, direction: EdgeIndexDirection = "both",
+    engine: EngineAbstractType = EngineAbstract.AUTO, *,
+    type_column: Optional[str] = None,
+    type_values: Optional[Sequence[PartitionValue]] = None,
+) -> Plottable:
+    """Build edge adjacency index(es); direction: 'forward'|'reverse'|'both'.
+
+    With ``type_column`` and ``type_values``, additionally build typed CSR
+    sidecars for the requested scalar relationship types in the requested
+    direction(s). Ordinary adjacency indexes are always built first because the
+    sidecars share their neighbor arrays. Type sidecars are an explicit setup
+    cost: ``gfql_index_all()`` does not build them, queries without a matching,
+    live typed index retain the ordinary adjacency path, and all queries retain
+    canonical edge predicate filtering after candidate lookup.
+    """
+    typed_column: Optional[str] = None
+    values = _parse_type_partition("edge", type_column, type_values, allow_bool=False)
+    if values is not None:
+        typed_column = type_column
     if direction in ("forward", "both"):
         g = create_index(g, EDGE_OUT_ADJ, engine=engine)
     if direction in ("reverse", "both"):
         g = create_index(g, EDGE_IN_ADJ, engine=engine)
-    return g
+    if values is None or typed_column is None:
+        return g
+    from graphistry.compute.ComputeMixin import _coerce_input_formats
+
+    eng = resolve_index_engine(engine, g)
+    g = _coerce_input_formats(g, eng)
+    edges, src, dst = g._edges, g._source, g._destination
+    if edges is None or src is None or dst is None or typed_column not in edges.columns:
+        raise ValueError("edge type index requires bound edges and a present type column")
+    registry = get_registry(g)
+    kinds = (
+        (EDGE_OUT_ADJ,) if direction == "forward" else
+        (EDGE_IN_ADJ,) if direction == "reverse" else
+        (EDGE_OUT_ADJ, EDGE_IN_ADJ)
+    )
+    base_adj: Dict[AdjacencyIndexKind, AdjacencyIndex] = {}
+    for kind in kinds:
+        found = registry.get_valid(kind, edges, (src, dst), eng)
+        if isinstance(found, AdjacencyIndex):
+            base_adj[kind] = found
+    if set(base_adj) != set(kinds):
+        g = gfql_index_edges(g, direction=direction, engine=eng.value)
+        registry = get_registry(g)
+        edges = g._edges
+        assert edges is not None
+        base_adj = {}
+        for kind in kinds:
+            found = registry.get_valid(kind, edges, (src, dst), eng)
+            assert isinstance(found, AdjacencyIndex)
+            base_adj[kind] = found
+    for value in dict.fromkeys(values):
+        need = {
+            kind for kind in kinds if registry.get_typed_adjacency_valid(
+                typed_column, value, kind, edges, src, dst, eng,
+            ) is None
+        }
+        if not need:
+            continue
+        typed_out, typed_in = build_typed_adjacency_indexes(
+            edges, typed_column, value, src, dst, eng,
+            base_adj.get(EDGE_OUT_ADJ), base_adj.get(EDGE_IN_ADJ),
+        )
+        if EDGE_OUT_ADJ in need:
+            assert typed_out is not None
+            registry = registry.with_typed_adjacency(typed_column, value, typed_out)
+        if EDGE_IN_ADJ in need:
+            assert typed_in is not None
+            registry = registry.with_typed_adjacency(typed_column, value, typed_in)
+    return _attach(g, registry)
+
+
+def gfql_index_node_types(
+    g: Plottable, engine: EngineAbstractType = EngineAbstract.AUTO, *,
+    type_column: Optional[str] = None,
+    type_values: Optional[Sequence[PartitionValue]] = None,
+) -> Plottable:
+    """Build node type/label segments: the dual of ``gfql_index_edges``'s typed
+    edge sidecars.
+
+    With ``type_column`` and ``type_values``, register per-value row-position
+    segments over the node frame — a scalar type column gives partition semantics,
+    Boolean ``label__<Label>`` columns give membership semantics (one node may
+    appear in several segments). Membership is decided once at setup by the
+    canonical engine predicate, so segment selection is parity-exact with the
+    scan's node filter, including null rows. Segments are an explicit setup cost:
+    ``gfql_index_all()`` does not build them, and queries without a matching,
+    live segment retain the ordinary scan path.
+    """
+    values = _parse_type_partition("node", type_column, type_values, allow_bool=True)
+    if not values or type_column is None:
+        return g
+    from graphistry.compute.ComputeMixin import _coerce_input_formats
+
+    eng = resolve_index_engine(engine, g)
+    g = _coerce_input_formats(g, eng)
+    nodes = g._nodes
+    if nodes is None or type_column not in nodes.columns:
+        raise ValueError("node type index requires bound nodes and a present type column")
+    registry = get_registry(g)
+    for value in dict.fromkeys(values):
+        if registry.get_node_segment_valid(type_column, value, nodes, eng) is not None:
+            continue
+        segment = build_node_type_segment(nodes, type_column, value, eng)
+        registry = registry.with_node_segment(type_column, value, segment)
+    return _attach(g, registry)
 
 
 def gfql_index_node_props(g: Plottable, columns: Sequence[str],
@@ -961,9 +1180,20 @@ def _hop_is_index_coverable(
     if any(x is not None for x in (
         min_hops if (min_hops is not None and min_hops > 1) else None,
         output_min_hops, output_max_hops, label_node_hops, label_edge_hops,
-        source_node_match, destination_node_match,
         source_node_query, destination_node_query, edge_query, target_wave_front,
     )):
+        return False
+    # Node segments: simple scalar equality only; residency declines later to scan.
+    from .traverse import is_simple_equality_node_match
+    if (source_node_match is not None or destination_node_match is not None) and not (
+        return_as_wave_front
+        and is_simple_equality_node_match(source_node_match)
+        and is_simple_equality_node_match(destination_node_match)
+    ) and not (
+        not return_as_wave_front
+        and source_node_match is None
+        and is_simple_equality_node_match(destination_node_match)
+    ):
         return False
     # Typed-edge edge_match: coverable only as a simple scalar-equality filter on the
     # wavefront (chain/Cypher) path, where index_seeded_hop applies it per-hop parity-
@@ -1029,6 +1259,25 @@ def _ensure_indexes(
         if node_idx is not None:  # None => non-unique ids; skip (scan materialization)
             registry = registry.with_index(NODE_ID, node_idx)
     return registry
+
+
+def _node_segment_trace_state(
+    registry: GfqlIndexRegistry,
+    g: Plottable,
+    node_col: Optional[str],
+    engine: Engine,
+    node_match: Optional[object],
+) -> str:
+    if node_match is None:
+        return "not_present"
+    from .traverse import is_simple_equality_node_match
+    if not is_simple_equality_node_match(node_match):
+        return "unsupported"
+    assert isinstance(node_match, dict)
+    column, value = next(iter(node_match.items()))
+    if not isinstance(value, (str, int)) or node_col is None or g._nodes is None:
+        return "unsupported"
+    return "resident" if registry.get_node_segment_valid(column, value, g._nodes, engine) is not None else "missing_or_stale"
 
 
 def maybe_index_hop(
@@ -1130,6 +1379,7 @@ def maybe_index_hop(
         # signal the report wants EXPLAIN to surface (not just used-index yes/no).
         seed_ids = seed_id_array(nodes, node_col)
         deg_sum = seed_deg_sum(idx0, seed_ids) if seed_ids is not None else None
+        diag["index_kind"] = idx0.kind
         diag["n_keys"] = int(idx0.n_keys)
         diag["seed_deg_sum"] = deg_sum
         diag["est_result_rows"] = deg_sum
@@ -1152,12 +1402,19 @@ def maybe_index_hop(
     # (compute/hop.py); the index must run the SAME number of accumulating hops.
     # (regression: max_hops was passed through *rest and silently ignored — the index ran
     # `hops` (default 1) while the scan ran max_hops → wrong answer.)
+    if trace:
+        diag["node_segments"] = {
+            "source": _node_segment_trace_state(registry, g, node_col, engine, rest.get("source_node_match")),
+            "destination": _node_segment_trace_state(registry, g, node_col, engine, rest.get("destination_node_match")),
+        }
     eff_hops = max_hops if max_hops is not None else hops
     result = index_seeded_hop(
         g, registry, nodes=nodes, node_col=node_col, src=src, dst=dst, engine=engine,
         hops=eff_hops, to_fixed_point=to_fixed_point, direction=direction,
         return_as_wave_front=return_as_wave_front,
         edge_match=cast(Optional[dict], rest.get("edge_match")),
+        source_node_match=rest.get("source_node_match"),
+        destination_node_match=rest.get("destination_node_match"),
     )
     if trace:
         engine_mismatch_reason = (

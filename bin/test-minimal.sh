@@ -19,6 +19,7 @@ fi
 "$PYTHON_BIN" -m pytest --version
 
 "$PYTHON_BIN" -B -m pytest -vv \
+    --ignore=docs \
     --ignore=plans \
     --ignore=test_env \
     --ignore=graphistry/tests/test_bolt_util.py \

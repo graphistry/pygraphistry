@@ -8,7 +8,7 @@ attachment and every suffix operation.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from numbers import Integral
 from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple, Union, cast
 
@@ -30,13 +30,11 @@ from graphistry.compute.dataframe.join import (
 )
 
 from .cost import cost_gate_frac
-from .engine_arrays import array_namespace, col_to_array, take_rows
+from .engine_arrays import array_namespace, col_to_array, sorted_unique, take_rows
 from .lookup import (
     lookup_degree,
     lookup_edge_rows,
     lookup_node_rows,
-    lookup_prop_rows,
-    prop_match_count,
 )
 from .registry import (
     EDGE_IN_ADJ,
@@ -74,6 +72,8 @@ class IndexedBindingsState:
     engine: Engine
     hop_count: int
     estimated_rows: int
+    edge_template: Optional[DataFrameT] = None
+    admission_details: List[Dict[str, object]] = field(default_factory=list)
 
 
 def _plain_scalar_filter(value: Any) -> bool:
@@ -87,6 +87,36 @@ def _plain_scalar_filter(value: Any) -> bool:
     )
 
 
+def _membership_seed_ids(value: object) -> Optional[List[int]]:
+    """The integral ids a membership filter on the node-id column names, else None."""
+    from graphistry.compute.filter_by_dict import _is_membership_filter_value
+    from graphistry.compute.predicates.is_in import IsIn
+
+    if isinstance(value, IsIn):
+        options = list(value.options)
+    elif _is_membership_filter_value(value) and not isinstance(value, dict):
+        options = list(value)  # type: ignore[call-overload]  # _is_membership_filter_value admits only iterables
+    else:
+        return None
+    ids: List[int] = []
+    for option in options:
+        if isinstance(option, bool) or not isinstance(option, Integral):
+            return None
+        ids.append(int(option))
+    return sorted(set(ids))
+
+
+def _seed_filter_dict(value: object, node_id: str) -> bool:
+    """The first op's filter: non-empty plain scalars, where the node-id key may also be a membership set."""
+    if not isinstance(value, Mapping) or not value:
+        return False
+    return all(
+        isinstance(key, str)
+        and (_plain_scalar_filter(item) or (key == node_id and _membership_seed_ids(item) is not None))
+        for key, item in value.items()
+    )
+
+
 def _simple_filter_dict(value: Any, *, allow_empty: bool = True) -> bool:
     if value is None:
         return allow_empty
@@ -96,6 +126,57 @@ def _simple_filter_dict(value: Any, *, allow_empty: bool = True) -> bool:
         and all(isinstance(key, str) and _plain_scalar_filter(item)
                 for key, item in value.items())
     )
+
+
+_HOP_EDGE_PREFIX = "__gfql_ib_hop_edge_"
+
+
+def _edge_matches_disjoint(
+    left: Optional[Mapping[str, object]], right: Optional[Mapping[str, object]],
+) -> bool:
+    """True when no edge can satisfy both hops: a shared ``edge_match`` key with distinct values.
+
+    Only same-type ``str`` or non-bool ``int`` values count, so ``True``/``1`` and NaN
+    never prove disjointness.
+    """
+    left_match: Mapping[str, object] = left or {}
+    right_match: Mapping[str, object] = right or {}
+    for key, value in left_match.items():
+        other = right_match.get(key)
+        if (
+            key in right_match
+            and type(value) is type(other)
+            and isinstance(value, (str, int))
+            and not isinstance(value, bool)
+            and value != other
+        ):
+            return True
+    return False
+
+
+def _hops_may_share_edges(ops: Sequence[Any]) -> bool:
+    """Whether two edge steps of a pattern could bind the same relationship."""
+    edge_matches = [op.edge_match for op in ops[1::2]]
+    return any(
+        not _edge_matches_disjoint(edge_matches[i], edge_matches[j])
+        for i in range(len(edge_matches))
+        for j in range(i + 1, len(edge_matches))
+    )
+
+
+def _drop_reused_edges(state: DataFrameT, hop_col: str, earlier: Sequence[str], engine: Engine) -> DataFrameT:
+    """Cypher relationship uniqueness: drop paths whose new hop reuses an earlier hop's edge."""
+    if not earlier:
+        return state
+    if engine == Engine.POLARS:
+        import polars as pl
+
+        keep = pl.all_horizontal([pl.col(hop_col) != pl.col(col) for col in earlier])
+        return state.filter(keep)  # type: ignore[arg-type]
+    mask = state[hop_col] != state[earlier[0]]
+    for col in earlier[1:]:
+        mask &= state[hop_col] != state[col]
+    return state.loc[mask].reset_index(drop=True)
 
 
 def _integer_index(index: Union[AdjacencyIndex, NodeIdIndex, NodePropIndex]) -> bool:
@@ -205,7 +286,7 @@ def _covers_ids(
     frame: DataFrameT, column: str, ids: ArrayLike, engine: Engine, xp: ArrayNamespace,
 ) -> bool:
     """Whether ``frame[column]`` (a gather by ``ids``) still holds EVERY id in ``ids``."""
-    found = xp.unique(col_to_array(frame, column, engine))
+    found = sorted_unique(xp, col_to_array(frame, column, engine))
     return int(found.shape[0]) == int(ids.shape[0])
 
 
@@ -265,8 +346,10 @@ def _orient_edges(
     else:
         work = gathered
         if isinstance(alias, str):
-            work = gathered.assign(**{alias: True})
-            payload = payload + [alias]
+            # Canonical bindings restore user payload shadowed by alias markers.
+            if alias not in gathered.columns:
+                work = gathered.assign(**{alias: True})
+                payload = payload + [alias]
             renames = {col: f"{alias}.{col}" for col in payload}
         else:
             renames = {}
@@ -319,6 +402,7 @@ def _seed_rows_via_property_index(
     xp: Any,
     *,
     policy: str,
+    record_decision: bool = False,
 ) -> Optional[Any]:
     """Node row positions for the most selective indexed scalar seed predicate.
 
@@ -328,39 +412,27 @@ def _seed_rows_via_property_index(
     covers such a column, gather its candidates instead; the caller re-applies the
     WHOLE filter to them, so the result is identical to the scan either way.
 
-    Returns None (keep scanning) when nothing is indexed, no predicate is a plain
-    integer scalar, or the estimated candidate count is not selective enough to
-    beat the scan (``force`` skips the cost gate).
+    Returns None (keep scanning) when nothing is indexed, no predicate is a supported
+    equality/membership seed, or the estimated candidate count is not selective enough to
+    beat the scan (``force`` skips the cost gate). The consumer records the
+    complete traversal decision by default; other callers may request a property receipt.
     """
-    if not first_filter:
-        return None
-    best_rows = None
-    best_count: Optional[int] = None
-    for column in registry.node_prop_cols():
-        value = first_filter.get(column)
-        if value is None or isinstance(value, bool) or not isinstance(value, Integral):
-            continue
-        index = registry.get_node_prop_valid(column, nodes, engine)
-        if index is None and engine in (Engine.POLARS, Engine.POLARS_GPU):
-            # Both Polars targets index the same host frame with NumPy arrays.
-            other = Engine.POLARS_GPU if engine == Engine.POLARS else Engine.POLARS
-            index = registry.get_node_prop_valid(column, nodes, other)
-        if index is None:
-            continue
-        values = xp.asarray([value])
-        count = prop_match_count(index, values, xp)
-        if best_count is not None and count >= best_count:
-            continue
-        best_count = count
-        best_rows = (index, values)
-    if best_rows is None or best_count is None:
-        return None
-    if policy != "force":
-        n_nodes = int(nodes.shape[0])
-        if best_count >= cost_gate_frac(engine) * n_nodes:
-            return None  # not selective enough to beat one vectorized scan
-    index, values = best_rows
-    return xp.sort(lookup_prop_rows(index, values, xp))
+    from .property_lookup import property_candidate_positions_from_registry
+
+    seed_filter = {
+        column: predicate for column, predicate in first_filter.items()
+        if not (isinstance(predicate, tuple) and not predicate)
+    }
+    if engine == Engine.CUDF:
+        for predicate in seed_filter.values():
+            # Tuple seeds are sorted integer metadata from _seeded_seed_filters.
+            if isinstance(predicate, tuple) and predicate and (
+                predicate[0] < -(2**63) or predicate[-1] > 2**63 - 1
+            ):
+                return None  # Canonical cuDF isin infers signed Python-literal arrays.
+    return property_candidate_positions_from_registry(
+        registry, "nodes", nodes, seed_filter, engine, policy, record_decision=record_decision,
+    )
 
 
 def _try_indexed_connected_bindings_state(
@@ -370,6 +442,7 @@ def _try_indexed_connected_bindings_state(
     engine: Engine,
     start_nodes: Optional[DataFrameT] = None,
     alias_prefilters: Optional[Any] = None,
+    candidate_edge_rows: Optional[ArrayLike] = None,
 ) -> Optional[IndexedBindingsState]:
     """Return an exact indexed fixed-hop path bag, or safely decline with ``None``."""
     from graphistry.compute.ast import ASTEdge, ASTNode
@@ -382,6 +455,7 @@ def _try_indexed_connected_bindings_state(
         or get_index_policy(base_graph) == "off"
         or len(ops) < 3
         or len(ops) % 2 == 0
+        or (candidate_edge_rows is not None and len(ops) != 3)
     ):
         return None
 
@@ -412,7 +486,8 @@ def _try_indexed_connected_bindings_state(
                 not isinstance(op, ASTNode)
                 or op.query is not None
                 or op._name == node_id
-                or not _simple_filter_dict(op.filter_dict)
+                or not (_seed_filter_dict(op.filter_dict, node_id)
+                        if index == 0 and candidate_edge_rows is None else _simple_filter_dict(op.filter_dict))
             ):
                 return None
         else:
@@ -432,11 +507,11 @@ def _try_indexed_connected_bindings_state(
                 or not _filter_compatible(edges, op.edge_match)
             ):
                 return None
-    if any(
-        isinstance(op, ASTEdge) and op.direction == "undirected" for op in ops
-    ) and len(ops) != 3:
+    enforce_unique_edges = _hops_may_share_edges(ops)
+    if enforce_unique_edges and set(aliases).intersection(
+        f"{_HOP_EDGE_PREFIX}{edge_index}__" for edge_index in range(1, len(ops), 2)
+    ):
         return None
-
     if engine in (Engine.PANDAS, Engine.CUDF):
         unaliased_edges = sum(
             isinstance(op, ASTEdge) and not isinstance(op._name, str)
@@ -450,9 +525,8 @@ def _try_indexed_connected_bindings_state(
             return None
 
     first_op = ops[0]
-    if (
-        not isinstance(first_op, ASTNode)
-        or not _simple_filter_dict(first_op.filter_dict, allow_empty=False)
+    if not isinstance(first_op, ASTNode) or (
+        candidate_edge_rows is None and not _seed_filter_dict(first_op.filter_dict, node_id)
     ):
         return None
 
@@ -468,6 +542,10 @@ def _try_indexed_connected_bindings_state(
         Optional[NodeIdIndex],
         registry.get_valid(NODE_ID, nodes, (node_id,), engine),
     )
+    if candidate_edge_rows is not None:
+        from graphistry.compute.chain_fast_paths import _resident_node_id_index
+        node_ctx = _resident_node_id_index(base_graph, nodes, node_id)
+        node_index = node_ctx[0] if node_ctx is not None else None
     if node_index is None or not _integer_index(node_index):
         return None
 
@@ -478,24 +556,51 @@ def _try_indexed_connected_bindings_state(
         return None
 
     direction_indexes: Dict[int, Sequence[AdjacencyIndex]] = {}
+    key_gate_counts: Dict[int, int] = {}
     for edge_index in range(1, len(ops), 2):
         edge_op = cast(ASTEdge, ops[edge_index])
         indexes = _indices_for_direction(
-            registry, edge_op.direction, edges, (src, dst), engine,
+            registry, edge_op.direction, edges, (src, dst), engine, edge_op.edge_match,
         )
+        if candidate_edge_rows is not None:
+            from graphistry.compute.chain_fast_paths import _resident_seed_indexes
+            seed_ctx = _resident_seed_indexes(base_graph, nodes, edges, node_id, src, dst, edge_op.direction)
+            indexes = [seed_ctx[1]] if seed_ctx is not None else None
         if indexes is None or not all(_integer_index(index) for index in indexes):
             return None
         direction_indexes[edge_index] = indexes
+        # Preserve the ordinary-key frontier crossover; typed CSR narrows only the gather estimate.
+        if candidate_edge_rows is None:
+            baseline_counts = []
+            for adjacency in indexes:
+                ordinary = registry.get_valid(adjacency.kind, edges, (src, dst), engine)
+                baseline_counts.append(max(
+                    adjacency.n_keys,
+                    ordinary.n_keys if isinstance(ordinary, AdjacencyIndex) else 0,
+                ))
+            key_gate_counts[edge_index] = min(baseline_counts)
+        else:
+            key_gate_counts[edge_index] = min(adjacency.n_keys for adjacency in indexes)
 
-    first_filter = cast(dict, first_op.filter_dict)
+    first_filter = first_op.filter_dict or {}
     xp, _ = array_namespace(engine)
-    if node_id in first_filter:
-        if (
+    if candidate_edge_rows is not None:
+        candidate_edges = take_rows(edges, candidate_edge_rows, engine)
+        seed_column = dst if ops[1].direction == "reverse" else src
+        seed_ids = sorted_unique(xp, col_to_array(candidate_edges, seed_column, engine))
+        seed_rows = xp.sort(lookup_node_rows(node_index, seed_ids, xp))
+        first_nodes = _filter_frame(take_rows(nodes, seed_rows, engine), first_filter, engine)
+    elif node_id in first_filter:
+        seed_members = _membership_seed_ids(first_filter[node_id])
+        if seed_members is not None:
+            seed_ids = xp.asarray(seed_members)
+        elif (
             not isinstance(first_filter[node_id], Integral)
             or isinstance(first_filter[node_id], bool)
         ):
             return None
-        seed_ids = xp.asarray([first_filter[node_id]])
+        else:
+            seed_ids = xp.asarray([first_filter[node_id]])
         seed_rows = xp.sort(lookup_node_rows(node_index, seed_ids, xp))
         first_nodes = take_rows(nodes, seed_rows, engine)
         first_nodes = _filter_frame(first_nodes, first_filter, engine)
@@ -535,25 +640,45 @@ def _try_indexed_connected_bindings_state(
     estimated_rows = int(state.shape[0])
     policy = get_index_policy(base_graph)
     n_edges = int(edges.shape[0])
+    admission_details: List[Dict[str, object]] = []
+    hop_edge_cols: List[str] = []
 
     for edge_index in range(1, len(ops), 2):
         edge_op = cast(ASTEdge, ops[edge_index])
-        frontier = xp.unique(col_to_array(state, _CURRENT, engine))
+        frontier = sorted_unique(xp, col_to_array(state, _CURRENT, engine))
         edge_indexes = direction_indexes[edge_index]
-        if policy != "force":
-            threshold = cost_gate_frac(engine) * min(
-                index.n_keys for index in edge_indexes
+        # Polars-only IC4 defaults; trace needs per-hop, not engine-wide, fractions.
+        trace_active = _trace_active()
+        key_frac = cost_gate_frac(
+            engine, default=0.04 if engine == Engine.POLARS else None,
+        )
+        gather_frac = cost_gate_frac(
+            engine, default=0.06 if engine == Engine.POLARS else None,
+        )
+        threshold = key_frac * key_gate_counts[edge_index]
+        gather_estimate: Optional[int] = None
+        if trace_active or policy != "force":
+            gather_estimate = sum(
+                lookup_degree(index, frontier, xp) for index in edge_indexes
             )
+            if trace_active:
+                admission_details.append({
+                    "hop": (edge_index // 2) + 1,
+                    "frontier_n": int(frontier.shape[0]),
+                    "n_keys": int(key_gate_counts[edge_index]),
+                    "key_threshold_frac": key_frac,
+                    "key_threshold": threshold,
+                    "gather_estimate": int(gather_estimate),
+                    "n_edges": n_edges,
+                    "gather_threshold_frac": gather_frac,
+                    "gather_threshold": gather_frac * n_edges,
+                })
+        if policy != "force":
             if int(frontier.shape[0]) >= threshold:
                 return None
-        gather_estimate = sum(
-            lookup_degree(index, frontier, xp) for index in edge_indexes
-        )
-        if (
-            policy != "force"
-            and gather_estimate >= cost_gate_frac(engine) * n_edges
-        ):
-            return None
+            assert gather_estimate is not None
+            if gather_estimate >= gather_frac * n_edges:
+                return None
 
         row_parts = [
             lookup_edge_rows(index, frontier, xp)[0] for index in edge_indexes
@@ -562,7 +687,9 @@ def _try_indexed_connected_bindings_state(
             row_parts[0] if len(row_parts) == 1
             else xp.concatenate(row_parts)
         )
-        rows = xp.unique(rows)
+        rows = sorted_unique(xp, rows)
+        if candidate_edge_rows is not None:
+            rows = rows[xp.isin(rows, candidate_edge_rows)]
         gathered = take_rows(edges, rows, engine)
         gathered = _frame_with_positions(gathered, rows, engine)
         gathered = _filter_frame(gathered, edge_op.edge_match, engine)
@@ -578,7 +705,7 @@ def _try_indexed_connected_bindings_state(
         next_op = ops[edge_index + 1]
         if not isinstance(next_op, ASTNode):
             return None
-        endpoint_ids = xp.unique(col_to_array(oriented, _TO, engine))
+        endpoint_ids = sorted_unique(xp, col_to_array(oriented, _TO, engine))
         node_rows = xp.sort(lookup_node_rows(node_index, endpoint_ids, xp))
         next_nodes = _take_filtered_rows(nodes, node_rows, next_op.filter_dict, engine)
         next_alias_frame = _with_marker(next_nodes, next_op._name, engine)
@@ -588,6 +715,14 @@ def _try_indexed_connected_bindings_state(
                 oriented, next_nodes, left_on=_TO, right_on=node_id, engine=engine,
             )
 
+        hop_edge_col = f"{_HOP_EDGE_PREFIX}{edge_index}__"
+        if enforce_unique_edges:
+            if engine == Engine.POLARS:
+                import polars as pl
+
+                oriented = oriented.with_columns(pl.col(_EDGE_ORD).alias(hop_edge_col))  # type: ignore[operator]
+            else:
+                oriented = oriented.assign(**{hop_edge_col: oriented[_EDGE_ORD]})
         expansion = plan_path_ordered_expand_join(
             state,
             oriented,
@@ -600,14 +735,26 @@ def _try_indexed_connected_bindings_state(
             engine=engine,
         )
         estimated_rows = expansion.rows
+        if trace_active and admission_details:
+            admission_details[-1]["estimated_rows"] = estimated_rows
         if policy != "force" and estimated_rows > 0 and estimated_rows >= n_edges:
             return None
         state = expansion.expand()
+        if enforce_unique_edges:
+            state = _drop_reused_edges(state, hop_edge_col, hop_edge_cols, engine)
+            hop_edge_cols.append(hop_edge_col)
         if isinstance(next_op._name, str):
             alias_frames[next_op._name] = next_alias_frame
 
+    if hop_edge_cols:
+        if engine == Engine.POLARS:
+            state = state.drop(hop_edge_cols)  # type: ignore[operator]
+        else:
+            state = state.drop(columns=hop_edge_cols)
+
     return IndexedBindingsState(
         state, alias_frames, engine, (len(ops) - 1) // 2, estimated_rows,
+        admission_details=admission_details,
     )
 
 
@@ -733,9 +880,11 @@ def try_indexed_connected_bindings_state(
         reason="served",
         hop_count=result.hop_count,
         public_seed_scan=public_seed_scan,
-        hop_details=[
-            {"hop": hop + 1, "estimated_rows": result.estimated_rows}
-            for hop in range(result.hop_count)
-        ],
+        hop_details=(
+            result.admission_details
+            if result.admission_details
+            else [{"hop": hop + 1, "estimated_rows": result.estimated_rows}
+                  for hop in range(result.hop_count)]
+        ),
     )
     return result

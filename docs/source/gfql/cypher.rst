@@ -164,6 +164,10 @@ This enables single-expression pipelines that filter, enrich, and query:
         "ORDER BY degree DESC LIMIT 10"
     )
 
+Indexes on the input graph serve the stages that run on it. A stage that runs on a graph
+bound earlier in the query (``GRAPH g = ...`` then ``USE g``) scans, because Cypher cannot
+yet index that graph inside the query; see :ref:`gfql-indexing`.
+
 Inside ``GRAPH { }``, only ``MATCH``, ``WHERE``, ``USE``, and graph-preserving
 ``CALL graphistry.*.write()`` are allowed. Row-oriented clauses (``RETURN``,
 ``ORDER BY``, ``SKIP``, ``LIMIT``, ``DISTINCT``, ``UNWIND``, ``WITH``) and
@@ -264,6 +268,13 @@ WHERE Forms
 - Literal and parameter comparisons on node and edge properties.
 - Same-path alias comparisons such as ``WHERE p.team = q.team``.
 - ``IS NULL`` and ``IS NOT NULL`` predicates.
+- List membership ``x IN [...]`` (literals or a ``$param`` list), three-valued as in
+  openCypher: a null ``x`` is unknown (not kept by ``IN`` nor by ``NOT (... IN ...)``), a
+  ``null`` list element makes a non-matching row unknown rather than false, an empty list
+  is false for every row including the null one, and a ``NaN`` literal is a value. The
+  same rows answer on pandas, cuDF and polars. ``alias.prop IN [literals]`` on a node or
+  edge alias also seeds the pattern, so a resident index serves it (see
+  :doc:`indexing`).
 - String predicates ``STARTS WITH``, ``ENDS WITH``, and ``CONTAINS``.
 - Regex match ``=~`` (openCypher/neo4j-standard), e.g.
   ``WHERE n.name =~ '(?i)al.*'``. Uses a **full-string / anchored** match
@@ -275,7 +286,7 @@ WHERE Forms
   uppercase escape classes (e.g. ``(?i)\\D+``; lowercase ``\\d``/``\\.``
   work), case-crossing character ranges (``(?i)[A-z]``), hex escapes, and
   non-ASCII patterns raise ``NotImplementedError`` (libcudf
-  regex limits — declined honestly rather than approximated); use
+  regex limits — declined rather than approximated); use
   ``engine='pandas'`` for those patterns. (``LIKE`` / ``ILIKE`` are not part of
   Cypher or GQL — use ``=~``, ``CONTAINS``, or ``STARTS WITH`` instead.)
 - Label predicates such as ``WHERE b:Foo:Bar``.
@@ -343,11 +354,18 @@ and ``RETURN`` expressions:
   ...]}`` (unknown keys error, listing the valid ones). Composes with other
   WHERE predicates through AND/OR/NOT; nodes and edges independently searchable
   with different terms. Runs natively on all four engines for node aliases; an
-  edge-alias ``searchAny(r, ...)`` declines honestly on polars pending
+  edge-alias ``searchAny(r, ...)`` declines on polars pending
   multi-entity binding-row support (use ``engine='pandas'``). A datetime column
   is rendered in ``temporal_tz`` (default UTC) because the inspector renders in
   the viewer's zone, which a server cannot know; cuDF serves UTC and declines
-  other zones, since its ``strftime`` ignores the conversion. The regex path
+  other zones, since its ``strftime`` ignores the conversion. A numeric term
+  over a datetime column is not answered by rendering the column: because such
+  a term can never straddle two fields of the date format, it becomes
+  membership tests over per-field integer components built once per column and
+  zone and held in a byte-bounded cache, so a live, as-you-type search stays a
+  keystroke at tens of millions of rows on pandas and (at UTC) cuDF; polars
+  renders. The measurement that pins this lives in pyg-bench
+  (``results/gfql-searchany-datetime-lock-20261003``). The regex path
   obeys the same per-engine decline rules as ``=~``. Python twins:
   :meth:`ComputeMixin.search_nodes` / :meth:`ComputeMixin.search_edges`.
 
@@ -395,6 +413,16 @@ Row And Row-Pipeline Forms
 - Aggregation/grouping via Cypher projection semantics, including ``count``,
   ``count(DISTINCT ...)``, ``collect``,
   ``collect(DISTINCT ...)``, ``sum``, ``max``, and ``size(...)``.
+- Aggregates over a relationship pattern count one row per matched path. In a single
+  required ``MATCH``, group keys and aggregate arguments can reference any node or
+  relationship alias, for example
+  ``MATCH (a)-[r]->(b) RETURN a, count(*) AS c, sum(r.weight) AS w, collect(b.id) AS ids``.
+  ``OPTIONAL MATCH``, aggregates inside ``ORDER BY``, and items that combine an
+  ungrouped alias with an aggregate (``a.name + count(b)``) retain their existing
+  lowering behavior; this per-path route does not expand those shapes. On Polars,
+  whole-entity keys such as ``RETURN a, count(*)`` and bare relationship counts such
+  as ``count(r)`` raise
+  ``NotImplementedError``.
 - Top-level ``UNWIND ... RETURN ...`` queries.
 - Mixed graph/row queries such as ``MATCH ... UNWIND ... RETURN ...``.
 - Connected multi-alias scalar projection such as

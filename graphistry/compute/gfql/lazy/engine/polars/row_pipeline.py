@@ -1237,21 +1237,30 @@ def _project_preserving_height(table: Any, exprs: List[Any]) -> Any:
 
 
 def _project_eager_columns(
-    table: "pl.DataFrame", items: Sequence[SelectItem], exprs: Sequence["pl.Expr"],
+    table: "pl.DataFrame", items: Sequence[SelectItem], exprs: Sequence["Union[pl.Expr, pl.Series]"],
 ) -> Optional["pl.DataFrame"]:
-    """Gather columns and uniform coalesce inputs without an expression execution plan."""
+    """Gather columns and uniform coalesce inputs without an expression execution plan.
+
+    Column-only projections need no source items; computed expressions require them.
+    """
     import polars as pl
     from graphistry.compute.gfql.expr_parser import FunctionCall, parse_expr
 
     if not isinstance(table, pl.DataFrame) or not exprs:
         return None
     projected: List[pl.Series] = []
-    for item, expression in zip(items, exprs):
+    for index, expression in enumerate(exprs):
+        if isinstance(expression, pl.Series):
+            projected.append(expression)
+            continue
         bare = expression.meta.undo_aliases()
         output = expression.meta.output_name()
         if bare.meta.is_column():
             projected.append(table.get_column(bare.meta.output_name()).alias(output))
             continue
+        if index >= len(items):
+            return None
+        item = items[index]
         source = item if isinstance(item, str) else item[1]
         if not isinstance(source, str) or not source.lstrip().lower().startswith("coalesce"):
             return None
@@ -2186,7 +2195,22 @@ def binding_rows_polars(
             if not isinstance(edge_op, ASTEdge):
                 return None
             sem = EdgeSemantics.from_edge(edge_op)
-            edges_f = filter_by_dict_polars(edges_lf, edge_op.edge_match)
+            from graphistry.compute.gfql.index.property_lookup import property_candidate_positions
+            from graphistry.compute.gfql.index.engine_arrays import take_rows_polars
+            import numpy as np
+
+            positions = property_candidate_positions(
+                base_graph, "edges", edges, edge_op.edge_match, engine_concrete,
+            )
+            candidates_lf = edges_lf
+            if positions is not None:
+                # Identity is the ORIGINAL edge position, shared across all hops.
+                candidates_lf = take_rows_polars(edges, positions).with_columns(
+                    pl.Series(_ident_col, np.asarray(positions), dtype=pl.get_index_type()),
+                ).lazy()
+                if _endpoint_casts:
+                    candidates_lf = candidates_lf.with_columns(_endpoint_casts)
+            edges_f = filter_by_dict_polars(candidates_lf, edge_op.edge_match)
             edge_alias = edge_op._name
             if not sem.is_multihop and isinstance(edge_alias, str):
                 # pandas' per-hop edge prefilter twin; src/dst = join keys, never searched
