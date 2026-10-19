@@ -237,9 +237,16 @@ def from_igraph(self,
                 on='target'
             )[node_id_col]
 
+        endpoint_cols_after_rename = {src_col, dst_col}
+        restored_attrs = {
+            renamed_name: original_name
+            for original_name, renamed_name in renamed_attrs.items()
+            if original_name not in endpoint_cols_after_rename
+        }
         edges_df = edges_df.rename(columns={
             'source': src_col,
-            'target': dst_col
+            'target': dst_col,
+            **restored_attrs
         })
 
         if edge_attributes is not None:

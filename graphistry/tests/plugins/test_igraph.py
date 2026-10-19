@@ -113,6 +113,21 @@ class Test_from_igraph(NoAuthTestCase):
         assert g._edges['__attr_source_2__'].tolist() == [f"src_attr_{x}" for x in range(len(edges))]
         assert g._edges['__attr_target_2__'].tolist() == [f"dst_attr_{x}" for x in range(len(edges))]
 
+    def test_attributed_edges_collision_with_custom_bindings(self):
+        edges_df = pd.DataFrame({
+            's': ['a', 'b', 'c'],
+            'd': ['b', 'c', 'a'],
+            'source': ['src_a', 'src_b', 'src_c'],
+            'target': ['dst_a', 'dst_b', 'dst_c'],
+        })
+        g = graphistry.edges(edges_df, 's', 'd').materialize_nodes()
+
+        g2 = g.from_igraph(g.to_igraph())
+
+        assert g2._source == 's' and g2._destination == 'd'
+        assert g2._edges.columns.tolist() == ['s', 'd', 'source', 'target']
+        assert g2._edges.equals(edges_df)
+
     def test_minimal_attributed_edges_sparse(self):
         ig = igraph.Graph(edges_sparse)
         ig.es["name"] = names_sparse
@@ -685,6 +700,24 @@ class Test_igraph_compute(NoAuthTestCase):
         g2 = compute_igraph(g, 'pagerank')
         g3 = compute_igraph(g2, 'articulation_points')
         assert 'pagerank' in g3._nodes
+        assert 'articulation_points' in g3._nodes
+
+    def test_chain_preserves_source_attribute(self):
+        edges_df = pd.DataFrame({
+            's': ['a', 'b', 'c', 'd', 'a'],
+            'd': ['b', 'c', 'a', 'a', 'd'],
+            'source': ['a', 'b', 'c', 'd', 'a'],
+        })
+        g = graphistry.edges(edges_df, 's', 'd').materialize_nodes()
+
+        g2 = g.compute_igraph('pagerank')
+        assert g2._edges.columns.tolist() == ['s', 'd', 'source']
+        assert g2._edges.equals(edges_df)
+
+        g3 = g2.compute_igraph('articulation_points')
+        assert g3._edges.columns.tolist() == ['s', 'd', 'source']
+        assert g3._edges.equals(edges_df)
+        assert g3._nodes['pagerank'].tolist() == g2._nodes['pagerank'].tolist()
         assert 'articulation_points' in g3._nodes
 
     def test_chain_4_sparse(self):

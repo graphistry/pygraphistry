@@ -8,6 +8,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [Development]
 <!-- Do Not Erase This Section - Used for tracking unreleased changes -->
 
+### Fixed
+
+- **Chained `compute_igraph` calls preserve custom-named edge attributes**: edge attributes named `source` or `target` are restored to their original column names after a round trip when endpoint bindings use other names, so repeated igraph calls no longer accumulate collision renames or fail on duplicate columns (#2204).
+
 
 ## [0.61.0] - 2026-10-18
 
