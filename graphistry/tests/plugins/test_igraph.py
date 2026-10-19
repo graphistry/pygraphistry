@@ -128,6 +128,41 @@ class Test_from_igraph(NoAuthTestCase):
         assert g2._edges.columns.tolist() == ['s', 'd', 'source', 'target']
         assert g2._edges.equals(edges_df)
 
+    def test_attributed_edges_collision_with_occupied_generated_names(self):
+        edges_df = pd.DataFrame({
+            's': ['a', 'b', 'c'],
+            'd': ['b', 'c', 'a'],
+            'source': ['src_a', 'src_b', 'src_c'],
+            'target': ['dst_a', 'dst_b', 'dst_c'],
+            '__attr_source_2__': ['kept_src_2_a', 'kept_src_2_b', 'kept_src_2_c'],
+            '__attr_target_2__': ['kept_dst_2_a', 'kept_dst_2_b', 'kept_dst_2_c'],
+        })
+        g = graphistry.edges(edges_df, 's', 'd').materialize_nodes()
+
+        g2 = g.from_igraph(g.to_igraph())
+
+        assert g2._source == 's' and g2._destination == 'd'
+        assert g2._edges.columns.tolist() == edges_df.columns.tolist()
+        assert g2._edges.equals(edges_df)
+
+    def test_attributed_edges_collision_with_multiple_occupied_generated_names(self):
+        edges_df = pd.DataFrame({
+            's': ['a', 'b'],
+            'd': ['b', 'a'],
+            'source': ['src_a', 'src_b'],
+            '__attr_source_2__': ['kept_src_2_a', 'kept_src_2_b'],
+            '__attr_source_3__': ['kept_src_3_a', 'kept_src_3_b'],
+        })
+        g = graphistry.edges(edges_df, 's', 'd').materialize_nodes()
+
+        g2 = g.from_igraph(g.to_igraph())
+        g3 = g2.from_igraph(g2.to_igraph())
+
+        assert g2._source == 's' and g2._destination == 'd'
+        assert g2._edges.columns.tolist() == edges_df.columns.tolist()
+        assert g2._edges.equals(edges_df)
+        assert g3._edges.equals(edges_df)
+
     def test_minimal_attributed_edges_sparse(self):
         ig = igraph.Graph(edges_sparse)
         ig.es["name"] = names_sparse
@@ -709,6 +744,7 @@ class Test_igraph_compute(NoAuthTestCase):
             'source': ['a', 'b', 'c', 'd', 'a'],
         })
         g = graphistry.edges(edges_df, 's', 'd').materialize_nodes()
+        original_edges = edges_df.copy()
 
         g2 = g.compute_igraph('pagerank')
         assert g2._edges.columns.tolist() == ['s', 'd', 'source']
@@ -717,6 +753,7 @@ class Test_igraph_compute(NoAuthTestCase):
         g3 = g2.compute_igraph('articulation_points')
         assert g3._edges.columns.tolist() == ['s', 'd', 'source']
         assert g3._edges.equals(edges_df)
+        assert edges_df.equals(original_edges)
         assert g3._nodes['pagerank'].tolist() == g2._nodes['pagerank'].tolist()
         assert 'articulation_points' in g3._nodes
 

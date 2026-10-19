@@ -210,14 +210,21 @@ def from_igraph(self,
         # rename later occurrences so attributes stay accessible.
         if edges_df.columns.duplicated().any():
             counts: dict = {}
+            occupied_names = set(edges_df.columns)
             new_cols = []
             for c in edges_df.columns:
                 n = counts.get(c, 0) + 1
                 counts[c] = n
-                new_name = c if n == 1 else f'__attr_{c}_{n}__'
-                new_cols.append(new_name)
+                new_name = c
                 if n > 1:
+                    fallback_n = n
+                    new_name = f'__attr_{c}_{fallback_n}__'
+                    while new_name in occupied_names:
+                        fallback_n += 1
+                        new_name = f'__attr_{c}_{fallback_n}__'
+                    occupied_names.add(new_name)
                     renamed_attrs[c] = new_name
+                new_cols.append(new_name)
             edges_df.columns = new_cols
             logger.warning(
                 'igraph edge attribute names collide with endpoint columns; '
