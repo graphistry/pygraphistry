@@ -8,6 +8,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [Development]
 <!-- Do Not Erase This Section - Used for tracking unreleased changes -->
 
+### Breaking 🔥
+
+- **`nodes()` / `edges()` reject extra arguments for non-callable data** (#398): extra positional or keyword arguments are only forwarded when `nodes` / `edges` is a callable. With a DataFrame (or other non-callable) they were silently dropped, so `graphistry.nodes(df, 'id', point_title='c')` left `point_title` unset. These calls now raise `TypeError` naming the unexpected arguments, and suggest `.bind(...)` when a keyword is a binding name such as `point_title` or `edge_title`. Applies to `PlotterBase` and the module-level `graphistry.nodes()` / `graphistry.edges()`; callable forwarding and `bind()` are unchanged.
+
 
 ## [0.61.0] - 2026-10-18
 

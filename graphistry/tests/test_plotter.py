@@ -1461,3 +1461,66 @@ class TestPlotterMixins(NoAuthTestCase):
             {"id": "a", "degree_in": 1, "degree_out": 1, "degree": 2},
             {"id": "b", "degree_in": 1, "degree_out": 1, "degree": 2},
         ]
+
+
+class TestNodesEdgesExtraArgs:
+    """nodes()/edges() with non-callable data must not silently drop extra arguments (#398)"""
+
+    nodes_df = pd.DataFrame({'id': [0, 1, 2], 'c': ['a', 'b', 'c']})
+    edges_df = pd.DataFrame({'s': [0, 1], 'd': [1, 2], 'w': [1, 2]})
+
+    @pytest.mark.parametrize('make_nodes', [
+        lambda df, *a, **kw: graphistry.nodes(df, *a, **kw),
+        lambda df, *a, **kw: graphistry.bind().nodes(df, *a, **kw),
+    ], ids=['module', 'plotter'])
+    def test_nodes_rejects_binding_kwarg(self, make_nodes):
+        with pytest.raises(TypeError, match=r"nodes\(\) got unexpected keyword argument\(s\) 'point_title'.*\.bind\(point_title=\.\.\.\)"):
+            make_nodes(self.nodes_df, 'id', point_title='c')
+
+    @pytest.mark.parametrize('make_edges', [
+        lambda df, *a, **kw: graphistry.edges(df, *a, **kw),
+        lambda df, *a, **kw: graphistry.bind().edges(df, *a, **kw),
+    ], ids=['module', 'plotter'])
+    def test_edges_rejects_binding_kwarg(self, make_edges):
+        with pytest.raises(TypeError, match=r"edges\(\) got unexpected keyword argument\(s\) 'edge_title'.*\.bind\(edge_title=\.\.\.\)"):
+            make_edges(self.edges_df, 's', 'd', edge_title='w')
+
+    @pytest.mark.parametrize('module', [True, False], ids=['module', 'plotter'])
+    def test_rejects_unknown_kwarg_without_bind_hint(self, module):
+        g = graphistry if module else graphistry.bind()
+        with pytest.raises(TypeError, match=r"'src_renamed', 'dst_renamed'") as exc:
+            g.edges(self.edges_df, 's', 'd', src_renamed='id', dst_renamed='id')
+        assert 'bind(' not in str(exc.value)
+        with pytest.raises(TypeError, match=r"'typo'"):
+            g.nodes(self.nodes_df, 'id', typo=1)
+
+    @pytest.mark.parametrize('module', [True, False], ids=['module', 'plotter'])
+    def test_rejects_extra_positional(self, module):
+        g = graphistry if module else graphistry.bind()
+        with pytest.raises(TypeError, match=r"nodes\(\) got 1 unexpected positional argument\(s\) \('x',\)"):
+            g.nodes(self.nodes_df, 'id', 'x')
+        with pytest.raises(TypeError, match=r"edges\(\) got 1 unexpected positional argument\(s\) \('x',\)"):
+            g.bind().edges(self.edges_df, 's', 'd', 'w', 'x')
+
+    def test_valid_calls_unchanged(self):
+        g = graphistry.nodes(self.nodes_df, 'id').edges(self.edges_df, 's', 'd', 'w')
+        assert g._node == 'id' and g._source == 's' and g._destination == 'd' and g._edge == 'w'
+        g2 = graphistry.bind().edges(self.edges_df, source='s', destination='d', edge='w')
+        assert (g2._source, g2._destination, g2._edge) == ('s', 'd', 'w')
+
+    def test_callable_still_forwards_args(self):
+        def head(g, n):
+            return g._nodes.head(n)
+
+        def head_edges(g, n):
+            return g._edges.head(n)
+
+        g = graphistry.nodes(self.nodes_df, 'id').edges(self.edges_df, 's', 'd')
+        assert len(g.nodes(head, n=2)._nodes) == 2
+        assert len(g.nodes(head, None, 1)._nodes) == 1
+        assert len(g.edges(head_edges, n=1)._edges) == 1
+        assert len(graphistry.nodes(lambda g, n: self.nodes_df.head(n), n=2)._nodes) == 2
+
+    def test_bind_unknown_kwarg_unchanged(self):
+        with pytest.raises(TypeError, match='point_titel'):
+            graphistry.bind(point_titel='c')
