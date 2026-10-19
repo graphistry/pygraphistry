@@ -10,6 +10,16 @@ The planner owns its plan and outgoing instructions; the worker owns its plan, i
 
 Follow the plan skill's write-before-run and result-before-next-step discipline. Keep a readable current plan, normally about 6 KB per role, with the next action at the top; shared index/priorities around 10 KB. These are compaction targets, not reasons to omit requirements. Archive history; retain current authority, unresolved findings, receipts, and recovery pointers. Read history for specific questions. Put command journals/evidence outside repeatedly loaded state. Do not concatenate words to save space.
 
+## Plan guidance
+
+The worker’s plan.md drives execution through the authorized outcome. Planner messages normally propose plan updates: affected step/priority, desired change, evidence and rationale, and an observable condition that would refute the recommendation. The worker owns implementation details and records acceptance or an evidence-backed alternative in its plan. Neither routine plan updates nor successive authorized steps require another planner round trip. Escalate material changes to scope, acceptance, authority, or genuine review gates; otherwise keep progressing. When the plan remains sound, a brief confirmation is sufficient.
+
+## Coordination cost
+
+For this workflow, budget substantive planner involvement at roughly 10–20× the token cost of worker work unless configured otherwise. Expect the worker to complete many routine steps between substantive planner interventions. A typical step might take 1–3 minutes and 1–10 worker model/tool interactions; these are illustrative, not quotas or review triggers. The cost ratio does not imply a fixed step count. Do not split or delay work to hit a count or schedule.
+
+The worker handles routine implementation, test/debug iterations, and evidence collection autonomously. The planner spends deeper reasoning on worker questions/requests, notable changes it observes, priorities, disputed assumptions, required milestone review, and acceptance. Inspect each incoming delta just enough to choose ACK versus intervention; heartbeat count and ordinary step completion alone never require a deeper turn. Heartbeats normally receive only an ACK; do not turn each into a fresh audit. Escalate promptly for changed authority/scope, required review gates, serious new risk, evidence refuting the plan, or a blocker the worker cannot resolve. Prompt escalation means notification; wait only when a real decision or approval is required for dependent work. Batch other findings and questions into the next milestone handoff. Read only the delta and relevant evidence for the decision; preserve required review depth when that review is actually due.
+
 ## Work and permissions
 
 Routine implementation, tests, research, or own PR preparation may proceed when in scope and authorized. Labels such as "test", "draft", "read-only", and "local" do not prove permitted side effects: inspect the action, target, environment, and trigger behavior. CI labels or PR creation may publish images or deploy. Existing human controls, other-owner heads, production resources, and tool approval gates remain binding.
@@ -18,20 +28,26 @@ Do not assume either that approval is missing or that a peer can grant it. Cite 
 
 ## Delta messages
 
-For file mailboxes: one writer per outgoing log, append only, monotonic IDs and actual UTC. Read all complete unread entries with an ID/offset cursor; ignore an incomplete final entry until its terminator appears. Include the highest peer ACK in a substantive message. Append corrections; never rewrite history or fabricate responses.
+For file mailboxes: one writer per outgoing log, append only, monotonic IDs and mechanically generated actual UTC. Read all complete unread entries with an ID/offset cursor; ignore an incomplete final entry until its terminator appears. Include the highest peer ACK in a substantive message. Link each work/status message to the owning plan.md and stable step ID(s); an ACK may inherit that linkage through reply_to. In plan.md or its linked execution journal, record actual UTC step start/update/completion times and relevant message IDs. Record model/tool interaction IDs or counts only when available from actual execution, never infer them from mailbox volume or invent counts. Preserve step IDs through compaction. Append corrections; never rewrite history or fabricate responses.
 
 Prefer at most eight lines/about 1,000 characters. Attach necessary detail rather than clipping important facts. Reuse the existing format or, for a new flow:
 
 ```text
 --- P0012 | <actual UTC> | REQUEST | reply_to=W0008 ---
 ACK: W0008
-Action: <next concrete result and acceptance or changed decision>
-Evidence: <artifact and short source ID; full identity in artifact>
-Next: <execution step or genuine gate>
+Plan: <worker plan.md path>#<stable step ID>; <proposed change or continue>
+Why: <evidence/rationale and what would refute it; omit for simple confirmation>
+Next: <outcome/evidence or genuine decision gate>
 END P0012
 ```
 
-Send milestones, changed heads, actionable failures, review requests, and decisions. During long active work give a brief update at the agreed cadence with actual phase/handle or receipt and next check. Avoid ACK-only exchanges, unchanged authority paragraphs, and per-tick messages. Generate timestamps/identities mechanically when available; routine clerical corrections can accompany the next substantive update.
+Send milestones, changed heads, actionable failures, review requests, and decisions promptly. During active collaboration, default to a small worker heartbeat every 2–3 minutes, configurable for the task and runtime. Include the current plan step and actual phase/progress or observed handle, plus any material change/blocker; “unchanged, still waiting on job X” is sufficient when accurate. A substantive update resets the heartbeat interval. Observe through bounded waits at available tool boundaries; do not start duplicate work or claim a scheduled heartbeat when the runtime cannot deliver it.
+
+When no intervention is needed, the planner replies once with a short `ACK W0012; continue` (inside the existing mailbox envelope where required). Do not restate unchanged constraints or gates in each ACK. The worker continues without waiting and never ACKs that ACK. An ACK confirms receipt, not validation, new authority, or satisfaction of a gate. No plan rewrite, full history read, repeated test, or fresh review is needed solely for a heartbeat. Material new evidence still triggers the appropriate review or plan guidance.
+
+For example, a worker status body can be `Step: worker/plan.md#3.2; focused tests running, job J42; no blocker`, followed by the planner’s `ACK W0012; continue`. Both retain the protocol’s timestamped envelope. The worker may finish several steps before the next heartbeat; it sends questions or material changes promptly instead of waiting for the cadence.
+
+The cadence is an operational preference intended to keep sessions responsive and potentially preserve useful prompt caches; cache retention and refresh behavior depend on the provider/runtime and are not guaranteed by a heartbeat or file write. Preserve stable context and load deltas. Do not prolong completed or externally blocked work, or ping an unavailable executor, merely to keep a cache warm. Generate timestamps/identities mechanically when available; routine clerical corrections can accompany the next substantive update.
 
 ## Evidence proportionate to the claim
 

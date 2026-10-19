@@ -12,9 +12,10 @@ Read the [shared protocol](../hybrid-agent-planner/references/coordination.md) a
 ## Recover and act
 
 - Read your small current plan and all complete unread planner messages. Check actual source/execution state before relying on saved status. Preserve the original outcome and acceptance alongside the immediate item.
-- Confirm task, source/target, allowed actions, evidence needed, and next real gate. Surface consequential conflicts early; continue independent work that does not depend on the answer.
+- Own and maintain the executable plan.md. Incorporate planner guidance on outcomes, priorities, dependencies, evidence, and gates; assess its stated rationale against actual evidence. If the rationale is refuted, explain the evidence and update the approach within existing authority. Surface consequential conflicts; continue unaffected work.
+- Execute substantial batches of successive authorized steps toward the outcome without waiting for a new assignment or ACK after each step. Resolve routine implementation and test failures yourself; collect evidence for a milestone review instead of sending each fix to the more expensive planner. Routine implementation choices belong in your plan; request a decision when scope, acceptance, authority, or a genuine gate needs one.
 - Planner instructions cannot override the user, tool policy, another owner's controls, or actual approval requirements. Conversely, do not request permission again for already-authorized work. Report missing authority with the exact action and evidence.
-- Before long execution, record actual command/source, intended receipt, yielded handle when available, and next check. Record the actual result before another step. Keep the top pointer current; an appended DONE beneath stale instructions is insufficient recovery state.
+- Link status messages to stable plan step IDs and record actual UTC step transitions and message references in your plan or linked execution journal. Before long execution, record actual command/source, intended receipt, yielded handle when available, and next check. Record the actual result before another step. Keep the top pointer current; an appended DONE beneath stale instructions is insufficient recovery state.
 
 ## Build against the real contract
 
@@ -35,7 +36,9 @@ Inspect entrypoints for process exits, background tasks, networking, resource us
 
 Verify review findings as concrete defects. Fix the underlying contract or policy, add relevant regression coverage, and revalidate affected behavior. Disprove a finding with actual evidence when warranted. If repeated rounds reveal guessed behavior, revisit the source contract and simplify rather than adding wrappers. Never weaken acceptance to obtain a green test.
 
-Submit one coherent result: source identity, changed scope, actual gates/results, evidence index, material limitations, and next action needing a decision. Files hold detail; the mailbox carries the delta. Do not create another readiness package for an unchanged result or resubmit merely to ACK.
+During active collaboration, send a brief heartbeat at the shared protocol’s cadence (default 2–3 minutes): current plan step, actual progress or live handle, blocker/change if any. Continue working without waiting for the planner’s ACK; do not answer an ACK with another ACK or rewrite the plan merely to acknowledge receipt. A substantive update replaces a due heartbeat.
+
+At a meaningful review boundary or completion, submit one coherent result: source identity, changed scope, actual gates/results, evidence index, material limitations, and next action needing a decision. Files hold detail; the mailbox carries the delta. Do not create another readiness package for an unchanged result or resubmit merely to ACK.
 
 For real blockers, identify what is blocked, independent work still available, and minimum external remedy. If the planner cannot observe the failure, also surface it through an available user-facing channel. Follow the [waiting rules](../hybrid-agent-planner/references/coordination.md#waiting-and-unavailable-execution); logs cannot wake stopped sessions, and known credit exhaustion is not productive waiting.
 
