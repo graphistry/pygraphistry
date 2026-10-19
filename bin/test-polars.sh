@@ -21,6 +21,8 @@ python -m pytest --version
 # `graphistry/tests/compute/gfql/test_polars_lane_completeness.py` parses this array and
 # fails if any module-level polars-gated test file is absent from it (or listed but gone).
 POLARS_TEST_FILES=(
+    graphistry/tests/compute/gfql/index/test_sorted_csr_build_ownership.py
+    graphistry/tests/compute/gfql/test_searchany_wysiwyg_datetime.py
     graphistry/tests/test_plotterbase_optional_deps.py
     graphistry/tests/compute/test_polars.py
     # cache-coverage lock: its static scans run everywhere, but the functional pin for the
@@ -48,6 +50,9 @@ POLARS_TEST_FILES=(
     graphistry/tests/compute/gfql/test_size_nonlist_decline_1985.py
     graphistry/tests/compute/gfql/test_polars_string_predicate_nonstring.py
     graphistry/tests/compute/gfql/cypher/test_order_by_null_placement.py
+    # quoted map keys/MATCH aliases are engine-parametrized; pandas runs in core,
+    # polars params only run in this lane
+    graphistry/tests/compute/gfql/cypher/test_backtick_identifiers.py
     graphistry/tests/compute/gfql/test_conformance_ledger.py
     graphistry/tests/compute/gfql/test_polars_nan_clean.py
     graphistry/tests/compute/gfql/test_optional_match_polars_frames.py
@@ -89,6 +94,7 @@ POLARS_TEST_FILES=(
     graphistry/tests/compute/gfql/test_native_seed_resolution_2027.py
     graphistry/tests/compute/gfql/test_native_seed_skip_refilter.py
     graphistry/tests/compute/gfql/test_polars_native_seed_resolution.py
+    graphistry/tests/compute/gfql/test_polars_membership_seeded_hop.py
     graphistry/tests/compute/gfql/lazy/engine/polars/chain_specializations/test_polars_admission.py
     graphistry/tests/compute/gfql/lazy/engine/polars/test_predicates.py
     graphistry/tests/compute/gfql/lazy/engine/polars/chain_specializations/test_point_rows.py
@@ -133,10 +139,13 @@ POLARS_TEST_FILES=(
     graphistry/tests/compute/gfql/cypher/test_grouped_aggregate_lowcard_count.py
     # engine-parametrized (pandas/polars); the polars params only ever run here
     graphistry/tests/compute/gfql/cypher/test_grouped_aggregate_cross_alias.py
+    graphistry/tests/compute/gfql/cypher/test_single_alias_where_2019.py
+    graphistry/tests/compute/gfql/cypher/test_in_null_three_valued_2123.py
     # module-level `importorskip("polars")` files that previously ran in no lane at all
     graphistry/tests/compute/gfql/test_engine_polars_narrow_combine.py
     graphistry/tests/compute/gfql/row/test_alias_prefilter_alignment_2020.py
     graphistry/tests/compute/gfql/lazy/engine/polars/test_chain_alias_column_collision_2039.py
+    graphistry/tests/compute/gfql/lazy/engine/polars/test_chain_alias_shadow_restore_guard.py
     graphistry/tests/compute/gfql/lazy/engine/polars/test_chain_duplicate_node_rows_2051.py
     graphistry/tests/compute/gfql/cypher/test_variable_column_collision.py
     graphistry/tests/compute/test_chain_alias_column_collision.py
@@ -165,10 +174,29 @@ POLARS_TEST_FILES=(
     graphistry/tests/compute/gfql/test_temporal_leak_family_1915.py
     # #1934 incomparable-ordering-null pins: the polars typed-decline cells only run here
     graphistry/tests/compute/gfql/test_incomparable_ordering_null_1934.py
+    # #2194 explicit epoch-ms contract: pandas oracle plus native Polars lowering in one file
+    graphistry/tests/compute/gfql/test_epoch_datetime_value_contract.py
+    graphistry/tests/compute/gfql/test_epoch_repair_regressions.py
     # #1937 split-month duration scaling: every case is parametrized pandas AND polars,
     # and the polars params only run here
     graphistry/tests/compute/gfql/test_duration_month_division_1937.py
+    graphistry/tests/compute/gfql/index/test_edge_property_index.py
+    graphistry/tests/compute/gfql/index/test_native_dense_property_scan.py
+    graphistry/tests/compute/gfql/index/test_pandas_gather_isolation.py
+    graphistry/tests/compute/gfql/index/test_string_property_index.py
+    graphistry/tests/compute/gfql/index/test_nullable_property_index.py
+    graphistry/tests/compute/gfql/index/test_typed_property_index.py
+    graphistry/tests/compute/gfql/index/test_float_property_index.py
+    graphistry/tests/compute/gfql/index/test_explain_property_coverage.py
+    graphistry/tests/compute/gfql/index/test_intermediate_graph_indexes.py
+    graphistry/tests/compute/gfql/index/test_cross_alias_or_index.py
+    graphistry/tests/compute/gfql/test_unseeded_binding_limit.py
     graphistry/tests/compute/gfql/index/test_indexed_bindings.py
+    graphistry/tests/compute/gfql/index/test_typed_adjacency.py
+    graphistry/tests/compute/gfql/index/test_node_type_segments.py
+    graphistry/tests/compute/gfql/index/test_indexed_bindings_membership_seed.py
+    graphistry/tests/compute/gfql/index/test_index_ddl_in_one_call.py
+    graphistry/tests/compute/gfql/cypher/test_in_list_seeds_the_pattern.py
     graphistry/tests/compute/gfql/index/test_indexed_bindings_hop_overhead.py
     graphistry/tests/compute/gfql/index/test_array_bindings_select.py
     graphistry/tests/compute/gfql/index/test_category_index.py
@@ -193,6 +221,14 @@ POLARS_TEST_FILES=(
     # these dispatch helpers are only measured when this lane covers graphistry (see cov widen below)
     graphistry/tests/test_engine_frame_helpers.py
     graphistry/tests/test_public_apis_do_not_mutate_inputs.py
+    # indexed bindings relationship uniqueness: the polars params only run here
+    graphistry/tests/compute/gfql/index/test_indexed_bindings_relationship_uniqueness.py
+    # relationship-row aggregates vs a path oracle: the polars params only run here
+    graphistry/tests/compute/gfql/cypher/test_relationship_row_aggregates.py
+    # bridge_polars_graph contract and the igraph/cuGraph methods on Polars-bound graphs
+    graphistry/tests/test_bridge_polars_graph.py
+    graphistry/tests/plugins/test_polars_graph_bridge.py
+    graphistry/tests/layout/test_polars_layouts.py
 )
 
 # PARALLELISM. The py3.12 cell of this lane is the coverage cell and has repeatedly run out

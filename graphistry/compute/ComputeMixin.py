@@ -12,7 +12,7 @@ from .chain_let import chain_let as chain_let_base
 from .gfql_unified import gfql as gfql_base
 from .gfql_validate import gfql_validate as gfql_validate_base
 from .gfql.strictness import StrictInput
-from .gfql.wysiwyg import DEFAULT_FLOAT_PRECISION
+from .gfql.wysiwyg import DEFAULT_FLOAT_PRECISION, DEFAULT_TEMPORAL_TZ
 from .chain_remote import (
     chain_remote as chain_remote_base,
     chain_remote_shape as chain_remote_shape_base
@@ -32,6 +32,7 @@ from .filter_by_dict import (
 
 if TYPE_CHECKING:
     from graphistry.compute.gfql.index.types import IndexKind
+    from graphistry.compute.gfql.index.registry import PartitionValue
     from graphistry.compute.gfql.index.explain import GfqlExplainReport
     from graphistry.compute.gfql.index.policy import IndexPolicy
     from graphistry.compute.gfql.query_types import GFQLQuery
@@ -527,11 +528,13 @@ class ComputeMixin(Plottable):
             return self.nodes(out_df)
 
     def search_nodes(self, term, columns=None, case_sensitive=False, regex=False,
-                     float_precision: int = DEFAULT_FLOAT_PRECISION):
+                     float_precision: int = DEFAULT_FLOAT_PRECISION,
+                     temporal_tz: str = DEFAULT_TEMPORAL_TZ):
         """Keep nodes where ANY column matches ``term`` (viz-filter L2 inspector
         semantics: OR across columns; case-insensitive substring default; regex
         opt-in; string columns always, integer AND FLOAT columns iff the term is a
-        numeric literal; dates decline).
+        numeric literal; DATE columns too, rendered as the inspector displays them in
+        ``temporal_tz``).
 
         Floats match what the viz inspector DISPLAYS, not ``repr``: fractional values
         render to ``float_precision`` decimals (so ``0.1+0.2`` is found by ``"0.3"``,
@@ -556,7 +559,7 @@ class ComputeMixin(Plottable):
                 "search_any op or engine='pandas'")
         mask = search_any_mask(
             df, term, case_sensitive=case_sensitive, regex=regex, columns=columns,
-            float_precision=float_precision)
+            float_precision=float_precision, temporal_tz=temporal_tz)
         if mask is None:
             raise GFQLValidationError(
                 ErrorCode.E108,
@@ -566,7 +569,8 @@ class ComputeMixin(Plottable):
         return self.nodes(df[mask])
 
     def search_edges(self, term, columns=None, case_sensitive=False, regex=False,
-                     float_precision: int = DEFAULT_FLOAT_PRECISION):
+                     float_precision: int = DEFAULT_FLOAT_PRECISION,
+                     temporal_tz: str = DEFAULT_TEMPORAL_TZ):
         """Keep edges where ANY column matches ``term`` — see :meth:`search_nodes`."""
         from graphistry.compute.gfql.search_any import search_any_mask
         from graphistry.compute.exceptions import ErrorCode, GFQLValidationError
@@ -579,7 +583,7 @@ class ComputeMixin(Plottable):
                 "search_any op or engine='pandas'")
         mask = search_any_mask(
             df, term, case_sensitive=case_sensitive, regex=regex, columns=columns,
-            float_precision=float_precision)
+            float_precision=float_precision, temporal_tz=temporal_tz)
         if mask is None:
             raise GFQLValidationError(
                 ErrorCode.E108,
@@ -643,7 +647,7 @@ class ComputeMixin(Plottable):
     def create_index(self, kind, *, column=None, name=None, engine='auto'):
         """Build a GFQL physical index for O(degree) seeded traversal.
 
-        :param kind: 'edge_out_adj' (forward hops), 'edge_in_adj' (reverse hops), or 'node_id' (node lookup)
+        :param kind: 'edge_out_adj' (forward), 'edge_in_adj' (reverse), 'node_id', 'node_prop', or 'edge_prop'
         :param column: column to index (defaults to the binding for the kind, e.g. the edge source column)
         :param name: optional custom index name (defaults to 'kind:column')
         :param engine: 'auto' | 'pandas' | 'cudf' | 'polars' — array backend for the index
@@ -660,10 +664,13 @@ class ComputeMixin(Plottable):
         from graphistry.compute.gfql.index import create_index as _ci
         return _ci(self, kind, column=column, name=name, engine=engine)
 
-    def drop_index(self, kind: Optional['IndexKind'] = None, *, column: Optional[str] = None) -> 'Plottable':
+    def drop_index(
+        self, kind: Optional['IndexKind'] = None, *,
+        column: Optional[str] = None, value: Optional['PartitionValue'] = None,
+    ) -> 'Plottable':
         """Drop one resident GFQL index (by kind, or one property index by column) or all (kind=None). Idempotent; returns a new Plottable."""
         from graphistry.compute.gfql.index import drop_index as _di
-        return _di(self, kind, column=column)
+        return _di(self, kind, column=column, value=value)
 
     def show_indexes(self, engine: EngineAbstractType = 'auto'):
         """Return a pandas DataFrame describing resident GFQL indexes (name, kind, column, valid, usable). Empty if none.
@@ -676,10 +683,27 @@ class ComputeMixin(Plottable):
         from graphistry.compute.gfql.index import show_indexes as _si
         return _si(self, engine=engine)
 
-    def gfql_index_edges(self, direction='both', engine='auto'):
-        """Convenience: build the edge adjacency index(es) — 'forward', 'reverse', or 'both'. Returns a new Plottable."""
+    def gfql_index_edges(self, direction='both', engine='auto', *,
+                         type_column: Optional[str] = None,
+                         type_values: Optional[Sequence[Union[str, int]]] = None) -> 'Plottable':
+        """Build the edge adjacency index(es) — 'forward', 'reverse', or 'both'.
+
+        With ``type_column`` and ``type_values``, also build typed sidecars for
+        those scalar relationship types in the requested direction(s). Returns a new Plottable.
+        """
         from graphistry.compute.gfql.index import gfql_index_edges as _gie
-        return _gie(self, direction, engine=engine)
+        return _gie(self, direction, type_column=type_column, type_values=type_values, engine=engine)
+
+    def gfql_index_node_types(self, engine: EngineAbstractType = 'auto', *,
+                              type_column: Optional[str] = None,
+                              type_values: Optional[Sequence[Union[str, int, bool]]] = None) -> 'Plottable':
+        """Build node type/label segments — the dual of ``gfql_index_edges``'s
+        typed sidecars. With ``type_column`` and ``type_values``, registers
+        per-value node row-position segments (scalar columns partition; Boolean
+        ``label__<Label>`` columns give multi-label membership). Returns a new Plottable.
+        """
+        from graphistry.compute.gfql.index import gfql_index_node_types as _gint
+        return _gint(self, type_column=type_column, type_values=type_values, engine=engine)
 
     def gfql_index_all(self, col_stats_by_type: bool = False, engine='auto'):
         """Convenience: build all GFQL physical indexes (both edge adjacencies + node_id). Returns a new Plottable.
@@ -747,22 +771,38 @@ class ComputeMixin(Plottable):
         from graphistry.compute.gfql.index.wire import (
             is_index_op, is_index_op_json, index_op_from_json, apply_index_op,
         )
-        from graphistry.compute.gfql.index.cypher_ddl import parse_index_ddl
+        from graphistry.compute.gfql.index.cypher_ddl import looks_like_index_ddl, parse_index_ddl, split_leading_index_ddl
         op = None
         if is_index_op(query):
             op = query
         elif is_index_op_json(query):
             op = index_op_from_json(query)
-        elif isinstance(query, str):
-            op = parse_index_ddl(query)
+        g = self
+        if isinstance(query, str) and looks_like_index_ddl(query):
+            # leading DDL statements build first and the rest runs on the result; one statement keeps the one-op path
+            from graphistry.compute.gfql.index.wire import ShowIndexes
+            ops, rest = split_leading_index_ddl(query)
+            if ops and (rest or len(ops) > 1):
+                for ddl in ops:
+                    if isinstance(ddl, ShowIndexes):
+                        raise ValueError("SHOW GFQL INDEXES answers a table and cannot be combined with other statements")
+                    g = apply_index_op(g, ddl, engine=kwargs.get('engine', 'auto'))
+                if not rest:
+                    return g
+                query = rest
+                if args:
+                    args = (rest, *args[1:])
+                else:
+                    kwargs = {**kwargs, 'query': rest}
+            else:
+                op = parse_index_ddl(query)
         if op is not None:
             return apply_index_op(self, op, engine=kwargs.get('engine', 'auto'))
 
-        g = self
         if policy is not None:
             from graphistry.compute.gfql.index.policy import validate_index_policy
             import copy as _copy
-            g = _copy.copy(self)
+            g = _copy.copy(g)  # keep the registry a leading DDL statement just attached
             g._gfql_index_policy = validate_index_policy(policy)
         return gfql_base(g, *args, **kwargs)
     gfql.__doc__ = (gfql_base.__doc__ or "") + """

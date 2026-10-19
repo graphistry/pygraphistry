@@ -6,11 +6,14 @@ the contract it promises to satisfy. pyg-bench checks those promises before it p
 this checks them again before we print anything, because a boundary only holds if both
 sides check it.
 
-These run in the ordinary test lane, not only in the docs build, so a number going stale
-or a page referencing a key that no longer exists fails CI rather than a nightly. That is
-why every rule lives in `gfql_bench_data`, which imports nothing but the standard library;
-the docutils half is a renderer. A gate that needs Sphinx to run is a gate that runs in one
-job out of forty.
+These run in the docs lane (`docs/docker/build-docs.sh`), which CI runs for every pull
+request that touches docs, Python or infrastructure, next to the Sphinx build whose
+extension refuses a stale or unpublished number at its point of use. They are kept out of
+the root-collecting Python test runners on purpose: a vendored number ageing past
+`policy.max_age_days` is a docs publication fact, and letting it fail every Python lane
+turned the rule into a calendar time bomb for unrelated work. Every rule still lives in
+`gfql_bench_data`, which imports nothing but the standard library; the docutils half is a
+renderer.
 """
 
 import datetime
@@ -67,20 +70,61 @@ def test_the_vendored_contract_is_the_one_the_artifact_was_built_against(payload
     assert payload['contract_version'] == contract['contract_version']
 
 
-def test_no_published_number_is_stale(payload):
-    """The staleness rule is the whole reason this pipeline exists: a number nobody
-    re-measured must fail loudly rather than keep looking authoritative."""
+def quotable_runs(payload):
+    """Runs with at least one board-quotable cell. A run no board can quote and no page
+    cites cannot mislead anyone, so its age is the publisher's concern, not this build's;
+    a page that DOES cite one of its cells is still age-checked per citation by the
+    Sphinx extension."""
+    return {cell['run'] for cell in payload['cells'].values() if cell.get('board_quotable') is True}
+
+
+def overdue_runs(payload, today):
     max_age = payload['policy']['max_age_days']
-    today = datetime.date.today()
+    quotable = quotable_runs(payload)
     overdue = []
     for run_id, run in sorted(payload['runs'].items()):
+        if run_id not in quotable:
+            continue
         measured = datetime.datetime.strptime(run['measured_at'], '%Y-%m-%d').date()
         age = (today - measured).days
         if age > max_age:
             overdue.append('{} measured {} days ago (limit {})'.format(run_id, age, max_age))
+    return overdue
+
+
+def test_no_published_number_is_stale(payload):
+    """The staleness rule is the whole reason this pipeline exists: a number nobody
+    re-measured must fail loudly rather than keep looking authoritative."""
+    overdue = overdue_runs(payload, datetime.date.today())
     assert not overdue, (
         'Re-measure in pyg-bench and republish published/docs-numbers.json: '
         + '; '.join(overdue))
+
+
+def _with_synthetic_run(payload, quotable):
+    """A copy of the payload plus one run measured long ago, carrying one cell that is
+    board-quotable or not. Synthetic so the test does not depend on what the live artifact
+    happens to publish -- the earlier IS3 probe was the only diagnostic-only run, and the
+    day it was retired a test keyed on it would have stopped being able to fail."""
+    doc = json.loads(json.dumps(payload))
+    template_key, template = sorted(payload['cells'].items())[0]
+    run_id = 'synthetic-run-20200101'
+    doc['runs'][run_id] = dict(payload['runs'][template['run']], measured_at='2020-01-01')
+    cell = dict(template, run=run_id, board_quotable=quotable, comparison_allowed=False)
+    doc['cells']['synthetic.' + template_key] = cell
+    return doc, run_id
+
+
+def test_a_stale_run_no_board_can_quote_does_not_fail_the_build(payload):
+    doc, run_id = _with_synthetic_run(payload, quotable=False)
+    assert run_id not in quotable_runs(doc)
+    assert not any(run_id in line for line in overdue_runs(doc, datetime.date(2026, 1, 1)))
+
+
+def test_a_stale_run_a_board_can_quote_still_fails_the_build(payload):
+    doc, run_id = _with_synthetic_run(payload, quotable=True)
+    assert run_id in quotable_runs(doc)
+    assert any(run_id in line for line in overdue_runs(doc, datetime.date(2026, 1, 1)))
 
 
 def test_every_number_the_docs_reference_is_published(payload):
@@ -309,7 +353,7 @@ def test_every_chart_matches_the_published_numbers():
     """
     stale = []
     for name, svg in charts.rendered().items():
-        path = os.path.join(charts.CHART_DIR, name)
+        path = charts.chart_path(name)
         if not os.path.exists(path):
             stale.append('{} is missing'.format(name))
             continue
@@ -345,6 +389,83 @@ def test_a_chart_over_an_unpublished_cell_fails(payload):
     assert 'does not publish' in str(excinfo.value)
 
 
+def _gf_payload(payload, kernel=True, gpu=True):
+    """A copy of the vendored artifact carrying a synthetic GraphFrames ladder for lj."""
+    synthetic = json.loads(json.dumps(payload))
+    for key in [k for k in synthetic['cells'] if k.startswith('graphframes')]:
+        del synthetic['cells'][key]  # the synthetic ladder replaces any vendored one
+    run = 'graphframes-ladder-test'
+    synthetic['runs'][run] = dict(next(iter(payload['runs'].values())))
+
+    def cell(key, value, unit='ms', **extra):
+        base = {'run': run, 'workload': key, 'engine': 'x',
+                'measurement_profile': 'graphframes-tasks-warm-resident', 'value': value,
+                'unit': unit, 'decimals': 1, 'status': 'ok', 'comparison_allowed': True,
+                'board_quotable': True, 'disclosures': []}
+        base.update(extra)
+        synthetic['cells'][key] = base
+
+    for task, cpu, gf in (('filter', 2.0, 90.0), ('hop1', 200.0, 1400.0),
+                          ('pagerank', 3000.0, 16000.0)):
+        cell('graphframes.lj.{}.gfql_polars'.format(task), cpu)
+        cell('graphframes.lj.{}.graphframes'.format(task), gf)
+        cell('graphframes.lj.{}.gfql_polars_vs_graphframes'.format(task), gf / cpu, 'x')
+        if gpu:
+            cell('graphframes.lj.{}.gfql_polars_gpu'.format(task), cpu / 2)
+    if kernel:
+        cell('graphframes.lj.pagerank.gfql_polars_kernel', 2100.0, status='ok',
+             comparison_allowed=False, board_quotable=False)
+    return synthetic
+
+
+def test_graphframes_charts_are_skipped_until_the_ladder_is_published(payload):
+    if charts.gf_published(payload):
+        pytest.skip('the vendored artifact publishes the ladder')
+    assert not any(name in charts.rendered(payload) for name in charts.GF_CHARTS)
+
+
+def test_graphframes_chart_shades_the_kernel_inside_the_query_bar(payload):
+    svg = charts.render_graphframes('livejournal_tasks.svg', _gf_payload(payload))
+    assert '3000.0 ms' in svg and '(solver 2100.0 ms)' in svg
+    assert 'opacity="0.4"' in svg, 'the query bar is drawn light behind the solid kernel bar'
+    assert '5.3x faster than GraphFrames' in svg
+    assert 'solid part is the solver alone' in svg
+    # Orkut has no synthetic cells: its chart refuses rather than drawing an empty frame.
+    with pytest.raises(charts.ChartError, match='draws no published cell'):
+        charts.render_graphframes('orkut_tasks.svg', _gf_payload(payload))
+
+
+def test_graphframes_chart_draws_diagnostic_prefix_cells_lighter_and_labelled(payload):
+    synthetic = _gf_payload(payload, gpu=False)
+    cell = dict(synthetic['cells']['graphframes.lj.filter.gfql_polars'])
+    cell.update({'value': 27.0, 'board_quotable': False, 'comparison_allowed': False})
+    synthetic['cells']['graphframes_059.lj.hop2.gfql_polars'] = cell
+    svg = charts.render_graphframes('livejournal_tasks.svg', synthetic)
+    assert '27.0 ms' in svg and charts.GF_DIAG_NOTE in svg
+    assert 'released code with #2023' in svg
+    assert svg.count('not measured') == 3 + 2  # GPU on three tasks + hop2 GPU/GraphFrames
+
+
+def test_graphframes_chart_marks_an_unmeasured_system_without_a_bar(payload):
+    svg = charts.render_graphframes('livejournal_tasks.svg', _gf_payload(payload, gpu=False))
+    assert svg.count('not measured') == 3 + 3  # GPU on three tasks + hop2 for all three
+    assert 'opacity="0.4"' in svg
+
+
+def test_graphframes_chart_refuses_a_kernel_above_its_query(payload):
+    synthetic = _gf_payload(payload)
+    synthetic['cells']['graphframes.lj.pagerank.gfql_polars_kernel']['value'] = 3000.1
+    with pytest.raises(charts.ChartError, match='exceeds its query time'):
+        charts.render_graphframes('livejournal_tasks.svg', synthetic)
+
+
+def test_graphframes_charts_draw_only_published_cells(payload):
+    if not charts.gf_published(payload):
+        pytest.skip('the vendored artifact publishes no ladder yet')
+    keys = charts.gf_cell_keys(payload)
+    assert keys and all(key in payload['cells'] for key in keys)
+
+
 def test_the_chart_renderer_stays_importable_without_sphinx():
     with open(os.path.join(SOURCE_DIR, '_ext', 'gfql_bench_charts.py'), encoding='utf-8') as f:
         source = f.read()
@@ -360,3 +481,106 @@ def test_the_rules_module_stays_importable_without_sphinx():
     for forbidden in ('docutils', 'sphinx'):
         assert 'import {}'.format(forbidden) not in source
         assert 'from {}'.format(forbidden) not in source
+
+
+def _tally_payload(**cells: float) -> bench.JSONObject:
+    """A minimal artifact: one run, ms cells under ``gb.<q>.<engine>``, all quotable."""
+    out_cells: bench.JSONObject = {}
+    for name, value in cells.items():
+        query, engine = name.split("__")
+        out_cells[f"gb.{query}.{engine}"] = {
+            "run": "r", "workload": "w", "engine": engine, "measurement_profile": "p",
+            "value": value, "unit": "ms", "decimals": 2, "status": "ok",
+            "comparison_allowed": True, "board_quotable": True, "disclosures": [],
+        }
+    return {
+        "policy": {"max_age_days": 60},
+        "runs": {"r": {"measured_at": datetime.date.today().isoformat(),
+                       "pygraphistry_commit": "0123456789ab"}},
+        "cells": out_cells,
+    }
+
+
+def test_tally_counts_strict_wins_and_registers_every_cell_it_read():
+    state = bench.State(_tally_payload(
+        q1__polars=1.0, q1__kuzu=2.0,
+        q2__polars=2.0, q2__kuzu=2.0,
+        q3__polars=3.0, q3__kuzu=1.0), datetime.date.today())
+    assert bench.tally(state, "gb", "polars", "kuzu", "doc", 1) == (1, 3)
+    assert state.problems == []
+    assert sorted(state.refs["doc"]) == sorted([
+        "gb.q1.polars", "gb.q1.kuzu", "gb.q2.polars", "gb.q2.kuzu", "gb.q3.polars", "gb.q3.kuzu"])
+    assert bench.format_tally(1, 3) == "1 of 3"
+    assert bench.format_tally(3, 3) == "all"
+    assert bench.format_tally(0, 3) == "none"
+    assert bench.format_tally(0, 0) == "0 of 0"
+
+
+def test_tally_with_no_quotable_pair_is_a_recorded_problem():
+    state = bench.State(_tally_payload(q1__polars=1.0), datetime.date.today())
+    assert bench.tally(state, "gb", "polars", "kuzu", "doc", 7) is None
+    assert any("bench-tally" in problem for problem in state.problems)
+
+
+def test_a_run_that_drifted_past_the_policy_fails_unless_waived(monkeypatch):
+    payload = _tally_payload(q1__polars=1.0, q1__kuzu=2.0)
+    payload["policy"]["max_compute_commit_drift"] = 12
+    monkeypatch.setattr(bench, "compute_commit_drift", lambda commit, repo_root=None: 274)
+    state = bench.State(payload, datetime.date.today())
+    bench.check_reference(state, "gb.q1.polars", "doc", 1, diagnostic=False)
+    assert any("max_compute_commit_drift" in problem for problem in state.problems)
+
+    payload["policy"]["drift_waivers"] = {"r": "release re-measurement tracked"}
+    waived = bench.State(payload, datetime.date.today())
+    bench.check_reference(waived, "gb.q1.polars", "doc", 1, diagnostic=False)
+    assert waived.problems == []
+
+
+def test_unknown_drift_never_fails_the_build(monkeypatch):
+    payload = _tally_payload(q1__polars=1.0, q1__kuzu=2.0)
+    payload["policy"]["max_compute_commit_drift"] = 12
+    monkeypatch.setattr(bench, "compute_commit_drift", lambda commit, repo_root=None: None)
+    state = bench.State(payload, datetime.date.today())
+    bench.check_reference(state, "gb.q1.polars", "doc", 1, diagnostic=False)
+    assert state.problems == []
+
+
+def test_compute_commit_drift_rejects_a_malformed_commit():
+    assert bench.compute_commit_drift("not a sha") is None
+
+
+def test_every_vendored_run_is_within_drift_policy_or_waived():
+    """The shipping artifact's own runs, against this checkout (skips on shallow clones)."""
+    state = bench.load_state()
+    limit = state.max_compute_commit_drift
+    assert isinstance(limit, int)
+    over = []
+    for run_id in sorted(state.runs):
+        drift = state.drift(run_id)
+        if drift is not None and drift > limit and run_id not in state.drift_waivers:
+            over.append((run_id, drift))
+    assert not over, f"runs past max_compute_commit_drift={limit} without a waiver: {over}"
+
+
+def test_every_bench_provenance_names_a_published_run(payload):
+    """THE REPUBLICATION PIN: ``bench-provenance`` names run ids as literal text, so a
+    republished board silently orphans them. Six were stale at once when GraphBench moved to
+    the shipped tree, and the only thing that caught it was a full docs build in CI."""
+    import glob
+    import os
+    import re
+    runs = set(payload['runs'])
+    source = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'source')
+    stale = []
+    for pattern in ('**/*.rst', '**/*.md'):
+        for path in glob.glob(os.path.join(source, pattern), recursive=True):
+            with open(path, encoding='utf-8') as handle:
+                for number, line in enumerate(handle, 1):
+                    match = re.search(r'\.\.\s+bench-provenance::\s*(.+)', line)
+                    if not match:
+                        continue
+                    for run_id in match.group(1).split():
+                        if run_id not in runs:
+                            stale.append('{}:{}: {}'.format(
+                                os.path.relpath(path, source), number, run_id))
+    assert stale == [], 'bench-provenance names runs absent from the artifact: {}'.format(stale)

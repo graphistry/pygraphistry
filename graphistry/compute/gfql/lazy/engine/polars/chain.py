@@ -147,6 +147,23 @@ def _alias_hop_bounds(op: ASTEdge) -> Tuple[int, Optional[int]]:
     return min_hop, max_hop
 
 
+def _edge_alias_can_shadow_column(ops: Sequence[ASTObject], g: Plottable) -> bool:
+    """Whether an edge alias could be stamped over a column it also filters on.
+
+    The alias-shadow restore re-joins the WHOLE edge frame, which on a 34M-edge graph costs more
+    than the hop it protects. Shadowing needs an alias NAMED like an edge column; otherwise the
+    step's own edges already carry the graph's columns. Unprovable cases keep the restore.
+    """
+    edges = g._edges
+    if edges is None:
+        return True
+    try:
+        cols = set(edges.columns)
+    except Exception:
+        return True
+    return any(isinstance(op, ASTEdge) and getattr(op, "_name", None) in cols for op in ops)
+
+
 def _step_edges_with_source_columns(g: Plottable, g_step: Plottable, edge_id: str) -> "pl.DataFrame":
     """The step's edge rows with the graph's ORIGINAL columns: an alias marker that shares a
     name with a column the step filters on must not be re-filtered as that column."""
@@ -943,6 +960,9 @@ def _chain_traversal_polars(self: Plottable, ops, start_nodes: Optional[Any] = N
     if isinstance(ops[-1], ASTEdge):
         ops = ops + [ASTNode()]
 
+    # Once per chain: the alias-shadow restore re-joins the whole edge frame per step.
+    _alias_shadow_restore = _edge_alias_can_shadow_column(ops, self)
+
     if any(isinstance(op, ASTEdge) and op.prune_to_endpoints and op.is_simple_single_hop() for op in ops):
         raise NotImplementedError(
             "polars chain engine: prune_to_endpoints on a single-hop edge (arrival-side pruning "
@@ -1068,8 +1088,10 @@ def _chain_traversal_polars(self: Plottable, ops, start_nodes: Optional[Any] = N
         # table). Single-hop reverse: None -> gate = all_nodes (vacuous), matching pandas
         # use_fast_backward (full g._nodes).
         _iu = g_step._nodes if (isinstance(op, ASTEdge) and not op.is_simple_single_hop()) else None
-        g_step_full = g_step.nodes(g._nodes, g._node).edges(
-            _step_edges_with_source_columns(g, g_step, EID), src, dst, edge=EID)
+        g_step_full = g_step.nodes(g._nodes, g._node)
+        if _alias_shadow_restore:
+            g_step_full = g_step_full.edges(
+                _step_edges_with_source_columns(g, g_step, EID), src, dst, edge=EID)
         rev = _exec(op.reverse(), g_step_full, prev_wf, target_wf, intermediate_universe=_iu,
                     auto_hop_col=auto_hop_col)
         # Undirected single-hop backward threading: the generic hop returns a ONE-SIDED
@@ -1113,7 +1135,9 @@ def _chain_traversal_polars(self: Plottable, ops, start_nodes: Optional[Any] = N
                     _semi(g._nodes, prev_src, node_col, node_col)
                     if prev_src is not None else None
                 )
-                g_sub = g.edges(_step_edges_with_source_columns(g, g_step, EID), src, dst, edge=g._edge)
+                g_sub = g.edges(
+                    _step_edges_with_source_columns(g, g_step, EID) if _alias_shadow_restore
+                    else g_step._edges, src, dst, edge=g._edge)
                 edge_steps.append((op, _exec(op, g_sub, prev_wf, None, auto_hop_col=auto_hop_col)))
             else:
                 edge_steps.append((op, g_step))

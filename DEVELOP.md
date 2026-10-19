@@ -215,7 +215,7 @@ is baselined rather than excluded so that fixing it shows up as slack under `--s
 `bin/lint.sh` (the same `python-lint-types` matrix lane as the type-hygiene
 guard) runs `bin/ci/ci_comment_density_guard.py`, a stdlib-only `tokenize` + `ast`
 check over `graphistry/`. It enforces the "Encoding: names, tests, and
-structure — not prose" rules in `agents/skills/review/SKILL.md`, which were the
+structure — not prose" rules in `.agents/skills/review/SKILL.md`, which were the
 last rule class on that stack still enforced only by human review.
 
 | Check | What it flags |

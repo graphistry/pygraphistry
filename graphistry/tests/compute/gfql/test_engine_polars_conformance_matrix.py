@@ -593,13 +593,18 @@ def test_search_any_null_and_float_stringify():
     assert got_f.sort_values("id")["__hit__"].tolist() == [False, False, True]
     got_disp = _to_pd(gpl.gfql(q(term="0.5000", columns=["f"]), engine="polars")._nodes)
     assert got_disp.sort_values("id")["__hit__"].tolist() == [True, False, False]
-    # explicit TEMPORAL column: stringification is engine-divergent — polars
-    # declines honestly (NIE) instead of risking a silent mismatch (wave-2 W2-3)
+    # explicit TEMPORAL column: polars renders it as the inspector displays it, so it
+    # answers the same rows as pandas rather than declining (this replaced an NIE, whose
+    # stated reason -- engine-divergent stringification -- no longer holds)
     ndt = nd.assign(t=pd.to_datetime(["2020-01-02", "2021-03-04", "2022-05-06"]))
     gplt = graphistry.nodes(pl.from_pandas(ndt), "id").edges(
         pl.from_pandas(ed), "s", "d").bind(edge="eid")
-    with pytest.raises(NotImplementedError):
-        gplt.gfql(q(term="2020", columns=["t"]), engine="polars")
+    gpdt = graphistry.nodes(ndt, "id").edges(ed, "s", "d").bind(edge="eid")
+    for term in ["2020", "2021", "9999"]:
+        got_t = _to_pd(gplt.gfql(q(term=term, columns=["t"]), engine="polars")._nodes)
+        want_t = _to_pd(gpdt.gfql(q(term=term, columns=["t"]), engine="pandas")._nodes)
+        assert (got_t.sort_values("id")["__hit__"].tolist()
+                == want_t.sort_values("id")["__hit__"].tolist()), f"temporal drift {term!r}"
     # precedence: a MISSING column is a user error (E108) even when another listed
     # column would trip the dtype gate — a refactor must not flip it to NIE (wave-3)
     with pytest.raises(GFQLValidationError, match="absent"):
@@ -864,7 +869,8 @@ def test_size_list_runs_natively_on_polars():
 
 # ---- cross-surface call() consistency (silent-bridge class); shared constant so the ledger
 # derives the exercised call()-safelist from the SAME list the test runs on (no drift) ----
-_CALL_CONSISTENCY_FNS = ["get_degrees", "hypergraph", "limit"]
+_CALL_CONSISTENCY_FNS = ["get_degrees", "hypergraph", "limit", "create_index", "drop_index"]
+_CALL_CONSISTENCY_PARAMS = {"limit": {"value": 2}, "create_index": {"kind": "edge_out_adj"}}
 
 
 def _call_exercised_functions():
@@ -892,7 +898,7 @@ def test_conformance_call_chain_vs_dag_consistent(fn):
     """A call must behave the SAME (parity or NIE) on chain and DAG — no silent bridge where the
     other declines; assert_surfaces_agree also fails non-NIE errors (old inline check let 'err' pass)."""
     g = _graph(3)
-    params = {"value": 2} if fn == "limit" else {}
+    params = _CALL_CONSISTENCY_PARAMS.get(fn, {})
     chain_q = [call(fn, params)] if params else [call(fn)]
     chain = _run(g, chain_q, "polars")
     dag = _run(g, let({"a": (call(fn, params) if params else call(fn))}), "polars")
@@ -1205,6 +1211,14 @@ def _native_ok_query_cases():
         ("temporal-gt-datevalue", _temporal_graph,
          [n({"ts": GT(val=datetime.date(2020, 1, 15))})],
          "naive Datetime column + DateValue = the proven SAFE temporal shape"),
+        ("temporal-between-tzaware-datetimevalue", _temporal_graph,
+         [n({"ts": Between(lower=datetime.datetime(2020, 1, 15, 0, 0),
+                           upper=datetime.datetime(2020, 3, 1, 0, 0))})],
+         "both bounds are tz-tagged DateTimeValues; each endpoint lowers via the exact "
+         "naive-UTC DateTimeValue compare (integer epoch bound, no pydatetime loss)"),
+        ("temporal-gt-tzaware-datetimevalue", _temporal_graph,
+         [n({"ts": GT(val=datetime.datetime(2020, 1, 15, 12, 0))})],
+         "tz-tagged DateTimeValue lowers via the exact naive-UTC DateTimeValue compare"),
         ("leapyear-naive", _leapyear_graph, [n({"ts": is_leap_year()})],
          "provable Gregorian leap-year derivation on a naive Datetime column"),
         ("in-membership-row-expr", lambda: _graph(1),
@@ -1222,16 +1236,9 @@ def _polars_nie_query_cases():
     from graphistry.compute.predicates.is_in import IsIn
     import graphistry.compute.predicates.temporal as T
     return [
-        ("temporal-between-tzaware-bounds", _temporal_graph,
-         [n({"ts": Between(lower=datetime.datetime(2020, 1, 15, 0, 0),
-                           upper=datetime.datetime(2020, 3, 1, 0, 0))})], None,
-         "datetime bounds normalize to tz-tagged DateTimeValue -> an endpoint declines -> the composed Between declines"),
         ("temporal-isin", _temporal_graph,
          [n({"ts": IsIn(options=[datetime.date(2020, 1, 15), datetime.date(2020, 2, 1)])})], None,
          "pandas is EXACT-instant membership (not date-truncated); cross-precision is_in unproven"),
-        ("temporal-gt-tzaware-datetimevalue", _temporal_graph,
-         [n({"ts": GT(val=datetime.datetime(2020, 1, 15, 12, 0))})], None,
-         "python datetime -> tz-tagged DateTimeValue (default UTC): silent tz-mishandling risk"),
         ("leapyear-nontemporal-col", _leapyear_graph, [n({"v": T.is_leap_year()})], None,
          "IsLeapYear on an int column has no proven parity"),
         ("leapyear-tzaware", _tzaware_graph, [n({"ts": T.is_leap_year()})], None,

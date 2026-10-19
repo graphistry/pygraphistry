@@ -483,7 +483,7 @@ def test_scalar_rebind_stays_an_error(engine: Literal["pandas", "polars"]) -> No
     if engine == "pandas":
         with pytest.raises(GFQLTypeError) as exc_info:
             _run(PEOPLE_NODES, PEOPLE_EDGES, query, engine)
-        assert exc_info.value.code == ErrorCode.E303
+        assert exc_info.value.code == ErrorCode.E306
         assert exc_info.value.context["field"] == "function"
         assert exc_info.value.context["value"] == "select"
     else:

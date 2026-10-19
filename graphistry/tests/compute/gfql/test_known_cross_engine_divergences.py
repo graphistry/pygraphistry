@@ -364,3 +364,36 @@ def test_1695_searchany_float_ordinary_values_agree_across_engines():
                .select(float_render_expr_polars(pl.col("x"), pl.Float64).alias("o"))
                .to_series().to_list())
         assert got == expected
+
+
+@polars_only
+def test_datetime_render_follows_each_engines_timezone_database():
+    """polars and pandas can disagree about a zone's FUTURE rules, not about arithmetic.
+
+    The WYSIWYG datetime render reads whichever timezone database its engine ships.
+    ``Africa/Casablanca`` schedules DST around Ramadan and its future transitions are
+    revised often, so chrono's bundled copy and Python's ``tzdata`` disagree on instants
+    years out while agreeing on present ones. Pinned rather than hidden: it is a data
+    disagreement, and the fix is aligning the databases, not the code.
+    """
+    from zoneinfo import ZoneInfo
+    import datetime as dt
+
+    zone = "Africa/Casablanca"
+
+    def wall(stamp):
+        inst = dt.datetime.fromisoformat(stamp).replace(tzinfo=dt.timezone.utc)
+        py = inst.astimezone(ZoneInfo(zone)).strftime("%Y-%m-%d %H:%M:%S")
+        got = (pl.DataFrame({"t": pl.Series([stamp]).str.to_datetime()})
+               .select(pl.col("t").dt.replace_time_zone("UTC").dt.convert_time_zone(zone)
+                       .dt.strftime("%Y-%m-%d %H:%M:%S").alias("o"))["o"][0])
+        return py, got
+
+    present_py, present_pl = wall("2024-01-05T03:04:05")
+    assert present_py == present_pl, "a present-day instant must not diverge"
+
+    future_py, future_pl = wall("2034-10-07T22:13:12")
+    if future_py == future_pl:
+        pytest.fail(
+            "the timezone databases now AGREE on Casablanca in 2034 -- delete this pin "
+            f"and the caveat in wysiwyg.render_datetime_pandas ({future_py})")

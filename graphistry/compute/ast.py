@@ -887,7 +887,10 @@ class ASTLet(ASTObject):
         
         # Process mixed JSON/native objects
         processed_bindings: Dict[str, Any] = {}
+        from graphistry.compute.gfql.index.wire import index_op_to_call, is_index_op
         for name, value in bindings.items():
+            if is_index_op(value):
+                value = index_op_to_call(value)  # DDL as a binding: the graph with that index resident
             if isinstance(value, list):
                 # Treat list bindings as implicit Chain operations
                 from graphistry.compute.chain import Chain  # noqa: F401, F811
@@ -1182,7 +1185,8 @@ class ASTRef(ASTObject):
         """
         super().__init__()
         self.ref = ref
-        self.chain = chain
+        from .chain import _index_ops_as_calls
+        self.chain = _index_ops_as_calls(chain)
     
     def _validate_fields(self) -> None:
         """Validate Ref fields."""
@@ -1496,6 +1500,9 @@ def from_json(o: JSONVal, validate: bool = True) -> Union[ASTNode, ASTEdge, ASTL
         out = ASTRef.from_json(o, validate=validate)
     elif o['type'] == 'Call':
         out = ASTCall.from_json(o, validate=validate)
+    elif o['type'] in ('CreateIndex', 'DropIndex', 'ShowIndexes'):
+        from graphistry.compute.gfql.index.wire import index_op_from_json, index_op_to_call
+        out = index_op_to_call(index_op_from_json(dict(o)))
     else:
         raise GFQLSyntaxError(
             ErrorCode.E101,
@@ -1808,7 +1815,7 @@ def count_table(
     ``source`` alias-mask column is present, the count of its truthy rows). This
     avoids the full-frame materialize + constant-key ``group_by`` the general
     aggregate path performs — the win that turns count(*) from O(N) into a single
-    reduction. See plans/gfql-engine-followups (BEAT LADYBUG).
+    reduction.
     """
     params: Dict[str, Any] = {"table": table, "alias": alias}
     if source is not None:

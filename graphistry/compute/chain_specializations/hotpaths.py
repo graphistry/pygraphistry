@@ -5,12 +5,12 @@ predicate (``admission.py``); ``chain.py`` only dispatches."""
 
 from typing import Dict, List, Optional, Sequence, Tuple, TYPE_CHECKING, cast
 
-from graphistry.Engine import Engine, EngineAbstract, df_concat
+from graphistry.Engine import Engine, EngineAbstract, df_concat, resolve_engine
 from graphistry.Plottable import Plottable
 from graphistry.compute.ast import ASTObject, ASTNode, ASTEdge, Direction
 from graphistry.compute.chain_fast_paths import (
     _ids_to_key_array, _index_edge_rows, _index_node_rows, _record_native_seed_lane,
-    _resident_node_id_index, _resident_seed_indexes, _seed_node_rows, _seeded_scalar_filters,
+    _resident_node_id_index, _resident_seed_indexes, _seed_node_rows, _seeded_scalar_filters, _seeded_seed_filters,
     _tag_fast_path_aliases, SeededReturn,
 )
 from graphistry.compute.typing import ArrayLike, ArrayNamespace, DataFrameT, ScalarFilterDict, SeriesT
@@ -30,15 +30,19 @@ def _single_node_rows_via_index_or_filter(
     if not n0.filter_dict:
         return nodes_df
     node = g._node
-    n0f = _seeded_scalar_filters(n0.filter_dict, nodes_df) if node is not None else None
+    n0f = _seeded_seed_filters(n0.filter_dict, nodes_df, node) if node is not None else None
     if node is not None and n0f:
         nid_ctx = _resident_node_id_index(g, nodes_df, node)
         rows, how = _seed_node_rows(g, nodes_df, n0f, node, nid_ctx, n0.filter_dict)
-        if how != "scan":
-            _record_native_seed_lane(nodes_df, seam="native_seed_lookup", reason=how, hop_count=0,
-                                     public_seed_scan=node not in n0.filter_dict)
+        served = how != "scan"
+        _record_native_seed_lane(nodes_df, seam="native_seed_lookup",
+                                 reason=how if served else "no_valid_resident_index",
+                                 hop_count=0, public_seed_scan=node not in n0.filter_dict,
+                                 served=served, seed_graph=g, seed_filter=n0.filter_dict)
         return rows
-    return filter_by_dict(nodes_df, n0.filter_dict, engine_abs)
+    from graphistry.compute.gfql.index.property_lookup import property_candidate_frame
+    candidates = property_candidate_frame(g, "nodes", nodes_df, n0.filter_dict, resolve_engine(engine_abs, nodes_df))
+    return filter_by_dict(candidates, n0.filter_dict, engine_abs)
 
 
 
@@ -60,7 +64,7 @@ def _seeded_typed_hop_pandas_cudf(
     nodes_df, edges_df = g._nodes, g._edges
     if nodes_df is None or edges_df is None:
         return None
-    n0f = _seeded_scalar_filters(n0.filter_dict, nodes_df)
+    n0f = _seeded_seed_filters(n0.filter_dict, nodes_df, node)
     n2f = _seeded_scalar_filters(n2.filter_dict, nodes_df)
     ef = _seeded_scalar_filters(e1.edge_match, edges_df)
     if n0f is None or n2f is None or ef is None:
@@ -87,13 +91,15 @@ def _seeded_typed_hop_pandas_cudf(
             cand = _index_node_rows(nid, endpoint_ids, xp, idx_engine, nodes_df)
     served_via_index = cand is not None
     if cand is None:
+        from graphistry.compute.gfql.index.property_lookup import property_candidate_frame
+        candidates = property_candidate_frame(g, "edges", edges_df, e1.edge_match, resolve_engine(EngineAbstract.AUTO, edges_df))
         if n0f:
             seed_nodes = nodes_df
-            for k, v in sorted(n0f.items(), key=lambda kv: 0 if kv[0] == node else 1):
-                seed_nodes = seed_nodes[seed_nodes[k] == v]
-            edges = edges_df[edges_df[from_col].isin(seed_nodes[node].dropna())]
+            for seed_col, seed_val in sorted(n0f.items(), key=lambda kv: 0 if kv[0] == node else 1):
+                seed_nodes = seed_nodes[seed_nodes[seed_col].isin(list(seed_val))] if isinstance(seed_val, tuple) else seed_nodes[seed_nodes[seed_col] == seed_val]
+            edges = candidates[candidates[from_col].isin(seed_nodes[node].dropna())]
         else:
-            edges = edges_df
+            edges = candidates
         if ef:  # typed edge (edge_match) — now on the reduced frontier
             for k, v in ef.items():
                 edges = edges[edges[k] == v]
@@ -103,9 +109,9 @@ def _seeded_typed_hop_pandas_cudf(
             nodes_df[node].isin(edges[src].dropna()) | nodes_df[node].isin(edges[dst].dropna())
         ].drop_duplicates(subset=[node])
     assert edges is not None and cand is not None  # both branches above assign
-    if served_via_index:
-        _record_native_seed_lane(nodes_df, seam="native_seeded_hop", reason="served", hop_count=1,
-                                 public_seed_scan=node not in n0f)
+    if n0f:
+        _record_native_seed_lane(nodes_df, seam="native_seeded_hop", reason="served" if served_via_index else "no_valid_resident_index",
+                                 hop_count=1, public_seed_scan=node not in n0f, served=served_via_index)
     tail = _seeded_hop_tail_numeric(cand, edges, n2f, src, dst, to_col, node)
     if tail is not None:
         cand, edges = tail
@@ -181,7 +187,7 @@ def _seeded_typed_return_dst_pandas_cudf(
     nodes_df, edges_df = g._nodes, g._edges
     if nodes_df is None or edges_df is None:
         return None
-    n0f = _seeded_scalar_filters(n0.filter_dict, nodes_df)
+    n0f = _seeded_scalar_filters(n0.filter_dict, nodes_df)  # Cypher membership seeds stay with the bindings kernel (#2117)
     n2f = _seeded_scalar_filters(n2.filter_dict, nodes_df)
     ef = _seeded_scalar_filters(e1.edge_match, edges_df)
     if n0f is None or n2f is None or ef is None or not n0f:
@@ -190,7 +196,9 @@ def _seeded_typed_return_dst_pandas_cudf(
     # id filter first, then the object filters on the survivors; membership sets are dropna()'d so null ids never link
     ctx = _resident_seed_indexes(g, nodes_df, edges_df, node, src, dst, direction)
     nid_ctx = (ctx[0], ctx[2], ctx[3]) if ctx is not None else _resident_node_id_index(g, nodes_df, node)
-    seed_nodes, how = _seed_node_rows(g, nodes_df, n0f, node, nid_ctx, n0.filter_dict)
+    seed_nodes, how = _seed_node_rows(
+        g, nodes_df, n0f, node, nid_ctx, n0.filter_dict, record_property_decision=True,
+    )
     edges = dstn = None
     kernel_admits = False
     if ctx is not None:
@@ -204,7 +212,9 @@ def _seeded_typed_return_dst_pandas_cudf(
                     edges = edges[edges[k] == v]
             dstn = _index_node_rows(nid, edges[to_col], xp, idx_engine, nodes_df)
     if dstn is None:
-        edges = edges_df[edges_df[from_col].isin(seed_nodes[node].dropna())]
+        from graphistry.compute.gfql.index.property_lookup import property_candidate_frame
+        candidates = property_candidate_frame(g, "edges", edges_df, e1.edge_match, resolve_engine(EngineAbstract.AUTO, edges_df))
+        edges = candidates[candidates[from_col].isin(seed_nodes[node].dropna())]
         if ef:
             for k, v in ef.items():
                 edges = edges[edges[k] == v]
@@ -297,7 +307,9 @@ def _try_chain_fast_path(
     concat = df_concat(engine_concrete)
     if unconstrained:
         node_ids = g._nodes[node].dropna()  # validate both endpoints; NaN ids never match
-        edges = g._edges[g._edges[src].isin(node_ids) & g._edges[dst].isin(node_ids)]
+        from graphistry.compute.gfql.index.property_lookup import property_candidate_frame
+        candidates = property_candidate_frame(g, "edges", g._edges, e1.edge_match, engine_concrete)
+        edges = candidates[candidates[src].isin(node_ids) & candidates[dst].isin(node_ids)]
         if e1.edge_match:
             edges = filter_by_dict(edges, e1.edge_match, engine_abs)
     else:
@@ -307,7 +319,8 @@ def _try_chain_fast_path(
                 return _tag_fast_path_aliases(
                     _fast_res, alias_n0, alias_e1, alias_n2, src, dst, node, direction)
         from_col, to_col = (src, dst) if direction == "forward" else (dst, src)
-        edges = g._edges
+        from graphistry.compute.gfql.index.property_lookup import property_candidate_frame
+        edges = property_candidate_frame(g, "edges", g._edges, e1.edge_match, engine_concrete)
         if n0.filter_dict:
             from_ids = filter_by_dict(g._nodes, n0.filter_dict, engine_abs)[node]
             edges = edges[edges[from_col].isin(from_ids)]

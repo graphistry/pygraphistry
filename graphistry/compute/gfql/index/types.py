@@ -12,7 +12,10 @@ from graphistry.compute.typing import ArrayLike, ArrayNamespace, DataFrameT
 if TYPE_CHECKING:
     from graphistry.compute.predicates.ASTPredicate import ASTPredicate
 
-IndexKind = Literal["edge_out_adj", "edge_in_adj", "node_id", "node_prop"]
+IndexKind = Literal[
+    "edge_out_adj", "edge_in_adj", "node_id", "node_prop", "edge_prop",
+    "node_type_segment",
+]
 #: Build-time facts that `show_indexes` reports but that are not registry `indexes`.
 SidecarFactKind = Literal["category", "endpoint_rows", "temporal_text"]
 AdjacencyIndexKind = Literal["edge_out_adj", "edge_in_adj"]
@@ -89,10 +92,12 @@ class IndexTraceStep(TypedDict, total=False):
     path: IndexPath
     decision_reason: str
     decision_code: IndexDecisionCode
+    index_kind: IndexKind
     n_keys: int
     seed_deg_sum: Optional[int]
     est_result_rows: Optional[int]
     threshold_frac: float
+    node_segments: Dict[str, str]
     # column-stat fact consults
     role: str
     column: str

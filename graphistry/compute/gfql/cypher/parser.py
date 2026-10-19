@@ -12,6 +12,7 @@ import re
 from typing import Any, Callable, List, Literal, NoReturn, Optional, Protocol, Sequence, Tuple, Type, Union, cast
 
 from graphistry.compute.exceptions import ErrorCode, GFQLSyntaxError, GFQLValidationError
+from graphistry.compute.gfql.identifiers import parse_cypher_backtick_identifier
 from graphistry.compute.gfql.cypher.ast import (
     BooleanExpr,
     CallClause,
@@ -208,8 +209,8 @@ limit_clause: "LIMIT"i expr
 // PROP_NAME (dot/map-key contexts only) admits non-reserved keywords as property
 // names (n.when, n.order, {when: 1}) — openCypher property keys are unreserved;
 // the contextual lexer only expects it where NAME's keyword exclusions cannot apply.
-qualified_name: NAME ("." PROP_NAME)*
-property_ref.2: NAME "." PROP_NAME
+qualified_name: NAME ("." (BARE_PROP_NAME|QUOTED_PROP_NAME))*
+property_ref.2: NAME "." (BARE_PROP_NAME|QUOTED_PROP_NAME)
 
 unwind_expr: expr
 order_expr: expr
@@ -363,9 +364,11 @@ _REGEX_MATCH.5: "=~"
 
 SEMI: ";"
 MINUS: /-(?!-)/
-NAME: /(?!(?i:MATCH|RETURN|WITH|ORDER|BY|SKIP|LIMIT|UNWIND|WHERE|AS|ASC|ASCENDING|DESC|DESCENDING|AND|OR|XOR|NOT|IN|IS|NULL|TRUE|FALSE|CONTAINS|STARTS|ENDS|ANY|ALL|NONE|SINGLE|CASE|WHEN|THEN|ELSE|END)\b)[A-Za-z_][A-Za-z0-9_]*/
-MAP_KEY_NAME: /[A-Za-z_][A-Za-z0-9_]*/
-PROP_NAME: /[A-Za-z_][A-Za-z0-9_]*/
+NAME: /(?:(?!(?i:MATCH|RETURN|WITH|ORDER|BY|SKIP|LIMIT|UNWIND|WHERE|AS|ASC|ASCENDING|DESC|DESCENDING|AND|OR|XOR|NOT|IN|IS|NULL|TRUE|FALSE|CONTAINS|STARTS|ENDS|ANY|ALL|NONE|SINGLE|CASE|WHEN|THEN|ELSE|END)\b)[A-Za-z_][A-Za-z0-9_]*|`(?:[^`]|``)*`)/
+MAP_KEY_NAME: /(?:[A-Za-z_][A-Za-z0-9_]*|`(?:[^`]|``)*`)/
+PROP_NAME: /(?:[A-Za-z_][A-Za-z0-9_]*|`(?:[^`]|``)*`)/
+BARE_PROP_NAME: /[A-Za-z_][A-Za-z0-9_]*/
+QUOTED_PROP_NAME: /`(?:[^`]|``)*`/
 NUMBER: /[+-]?(?:0[xX][0-9A-Fa-f]+|0[oO][0-7]+|(?:\d+\.\d+(?:[eE][+-]?\d+)?|\.\d+(?:[eE][+-]?\d+)?|\d+(?:[eE][+-]?\d+)?))/
 INT: /[0-9]+/
 STRING : /'(?:\\.|[^'\\])*'|"(?:\\.|[^"\\])*"/
@@ -375,7 +378,7 @@ REL_FWD_SIMPLE: /-->/
 REL_REV_SIMPLE: /<--/
 REL_UNDIR_SIMPLE: /--/
 REL_BIDIR_SIMPLE: /<-->/
-LABEL_NAME: /[A-Za-z_][A-Za-z0-9_]*/
+LABEL_NAME: /(?:[A-Za-z_][A-Za-z0-9_]*|`(?:[^`]|``)*`)/
 LINE_COMMENT: /\/\/[^\n]*/
 BLOCK_COMMENT: /\/\*[\s\S]*?\*\//
 %import common.WS
@@ -383,6 +386,16 @@ BLOCK_COMMENT: /\/\*[\s\S]*?\*\//
 %ignore LINE_COMMENT
 %ignore BLOCK_COMMENT
 """
+
+_QUOTED_IDENTIFIER_BODY = r"`(?:[^`]|``)*`"
+_GRAMMAR = _GRAMMAR.replace("`(?:[^`]|``)*`", _QUOTED_IDENTIFIER_BODY)
+
+
+def _parse_identifier_token(token: str) -> str:
+    if token.startswith("`"):
+        return parse_cypher_backtick_identifier(token)
+    return token
+
 
 _BARE_LABEL_PREDICATE_RE = re.compile(r"^(?P<alias>[A-Za-z_][A-Za-z0-9_]*)((?::[A-Za-z_][A-Za-z0-9_]*)+)$")
 
@@ -776,6 +789,12 @@ def _build_transformer(source: str) -> _TransformerLike:
 
     @v_args(meta=True)  # type: ignore[misc]
     class _CypherAstBuilder(Transformer):  # type: ignore[valid-type,misc]
+        def __default_token__(self, token: Any) -> Any:  # hygiene-ok: explicit-any -- Lark Token dynamic API
+
+            if str(getattr(token, "type", "")) in {"NAME", "MAP_KEY_NAME", "PROP_NAME", "QUOTED_PROP_NAME", "LABEL_NAME"} and str(token).startswith("`"):
+                return token.__class__(token.type, _parse_identifier_token(str(token)))
+            return token
+
         def _slice(self, span: SourceSpan) -> str:
             return source[span.start_pos:span.end_pos]
 
