@@ -394,6 +394,9 @@ def test_generate_safe_column_name_from_skips_taken_names() -> None:
     assert generate_safe_column_name_from(
         "edge_ident", ["__gfql_edge_ident_0__", "__gfql_edge_ident_1__"]
     ) == "__gfql_edge_ident_2__"
+    assert generate_safe_column_name_from(
+        "source", {"__attr_source_2__", "__attr_source_3__"}, prefix="__attr_", start=2
+    ) == "__attr_source_4__"
 
 
 def test_unshadow_alias_marker_column_declines_when_there_is_nothing_to_restore() -> None:

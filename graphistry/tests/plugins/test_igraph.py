@@ -145,6 +145,48 @@ class Test_from_igraph(NoAuthTestCase):
         assert g2._edges.columns.tolist() == edges_df.columns.tolist()
         assert g2._edges.equals(edges_df)
 
+    def test_source_collision_with_destination_named_source_fallback(self):
+        ig = igraph.Graph(edges)
+        ig.vs["name"] = names
+        ig.es["source"] = [f"src_attr_{x}" for x in range(len(edges))]
+
+        g = graphistry.bind(
+            source="source", destination="__attr_source_2__"
+        ).from_igraph(ig, load_nodes=False)
+
+        assert g._source == "source"
+        assert g._destination == "__attr_source_2__"
+        assert g._edges.columns.tolist() == [
+            "source", "__attr_source_2__", "__attr_source_3__"
+        ]
+        assert g._edges["source"].tolist() == ["my", "my", "my", "list", "of"]
+        assert g._edges["__attr_source_2__"].tolist() == [
+            "list", "of", "five", "of", "edges"
+        ]
+        assert g._edges["__attr_source_3__"].tolist() == [
+            f"src_attr_{x}" for x in range(len(edges))
+        ]
+
+    def test_target_collision_with_source_named_target_fallback(self):
+        ig = igraph.Graph(edges)
+        ig.vs["name"] = names
+        ig.es["target"] = [f"dst_attr_{x}" for x in range(len(edges))]
+
+        g = graphistry.bind(
+            source="__attr_target_2__", destination="target"
+        ).from_igraph(ig, load_nodes=False)
+
+        assert g._source == "__attr_target_2__"
+        assert g._destination == "target"
+        assert g._edges.columns.tolist() == [
+            "__attr_target_2__", "target", "__attr_target_3__"
+        ]
+        assert g._edges["__attr_target_2__"].tolist() == ["my", "my", "my", "list", "of"]
+        assert g._edges["target"].tolist() == ["list", "of", "five", "of", "edges"]
+        assert g._edges["__attr_target_3__"].tolist() == [
+            f"dst_attr_{x}" for x in range(len(edges))
+        ]
+
     def test_attributed_edges_collision_with_multiple_occupied_generated_names(self):
         edges_df = pd.DataFrame({
             's': ['a', 'b'],

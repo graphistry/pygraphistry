@@ -1,5 +1,5 @@
 import pandas as pd
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Set, Tuple, Union
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union
 from graphistry.constants import NODE
 from graphistry.Plottable import Plottable
 from graphistry.util import setup_logger
@@ -54,17 +54,6 @@ def _restore_igraph_large_nullable_ints(
         dtype = "UInt64" if max(non_null) > 2**63 - 1 else object
         repairs[target] = pd.Series([None if value is pd.NA else value for value in values], index=df.index, dtype=dtype)
     return df.assign(**repairs) if repairs else df
-
-
-def _reserve_attr_name(
-    original_name: str, fallback_number: int, occupied_names: Set[str]
-) -> Tuple[str, int]:
-    fallback_name = f'__attr_{original_name}_{fallback_number}__'
-    while fallback_name in occupied_names:
-        fallback_number += 1
-        fallback_name = f'__attr_{original_name}_{fallback_number}__'
-    occupied_names.add(fallback_name)
-    return fallback_name, fallback_number
 
 
 # preferring igraph naming convetions over graphistry.constants
@@ -213,22 +202,24 @@ def from_igraph(self,
 
         src_col = g._source or SRC_IGRAPH
         dst_col = g._destination or DST_IGRAPH
+        from graphistry.compute.util import generate_safe_column_name_from
         edges_df = ig.get_edge_dataframe()
         renamed_attrs: Dict[str, str] = {}
+        occupied_names = set(edges_df.columns) | {src_col, dst_col}
 
         # igraph edge attributes named 'source' or 'target' collide with the
         # endpoint columns from get_edge_dataframe(); endpoints come first,
         # rename later occurrences so attributes stay accessible.
         if edges_df.columns.duplicated().any():
             counts: dict = {}
-            occupied_names = set(edges_df.columns)
             new_cols = []
             for c in edges_df.columns:
                 n = counts.get(c, 0) + 1
                 counts[c] = n
                 new_name = c
                 if n > 1:
-                    new_name, _ = _reserve_attr_name(c, n, occupied_names)
+                    new_name = generate_safe_column_name_from(c, occupied_names, prefix='__attr_', start=n)
+                    occupied_names.add(new_name)
                     renamed_attrs[c] = new_name
                 new_cols.append(new_name)
             edges_df.columns = new_cols
@@ -242,11 +233,11 @@ def from_igraph(self,
             for attr_name in ig.es.attributes()
             if attr_name not in renamed_attrs and attr_name in {src_col, dst_col}
         ]
-        occupied_names = set(edges_df.columns) | {src_col, dst_col}
         for attr_name in ig.es.attributes():
             if attr_name in renamed_attrs or attr_name not in {src_col, dst_col}:
                 continue
-            fallback_name, _ = _reserve_attr_name(attr_name, 2, occupied_names)
+            fallback_name = generate_safe_column_name_from(attr_name, occupied_names, prefix='__attr_', start=2)
+            occupied_names.add(fallback_name)
             renamed_attrs[attr_name] = fallback_name
             edges_df = edges_df.rename(columns={attr_name: fallback_name})
         if final_binding_collisions:
