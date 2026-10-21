@@ -382,6 +382,87 @@ class TestGEXF(NoAuthTestCase):
         with pytest.raises(ValueError, match="missing node ids"):
             graphistry.gexf(path)
 
+    def test_gexf_edge_endpoint_attribute_collision(self):
+        ns = "http://gexf.net/1.2draft"
+        edges, nodes, _meta = gexf_reader.gexf_to_dfs(f"""<gexf xmlns="{ns}" version="1.2draft">
+          <graph mode="static">
+            <nodes><node id="a"/><node id="b"/></nodes>
+            <edges><edge source="a" target="b">
+              <attvalues><attvalue for="src" value="kept_src"/><attvalue for="dst" value="kept_dst"/></attvalues>
+            </edge></edges>
+            <attributes class="edge">
+              <attribute id="src" title="source" type="string"/>
+              <attribute id="dst" title="target" type="string"/>
+            </attributes>
+          </graph></gexf>""".encode("utf-8"))
+
+        assert edges.loc[0, ["__gexf_source_1__", "__gexf_target_1__"]].tolist() == ["a", "b"]
+        assert edges.loc[0, ["source", "target"]].tolist() == ["kept_src", "kept_dst"]
+        assert list(nodes["node_id"]) == ["a", "b"]
+
+    def test_gexf_edge_custom_bindings_do_not_rename_matching_title(self):
+        ns = "http://gexf.net/1.2draft"
+        payload = f"""<gexf xmlns="{ns}" version="1.2draft">
+          <graph mode="static">
+            <nodes><node id="a"/><node id="b"/></nodes>
+            <edges><edge source="a" target="b">
+              <attvalues><attvalue for="src" value="kept_src"/></attvalues>
+            </edge></edges>
+            <attributes class="edge"><attribute id="src" title="source" type="string"/></attributes>
+          </graph></gexf>""".encode("utf-8")
+
+        edges, _nodes, _meta = gexf_reader.gexf_to_dfs(
+            payload, source_col="edge_source", destination_col="edge_target"
+        )
+
+        assert edges.loc[0, ["edge_source", "edge_target", "source"]].tolist() == ["a", "b", "kept_src"]
+
+    def test_gexf_generated_attribute_titles_remain_unique(self):
+        ns = "http://gexf.net/1.2draft"
+        payload = f"""<gexf xmlns="{ns}" version="1.2draft">
+          <graph mode="static">
+            <nodes><node id="a"/><node id="b"/></nodes>
+            <edges><edge source="a" target="b">
+              <attvalues><attvalue for="src" value="kept"/><attvalue for="1" value="generated"/></attvalues>
+            </edge></edges>
+            <attributes class="edge">
+              <attribute id="src" title="source" type="string"/>
+              <attribute id="1" title="__attr_source_2__" type="string"/>
+            </attributes>
+          </graph></gexf>""".encode("utf-8")
+
+        edges, _nodes, _meta = gexf_reader.gexf_to_dfs(payload)
+
+        assert edges.loc[0, ["__gexf_source_1__", "__gexf_target_1__", "source", "__attr_source_2__"]].tolist() == [
+            "a", "b", "kept", "generated"
+        ]
+
+    def test_gexf_exported_custom_endpoint_binding_roundtrip(self):
+        edges = pd.DataFrame(
+            {"edge_source": ["a"], "edge_target": ["b"], "source": ["left"], "target": ["right"]}
+        )
+        g = graphistry.edges(edges, "edge_source", "edge_target")
+        xml_str = g.to_gexf(version="1.2draft")
+        imported = graphistry.gexf(xml_str.encode("utf-8"))
+
+        assert imported._source == "__gexf_source_1__"
+        assert imported._destination == "__gexf_target_1__"
+        assert list(imported._edges["__gexf_source_1__"]) == ["a"]
+        assert list(imported._edges["__gexf_target_1__"]) == ["b"]
+        assert list(imported._edges["source"]) == ["left"]
+        assert list(imported._edges["target"]) == ["right"]
+
+    def test_gexf_duplicate_node_ids_rejected(self):
+        ns = "http://gexf.net/1.2draft"
+        payload = f"""<gexf xmlns="{ns}" version="1.2draft">
+          <graph mode="static">
+            <nodes><node id="a"/><node id="a"/></nodes>
+            <edges><edge source="a" target="a"/></edges>
+          </graph></gexf>""".encode("utf-8")
+
+        with pytest.raises(ValueError, match="duplicate node ids"):
+            gexf_reader.gexf_to_dfs(payload)
+
     def test_to_gexf_roundtrip(self):
         g = _build_roundtrip_plotter()
         xml_str = g.to_gexf(version="1.2draft")

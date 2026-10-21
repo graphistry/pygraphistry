@@ -9,6 +9,7 @@ import xml.etree.ElementTree as ET
 
 import pandas as pd
 
+from graphistry.compute.util.generate_safe_column_name import generate_safe_column_name_from
 from graphistry.Plottable import Plottable
 from graphistry.plugins_types.gexf_types import GexfEdgeViz, GexfNodeViz, GexfParseEngine
 
@@ -208,6 +209,33 @@ def gexf_to_dfs(
                 meta[key] = text.strip()
     node_attr_defs = _collect_attribute_defs(graph_elem, "node")
     edge_attr_defs = _collect_attribute_defs(graph_elem, "edge")
+    edge_attr_titles = {title for title, _attr_type, _default in edge_attr_defs.values()}
+    endpoint_collision = source_col in edge_attr_titles or destination_col in edge_attr_titles
+    reserved_endpoint_names = edge_attr_titles | {"edge_id", "label", "weight"}
+    if endpoint_collision:
+        source_output_col = generate_safe_column_name_from(
+            source_col, reserved_endpoint_names, prefix="__gexf_", suffix="__", start=1
+        )
+        reserved_endpoint_names.add(source_output_col)
+        destination_output_col = generate_safe_column_name_from(
+            destination_col, reserved_endpoint_names, prefix="__gexf_", suffix="__", start=1
+        )
+        meta["source_col"] = source_output_col
+        meta["destination_col"] = destination_output_col
+    else:
+        source_output_col = source_col
+        destination_output_col = destination_col
+    occupied_edge_fields = {source_output_col, destination_output_col}
+    resolved_edge_attr_defs: Dict[str, AttrDef] = {}
+    for attr_id, (title, attr_type, default) in edge_attr_defs.items():
+        output_title = title
+        if output_title in occupied_edge_fields:
+            output_title = generate_safe_column_name_from(
+                output_title, occupied_edge_fields, prefix="__attr_", start=2
+            )
+        occupied_edge_fields.add(output_title)
+        resolved_edge_attr_defs[attr_id] = (output_title, attr_type, default)
+    edge_attr_defs = resolved_edge_attr_defs
     nodes_elem = graph_elem.find("{*}nodes")
     if nodes_elem is None:
         raise ValueError("Invalid GEXF: missing <nodes> element")
@@ -237,7 +265,7 @@ def gexf_to_dfs(
             dst = edge.attrib.get("target")
             if src is None or dst is None:
                 raise ValueError("Invalid GEXF: edge missing source/target")
-            row = {source_col: str(src), destination_col: str(dst)}
+            row = {source_output_col: str(src), destination_output_col: str(dst)}
             edge_id = edge.attrib.get("id")
             if edge_id is not None:
                 row[edge_id_col] = str(edge_id)
@@ -251,10 +279,10 @@ def gexf_to_dfs(
             _parse_viz(edge, row, "edge")
             edge_rows.append(row)
 
-    edges_df = pd.DataFrame(columns=[source_col, destination_col]) if edges_elem is None else pd.DataFrame(edge_rows)
+    edges_df = pd.DataFrame(columns=[source_output_col, destination_output_col]) if edges_elem is None else pd.DataFrame(edge_rows)
 
     if len(edges_df) > 0:
-        missing = set(edges_df[source_col].astype(str)) | set(edges_df[destination_col].astype(str))
+        missing = set(edges_df[source_output_col].astype(str)) | set(edges_df[destination_output_col].astype(str))
         missing = missing.difference(node_ids)
         if missing:
             missing_list = ", ".join(sorted(list(missing))[:5])
@@ -272,8 +300,14 @@ def from_gexf(
 ) -> Plottable:
     """Load a GEXF file/URL/stream into a PyGraphistry plotter."""
     edges_df, nodes_df, meta = gexf_to_dfs(source, parse_engine=parse_engine)
-    g = self.edges(edges_df, "source", "target").nodes(nodes_df, "node_id")
-    bindings: Dict[str, str] = {"node": "node_id", "source": "source", "destination": "target"}
+    edge_source_col = meta.get("source_col", "source")
+    edge_destination_col = meta.get("destination_col", "target")
+    g = self.edges(edges_df, edge_source_col, edge_destination_col).nodes(nodes_df, "node_id")
+    bindings: Dict[str, str] = {
+        "node": "node_id",
+        "source": edge_source_col,
+        "destination": edge_destination_col,
+    }
 
     node_viz = _normalize_viz_fields(bind_node_viz, GEXF_NODE_VIZ_ALLOWED, "node")
     edge_viz = _normalize_viz_fields(bind_edge_viz, GEXF_EDGE_VIZ_ALLOWED, "edge")
