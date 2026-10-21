@@ -1,23 +1,14 @@
-from typing import Any, Dict, Iterable, List, Optional, Protocol, TypeVar, Union
+from typing import Any, Dict, List, Optional, Union
 import pandas as pd
 import warnings
 
 from graphistry.constants import NODE
+from graphistry.compute.typing import DataFrameT
 from graphistry.Engine import EngineAbstract
 from graphistry.Plottable import Plottable
 from graphistry.plugins_types.cugraph_types import CuGraphKind
 from graphistry.util import setup_logger
 logger = setup_logger(__name__)
-
-class DataFrameLike(Protocol):
-    columns: Iterable[str]
-
-    def copy(self) -> 'DataFrameLike': ...
-    def duplicated(self, subset: Optional[List[str]] = None) -> 'DataFrameLike': ...
-
-
-DataFrameT = TypeVar('DataFrameT', bound=DataFrameLike)
-
 
 #import logging
 #logger.setLevel(logging.DEBUG)
