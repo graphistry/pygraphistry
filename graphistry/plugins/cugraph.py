@@ -1,4 +1,4 @@
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Protocol, TypeVar, Union
 import pandas as pd
 import warnings
 
@@ -8,6 +8,15 @@ from graphistry.Plottable import Plottable
 from graphistry.plugins_types.cugraph_types import CuGraphKind
 from graphistry.util import setup_logger
 logger = setup_logger(__name__)
+
+class DataFrameLike(Protocol):
+    columns: Any
+
+    def copy(self) -> Any: ...
+    def duplicated(self, subset: Optional[List[str]] = None) -> Any: ...
+
+
+DataFrameT = TypeVar('DataFrameT', bound=DataFrameLike)
 
 
 #import logging
@@ -28,6 +37,78 @@ def df_to_gdf(df: Any):
         return cudf.from_pandas(df)
     else:
         raise ValueError('Unsupported data type, expected pd.DataFrame or cudf.DataFrame, got: %s', type(df))
+
+
+def _restore_graph_edge_attrs(
+    returned_edges: DataFrameT,
+    original_edges: DataFrameT,
+    source: str,
+    destination: str,
+) -> DataFrameT:
+    """Attach original edge attributes to graph-algorithm output without join fanout.
+
+    cuGraph returns one row per endpoint pair.  A duplicate original pair cannot be
+    assigned deterministically, so reject it instead of silently multiplying rows.
+    """
+    try:
+        import cudf
+    except ImportError:
+        cudf = None
+    original_columns = list(original_edges.columns)
+    attr_columns = [column for column in original_columns if column not in (source, destination)]
+    if not attr_columns:
+        return returned_edges
+
+    returned_columns = list(returned_edges.columns)
+    overlapping = [column for column in attr_columns if column in returned_columns]
+    if overlapping:
+        raise ValueError(f'Returned edge columns overlap original attributes: {overlapping}')
+
+    if original_edges.duplicated(subset=[source, destination]).any():
+        raise ValueError(
+            'cuGraph graph algorithms require unique (source, destination) edge pairs; '
+            'drop or aggregate parallel edges before calling this method'
+        )
+
+    returned_id = '__cugraph_returned_edge_id__'
+    original_id = '__cugraph_original_edge_id__'
+    while returned_id in returned_columns or original_id in original_columns:
+        returned_id = f'_{returned_id}'
+        original_id = f'_{original_id}'
+
+    returned = returned_edges.copy()
+    original = (
+        df_to_gdf(original_edges).copy()
+        if isinstance(returned_edges, cudf.DataFrame)
+        else original_edges.copy()
+    )
+    returned[returned_id] = range(len(returned))
+    original[original_id] = range(len(original))
+
+    forward = returned[[returned_id, source, destination]].merge(
+        original[[original_id, source, destination, *attr_columns]],
+        how='inner',
+        on=[source, destination],
+    )
+    reversed_original = original[[original_id, source, destination, *attr_columns]].rename(
+        columns={source: destination, destination: source}
+    )
+    reversed_matches = returned[[returned_id, source, destination]].merge(
+        reversed_original,
+        how='inner',
+        on=[source, destination],
+    )
+    concat = cudf.concat if cudf is not None and isinstance(returned_edges, cudf.DataFrame) else pd.concat
+    selected = concat([forward, reversed_matches]).drop_duplicates(
+        subset=[returned_id], keep='first'
+    ).sort_values(returned_id)
+
+    restored = returned.merge(
+        selected[[returned_id, *attr_columns]],
+        how='left',
+        on=[returned_id],
+    )
+    return restored.drop(columns=[returned_id])
 
 
 def from_cugraph(self,
@@ -369,26 +450,7 @@ def compute_cugraph_core(
         if original_attrs is not None:
             attr_columns = [col for col in original_attrs.columns if col not in (source, destination)]
             if attr_columns:
-                missing = res._edges[[source, destination]].merge(
-                    original_attrs[[source, destination]], how='leftanti'
-                )
-                reversed_attrs = original_attrs.rename(columns={source: destination, destination: source})
-                if len(missing):
-                    reversed_missing = missing.drop_duplicates().merge(
-                        reversed_attrs, how='left', on=[source, destination]
-                    )
-                    edges = res._edges.merge(original_attrs, how='left', on=[source, destination])
-                    edges = edges.merge(
-                        reversed_missing, how='left', on=[source, destination],
-                        suffixes=('_original', '_reversed')
-                    )
-                    for col in attr_columns:
-                        original_col = f'{col}_original'
-                        reversed_col = f'{col}_reversed'
-                        edges[col] = edges[original_col].fillna(edges[reversed_col])
-                        edges = edges.drop(columns=[original_col, reversed_col])
-                else:
-                    edges = res._edges.merge(original_attrs, how='left', on=[source, destination])
+                edges = _restore_graph_edge_attrs(res._edges, original_attrs, source, destination)
                 res = res.edges(edges, source, destination)
 
         return res

@@ -1372,7 +1372,6 @@ jobs:
           --exclude 'graphistry/tests/*.py' \
           --exclude 'graphistry/tests/**/*.py' \
           --exclude 'graphistry/_version.py' \
-          --exclude 'graphistry/plugins/cugraph.py' \
           --output-dir build/changed-line-coverage
         cat build/changed-line-coverage/changed-line-coverage.md >> "$GITHUB_STEP_SUMMARY"
 
