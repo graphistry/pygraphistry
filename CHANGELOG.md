@@ -12,6 +12,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 - **Chained `compute_igraph` calls preserve custom-named edge attributes**: edge attributes named `source` or `target` are restored to their original column names after a round trip when endpoint bindings use other names, so repeated igraph calls no longer accumulate collision renames or fail on duplicate columns. Attributes that collide with the final endpoint bindings are moved to unique generated names rather than merging with endpoint columns (#2204).
 
+- **GFQL Cypher quoted ORDER BY aliases**: quoted aliases containing spaces or escaped backticks can now order values in pandas, Polars, and cuDF lowering, including aggregate outputs. Quoted output names keep their own binding identity when their text matches another aggregate expression, and unresolved quoted aliases retain structured validation errors (#2205).
 
 ## [0.61.0] - 2026-10-18
 
