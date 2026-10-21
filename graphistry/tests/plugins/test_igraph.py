@@ -324,6 +324,32 @@ class Test_from_igraph(NoAuthTestCase):
         assert g2._nodes.columns.tolist() == ["name", "v"]
         assert g2._nodes.equals(nodes_df)
 
+    def test_node_name_attribute_kept_with_use_vids(self):
+        nodes_df = pd.DataFrame({"id": [0, 1, 2], "name": ["A", "B", "C"]})
+        edges_df = pd.DataFrame({"s": [0, 1], "d": [1, 2]})
+        g = graphistry.nodes(nodes_df, "id").edges(edges_df, "s", "d")
+
+        ig = g.to_igraph(use_vids=True)
+        assert ig.vs["name"] == ["A", "B", "C"]
+        assert ig.attributes() == []
+
+        g2 = g.from_igraph(ig)
+        assert g2._nodes.columns.tolist() == ["id", "name"]
+        assert g2._nodes["name"].tolist() == ["A", "B", "C"]
+
+    def test_node_name_attribute_with_node_id_dtypes(self):
+        for dtype in ["Int64", "int32", "category"]:
+            with self.subTest(dtype=dtype):
+                nodes_df = pd.DataFrame({"id": [10, 20, 30, 40], "name": ["a", "b", "c", "d"]})
+                nodes_df = nodes_df.astype({"id": dtype})
+                edges_df = pd.DataFrame({"s": [10, 20, 30], "d": [20, 30, 40]})
+                g = graphistry.nodes(nodes_df, "id").edges(edges_df, "s", "d")
+
+                g2 = g.compute_igraph("pagerank")
+                assert g2._nodes.columns.tolist() == ["id", "name", "pagerank"]
+                assert g2._nodes["id"].tolist() == [10, 20, 30, 40]
+                assert g2._nodes["name"].tolist() == ["a", "b", "c", "d"]
+
     def test_node_name_attribute_through_compute_and_cypher(self):
         nodes_df = pd.DataFrame({"id": ["a", "b", "c", "d"], "name": ["A", "B", "C", "D"]})
         edges_df = pd.DataFrame({"s": ["a", "a", "b"], "d": ["b", "c", "c"]})
