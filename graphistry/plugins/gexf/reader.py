@@ -211,7 +211,7 @@ def gexf_to_dfs(
     edge_attr_defs = _collect_attribute_defs(graph_elem, "edge")
     edge_attr_titles = {title for title, _attr_type, _default in edge_attr_defs.values()}
     endpoint_collision = source_col in edge_attr_titles or destination_col in edge_attr_titles
-    reserved_endpoint_names = edge_attr_titles | {"edge_id", "label", "weight"}
+    reserved_endpoint_names = edge_attr_titles | {edge_id_col, "label", "weight"}
     if endpoint_collision:
         source_output_col = generate_safe_column_name_from(
             source_col, reserved_endpoint_names, prefix="__gexf_", suffix="__", start=1
@@ -300,8 +300,8 @@ def from_gexf(
 ) -> Plottable:
     """Load a GEXF file/URL/stream into a PyGraphistry plotter."""
     edges_df, nodes_df, meta = gexf_to_dfs(source, parse_engine=parse_engine)
-    edge_source_col = meta.get("source_col", "source")
-    edge_destination_col = meta.get("destination_col", "target")
+    edge_source_col = meta.get("source_col") or "source"
+    edge_destination_col = meta.get("destination_col") or "target"
     g = self.edges(edges_df, edge_source_col, edge_destination_col).nodes(nodes_df, "node_id")
     bindings: Dict[str, str] = {
         "node": "node_id",

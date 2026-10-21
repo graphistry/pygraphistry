@@ -437,6 +437,25 @@ class TestGEXF(NoAuthTestCase):
             "a", "b", "kept", "generated"
         ]
 
+    def test_gexf_custom_edge_id_binding_survives_endpoint_collision(self):
+        ns = "http://gexf.net/1.2draft"
+        payload = f"""<gexf xmlns="{ns}" version="1.2draft">
+          <graph mode="static">
+            <nodes><node id="a"/><node id="b"/></nodes>
+            <edges><edge id="e0" source="a" target="b">
+              <attvalues><attvalue for="src" value="kept_src"/></attvalues>
+            </edge></edges>
+            <attributes class="edge"><attribute id="src" title="source" type="string"/></attributes>
+          </graph></gexf>""".encode("utf-8")
+
+        edges, _nodes, meta = gexf_reader.gexf_to_dfs(
+            payload, edge_id_col="__gexf_source_1__"
+        )
+
+        assert meta["source_col"] == "__gexf_source_2__"
+        assert edges.loc[0, ["__gexf_source_2__", "__gexf_target_1__"]].tolist() == ["a", "b"]
+        assert edges.loc[0, ["__gexf_source_1__", "source"]].tolist() == ["e0", "kept_src"]
+
     def test_gexf_exported_custom_endpoint_binding_roundtrip(self):
         edges = pd.DataFrame(
             {"edge_source": ["a"], "edge_target": ["b"], "source": ["left"], "target": ["right"]}
