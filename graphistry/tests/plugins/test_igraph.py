@@ -285,6 +285,57 @@ class Test_from_igraph(NoAuthTestCase):
         assert out._edges.equals(edges_df)
         assert "pagerank" in out._nodes
 
+    def test_node_name_attribute_round_trip(self):
+        nodes_df = pd.DataFrame({"id": ["a", "b", "c", "d"], "name": ["A", "B", "C", "D"]})
+        edges_df = pd.DataFrame({"s": ["a", "a", "b"], "d": ["b", "c", "c"]})
+        g = graphistry.nodes(nodes_df, "id").edges(edges_df, "s", "d")
+
+        g2 = g.from_igraph(g.to_igraph())
+        assert g2._nodes.columns.tolist() == ["id", "name"]
+        assert g2._nodes.equals(nodes_df)
+        assert g2._node == "id"
+
+    def test_node_name_attribute_round_trip_without_merge(self):
+        nodes_df = pd.DataFrame({"id": ["a", "b", "c"], "name": ["A", "B", "C"]})
+        edges_df = pd.DataFrame({"s": ["a", "b"], "d": ["b", "c"]})
+        g = graphistry.nodes(nodes_df, "id").edges(edges_df, "s", "d")
+
+        g2 = g.from_igraph(g.to_igraph(), merge_if_existing=False)
+        assert sorted(g2._nodes.columns.tolist()) == ["id", "name"]
+        assert g2._nodes.sort_values("id")["name"].tolist() == ["A", "B", "C"]
+
+    def test_node_name_attribute_with_occupied_generated_name(self):
+        nodes_df = pd.DataFrame({
+            "id": ["a", "b", "c"], "name": ["A", "B", "C"], "__attr_name_2__": [1, 2, 3],
+        })
+        edges_df = pd.DataFrame({"s": ["a", "b"], "d": ["b", "c"]})
+        g = graphistry.nodes(nodes_df, "id").edges(edges_df, "s", "d")
+
+        g2 = g.from_igraph(g.to_igraph())
+        assert g2._nodes.columns.tolist() == ["id", "name", "__attr_name_2__"]
+        assert g2._nodes.equals(nodes_df)
+
+    def test_node_id_column_named_name(self):
+        nodes_df = pd.DataFrame({"name": ["a", "b", "c"], "v": [1, 2, 3]})
+        edges_df = pd.DataFrame({"s": ["a", "b"], "d": ["b", "c"]})
+        g = graphistry.nodes(nodes_df, "name").edges(edges_df, "s", "d")
+
+        g2 = g.from_igraph(g.to_igraph())
+        assert g2._nodes.columns.tolist() == ["name", "v"]
+        assert g2._nodes.equals(nodes_df)
+
+    def test_node_name_attribute_through_compute_and_cypher(self):
+        nodes_df = pd.DataFrame({"id": ["a", "b", "c", "d"], "name": ["A", "B", "C", "D"]})
+        edges_df = pd.DataFrame({"s": ["a", "a", "b"], "d": ["b", "c", "c"]})
+        g = graphistry.nodes(nodes_df, "id").edges(edges_df, "s", "d")
+
+        g2 = g.compute_igraph("pagerank")
+        assert "pagerank" in g2._nodes
+        assert g2._nodes["name"].tolist() == ["A", "B", "C", "D"]
+
+        out = g.gfql("CALL graphistry.igraph.pagerank() YIELD nodeId, pagerank RETURN nodeId, pagerank")
+        assert sorted(out._nodes["nodeId"].tolist()) == ["a", "b", "c", "d"]
+
     def test_minimal_attributed_edges_sparse(self):
         ig = igraph.Graph(edges_sparse)
         ig.es["name"] = names_sparse
