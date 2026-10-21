@@ -102,6 +102,27 @@ def _restore_graph_edge_attrs(
     return restored.drop(columns=[returned_id])
 
 
+def _restore_graph_return_edge_attrs(
+    graph: Plottable,
+    original_edges: Optional[DataFrameT],
+    source: Optional[str],
+    destination: Optional[str],
+) -> Plottable:
+    """Restore caller edge bindings and attributes on a returned cuGraph graph."""
+    assert source is not None and destination is not None
+    if original_edges is not None:
+        attr_columns = [
+            column for column in original_edges.columns
+            if column not in (source, destination)
+        ]
+        if attr_columns:
+            restored = _restore_graph_edge_attrs(
+                graph._edges, original_edges, source, destination
+            )
+            return graph.edges(restored, source, destination)
+    return graph
+
+
 def from_cugraph(self,
     G,
     node_attributes: Optional[List[str]] = None,
@@ -433,18 +454,7 @@ def compute_cugraph_core(
             out.source_columns = self._source
             out.destination_columns = self._destination
         res = from_cugraph(self, out, load_nodes=False, merge_if_existing=False)
-
-        source = self._source
-        destination = self._destination
-        assert source is not None and destination is not None
-        original_attrs = self._edges
-        if original_attrs is not None:
-            attr_columns = [col for col in original_attrs.columns if col not in (source, destination)]
-            if attr_columns:
-                edges = _restore_graph_edge_attrs(res._edges, original_attrs, source, destination)
-                res = res.edges(edges, source, destination)
-
-        return res
+        return _restore_graph_return_edge_attrs(res, self._edges, self._source, self._destination)
 
     raise ValueError('Unsupported algorithm: %s', alg)
 

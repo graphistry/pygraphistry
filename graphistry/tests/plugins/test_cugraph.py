@@ -5,7 +5,8 @@ from graphistry.tests.common import NoAuthTestCase
 from graphistry.constants import SRC, DST, NODE
 from graphistry.plugins.cugraph import (
     SRC_CUGRAPH, DST_CUGRAPH, NODE_CUGRAPH,
-    _restore_graph_edge_attrs, from_cugraph, to_cugraph,
+    _restore_graph_edge_attrs, _restore_graph_return_edge_attrs,
+    from_cugraph, to_cugraph,
     compute_cugraph, layout_cugraph,
     compute_algs,
     node_compute_algs_to_attr,  # edge_compute_algs_to_attr, graph_compute_algs_to_attr
@@ -811,6 +812,49 @@ class Test_restore_graph_edge_attrs:
 
         with pytest.raises(ValueError, match="unique \\(source, destination\\) edge pairs"):
             _restore_graph_edge_attrs(returned, original, "s", "d")
+
+    def test_returns_edges_without_attributes(self):
+        returned = pd.DataFrame({"s": ["a"], "d": ["b"]})
+        original = pd.DataFrame({"s": ["a"], "d": ["b"]})
+
+        restored = _restore_graph_edge_attrs(returned, original, "s", "d")
+
+        assert restored.to_dict("records") == [{"s": "a", "d": "b"}]
+
+    def test_declines_returned_attribute_collision(self):
+        returned = pd.DataFrame({"s": ["a"], "d": ["b"], "label": ["new"]})
+        original = pd.DataFrame({"s": ["a"], "d": ["b"], "label": ["old"]})
+
+        with pytest.raises(ValueError, match="overlap original attributes"):
+            _restore_graph_edge_attrs(returned, original, "s", "d")
+
+    def test_avoids_reserved_row_identifiers(self):
+        returned = pd.DataFrame({
+            "__cugraph_returned_edge_id__": ["x"], "s": ["a"], "d": ["b"],
+        })
+        original = pd.DataFrame({
+            "__cugraph_original_edge_id__": ["y"], "s": ["a"], "d": ["b"], "label": ["ab"],
+        })
+
+        restored = _restore_graph_edge_attrs(returned, original, "s", "d")
+
+        assert restored["label"].tolist() == ["ab"]
+
+    def test_restores_graph_return_attrs(self):
+        graph = graphistry.edges(pd.DataFrame({"s": ["a", "b"], "d": ["b", "a"]}), "s", "d")
+        original = pd.DataFrame({"s": ["a"], "d": ["b"], "label": ["ab"]})
+
+        restored = _restore_graph_return_edge_attrs(graph, original, "s", "d")
+
+        assert restored._source == "s" and restored._destination == "d"
+        assert restored._edges.sort_values("s")["label"].tolist() == ["ab", "ab"]
+
+    def test_keeps_graph_return_without_attrs(self):
+        graph = graphistry.edges(pd.DataFrame({"s": ["a"], "d": ["b"]}), "s", "d")
+
+        restored = _restore_graph_return_edge_attrs(graph, None, "s", "d")
+
+        assert restored is graph
 
 
 @pytest.mark.skipif(not test_cugraph, reason="Requires TEST_CUGRAPH=1")
