@@ -132,13 +132,16 @@ def from_igraph(self,
     
     ig_vs_df = _restore_igraph_large_nullable_ints(ig.get_vertex_dataframe(), ig.vs)
     nodes_df = ig_vs_df
+    renamed_name_attr = ig[RENAMED_NAME_ATTR] if RENAMED_NAME_ATTR in ig.attributes() else None
 
 
     if load_nodes:
 
         if node_col not in nodes_df:
             #TODO if no g._nodes but 'name' in nodes_df, still use?
-            if (
+            if ('name' in nodes_df) and (renamed_name_attr in nodes_df):
+                nodes_df = nodes_df.rename(columns={'name': node_col})
+            elif (
                 ('name' in nodes_df) and
                 (g._nodes is not None and g._node is not None) and
                 (g._nodes[g._node].dtype.name == nodes_df['name'].dtype.name)
@@ -148,8 +151,7 @@ def from_igraph(self,
                 nodes_df = nodes_df.rename(columns={'name': node_col})
             else:
                 nodes_df = nodes_df.reset_index().rename(columns={nodes_df.index.name: node_col})
-        
-        renamed_name_attr = ig[RENAMED_NAME_ATTR] if RENAMED_NAME_ATTR in ig.attributes() else None
+
         if renamed_name_attr in nodes_df and 'name' not in nodes_df:
             nodes_df = nodes_df.rename(columns={renamed_name_attr: 'name'})
 
@@ -369,7 +371,7 @@ def to_igraph(
 
     # igraph reserves 'name' for node IDs; from_igraph restores the original column
     renamed_name_attr = None
-    if 'name' in node_attrs:
+    if not use_vids and 'name' in node_attrs:
         from graphistry.compute.util import generate_safe_column_name_from
         renamed_name_attr = generate_safe_column_name_from('name', nodes_df.columns, prefix='__attr_', start=2)
         nodes_df = nodes_df.rename(columns={'name': renamed_name_attr})
