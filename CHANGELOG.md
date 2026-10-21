@@ -8,6 +8,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [Development]
 <!-- Do Not Erase This Section - Used for tracking unreleased changes -->
 
+### Fixed
+
+- **igraph calls on nodes with a `name` column**: a node attribute named `name`, other than the node ID column, no longer makes `to_igraph`, `compute_igraph`, and `CALL graphistry.igraph.*` fail with `Vertex attribute conflict`. It moves to a generated name for igraph, which reserves `name` for node IDs, and is restored by `from_igraph` (#2217).
+
 ## [0.61.1] - 2026-10-21
 
 ### Fixed
