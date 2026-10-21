@@ -1,4 +1,4 @@
-from typing import Any, Dict, List, Optional, Protocol, TypeVar, Union
+from typing import Any, Dict, Iterable, List, Optional, Protocol, TypeVar, Union
 import pandas as pd
 import warnings
 
@@ -10,10 +10,10 @@ from graphistry.util import setup_logger
 logger = setup_logger(__name__)
 
 class DataFrameLike(Protocol):
-    columns: Any
+    columns: Iterable[str]
 
-    def copy(self) -> Any: ...
-    def duplicated(self, subset: Optional[List[str]] = None) -> Any: ...
+    def copy(self) -> 'DataFrameLike': ...
+    def duplicated(self, subset: Optional[List[str]] = None) -> 'DataFrameLike': ...
 
 
 DataFrameT = TypeVar('DataFrameT', bound=DataFrameLike)
