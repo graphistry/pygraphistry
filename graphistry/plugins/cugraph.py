@@ -357,14 +357,40 @@ def compute_cugraph_core(
             out = out[0]
         if out_col is not None:
             raise ValueError('Graph returned, but out_col was specified')
-        self2 = self
-        if self._source != out.source_columns:
-            logger.debug('Switching g source column name to G source column name to work around cugraph inconsistency')
-            if out.source_columns == 'src':
-                self2 = self.edges(self._edges.rename(columns={self._source: 'src', self._destination: 'dst'}), 'src', 'dst')
-        res = from_cugraph(self2, out, load_nodes=False)
-        if not (self2 is self):
-            res = res.edges(self._edges, self._source, self._destination)
+        if out.source_columns == 'src' and out.destination_columns == 'dst':
+            out.source_columns = self._source
+            out.destination_columns = self._destination
+        res = from_cugraph(self, out, load_nodes=False, merge_if_existing=False)
+
+        source = self._source
+        destination = self._destination
+        assert source is not None and destination is not None
+        original_attrs = self._edges
+        if original_attrs is not None:
+            attr_columns = [col for col in original_attrs.columns if col not in (source, destination)]
+            if attr_columns:
+                missing = res._edges[[source, destination]].merge(
+                    original_attrs[[source, destination]], how='leftanti'
+                )
+                reversed_attrs = original_attrs.rename(columns={source: destination, destination: source})
+                if len(missing):
+                    reversed_missing = missing.drop_duplicates().merge(
+                        reversed_attrs, how='left', on=[source, destination]
+                    )
+                    edges = res._edges.merge(original_attrs, how='left', on=[source, destination])
+                    edges = edges.merge(
+                        reversed_missing, how='left', on=[source, destination],
+                        suffixes=('_original', '_reversed')
+                    )
+                    for col in attr_columns:
+                        original_col = f'{col}_original'
+                        reversed_col = f'{col}_reversed'
+                        edges[col] = edges[original_col].fillna(edges[reversed_col])
+                        edges = edges.drop(columns=[original_col, reversed_col])
+                else:
+                    edges = res._edges.merge(original_attrs, how='left', on=[source, destination])
+                res = res.edges(edges, source, destination)
+
         return res
 
     raise ValueError('Unsupported algorithm: %s', alg)

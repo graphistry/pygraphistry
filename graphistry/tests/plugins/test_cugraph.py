@@ -1,4 +1,5 @@
 from functools import lru_cache
+from collections import Counter
 import graphistry, logging, os, pandas as pd, pytest
 from graphistry.tests.common import NoAuthTestCase
 from graphistry.constants import SRC, DST, NODE
@@ -469,6 +470,70 @@ class Test_curaph_usage(NoAuthTestCase):
 
 @pytest.mark.skipif(not test_cugraph, reason="Requires TEST_CUGRAPH=1")
 class Test_cugraph_compute(NoAuthTestCase):
+
+    def test_graph_return_endpoint_column_collision(self):
+        import cudf
+
+        for collision_columns in (("src",), ("dst",), ("src", "dst")):
+            with self.subTest(collision_columns=collision_columns):
+                data = {"s": ["a", "b", "c"], "d": ["b", "c", "a"]}
+                for column in collision_columns:
+                    data[column] = [f"{column}_0", f"{column}_1", f"{column}_2"]
+                g = graphistry.edges(cudf.DataFrame(data), "s", "d")
+
+                out1 = g.compute_cugraph("k_core", directed=False, params={"k": 2})
+                out2 = out1.compute_cugraph("k_core", directed=False, params={"k": 2})
+
+                assert out2._source == "s" and out2._destination == "d"
+                result_edges = Counter(
+                    frozenset(edge) for edge in zip(out2._edges["s"].to_pandas(), out2._edges["d"].to_pandas())
+                )
+                expected_edges = Counter(frozenset(edge) for edge in zip(data["s"], data["d"]))
+                assert result_edges == expected_edges
+                for column in collision_columns:
+                    assert sorted(out2._edges[column].to_pandas()) == sorted(data[column])
+
+    def test_graph_return_clean_control(self):
+        import cudf
+
+        data = {
+            "s": ["a", "b", "c"],
+            "d": ["b", "c", "a"],
+            "source": ["source_0", "source_1", "source_2"],
+            "target": ["target_0", "target_1", "target_2"],
+            "__attr_source_2__": ["generated_0", "generated_1", "generated_2"],
+        }
+        g = graphistry.edges(cudf.DataFrame(data), "s", "d")
+
+        out = g.compute_cugraph("k_core", directed=False, params={"k": 2})
+
+        assert out._source == "s" and out._destination == "d"
+        result_edges = Counter(
+            frozenset(edge) for edge in zip(out._edges["s"].to_pandas(), out._edges["d"].to_pandas())
+        )
+        assert result_edges == Counter(frozenset(edge) for edge in zip(data["s"], data["d"]))
+        for column in ("source", "target", "__attr_source_2__"):
+            assert sorted(out._edges[column].to_pandas()) == sorted(data[column])
+
+    def test_graph_return_filters_topology_and_preserves_retained_attrs(self):
+        import cudf
+
+        data = {
+            "s": ["a", "b", "c", "a"],
+            "d": ["b", "c", "a", "tail"],
+            "label": ["triangle_ab", "triangle_bc", "triangle_ca", "tail_at"],
+        }
+        g = graphistry.edges(cudf.DataFrame(data), "s", "d")
+
+        out1 = g.compute_cugraph("k_core", directed=False, params={"k": 2})
+        out2 = out1.compute_cugraph("k_core", directed=False, params={"k": 2})
+
+        assert out2._source == "s" and out2._destination == "d"
+        assert len(out1._edges) == 3
+        assert len(out2._edges) == 3
+        assert sorted(out2._edges["label"].to_pandas()) == [
+            "triangle_ab", "triangle_bc", "triangle_ca"
+        ]
 
     def test_all_calls(self):
 
