@@ -70,7 +70,7 @@ def _restore_graph_edge_attrs(
     returned = returned_edges.copy()
     original = (
         df_to_gdf(original_edges).copy()
-        if isinstance(returned_edges, cudf.DataFrame)
+        if cudf is not None and isinstance(returned_edges, cudf.DataFrame)
         else original_edges.copy()
     )
     returned[returned_id] = range(len(returned))
