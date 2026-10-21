@@ -169,7 +169,7 @@ from graphistry.compute.gfql.same_path_types import (
 from graphistry.compute.gfql.cypher.reentry import naming as _reentry_naming, scope as _reentry_scope
 from graphistry.compute.gfql.cypher.ast import CypherParams
 from graphistry.compute.gfql.cypher.where_membership import peel_literal_membership_where
-from graphistry.compute.gfql.identifiers import render_cypher_identifier, shortest_path_hops_column
+from graphistry.compute.gfql.identifiers import parse_cypher_backtick_identifier, render_cypher_identifier, shortest_path_hops_column
 
 
 @dataclass(frozen=True)
@@ -1245,6 +1245,7 @@ def _rewrite_alias_properties_to_outputs(
 def _rewrite_expr_to_output_names(
     expr_text: str,
     *,
+    available_columns: AbstractSet[str],
     replacements: Mapping[str, str],
     params: Optional[Mapping[str, Any]],
     field: str,
@@ -1260,12 +1261,16 @@ def _rewrite_expr_to_output_names(
     )
 
     def _rewrite(node_in: ExprNode) -> ExprNode:
+        if isinstance(node_in, Identifier):
+            if node_in.name in available_columns:
+                return Identifier(node_in.name, quoted=node_in.quoted)
+            replacement = replacements.get(node_in.name)
+            if replacement is not None:
+                return Identifier(replacement, quoted=node_in.quoted)
         rendered = _render_expr_node(node_in)
         replacement = replacements.get(rendered)
         if replacement is not None:
-            return Identifier(replacement)
-        if isinstance(node_in, Identifier):
-            return Identifier(replacements.get(node_in.name, node_in.name))
+            return Identifier(replacement, quoted=True)
         return _rebuild_expr_node(node_in, rewrite=_rewrite, error_context="output rewrite")
 
     return _render_expr_node(_rewrite(node))
@@ -4115,6 +4120,10 @@ def _lower_order_by_clause(
                     )
                 else:
                     order_key = alias_name
+                if order_key == alias_name and not (
+                    plan.whole_row_output_names and alias_name in plan.output_to_expr_source
+                ):
+                    order_key = render_cypher_identifier(order_key)
             else:
                 source_alias = (
                     plan.whole_row_sources.get(alias_name, plan.source_alias)
@@ -4223,10 +4232,18 @@ def _lower_order_by_outputs(
 ) -> ASTObject:
     keys: List[Tuple[str, str]] = []
     for item in clause.items:
-        order_key = expr_to_output.get(item.expression.text)
+        order_node = _parse_row_expr(item.expression.text, params=params, field="order_by", line=item.span.line, column=item.span.column)
+        quoted_alias = order_node.name if isinstance(order_node, Identifier) and order_node.quoted else None
+        if isinstance(order_node, Identifier) and order_node.name in available_columns:
+            keys.append((render_cypher_identifier(order_node.name), item.direction))
+            continue
+        order_key: Optional[str] = expr_to_output.get(item.expression.text)
+        if order_key is None and quoted_alias is not None and quoted_alias in available_columns:
+            order_key = render_cypher_identifier(quoted_alias)
         if order_key is None:
             order_key = _rewrite_expr_to_output_names(
                 item.expression.text,
+                available_columns=available_columns,
                 replacements=expr_to_output,
                 params=params,
                 field="order_by",
@@ -4234,6 +4251,8 @@ def _lower_order_by_outputs(
                 column=item.span.column,
             )
             _reject_order_by_aggregate(item, expr_text=order_key, params=params)
+        if order_key != item.expression.text and order_key in available_columns:
+            order_key = render_cypher_identifier(order_key)
         if order_key not in available_columns:
             node = _parse_row_expr(
                 order_key,
@@ -4913,6 +4932,35 @@ def _lower_match_alias_stage(
     )
     row_steps: List[ASTObject] = []
     defer_return_projection = False
+    order_projection_items = list(plan.projection_items)
+    order_plan: _ProjectionPlan = plan
+    if stage.order_by is not None:
+        order_plan = _projection._plan_with_visible_projected_columns(plan, scope.projected_columns)
+        order_output_names = _projection._projection_output_names(plan)
+        for order_item in stage.order_by.items:
+            try:
+                order_alias, order_prop = _projection._projection_ref_from_expr(
+                    order_item.expression.text,
+                    alias_targets=scope.alias_targets,
+                    params=params,
+                    field="order_by",
+                    line=order_item.span.line,
+                    column=order_item.span.column,
+                )
+            except GFQLValidationError:
+                continue
+            if (
+                order_prop is None
+                and order_alias is not None
+                and order_alias not in order_output_names
+                and order_alias in order_plan.available_columns
+                and order_alias in scope.projected_columns
+            ):
+                order_binding = scope.projected_columns[order_alias]
+                if order_binding.source_name is not None:
+                    order_projection_items.append((order_alias, order_binding.source_name))
+                    order_output_names.add(order_alias)
+        order_plan = replace(order_plan, projection_items=order_projection_items)
     if not plan.whole_row_output_names:
         projection_fn = with_ if stage.clause.kind == "with" else return_
         if (
@@ -4922,7 +4970,7 @@ def _lower_match_alias_stage(
         ):
             # Keep pre-existing columns alive for ORDER BY references that are
             # intentionally not part of the final RETURN projection.
-            row_steps.append(with_(plan.projection_items, extend=True))
+            row_steps.append(with_(order_projection_items, extend=True))
             defer_return_projection = True
         else:
             row_steps.append(projection_fn(plan.projection_items))
@@ -4971,7 +5019,6 @@ def _lower_match_alias_stage(
             )
         )
     if stage.order_by is not None:
-        order_plan = _projection._plan_with_visible_projected_columns(plan, scope.projected_columns)
         row_steps.append(
             _lower_order_by_clause(
                 stage.order_by,
@@ -5245,7 +5292,7 @@ def _lower_match_alias_aggregate_stage(
             expr_to_output,
             source_expr=agg_spec.source_text,
             output_name=agg_spec.output_name,
-            alias_name=agg_spec.output_name,
+            alias_name=None,
         )
 
     bindings_row_path = bool(scope.allowed_match_aliases)
@@ -5817,7 +5864,7 @@ def _lower_row_column_aggregate_stage(
             expr_to_output,
             source_expr=agg_spec.source_text,
             output_name=agg_spec.output_name,
-            alias_name=agg_spec.output_name,
+            alias_name=None,
         )
 
     row_steps: List[ASTObject] = []
@@ -7470,7 +7517,7 @@ def _lower_general_row_projection(
                 expr_to_output,
                 source_expr=agg_spec.source_text,
                 output_name=agg_spec.output_name,
-                alias_name=agg_spec.output_name,
+                alias_name=None,
             )
 
         if not binding_row_aliases:
