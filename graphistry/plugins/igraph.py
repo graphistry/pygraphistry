@@ -202,8 +202,10 @@ def from_igraph(self,
 
         src_col = g._source or SRC_IGRAPH
         dst_col = g._destination or DST_IGRAPH
+        from graphistry.compute.util import generate_safe_column_name_from
         edges_df = ig.get_edge_dataframe()
         renamed_attrs: Dict[str, str] = {}
+        occupied_names = set(edges_df.columns) | {src_col, dst_col}
 
         # igraph edge attributes named 'source' or 'target' collide with the
         # endpoint columns from get_edge_dataframe(); endpoints come first,
@@ -214,14 +216,34 @@ def from_igraph(self,
             for c in edges_df.columns:
                 n = counts.get(c, 0) + 1
                 counts[c] = n
-                new_name = c if n == 1 else f'__attr_{c}_{n}__'
-                new_cols.append(new_name)
+                new_name = c
                 if n > 1:
+                    new_name = generate_safe_column_name_from(c, occupied_names, prefix='__attr_', start=n)
+                    occupied_names.add(new_name)
                     renamed_attrs[c] = new_name
+                new_cols.append(new_name)
             edges_df.columns = new_cols
             logger.warning(
                 'igraph edge attribute names collide with endpoint columns; '
                 'renamed duplicate columns to __attr_<name>_<n>__'
+            )
+
+        final_binding_collisions = [
+            attr_name
+            for attr_name in ig.es.attributes()
+            if attr_name not in renamed_attrs and attr_name in {src_col, dst_col}
+        ]
+        for attr_name in ig.es.attributes():
+            if attr_name in renamed_attrs or attr_name not in {src_col, dst_col}:
+                continue
+            fallback_name = generate_safe_column_name_from(attr_name, occupied_names, prefix='__attr_', start=2)
+            occupied_names.add(fallback_name)
+            renamed_attrs[attr_name] = fallback_name
+            edges_df = edges_df.rename(columns={attr_name: fallback_name})
+        if final_binding_collisions:
+            logger.warning(
+                'igraph edge attribute names collide with final endpoint bindings; '
+                'renamed attributes to __attr_<name>_<n>__'
             )
         edges_df = _restore_igraph_large_nullable_ints(edges_df, ig.es, renamed_attrs)
 
@@ -237,9 +259,16 @@ def from_igraph(self,
                 on='target'
             )[node_id_col]
 
+        endpoint_cols_after_rename = {src_col, dst_col}
+        restored_attrs = {
+            renamed_name: original_name
+            for original_name, renamed_name in renamed_attrs.items()
+            if original_name not in endpoint_cols_after_rename
+        }
         edges_df = edges_df.rename(columns={
             'source': src_col,
-            'target': dst_col
+            'target': dst_col,
+            **restored_attrs
         })
 
         if edge_attributes is not None:

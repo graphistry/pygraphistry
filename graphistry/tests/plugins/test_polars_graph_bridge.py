@@ -87,6 +87,19 @@ def test_compute_igraph_nullable_large_edge_ids_are_exact(dtype: Any, big: int) 
 
 
 @pytest.mark.skipif(not has_igraph, reason="Requires igraph")
+def test_compute_igraph_preserves_edge_collision_on_polars() -> None:
+    edges = pl.DataFrame({"s": ["a", "b", "c"], "d": ["b", "c", "a"], "source": ["a", "b", "c"]})
+    nodes = pl.DataFrame({"id": ["a", "b", "c"]})
+    base = graphistry.edges(edges, "s", "d").nodes(nodes, "id")
+
+    out = base.compute_igraph("pagerank").compute_igraph("articulation_points")
+    assert isinstance(out._edges, pl.DataFrame)
+    assert out._edges.columns == ["s", "d", "source"]
+    assert out._edges["source"].to_list() == ["a", "b", "c"]
+    assert out._edges["s"].to_list() == ["a", "b", "c"]
+
+
+@pytest.mark.skipif(not has_igraph, reason="Requires igraph")
 @pytest.mark.parametrize("name", ["source", "target"])
 def test_compute_igraph_does_not_confuse_vertex_attribute_with_edge_collision_name(name: str) -> None:
     big = 2**53 + 1
