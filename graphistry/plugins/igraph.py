@@ -60,6 +60,7 @@ def _restore_igraph_large_nullable_ints(
 SRC_IGRAPH = 'source'
 DST_IGRAPH = 'target'
 NODE_IGRAPH = NODE
+RENAMED_NAME_ATTR = 'graphistry.renamed_name_attr'
 
 def from_igraph(self,
     ig: Any,
@@ -148,6 +149,10 @@ def from_igraph(self,
             else:
                 nodes_df = nodes_df.reset_index().rename(columns={nodes_df.index.name: node_col})
         
+        renamed_name_attr = ig[RENAMED_NAME_ATTR] if RENAMED_NAME_ATTR in ig.attributes() else None
+        if renamed_name_attr in nodes_df and 'name' not in nodes_df:
+            nodes_df = nodes_df.rename(columns={renamed_name_attr: 'name'})
+
         if node_attributes is not None:
             nodes_df = nodes_df[ node_attributes ]
 
@@ -361,9 +366,21 @@ def to_igraph(
     nodes_df = ensure_pandas(g._nodes[[g._node] + node_attrs])
     if nodes_df[g._node].isna().any():
         raise ValueError("igraph cannot preserve null node IDs")
-    return igraph.Graph.DataFrame(
+
+    # igraph reserves 'name' for node IDs; from_igraph restores the original column
+    renamed_name_attr = None
+    if 'name' in node_attrs:
+        from graphistry.compute.util import generate_safe_column_name_from
+        renamed_name_attr = generate_safe_column_name_from('name', nodes_df.columns, prefix='__attr_', start=2)
+        nodes_df = nodes_df.rename(columns={'name': renamed_name_attr})
+        logger.warning('igraph node attribute name collides with node IDs; renamed it to %s', renamed_name_attr)
+
+    ig = igraph.Graph.DataFrame(
         edges_df, directed=directed, vertices=nodes_df, use_vids=use_vids
     )
+    if renamed_name_attr is not None:
+        ig[RENAMED_NAME_ATTR] = renamed_name_attr
+    return ig
 
 
 compute_algs: List[str] = [
