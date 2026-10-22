@@ -141,6 +141,10 @@ from graphistry.compute.gfql.cypher.call_procedures import (
     ProcedureOutputColumn as CompiledProcedureOutputColumn,
     compile_cypher_call,
 )
+from graphistry.compute.gfql.cypher.pattern_where_properties import (
+    expr_property_access_node_aliases as _expr_property_access_node_aliases,
+    where_pattern_property_columns as _where_pattern_property_columns,
+)
 from graphistry.compute.gfql.cypher.ast_normalizer import ASTNormalizer
 from graphistry.compute.gfql.expr_const_fold import fold_constants
 from graphistry.compute.gfql.cypher.shortest_path_aliases import (
@@ -2467,136 +2471,14 @@ def _binding_prop_alias_set(
             # referenced within the aggregate (#1273). ``non_aggregate_aliases`` alone
             # (which excludes aggregate context) would drop it -> a missing column.
             prop_aliases = _expr_property_access_node_aliases(
-                text, alias_targets=alias_targets, params=params,
-                field="return", line=line, column=column,
+                text, parse_row_expr=_parse_row_expr, alias_targets=alias_targets,
+                params=params, field="return", line=line, column=column,
             )
         except GFQLValidationError:
             return None  # can't analyze cleanly → conservative attach-all
         referenced.update(a for a in non_aggregate_aliases if a in node_aliases)
         referenced.update(a for a in prop_aliases if a in node_aliases)
     return sorted(referenced)
-
-
-def _expr_property_access_node_aliases(
-    expr_text: str,
-    *,
-    alias_targets: Mapping[str, ASTObject],
-    params: Optional[Mapping[str, Any]],
-    field: str,
-    line: int,
-    column: int,
-) -> Set[str]:
-    """Node aliases that appear in a ``alias.prop`` property access anywhere in the
-    expression (INCLUDING inside aggregates). Used by #1711 projection-pushdown so a
-    property referenced only via ``avg(alias.prop)`` still keeps that alias's join."""
-    node = _parse_row_expr(
-        expr_text, params=params, alias_targets=alias_targets,
-        allow_missing_params=True, field=field, line=line, column=column,
-    )
-    out: Set[str] = set()
-
-    def _visit(n: ExprNode) -> None:
-        if isinstance(n, PropertyAccessExpr) and isinstance(n.value, Identifier):
-            root = n.value.name.split(".", 1)[0]
-            if root in alias_targets:
-                out.add(root)
-        for child in getattr(n, "__dict__", {}).values():
-            if is_expr_node(child):
-                _visit(cast(ExprNode, child))
-            elif isinstance(child, (list, tuple)):
-                for c in child:
-                    if is_expr_node(c):
-                        _visit(cast(ExprNode, c))
-
-    _visit(node)
-    return out
-
-
-def _expr_property_access_columns(
-    expr_text: str,
-    *,
-    alias_targets: Mapping[str, ASTObject],
-    params: Optional[Mapping[str, Any]],  # hygiene-ok: explicit-any -- heterogeneous Cypher bound parameters
-    field: str,
-    line: int,
-    column: int,
-) -> Set[Tuple[str, str]]:
-    """Typed ``(alias, property)`` pairs accessed anywhere in an expression."""
-    node = _parse_row_expr(
-        expr_text,
-        params=params,
-        alias_targets=alias_targets,
-        allow_missing_params=True,
-        field=field,
-        line=line,
-        column=column,
-    )
-    accessed: Set[Tuple[str, str]] = set()
-
-    def _visit(node: ExprNode) -> None:
-        if isinstance(node, PropertyAccessExpr) and isinstance(node.value, Identifier):
-            root = node.value.name.split(".", 1)[0]
-            if root in alias_targets:
-                accessed.add((root, node.property))
-
-    walk_expr_nodes(node, enter=_visit)
-    return accessed
-
-
-def _where_pattern_property_columns(
-    where: WhereClause,
-    *,
-    alias_targets: Mapping[str, ASTObject],
-    params: Optional[Mapping[str, Any]],  # hygiene-ok: explicit-any -- heterogeneous Cypher bound parameters
-    extra_expressions: Sequence[Tuple[str, SourceSpan]] = (),
-) -> Dict[str, List[str]]:
-    """Bare property columns needed by a pattern-WHERE and aggregate projections."""
-    accessed: Set[Tuple[str, str]] = set()
-    for predicate in where.predicates:
-        if isinstance(predicate, WherePredicate):
-            if isinstance(predicate.left, PropertyRef):
-                accessed.add((predicate.left.alias, predicate.left.property))
-            if isinstance(predicate.right, PropertyRef):
-                accessed.add((predicate.right.alias, predicate.right.property))
-    if where.expr_tree is not None:
-        stack = [where.expr_tree]
-        while stack:
-            node = stack.pop()
-            if node.op == "atom" and node.atom_text:
-                try:
-                    accessed.update(
-                        _expr_property_access_columns(
-                            node.atom_text,
-                            alias_targets=alias_targets,
-                            params=params,
-                            field="where",
-                            line=(node.atom_span or node.span).line,
-                            column=(node.atom_span or node.span).column,
-                        )
-                    )
-                except (GFQLValidationError, RuntimeError):
-                    continue
-            for child in (node.left, node.right):
-                if child is not None:
-                    stack.append(child)
-    for text, span in extra_expressions:
-        try:
-            accessed.update(
-                _expr_property_access_columns(
-                    text,
-                    alias_targets=alias_targets,
-                    params=params,
-                    field="return",
-                    line=span.line,
-                    column=span.column,
-                )
-            )
-        except (GFQLValidationError, RuntimeError):
-            continue
-    by_alias: Dict[str, Set[str]] = {}
-    for alias, column in accessed:
-        by_alias.setdefault(alias, set()).add(column)
-    return {alias: sorted(columns) for alias, columns in by_alias.items()}
 
 
 def _is_multi_source_match_alias_boundary_error(
@@ -6933,12 +6815,9 @@ def lower_match_query(
     requested_property_columns = (
         None
         if query.where is None
-        else _where_pattern_property_columns(
-            query.where,
-            alias_targets=alias_targets,
-            params=params,
-            extra_expressions=where_projection_expressions,
-        )
+        else _where_pattern_property_columns(query.where, parse_row_expr=_parse_row_expr,
+                                             alias_targets=alias_targets, params=params,
+                                             extra_expressions=where_projection_expressions)
     )
 
     row_where: Optional[ExpressionText] = None
@@ -8801,6 +8680,7 @@ def _connected_join_required_property_aliases(
             )
             prop_aliases = _expr_property_access_node_aliases(
                 text,
+                parse_row_expr=_parse_row_expr,
                 alias_targets=alias_targets,
                 params=params,
                 field=field_name,
