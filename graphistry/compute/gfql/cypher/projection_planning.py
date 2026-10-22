@@ -724,6 +724,26 @@ def _whole_node_projection_routing(
     )
 
 
+def _whole_node_distinct_temporary_items(
+    plan: _ProjectionPlan,
+) -> List[Tuple[str, Any]]:
+    return [
+        (f"__gfql_return_distinct_{index}__", runtime_expr)
+        for index, (_, runtime_expr) in enumerate(plan.projection_items)
+    ]
+
+
+def _whole_node_distinct_temporary_names(plan: _ProjectionPlan) -> List[str]:
+    return [name for name, _ in _whole_node_distinct_temporary_items(plan)]
+
+
+def _whole_node_distinct_keys(plan: _ProjectionPlan) -> List[str]:
+    return (
+        [plan.whole_row_sources[name] for name in plan.whole_row_output_names]
+        + _whole_node_distinct_temporary_names(plan)
+    )
+
+
 def _plan_with_visible_projected_columns(
     plan: _ProjectionPlan,
     projected_columns: Mapping[str, _StageColumnBinding],

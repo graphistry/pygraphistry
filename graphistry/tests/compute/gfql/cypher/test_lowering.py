@@ -2873,6 +2873,51 @@ def test_cypher_whole_node_projection_matches_relationship_unique_paths(
     assert sorted(result._nodes[f"{alias}.id"]) == expected
 
 
+@pytest.mark.parametrize("engine", ["pandas", "polars"])
+@pytest.mark.parametrize(
+    ("values", "expected"),
+    [
+        pytest.param([1, 2], [(1,), (2,)], id="distinct-projected-values-are-retained"),
+        pytest.param([1, 1], [(1,)], id="equal-projected-values-collapse"),
+    ],
+)
+def test_whole_node_distinct_keys_on_projected_values(
+    engine: str,
+    values: List[int],
+    expected: List[Tuple[int, ...]],
+) -> None:
+    nodes = pd.DataFrame({"id": ["a", "b", "c", "d"], "v": [None, None, values[0], values[1]]})
+    edges = pd.DataFrame({"s": ["a", "c", "d"], "d": ["b", "b", "b"]})
+    query = "MATCH (a)-[e]->(b)<-[f]-(c) WHERE a.id = 'a' RETURN DISTINCT b, c.v AS v"
+    graph = _mk_polars_graph(nodes, edges) if engine == "polars" else _mk_graph(nodes, edges)
+
+    rows = _to_pandas_df(graph.gfql(query, strict="strict")._nodes)
+    assert sorted(zip(rows["v"])) == expected
+
+
+@pytest.mark.parametrize("engine", ["pandas", "polars"])
+@pytest.mark.parametrize(
+    ("distinct", "expected"),
+    [
+        pytest.param(True, [("c",)], id="parallel-relationship-set-collapses"),
+        pytest.param(False, [("c",), ("c",)], id="parallel-relationship-bag-retains-relationships"),
+    ],
+)
+def test_whole_node_distinct_preserves_bag_or_set_semantics(
+    engine: str,
+    distinct: bool,
+    expected: List[Tuple[str, ...]],
+) -> None:
+    nodes = pd.DataFrame({"id": ["a", "b", "c"]})
+    edges = pd.DataFrame({"s": ["a", "a", "c"], "d": ["b", "b", "b"]})
+    distinct_sql = " DISTINCT" if distinct else ""
+    query = f"MATCH (a)-[e]->(b)<-[f]-(c) WHERE a.id = 'a' AND c.id = 'c' RETURN{distinct_sql} b, c.id AS cid"
+    graph = _mk_polars_graph(nodes, edges) if engine == "polars" else _mk_graph(nodes, edges)
+
+    rows = _to_pandas_df(graph.gfql(query, strict="strict")._nodes)
+    assert sorted(zip(rows["cid"])) == expected
+
+
 def test_string_cypher_formats_single_node_entity_projection() -> None:
     nodes = pd.DataFrame(
         {

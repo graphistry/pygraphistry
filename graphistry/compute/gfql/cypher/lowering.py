@@ -4597,16 +4597,18 @@ def _lower_projection_chain(
     )
 
     if not plan.whole_row_output_names:
-        projection_fn = with_ if plan.clause_kind == "with" else return_
-        row_steps.append(projection_fn(plan.projection_items))
+        row_steps.append((with_ if plan.clause_kind == "with" else return_)(plan.projection_items))
+    elif final_whole_node_binding_rows and plan.projection_items:
+        row_steps.append(with_(_projection._whole_node_distinct_temporary_items(plan), extend=True))
 
     if query.return_.distinct:
         visible_distinct_keys = (
-            [plan.whole_row_sources[name] for name in plan.whole_row_output_names]
-            if final_whole_node_binding_rows
-            else None
+            _projection._whole_node_distinct_keys(plan)
+            if final_whole_node_binding_rows else None
         )
         row_steps.append(distinct(subset=visible_distinct_keys))
+        if final_whole_node_binding_rows and plan.projection_items:
+            row_steps.append(drop_cols(_projection._whole_node_distinct_temporary_names(plan)))
     if query.order_by is not None:
         row_steps.append(
             _lower_order_by_clause(
@@ -9850,11 +9852,8 @@ def compile_cypher_query(
                     params=params,
                 )
             optional_arm_has_no_null_extension_mechanism = (
-                len(query.matches) >= 2
-                and any(m.optional for m in query.matches)
-                and empty_result_row is None
-                and optional_null_fill is None
-                and optional_projection_row_guard is None
+                len(query.matches) >= 2 and any(m.optional for m in query.matches)
+                and empty_result_row is None and optional_null_fill is None and optional_projection_row_guard is None
             )
             if optional_arm_has_no_null_extension_mechanism:
                 raise _unsupported(
