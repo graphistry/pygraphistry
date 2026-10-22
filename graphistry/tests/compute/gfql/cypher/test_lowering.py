@@ -4279,7 +4279,7 @@ def test_string_cypher_uses_integer_division_for_literal_arithmetic_expression()
     assert result._nodes.to_dict(orient="records") == [{"12 / 4 * 3 - 2 * 4": 1}]
 
 
-def test_string_cypher_preserves_escaped_literal_backslash_pairs() -> None:
+def test_string_cypher_decodes_standard_escaped_backslash_once() -> None:
     graph = _mk_graph(
         pd.DataFrame({"id": []}),
         pd.DataFrame({"s": [], "d": []}),
@@ -4288,7 +4288,7 @@ def test_string_cypher_preserves_escaped_literal_backslash_pairs() -> None:
     result = graph.gfql(r"""RETURN 'a\\bcn5t\'"\\//\\"\'' AS literal""")
 
     assert result._nodes.to_dict(orient="records") == [
-        {"literal": "a\\\\bcn5t'\"\\\\//\\\\\"'"}
+        {"literal": "a\\bcn5t'\"\\//\\\"'"}
     ]
 
 
@@ -4312,8 +4312,41 @@ def test_string_cypher_handles_standard_string_literal_escapes() -> None:
     result = graph.gfql(r"""RETURN '\n\t\r\b\f\\\'\"' AS literal""")
 
     assert result._nodes.to_dict(orient="records") == [
-        {"literal": "\n\t\r\b\f\\\\'\""}
+        {"literal": "\n\t\r\b\f\\'\""}
     ]
+
+
+def test_string_cypher_backslash_matches_consistently_under_composed_where() -> None:
+    graph = _mk_graph(
+        pd.DataFrame({
+            "id": ["a", "b", "c", "d"],
+            "ip": ["10.0.0.1", "192.168.1.5", "10x0.0.2", "8.8.8.8"],
+            "path": ["a\\slash", "plain", "plain", "plain"],
+        }),
+        pd.DataFrame({"s": ["a", "a", "b"], "d": ["b", "c", "c"]}),
+    )
+
+    direct = graph.gfql(r"MATCH (n) WHERE n.ip =~ '10\\..*' RETURN n.id AS id")
+    negated = graph.gfql(r"MATCH (n) WHERE NOT n.ip =~ '10\\..*' RETURN n.id AS id")
+    logical_or = graph.gfql(
+        r"MATCH (n) WHERE n.ip =~ '10\\..*' OR n.id = 'zz' RETURN n.id AS id"
+    )
+    regex_control = graph.gfql(r"MATCH (n) WHERE NOT n.ip =~ '10[.].*' RETURN n.id AS id")
+    nested = graph.gfql(
+        r"MATCH (n) WHERE NOT (n.ip =~ '10\\..*' OR n.id = 'zz') RETURN n.id AS id"
+    )
+    stored_slash = graph.gfql(r"MATCH (n) WHERE n.path = 'a\\slash' RETURN n.id AS id")
+    composed_stored_slash = graph.gfql(
+        r"MATCH (n) WHERE n.path = 'a\\slash' OR n.id = 'zz' RETURN n.id AS id"
+    )
+
+    assert direct._nodes["id"].tolist() == ["a"]
+    assert negated._nodes["id"].tolist() == ["b", "c", "d"]
+    assert logical_or._nodes["id"].tolist() == ["a"]
+    assert regex_control._nodes["id"].tolist() == ["b", "c", "d"]
+    assert nested._nodes["id"].tolist() == ["b", "c", "d"]
+    assert stored_slash._nodes["id"].tolist() == ["a"]
+    assert composed_stored_slash._nodes["id"].tolist() == ["a"]
 
 
 @pytest.mark.parametrize("query", [r"RETURN '\uH' AS literal", "RETURN 'unterminated AS literal"])
