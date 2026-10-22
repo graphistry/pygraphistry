@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from typing import Mapping, Tuple
 
-from graphistry.compute.ast import ASTNode
+from graphistry.compute.ast import ASTNode, ASTObject
 from graphistry.compute.gfql.cypher import lowering as _lowering
 from graphistry.compute.gfql.cypher.ast import CypherQuery
 from graphistry.compute.gfql.cypher.lowering import _ProjectionPlan
@@ -688,7 +688,7 @@ def _whole_node_projection_routing(
     query: CypherQuery,
     *,
     plan: _ProjectionPlan,
-    alias_targets: Mapping[str, ASTNode],
+    alias_targets: Mapping[str, ASTObject],
 ) -> Tuple[int, bool, bool]:
     merged_match = _lowering._merged_match_clause(query)
     relationship_count = (

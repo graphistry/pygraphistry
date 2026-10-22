@@ -4094,10 +4094,9 @@ def _lower_order_by_clause(
                 ):
                     order_key = render_cypher_identifier(order_key)
             else:
-                source_alias = (
-                    plan.whole_row_sources.get(alias_name, plan.source_alias)
-                    if alias_name in plan.whole_row_output_names
-                    else alias_name
+                property_name = prop if prop is not None else ""
+                source_alias = plan.whole_row_sources.get(
+                    alias_name, plan.source_alias or alias_name
                 )
                 if source_alias != plan.source_alias and alias_name not in plan.whole_row_output_names:
                     raise GFQLValidationError(
@@ -4111,9 +4110,9 @@ def _lower_order_by_clause(
                         language="cypher",
                     )
                 order_key = (
-                    f"{source_alias}.{prop}"
+                    f"{source_alias}.{property_name}"
                     if plan.whole_row_output_names
-                    else plan.projected_property_outputs.get(prop, prop)
+                    else plan.projected_property_outputs.get(property_name, property_name)
                 )
         else:
             if alias_targets is None:
