@@ -349,18 +349,23 @@ class Test_from_igraph(NoAuthTestCase):
                 assert g2._nodes.columns.tolist() == ["id", "name", "pagerank"]
                 assert g2._nodes["id"].tolist() == [10, 20, 30, 40]
                 assert g2._nodes["name"].tolist() == ["a", "b", "c", "d"]
+                assert g2._nodes["id"].dtype == nodes_df["id"].dtype
+                assert g2._edges["s"].dtype == edges_df["s"].dtype
 
     def test_node_name_attribute_through_compute_and_cypher(self):
         nodes_df = pd.DataFrame({"id": ["a", "b", "c", "d"], "name": ["A", "B", "C", "D"]})
         edges_df = pd.DataFrame({"s": ["a", "a", "b"], "d": ["b", "c", "c"]})
         g = graphistry.nodes(nodes_df, "id").edges(edges_df, "s", "d")
 
+        control = graphistry.nodes(nodes_df.rename(columns={"name": "label"}), "id").edges(edges_df, "s", "d")
+        expected = control.compute_igraph("pagerank")._nodes.set_index("id")["pagerank"].to_dict()
+
         g2 = g.compute_igraph("pagerank")
-        assert "pagerank" in g2._nodes
         assert g2._nodes["name"].tolist() == ["A", "B", "C", "D"]
+        assert g2._nodes.set_index("id")["pagerank"].to_dict() == pytest.approx(expected)
 
         out = g.gfql("CALL graphistry.igraph.pagerank() YIELD nodeId, pagerank RETURN nodeId, pagerank")
-        assert sorted(out._nodes["nodeId"].tolist()) == ["a", "b", "c", "d"]
+        assert out._nodes.set_index("nodeId")["pagerank"].to_dict() == pytest.approx(expected)
 
     def _attr_graph(self, attr, n, id_dtype):
         ids = list(range(10, 10 + 10 * n, 10)) if id_dtype == "int64" else [f"n{i}" for i in range(n)]
