@@ -163,9 +163,19 @@ def test_variable_length_whole_entity_projection_unchanged(engine: _GFQLEngine) 
 
 
 @pytest.mark.parametrize("engine", _ENGINES)
-def test_whole_entity_carry_into_reentry_unchanged(engine: _GFQLEngine) -> None:
+def test_whole_entity_carry_into_reentry_keeps_bag(engine: _GFQLEngine) -> None:
+    """The first MATCH binds (a,c) four times. Whole-node carry preserves that
+    prefix bag, so the two node-1 outgoing matches each repeat twice."""
+    query = (
+        "MATCH (a)-->(c) WITH a AS p OPTIONAL MATCH (p)-->(z) RETURN p.id AS pid, z.id AS zid"
+    )
+    if engine in ("polars", "polars-gpu"):
+        with pytest.raises(NotImplementedError, match="cypher row op 'rows'"):
+            _run(query, engine)
+        return
     df = _run(
-        "MATCH (a)-->(c) WITH a AS p OPTIONAL MATCH (p)-->(z) RETURN p.id AS pid, z.id AS zid",
+        query,
         engine,
     )
-    assert len(df) == 4
+    got = sorted((int(row["pid"]), int(row["zid"])) for row in df.to_dict("records"))
+    assert got == [(1, 2), (1, 2), (1, 3), (1, 3), (2, 3), (3, 4)]

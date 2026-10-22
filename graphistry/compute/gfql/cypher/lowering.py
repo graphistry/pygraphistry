@@ -2641,24 +2641,6 @@ def _forces_relationship_multiplicity_projection_bindings(
     return True
 
 
-def _bag_preserving_whole_row_aliases(
-    query: CypherQuery,
-    *,
-    plan: "_ProjectionPlan",
-) -> AbstractSet[str]:
-    """Return whole-row aliases that may use relationship binding rows."""
-    if query.return_.distinct or query.return_is_reentry_carry:
-        return frozenset()
-    if any(
-        _is_variable_length_relationship_pattern(element)
-        for clause in query.matches
-        for element in _match_pattern_elements(clause)
-        if isinstance(element, RelationshipPattern)
-    ):
-        return frozenset()
-    return frozenset(plan.whole_row_sources.values())
-
-
 def _is_pure_count_star_shortcircuit(
     *,
     aggregate_specs: Sequence[_AggregateSpec],
@@ -4696,6 +4678,15 @@ def _build_initial_row_scope(
             relationship_count=relationship_count,
             items=stage_clause.items,
             order_by=stage_order_by,
+            bag_preserving_whole_row_aliases=(
+                {
+                    item.expression.text
+                    for item in stage_clause.items
+                    if item.expression.text in alias_targets
+                }
+                if query.return_is_reentry_carry
+                else frozenset()
+            ),
         )
     ):
         binding_row_aliases = set(alias_targets.keys())
