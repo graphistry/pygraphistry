@@ -5073,6 +5073,33 @@ class RowPipelineMixin:
         return join_cols, missing_aliases
 
     @staticmethod
+    def _gfql_pattern_semi_join_frame(
+        left_df: DataFrameT,
+        right_df: DataFrameT,
+        join_aliases: List[str],
+        node_id_col: str,
+    ) -> Tuple[DataFrameT, List[str], List[str]]:
+        """Give boolean alias markers an explicit ID key for correlated patterns."""
+        for alias in join_aliases:
+            id_col = f"{alias}.{node_id_col}"
+            if id_col in left_df.columns and id_col in right_df.columns:
+                continue
+            alias_col = alias
+            if (
+                node_id_col == alias
+                or node_id_col not in left_df.columns
+                or id_col not in right_df.columns
+                or alias_col not in left_df.columns
+                or not RowPipelineMixin._gfql_series_bool_like(left_df[alias_col])
+            ):
+                continue
+            left_df = left_df.assign(**{id_col: left_df[node_id_col]})
+        join_cols, missing_aliases = RowPipelineMixin._gfql_shared_join_cols(
+            left_df, right_df, join_aliases, node_id_col
+        )
+        return left_df, join_cols, missing_aliases
+
+    @staticmethod
     def _gfql_raise_missing_join_cols(
         *,
         message: str,
@@ -5189,7 +5216,9 @@ class RowPipelineMixin:
         if right_df is None or len(right_df) == 0:
             return self._gfql_row_table(left_df.copy())
 
-        join_cols, missing_aliases = self._gfql_shared_join_cols(left_df, right_df, join_aliases, node_id_col)
+        left_df, join_cols, missing_aliases = self._gfql_pattern_semi_join_frame(
+            left_df, right_df, join_aliases, node_id_col
+        )
         if not join_cols:
             self._gfql_raise_missing_join_cols(
                 message="Cypher WHERE NOT (pattern) anti-semi-join lowering could not recover shared alias join columns",
@@ -5243,7 +5272,9 @@ class RowPipelineMixin:
             out_df[out_col] = False
             return self._gfql_row_table(out_df)
 
-        join_cols, missing_aliases = self._gfql_shared_join_cols(left_df, right_df, join_aliases, node_id_col)
+        left_df, join_cols, missing_aliases = self._gfql_pattern_semi_join_frame(
+            left_df, right_df, join_aliases, node_id_col
+        )
         if not join_cols:
             self._gfql_raise_missing_join_cols(
                 message="Cypher WHERE pattern semi-apply lowering could not recover shared alias join columns",

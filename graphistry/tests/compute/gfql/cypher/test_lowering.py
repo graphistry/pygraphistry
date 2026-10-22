@@ -1542,6 +1542,93 @@ def test_gfql_executes_positive_where_pattern_predicate_as_seeded_match() -> Non
     assert result._nodes.to_dict(orient="records") == [{"id": "a"}]
 
 
+@pytest.mark.parametrize("empty_edges", [False, True], ids=["nonempty", "empty"])
+@pytest.mark.parametrize("engine", ["pandas", "polars", "cudf"])
+@pytest.mark.parametrize(
+    "query,expected",
+    [
+        ("MATCH (n) WHERE (n)-->() RETURN n.id AS id", [{"id": "a"}, {"id": "b"}]),
+        ("MATCH (n) WHERE (n)-->() RETURN count(*) AS c", [{"c": 2}]),
+        ("MATCH (n) WHERE NOT (n)-->() RETURN count(*) AS c", [{"c": 2}]),
+        ("MATCH (n)-->() RETURN count(DISTINCT n) AS c", [{"c": 2}]),
+    ],
+)
+def test_pattern_where_aggregates_use_alias_id_keys(
+    engine: str,
+    empty_edges: bool,
+    query: str,
+    expected: list[dict[str, object]],
+) -> None:
+    if engine == "polars":
+        pytest.importorskip("polars")
+    elif engine == "cudf":
+        _require_cudf_runtime()
+
+    if empty_edges:
+        expected = [] if query.endswith("RETURN n.id AS id") else [{"c": 0}]
+        if query.startswith("MATCH (n) WHERE NOT"):
+            expected = [{"c": 4}]
+
+    nodes = pd.DataFrame({"id": ["a", "b", "c", "d"]})
+    edge_values = {"s": ["a", "a", "b"], "d": ["b", "c", "c"]}
+    edges = (
+        pd.DataFrame({"s": pd.Series([], dtype="object"), "d": pd.Series([], dtype="object")})
+        if empty_edges
+        else pd.DataFrame(edge_values)
+    )
+    if engine == "polars":
+        pl = pytest.importorskip("polars")
+        nodes, edges = pl.from_pandas(nodes), pl.from_pandas(edges)
+        graph = cast(_CypherTestGraph, _CypherTestGraph().nodes(nodes, "id").edges(edges, "s", "d"))
+    elif engine == "cudf":
+        cudf = _require_cudf_runtime()
+        nodes, edges = cudf.from_pandas(nodes), cudf.from_pandas(edges)
+        graph = cast(_CypherTestGraph, _CypherTestGraph().nodes(nodes, "id").edges(edges, "s", "d"))
+    else:
+        graph = _mk_graph(nodes, edges)
+
+    result = graph.gfql(query)
+    if engine == "polars":
+        records = result._nodes.to_dicts()
+    else:
+        records = result._nodes.to_dict(orient="records")
+    assert records == expected
+
+
+@pytest.mark.parametrize(
+    "query,expected",
+    [
+        (
+            "MATCH (n) WHERE (n)-->() RETURN n.id AS id, count(*) AS c ORDER BY id",
+            [{"id": "a", "c": 1}, {"id": "b", "c": 1}],
+        ),
+        (
+            "MATCH (n) WHERE (n)<--() RETURN count(*) AS c",
+            [{"c": 2}],
+        ),
+        (
+            "MATCH (n) WHERE (n)--() RETURN count(*) AS c",
+            [{"c": 3}],
+        ),
+        (
+            "MATCH (n) WHERE (n)-->() AND n.id != 'a' RETURN count(*) AS c",
+            [{"c": 1}],
+        ),
+    ],
+    ids=["grouped", "reverse", "undirected", "compound"],
+)
+def test_pattern_where_aggregate_deduplicates_edge_multiplicity(
+    query: str,
+    expected: list[dict[str, object]],
+) -> None:
+    nodes = pd.DataFrame({"id": ["a", "b", "c"]})
+    edges = pd.DataFrame({"s": ["a", "a", "b"], "d": ["b", "b", "c"]})
+
+    result = _mk_graph(nodes, edges).gfql(query)
+
+    assert result._nodes.to_dict(orient="records") == expected
+
+
 def test_gfql_executes_reverse_fixed_point_where_pattern_predicate_as_seeded_match() -> None:
     nodes = pd.DataFrame({"id": ["a", "b", "c", "x", "y"]})
     edges = pd.DataFrame(
