@@ -7,6 +7,9 @@ logger = setup_logger(__name__)
 
 if TYPE_CHECKING:
     import igraph
+    import numpy as np
+    from pandas.api.extensions import ExtensionDtype
+    from graphistry.compute.typing import DataFrameT
 
 
 def ensure_pandas(df: Any) -> pd.DataFrame:
@@ -56,7 +59,7 @@ def _restore_igraph_large_nullable_ints(
     return df.assign(**repairs) if repairs else df
 
 
-def _pandas_dtype(df: Any, col: str) -> Any:
+def _pandas_dtype(df: Optional["DataFrameT"], col: str) -> Optional[Union["np.dtype", "ExtensionDtype"]]:
     """Pandas dtype of df[col] for any dataframe engine, or None when the column is absent."""
     if df is None or col not in df.columns:
         return None
