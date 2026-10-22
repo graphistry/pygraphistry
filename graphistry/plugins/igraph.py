@@ -155,6 +155,11 @@ def from_igraph(self,
         if renamed_name_attr in nodes_df and 'name' not in nodes_df:
             nodes_df = nodes_df.rename(columns={renamed_name_attr: 'name'})
 
+        # igraph exports an empty graph's columns as float64
+        if renamed_name_attr is not None and len(nodes_df) == 0 and g._nodes is not None:
+            original_dtypes = ensure_pandas(g._nodes.head(0)).dtypes
+            nodes_df = nodes_df.astype({c: original_dtypes[c] for c in nodes_df.columns if c in original_dtypes})
+
         if node_attributes is not None:
             nodes_df = nodes_df[ node_attributes ]
 
@@ -254,7 +259,11 @@ def from_igraph(self,
             )
         edges_df = _restore_igraph_large_nullable_ints(edges_df, ig.es, renamed_attrs)
 
-        if ig_index_to_node_id_df is not None:
+        if len(edges_df) == 0 and g._nodes is not None and g._node in g._nodes:
+            # igraph exports an empty edge list's endpoints as float64
+            node_id_dtype = ensure_pandas(g._nodes[[g._node]])[g._node].dtype
+            edges_df = edges_df.astype({'source': node_id_dtype, 'target': node_id_dtype})
+        elif ig_index_to_node_id_df is not None:
             edges_df['source'] = edges_df[['source']].merge(
                 ig_index_to_node_id_df.rename(columns={'ig_index': 'source'}),
                 how='left',
