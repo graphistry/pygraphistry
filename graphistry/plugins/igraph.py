@@ -187,7 +187,9 @@ def from_igraph(self,
                 logger.warning('node tables do not match in length; switch merge_if_existing to False or load_nodes to False or add missing nodes')
 
             g_nodes_trimmed = g._nodes[[x for x in g._nodes if x not in nodes_df or x == g._node]]
-            nodes_df = nodes_df.merge(ensure_pandas(g_nodes_trimmed), how='left', on=g._node)
+            merged = nodes_df.merge(ensure_pandas(g_nodes_trimmed), how='left', on=g._node)
+            # pandas < 2.1 moves the key column last when the left frame is empty
+            nodes_df = merged[list(nodes_df.columns) + [c for c in merged.columns if c not in nodes_df.columns]]
 
         nodes_df = nodes_df.reset_index(drop=True)
         g = g.nodes(nodes_df, node_col)
