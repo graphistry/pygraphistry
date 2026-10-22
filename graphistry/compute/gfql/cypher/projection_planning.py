@@ -3,7 +3,12 @@
 # ruff: noqa: F821
 from __future__ import annotations
 
+from typing import Mapping, Tuple
+
+from graphistry.compute.ast import ASTNode
 from graphistry.compute.gfql.cypher import lowering as _lowering
+from graphistry.compute.gfql.cypher.ast import CypherQuery
+from graphistry.compute.gfql.cypher.lowering import _ProjectionPlan
 from graphistry.compute.gfql.identifiers import render_cypher_identifier
 
 globals().update(vars(_lowering))
@@ -680,11 +685,11 @@ def _optional_projection_row_guard_plan(
 
 
 def _whole_node_projection_routing(
-    query,
+    query: CypherQuery,
     *,
-    plan,
-    alias_targets,
-):
+    plan: _ProjectionPlan,
+    alias_targets: Mapping[str, ASTNode],
+) -> Tuple[int, bool, bool]:
     merged_match = _lowering._merged_match_clause(query)
     relationship_count = (
         _lowering._match_relationship_count(merged_match) if merged_match is not None else 0
@@ -697,17 +702,19 @@ def _whole_node_projection_routing(
         and bool(plan.whole_row_output_names)
         and relationship_count > 0
         and all(
-            isinstance(alias_targets.get(alias_name), _lowering.ASTNode)
+            isinstance(alias_targets.get(alias_name), ASTNode)
             for alias_name in plan.whole_row_sources.values()
         )
     )
-    force_multiplicity_bindings = plan.all_source_aliases is None and _lowering._forces_relationship_multiplicity_projection_bindings(
-        query,
-        alias_targets=alias_targets,
-        relationship_count=relationship_count,
-        items=query.return_.items,
-        order_by=query.order_by,
-        bag_preserving_whole_row_aliases=_lowering._bag_preserving_whole_row_aliases(query, plan=plan),
+    force_multiplicity_bindings = plan.all_source_aliases is None and (
+        _lowering._forces_relationship_multiplicity_projection_bindings(
+            query,
+            alias_targets=alias_targets,
+            relationship_count=relationship_count,
+            items=query.return_.items,
+            order_by=query.order_by,
+            bag_preserving_whole_row_aliases=_lowering._bag_preserving_whole_row_aliases(query, plan=plan),
+        )
     )
     return (
         relationship_count,
