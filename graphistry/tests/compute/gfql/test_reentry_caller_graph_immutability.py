@@ -122,6 +122,7 @@ def test_nested_reentry_duplicate_prefix_declines_polars():
     Polars must decline nested carry rather than rely on those duplicates
     having no outgoing arm. Pandas nested multiplicity remains owned by #1935.
     """
+    pytest.importorskip("polars")
     g = graphistry.nodes(DUPLICATE_NESTED_NODES, "id").edges(
         DUPLICATE_NESTED_EDGES, "s", "d"
     )
