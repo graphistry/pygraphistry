@@ -1369,9 +1369,6 @@ jobs:
           --base-ref "$BASE_SHA" \
           --head-ref "$HEAD_SHA" \
           --min-percent 80 \
-          --exclude 'graphistry/tests/*.py' \
-          --exclude 'graphistry/tests/**/*.py' \
-          --exclude 'graphistry/_version.py' \
           --output-dir build/changed-line-coverage
         cat build/changed-line-coverage/changed-line-coverage.md >> "$GITHUB_STEP_SUMMARY"
 

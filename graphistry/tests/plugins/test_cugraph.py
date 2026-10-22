@@ -840,6 +840,37 @@ class Test_restore_graph_edge_attrs:
 
         assert restored["label"].tolist() == ["ab"]
 
+    def test_avoids_cross_frame_returned_identifier(self):
+        returned = pd.DataFrame({"s": ["a"], "d": ["b"]})
+        original = pd.DataFrame({
+            "s": ["a"], "d": ["b"],
+            "__cugraph_returned_edge_id__": ["user"], "label": ["ab"],
+        })
+
+        restored = _restore_graph_edge_attrs(returned, original, "s", "d")
+
+        assert restored.shape == (1, 4)
+        assert restored[["s", "d"]].to_dict("records") == [{"s": "a", "d": "b"}]
+        assert restored["__cugraph_returned_edge_id__"].tolist() == ["user"]
+        assert restored["label"].tolist() == ["ab"]
+
+    def test_avoids_cross_frame_original_identifier(self):
+        returned = pd.DataFrame({
+            "s": ["a"], "d": ["b"], "__cugraph_original_edge_id__": ["returned"],
+        })
+        original = pd.DataFrame({
+            "s": ["a"], "d": ["b"],
+            "__cugraph_returned_edge_id__": ["original"], "label": ["ab"],
+        })
+
+        restored = _restore_graph_edge_attrs(returned, original, "s", "d")
+
+        assert restored.shape == (1, 5)
+        assert restored[["s", "d"]].to_dict("records") == [{"s": "a", "d": "b"}]
+        assert restored["__cugraph_original_edge_id__"].tolist() == ["returned"]
+        assert restored["__cugraph_returned_edge_id__"].tolist() == ["original"]
+        assert restored["label"].tolist() == ["ab"]
+
     def test_restores_graph_return_attrs(self):
         graph = graphistry.edges(pd.DataFrame({"s": ["a", "b"], "d": ["b", "a"]}), "s", "d")
         original = pd.DataFrame({"s": ["a"], "d": ["b"], "label": ["ab"]})
@@ -855,6 +886,20 @@ class Test_restore_graph_edge_attrs:
         restored = _restore_graph_return_edge_attrs(graph, None, "s", "d")
 
         assert restored is graph
+
+    def test_restores_cross_frame_reserved_return_attrs(self):
+        graph = graphistry.edges(pd.DataFrame({"s": ["a"], "d": ["b"]}), "s", "d")
+        original = pd.DataFrame({
+            "s": ["a"], "d": ["b"],
+            "__cugraph_returned_edge_id__": ["user"], "label": ["ab"],
+        })
+
+        restored = _restore_graph_return_edge_attrs(graph, original, "s", "d")
+
+        assert restored._source == "s" and restored._destination == "d"
+        assert restored._edges.shape == (1, 4)
+        assert restored._edges["__cugraph_returned_edge_id__"].tolist() == ["user"]
+        assert restored._edges["label"].tolist() == ["ab"]
 
 
 @pytest.mark.skipif(not test_cugraph, reason="Requires TEST_CUGRAPH=1")

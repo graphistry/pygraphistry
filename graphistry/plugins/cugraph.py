@@ -55,6 +55,7 @@ def _restore_graph_edge_attrs(
     if overlapping:
         raise ValueError(f'Returned edge columns overlap original attributes: {overlapping}')
 
+    existing_columns = set(returned_columns) | set(original_columns)
     if original_edges.duplicated(subset=[source, destination]).any():
         raise ValueError(
             'cuGraph graph algorithms require unique (source, destination) edge pairs; '
@@ -63,7 +64,11 @@ def _restore_graph_edge_attrs(
 
     returned_id = '__cugraph_returned_edge_id__'
     original_id = '__cugraph_original_edge_id__'
-    while returned_id in returned_columns or original_id in original_columns:
+    while (
+        returned_id in existing_columns
+        or original_id in existing_columns
+        or returned_id == original_id
+    ):
         returned_id = f'_{returned_id}'
         original_id = f'_{original_id}'
 
