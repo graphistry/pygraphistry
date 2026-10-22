@@ -18,7 +18,12 @@ import pytest
 
 import graphistry
 
+from graphistry.compute.exceptions import GFQLValidationError
 pl = pytest.importorskip("polars")
+from graphistry.tests.compute.test_gfql import (
+    TestGFQLCypherReentryCarrier,
+    _mk_reentry_scalar_graph,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -419,3 +424,60 @@ def test_multi_match_whole_entity_identity(node_id, return_clause, aliases):
     for alias in aliases:
         assert meta[alias]["id_column"] == node_id
         assert meta[alias]["ids"].to_list() == result._nodes[alias + "." + node_id].to_list()
+
+
+@pytest.mark.parametrize(
+    ("rows", "ids", "match"),
+    [
+        ({"property": [1, 1]}, ["a1", "a1"], "unique carried node rows"),
+        ({"property": [1]}, ["a1", "a2"], "metadata row counts disagreed"),
+    ],
+    ids=["duplicate-carried-node-ids", "metadata-row-count-mismatch"],
+)
+def test_reentry_state_rejects_invalid_carried_scalar_rows_native_polars(
+    rows: dict[str, list[int]],
+    ids: list[str],
+    match: str,
+) -> None:
+    from graphistry.tests.test_compute import CGFull
+
+    g = CGFull().nodes(pl.from_pandas(_mk_reentry_scalar_graph()._nodes), "id").edges(
+        pl.from_pandas(_mk_reentry_scalar_graph()._edges), "s", "d"
+    )
+    with pytest.raises(GFQLValidationError, match=match):
+        TestGFQLCypherReentryCarrier._run_reentry_state(
+            g,
+            TestGFQLCypherReentryCarrier._compile_reentry_query(),
+            TestGFQLCypherReentryCarrier._bind_reentry_prefix_result(
+                g,
+                rows=rows,
+                ids=ids,
+                engine="polars",
+            ),
+            engine="polars",
+        )
+
+
+def test_reentry_state_accepts_unique_carried_scalar_rows_native_polars() -> None:
+    from graphistry.tests.test_compute import CGFull
+
+    g = CGFull().nodes(pl.from_pandas(_mk_reentry_scalar_graph()._nodes), "id").edges(
+        pl.from_pandas(_mk_reentry_scalar_graph()._edges), "s", "d"
+    )
+    dispatch_graph, start_nodes = TestGFQLCypherReentryCarrier._run_reentry_state(
+        g,
+        TestGFQLCypherReentryCarrier._compile_reentry_query(),
+        TestGFQLCypherReentryCarrier._bind_reentry_prefix_result(
+            g,
+            rows={"property": [1, 2]},
+            ids=["a1", "a2"],
+            engine="polars",
+        ),
+        engine="polars",
+    )
+
+    assert "polars" in type(dispatch_graph._nodes).__module__
+    assert TestGFQLCypherReentryCarrier._carry_by_id(dispatch_graph) == {
+        "a1": TestGFQLCypherReentryCarrier._hidden_updates(property=1),
+        "a2": TestGFQLCypherReentryCarrier._hidden_updates(property=2),
+    }
