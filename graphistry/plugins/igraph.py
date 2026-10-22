@@ -56,6 +56,13 @@ def _restore_igraph_large_nullable_ints(
     return df.assign(**repairs) if repairs else df
 
 
+def _pandas_dtype(df: Any, col: str) -> Any:
+    """Pandas dtype of df[col] for any dataframe engine, or None when the column is absent."""
+    if df is None or col not in df.columns:
+        return None
+    return ensure_pandas(df[[col]].head(0))[col].dtype
+
+
 # preferring igraph naming convetions over graphistry.constants
 SRC_IGRAPH = 'source'
 DST_IGRAPH = 'target'
@@ -141,6 +148,10 @@ def from_igraph(self,
             #TODO if no g._nodes but 'name' in nodes_df, still use?
             if ('name' in nodes_df) and (renamed_name_attr in nodes_df):
                 nodes_df = nodes_df.rename(columns={'name': node_col})
+                # igraph widens int IDs and turns category IDs into strings
+                node_dtype = _pandas_dtype(self._nodes, node_col)
+                if node_dtype is not None:
+                    nodes_df[node_col] = nodes_df[node_col].astype(node_dtype)
             elif (
                 ('name' in nodes_df) and
                 (g._nodes is not None and g._node is not None) and
@@ -154,6 +165,9 @@ def from_igraph(self,
 
         if renamed_name_attr in nodes_df and 'name' not in nodes_df:
             nodes_df = nodes_df.rename(columns={renamed_name_attr: 'name'})
+            name_dtype = _pandas_dtype(self._nodes, 'name')
+            if name_dtype is not None:
+                nodes_df['name'] = nodes_df['name'].astype(name_dtype)
 
         # igraph exports an empty graph's columns as float64
         if renamed_name_attr is not None and len(nodes_df) == 0 and g._nodes is not None:
@@ -187,6 +201,8 @@ def from_igraph(self,
             node_id_col = None
         elif node_col in ig_vs_df:
             node_id_col = node_col
+        elif renamed_name_attr is not None and 'name' in ig_vs_df:
+            node_id_col = 'name'
         #User to_igraph() with numeric IDs may swizzle id mappings (ex: sparse numeric) so try to un-swizzle
         #FIXME: how to handle dense edge case's swizzling?
         elif g._node is not None and g._nodes[g._node].dtype.name == ig_vs_df.reset_index()['vertex ID'].dtype.name:
@@ -275,6 +291,12 @@ def from_igraph(self,
                 on='target'
             )[node_id_col]
 
+        if renamed_name_attr is not None:
+            for ig_col, col in [('source', src_col), ('target', dst_col)]:
+                endpoint_dtype = _pandas_dtype(self._edges, col)
+                if endpoint_dtype is not None:
+                    edges_df[ig_col] = edges_df[ig_col].astype(endpoint_dtype)
+
         endpoint_cols_after_rename = {src_col, dst_col}
         restored_attrs = {
             renamed_name: original_name
@@ -338,6 +360,11 @@ def to_igraph(
     igraph is a CPU-only library. cuDF DataFrames are automatically converted to pandas before
     being passed to igraph. For a GPU-native alternative, see :meth:`to_cugraph`.
 
+    igraph reserves the vertex attribute ``name`` for node IDs. A node attribute called ``name``,
+    other than the node ID column, is stored under a generated name such as ``__attr_name_2__``,
+    and the graph attribute ``graphistry.renamed_name_attr`` records that name so
+    :meth:`from_igraph` can restore the column. This does not apply when ``use_vids=True``.
+
     :param directed: Whether to create a directed graph (default True)
     :type directed: bool
 
@@ -384,7 +411,7 @@ def to_igraph(
         from graphistry.compute.util import generate_safe_column_name_from
         renamed_name_attr = generate_safe_column_name_from('name', nodes_df.columns, prefix='__attr_', start=2)
         nodes_df = nodes_df.rename(columns={'name': renamed_name_attr})
-        logger.warning('igraph node attribute name collides with node IDs; renamed it to %s', renamed_name_attr)
+        logger.debug('igraph node attribute name collides with node IDs; renamed it to %s', renamed_name_attr)
 
     ig = igraph.Graph.DataFrame(
         edges_df, directed=directed, vertices=nodes_df, use_vids=use_vids
