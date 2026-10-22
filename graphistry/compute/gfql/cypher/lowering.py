@@ -4566,21 +4566,39 @@ def _lower_projection_chain(
                 raise _multi_alias_exc
 
     merged_match = _merged_match_clause(query)
+    relationship_count = _match_relationship_count(merged_match) if merged_match is not None else 0
     force_multiplicity_bindings = (
         plan.all_source_aliases is None
         and _forces_relationship_multiplicity_projection_bindings(
             query,
             alias_targets=alias_targets,
-            relationship_count=_match_relationship_count(merged_match) if merged_match is not None else 0,
+            relationship_count=relationship_count,
             items=query.return_.items,
             order_by=query.order_by,
             bag_preserving_whole_row_aliases=_bag_preserving_whole_row_aliases(query, plan=plan),
         )
     )
+    final_whole_node_binding_rows = (
+        plan.clause_kind == "return"
+        and not query.with_stages
+        and not query.return_is_reentry_carry
+        and bool(plan.whole_row_output_names)
+        and relationship_count > 0
+        and all(
+            isinstance(alias_targets.get(alias_name), ASTNode)
+            for alias_name in plan.whole_row_sources.values()
+        )
+    )
     allowed_match_aliases = ({plan.source_alias} | plan.all_source_aliases | binding_row_aliases) if plan.all_source_aliases is not None else binding_row_aliases
     if force_multiplicity_bindings:
         allowed_match_aliases = allowed_match_aliases | set(alias_targets.keys())
-    if plan.all_source_aliases is not None or force_multiplicity_bindings or pre_scope_binding_row_aliases or lowered.row_pre_filters:
+    if (
+        final_whole_node_binding_rows
+        or plan.all_source_aliases is not None
+        or force_multiplicity_bindings
+        or pre_scope_binding_row_aliases
+        or lowered.row_pre_filters
+    ):
         row_steps: List[ASTObject] = [rows(binding_ops=serialize_binding_ops(lowered.query))]
     else:
         row_steps = [rows(table=plan.table, source=plan.source_alias)]
