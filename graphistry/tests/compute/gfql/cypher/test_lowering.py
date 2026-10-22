@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import fields as dataclass_fields
+from collections import Counter
 from pathlib import Path
 import pandas as pd
 import pytest
@@ -2900,11 +2901,11 @@ def test_whole_node_distinct_keys_on_projected_values(
         graph = _mk_graph(nodes, edges)
 
     rows = _to_pandas_df(graph.gfql(query, strict="strict")._nodes)
-    actual_rows = {
+    actual_rows = Counter(
         tuple(None if pd.isna(value) else value for value in row)
         for row in zip(rows["v"])
-    }
-    assert actual_rows == set(expected)
+    )
+    assert actual_rows == Counter(expected)
 
 
 @pytest.mark.parametrize("engine", ["pandas", "polars", "cudf"])
