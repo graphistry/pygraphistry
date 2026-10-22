@@ -169,7 +169,7 @@ def test_whole_entity_carry_into_reentry_keeps_bag(engine: _GFQLEngine) -> None:
     query = (
         "MATCH (a)-->(c) WITH a AS p OPTIONAL MATCH (p)-->(z) RETURN p.id AS pid, z.id AS zid"
     )
-    if engine == "polars":
+    if engine in ("polars", "polars-gpu"):
         with pytest.raises(NotImplementedError, match="cypher row op 'rows'"):
             _run(query, engine)
         return
