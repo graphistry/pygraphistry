@@ -547,6 +547,29 @@ class Test_cugraph_compute(NoAuthTestCase):
             if edge in result_edges
         }
 
+    def test_graph_return_directed_ego_preserves_antiparallel_attrs(self):
+        import cudf
+
+        data = {
+            "s": ["a", "b", "b", "c"],
+            "d": ["b", "a", "c", "b"],
+            "label": ["ab", "ba", "bc", "cb"],
+        }
+        g = graphistry.edges(cudf.DataFrame(data), "s", "d")
+
+        out = g.compute_cugraph(
+            "ego_graph", directed=True, params={"n": cudf.Series(["a"]), "radius": 1}
+        )
+
+        assert out._source == "s" and out._destination == "d"
+        result_rows = list(zip(
+            out._edges["s"].to_pandas(),
+            out._edges["d"].to_pandas(),
+            out._edges["label"].to_pandas(),
+        ))
+        assert len(result_rows) == 2
+        assert set(result_rows) == {("a", "b", "ab"), ("b", "a", "ba")}
+
     def test_graph_return_filters_topology_and_preserves_retained_attrs(self):
         import cudf
 
