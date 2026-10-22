@@ -2512,6 +2512,93 @@ def _expr_property_access_node_aliases(
     return out
 
 
+def _expr_property_access_columns(
+    expr_text: str,
+    *,
+    alias_targets: Mapping[str, ASTObject],
+    params: Optional[Mapping[str, Any]],  # hygiene-ok: explicit-any -- heterogeneous Cypher bound parameters
+    field: str,
+    line: int,
+    column: int,
+) -> Set[Tuple[str, str]]:
+    """Typed ``(alias, property)`` pairs accessed anywhere in an expression."""
+    node = _parse_row_expr(
+        expr_text,
+        params=params,
+        alias_targets=alias_targets,
+        allow_missing_params=True,
+        field=field,
+        line=line,
+        column=column,
+    )
+    accessed: Set[Tuple[str, str]] = set()
+
+    def _visit(node: ExprNode) -> None:
+        if isinstance(node, PropertyAccessExpr) and isinstance(node.value, Identifier):
+            root = node.value.name.split(".", 1)[0]
+            if root in alias_targets:
+                accessed.add((root, node.property))
+
+    walk_expr_nodes(node, enter=_visit)
+    return accessed
+
+
+def _where_pattern_property_columns(
+    where: WhereClause,
+    *,
+    alias_targets: Mapping[str, ASTObject],
+    params: Optional[Mapping[str, Any]],  # hygiene-ok: explicit-any -- heterogeneous Cypher bound parameters
+    extra_expressions: Sequence[Tuple[str, SourceSpan]] = (),
+) -> Dict[str, List[str]]:
+    """Bare property columns needed by a pattern-WHERE and aggregate projections."""
+    accessed: Set[Tuple[str, str]] = set()
+    for predicate in where.predicates:
+        if isinstance(predicate, WherePredicate):
+            if isinstance(predicate.left, PropertyRef):
+                accessed.add((predicate.left.alias, predicate.left.property))
+            if isinstance(predicate.right, PropertyRef):
+                accessed.add((predicate.right.alias, predicate.right.property))
+    if where.expr_tree is not None:
+        stack = [where.expr_tree]
+        while stack:
+            node = stack.pop()
+            if node.op == "atom" and node.atom_text:
+                try:
+                    accessed.update(
+                        _expr_property_access_columns(
+                            node.atom_text,
+                            alias_targets=alias_targets,
+                            params=params,
+                            field="where",
+                            line=(node.atom_span or node.span).line,
+                            column=(node.atom_span or node.span).column,
+                        )
+                    )
+                except (GFQLValidationError, RuntimeError):
+                    continue
+            for child in (node.left, node.right):
+                if child is not None:
+                    stack.append(child)
+    for text, span in extra_expressions:
+        try:
+            accessed.update(
+                _expr_property_access_columns(
+                    text,
+                    alias_targets=alias_targets,
+                    params=params,
+                    field="return",
+                    line=span.line,
+                    column=span.column,
+                )
+            )
+        except (GFQLValidationError, RuntimeError):
+            continue
+    by_alias: Dict[str, Set[str]] = {}
+    for alias, column in accessed:
+        by_alias.setdefault(alias, set()).add(column)
+    return {alias: sorted(columns) for alias, columns in by_alias.items()}
+
+
 def _is_multi_source_match_alias_boundary_error(
     exc: GFQLValidationError,
     *,
@@ -6594,6 +6681,7 @@ def _lower_pattern_predicate_to_row_marker(
     alias_targets: Mapping[str, ASTObject],
     params: Optional[Mapping[str, Any]],
     out_col: str,
+    requested_property_columns: Optional[Mapping[str, Sequence[str]]] = None,
 ) -> ASTCall:
     if len(predicate.pattern) < 3:
         raise _unsupported(
@@ -6650,6 +6738,7 @@ def _lower_pattern_predicate_to_row_marker(
         join_aliases=shared_aliases,
         out_col=out_col,
         neq=predicate.pattern_neq,
+        requested_property_columns=requested_property_columns,
     )
 
 
@@ -6658,6 +6747,7 @@ def _rewrite_where_expr_patterns_to_markers(
     where: WhereClause,
     alias_targets: Mapping[str, ASTObject],
     params: Optional[Mapping[str, Any]],
+    requested_property_columns: Optional[Mapping[str, Sequence[str]]] = None,
 ) -> Tuple[Optional[ExpressionText], List[ASTCall]]:
     if where.expr_tree is None:
         return None, []
@@ -6696,6 +6786,7 @@ def _rewrite_where_expr_patterns_to_markers(
                     alias_targets=alias_targets,
                     params=params,
                     out_col=marker_col,
+                    requested_property_columns=requested_property_columns,
                 )
             )
             return BooleanExpr(
@@ -6737,6 +6828,7 @@ def _lower_negated_pattern_predicate_to_row_filter(
     *,
     alias_targets: Mapping[str, ASTObject],
     params: Optional[Mapping[str, Any]],
+    requested_property_columns: Optional[Mapping[str, Sequence[str]]] = None,
 ) -> ASTCall:
     if len(predicate.pattern) < 3:
         raise _unsupported(
@@ -6792,6 +6884,7 @@ def _lower_negated_pattern_predicate_to_row_filter(
         binding_ops=serialize_binding_ops(pattern_ops),
         join_aliases=shared_aliases,
         neq=predicate.pattern_neq,
+        requested_property_columns=requested_property_columns,
     )
 
 
@@ -6828,6 +6921,26 @@ def lower_match_query(
     where_out.extend(dynamic_where_out)
     row_pre_filters: List[ASTCall] = []
 
+    where_projection_expressions: List[Tuple[str, SourceSpan]] = []
+    if query.return_ is not None:
+        where_projection_expressions.extend(
+            (item.expression.text, item.expression.span) for item in query.return_.items
+        )
+    if query.order_by is not None:
+        where_projection_expressions.extend(
+            (item.expression.text, item.expression.span) for item in query.order_by.items
+        )
+    requested_property_columns = (
+        None
+        if query.where is None
+        else _where_pattern_property_columns(
+            query.where,
+            alias_targets=alias_targets,
+            params=params,
+            extra_expressions=where_projection_expressions,
+        )
+    )
+
     row_where: Optional[ExpressionText] = None
     row_where_predicates: List[str] = list(dynamic_row_where_predicates)
     if query.where is not None:
@@ -6848,6 +6961,7 @@ def lower_match_query(
             where=query.where,
             alias_targets=alias_targets,
             params=params,
+            requested_property_columns=requested_property_columns,
         )
         row_pre_filters.extend(where_pattern_row_filters)
         marker_cols_in_use: Set[str] = {
@@ -6882,6 +6996,7 @@ def lower_match_query(
                             predicate,
                             alias_targets=alias_targets,
                             params=params,
+                        requested_property_columns=requested_property_columns,
                         )
                     )
                     continue
@@ -6895,6 +7010,7 @@ def lower_match_query(
                         alias_targets=alias_targets,
                         params=params,
                         out_col=marker_col,
+                        requested_property_columns=requested_property_columns,
                     )
                 )
                 row_where_predicates.append(marker_col)
@@ -8912,6 +9028,7 @@ def _apply_where_to_ops(
     alias_targets: Dict[str, ASTObject],
     *,
     params: Optional[Mapping[str, Any]],
+    requested_property_columns: Optional[Mapping[str, Sequence[str]]] = None,
 ) -> Tuple[List[WhereComparison], List[ExpressionText], List[ASTCall]]:
     """Apply a WHERE clause's predicates to already-lowered ops.
 
@@ -8930,6 +9047,7 @@ def _apply_where_to_ops(
         where=where,
         alias_targets=alias_targets,
         params=params,
+        requested_property_columns=requested_property_columns,
     )
     row_pre_filters.extend(where_pattern_row_filters)
     marker_cols_in_use: Set[str] = {
@@ -8965,6 +9083,7 @@ def _apply_where_to_ops(
                         predicate,
                         alias_targets=alias_targets,
                         params=params,
+                        requested_property_columns=requested_property_columns,
                     )
                 )
                 continue

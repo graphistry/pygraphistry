@@ -1,7 +1,7 @@
 from abc import abstractmethod
 import logging
 from typing import (
-    Any, TYPE_CHECKING, Dict, Iterable, List, Optional, Sequence, Tuple, Union, cast
+    Any, TYPE_CHECKING, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple, Union, cast
 )
 from typing_extensions import Literal
 
@@ -1686,6 +1686,7 @@ def anti_semi_apply(
     binding_ops: List[Dict[str, Any]],
     join_aliases: Sequence[str],
     neq: Optional[Sequence[str]] = None,
+    requested_property_columns: Optional[Mapping[str, Sequence[str]]] = None,
 ) -> ASTCall:
     """Filter active rows by removing rows matching a correlated pattern.
 
@@ -1700,6 +1701,10 @@ def anti_semi_apply(
     }
     if neq is not None:
         params["neq"] = list(neq)
+    if requested_property_columns is not None:
+        params["requested_property_columns"] = {
+            alias: list(columns) for alias, columns in requested_property_columns.items()
+        }
     return ASTCall("anti_semi_apply", params)
 
 
@@ -1732,6 +1737,7 @@ def semi_apply_mark(
     join_aliases: Sequence[str],
     out_col: str,
     neq: Optional[Sequence[str]] = None,
+    requested_property_columns: Optional[Mapping[str, Sequence[str]]] = None,
 ) -> ASTCall:
     """Annotate active rows with a correlated pattern-existence boolean.
 
@@ -1746,6 +1752,10 @@ def semi_apply_mark(
     }
     if neq is not None:
         params["neq"] = list(neq)
+    if requested_property_columns is not None:
+        params["requested_property_columns"] = {
+            alias: list(columns) for alias, columns in requested_property_columns.items()
+        }
     return ASTCall("semi_apply_mark", params)
 
 

@@ -5078,6 +5078,7 @@ class RowPipelineMixin:
         right_df: DataFrameT,
         join_aliases: List[str],
         node_id_col: str,
+        requested_property_columns: Optional[Mapping[str, Sequence[str]]] = None,
     ) -> Tuple[DataFrameT, List[str], List[str]]:
         """Give boolean alias markers an explicit ID key for correlated patterns."""
         for alias in join_aliases:
@@ -5094,13 +5095,16 @@ class RowPipelineMixin:
             ):
                 continue
             assignments = {id_col: left_df[node_id_col]}
-            for prop_col in left_df.columns:
-                if (
-                    prop_col == alias
-                    or prop_col == node_id_col
-                    or str(prop_col).startswith("__gfql_")
-                ):
-                    continue
+            for prop_col in (requested_property_columns or {}).get(alias, ()):
+                if prop_col not in left_df.columns:
+                    raise GFQLValidationError(
+                        ErrorCode.E108,
+                        "Pattern WHERE aggregate references a property column absent from the active table",
+                        field="where",
+                        value={"alias": alias, "property": prop_col},
+                        suggestion="Reference properties bound in the active MATCH scope.",
+                        language="cypher",
+                    )
                 qualified_col = f"{alias}.{prop_col}"
                 if qualified_col not in left_df.columns:
                     assignments[qualified_col] = left_df[prop_col]
@@ -5207,6 +5211,7 @@ class RowPipelineMixin:
         binding_ops: List[Dict[str, Any]],
         join_aliases: List[str],
         neq: Optional[List[str]] = None,
+        requested_property_columns: Optional[Mapping[str, Sequence[str]]] = None,
     ) -> "Plottable":
         """Row anti-semi-join against rows produced by ``binding_ops``."""
         self._gfql_validate_apply_args("anti_semi_apply", binding_ops, join_aliases)
@@ -5228,7 +5233,11 @@ class RowPipelineMixin:
             return self._gfql_row_table(left_df.copy())
 
         left_df, join_cols, missing_aliases = self._gfql_pattern_semi_join_frame(
-            left_df, right_df, join_aliases, node_id_col
+            left_df,
+            right_df,
+            join_aliases,
+            node_id_col,
+            requested_property_columns,
         )
         if not join_cols:
             self._gfql_raise_missing_join_cols(
@@ -5253,6 +5262,7 @@ class RowPipelineMixin:
         join_aliases: List[str],
         out_col: str,
         neq: Optional[List[str]] = None,
+        requested_property_columns: Optional[Mapping[str, Sequence[str]]] = None,
     ) -> "Plottable":
         """Annotate each active row with correlated pattern-match existence."""
         self._gfql_validate_apply_args("semi_apply_mark", binding_ops, join_aliases, out_col=out_col)
@@ -5284,7 +5294,11 @@ class RowPipelineMixin:
             return self._gfql_row_table(out_df)
 
         left_df, join_cols, missing_aliases = self._gfql_pattern_semi_join_frame(
-            left_df, right_df, join_aliases, node_id_col
+            left_df,
+            right_df,
+            join_aliases,
+            node_id_col,
+            requested_property_columns,
         )
         if not join_cols:
             self._gfql_raise_missing_join_cols(
