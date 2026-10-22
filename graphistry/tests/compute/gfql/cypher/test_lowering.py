@@ -2879,12 +2879,14 @@ def test_cypher_whole_node_projection_matches_relationship_unique_paths(
     [
         pytest.param([1, 2], [(1,), (2,)], id="distinct-projected-values-are-retained"),
         pytest.param([1, 1], [(1,)], id="equal-projected-values-collapse"),
+        pytest.param([None, None], [(None,)], id="equal-null-projected-values-collapse"),
+        pytest.param([None, 1], [(None,), (1,)], id="null-and-value-are-retained"),
     ],
 )
 def test_whole_node_distinct_keys_on_projected_values(
     engine: str,
-    values: List[int],
-    expected: List[Tuple[int, ...]],
+    values: List[Optional[int]],
+    expected: List[Tuple[Optional[int], ...]],
 ) -> None:
     nodes = pd.DataFrame({"id": ["a", "b", "c", "d"], "v": [None, None, values[0], values[1]]})
     edges = pd.DataFrame({"s": ["a", "c", "d"], "d": ["b", "b", "b"]})
@@ -2898,7 +2900,11 @@ def test_whole_node_distinct_keys_on_projected_values(
         graph = _mk_graph(nodes, edges)
 
     rows = _to_pandas_df(graph.gfql(query, strict="strict")._nodes)
-    assert sorted(zip(rows["v"])) == expected
+    actual_rows = {
+        tuple(None if pd.isna(value) else value for value in row)
+        for row in zip(rows["v"])
+    }
+    assert actual_rows == set(expected)
 
 
 @pytest.mark.parametrize("engine", ["pandas", "polars", "cudf"])
