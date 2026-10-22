@@ -1,4 +1,4 @@
-"""#1712 residual: WITH->MATCH re-entry seeds must restrict EVERY execution route.
+"""#1712 residual: Polars supports scalar-carry WITH->MATCH reentry.
 
 The bare-carry single-pattern shape was fixed earlier; these pin the routes that still
 re-matched the trailing MATCH from the WHOLE graph, silently widening the carried set:
@@ -12,10 +12,11 @@ re-matched the trailing MATCH from the WHOLE graph, silently widening the carrie
 
 Hand-computed oracle throughout: persons 0,1,2; only person 0 has the Books interest,
 so every carried re-entry answers 1 (the unrestricted answer is 3 — or a spurious
-second group of 2 — so a vacuous pass is impossible).
+second group of 2 — so a vacuous pass is impossible). The repeated-reentry control starts
+without that filter, so its carried set is persons 0 and 1 and its aggregate answer is 2.
 
-polars runs the shapes it supports natively and typed-declines projection carry
-(scalar WITH columns into trailing MATCH); those declines are pinned as declines.
+The Polars pins cover the same positive projection-carry rows as pandas. cuDF controls
+remain in the parameterized matrix and run only on GPU-capable hosts.
 """
 from typing import Any, List
 
@@ -74,8 +75,14 @@ TWO_HOP_COUNT = CARRY_PREFIX + (
     "MATCH (p)-[{rel:'LIVES_IN'}]->(c)-[{rel:'IN_COUNTRY'}]->(x)\n"
     "RETURN count(*) AS n"
 )
-
-POLARS_SCALAR_CARRY_DECLINE = "carries scalar WITH columns into the trailing MATCH"
+REPEATED_REENTRY_CROSS_ENGINE = (
+    "MATCH (p {node_type:'Person'})-[{rel:'LIVES_IN'}]->(c {node_type:'City'})\n"
+    "WITH p, p.node_type AS t\n"
+    "MATCH (p)-[{rel:'OWNS'}]->(d {node_type:'Pet'})\n"
+    "WITH p, t, d.node_id AS pet_id\n"
+    "MATCH (p)-[{rel:'LIVES_IN'}]->(c2 {node_type:'City'})\n"
+    "RETURN t, count(p) AS n"
+)
 
 
 def _graph(engine: str) -> Any:
@@ -92,6 +99,29 @@ def _graph(engine: str) -> Any:
     return graphistry.nodes(NODES, "node_id").edges(EDGES, "src", "dst")
 
 
+def _graph_with_edges(engine: str, edges: pd.DataFrame) -> Any:
+    if engine == "polars":
+        pl = pytest.importorskip("polars")
+        return graphistry.nodes(pl.from_pandas(NODES), "node_id").edges(
+            pl.from_pandas(edges), "src", "dst"
+        )
+    if engine == "cudf":
+        cudf = pytest.importorskip("cudf")
+        return graphistry.nodes(cudf.from_pandas(NODES), "node_id").edges(
+            cudf.from_pandas(edges), "src", "dst"
+        )
+    return graphistry.nodes(NODES, "node_id").edges(edges, "src", "dst")
+
+
+def _custom_rows(engine: str, edges: pd.DataFrame, query: str) -> List[dict]:
+    frame = _graph_with_edges(engine, edges).gfql(query, engine=engine)._nodes
+    if hasattr(frame, "collect"):
+        frame = frame.collect()
+    if hasattr(frame, "to_pandas"):
+        frame = frame.to_pandas()
+    return frame.to_dict("records")
+
+
 def _rows(engine: str, query: str) -> List[dict]:
     frame = _graph(engine).gfql(query, engine=engine)._nodes
     if hasattr(frame, "collect"):
@@ -103,7 +133,7 @@ def _rows(engine: str, query: str) -> List[dict]:
 
 # ------------------------------ route 1: single-hop grouped-aggregate fast path
 
-@pytest.mark.parametrize("engine", ["pandas", "cudf"])
+@pytest.mark.parametrize("engine", ["pandas", "polars", "cudf"])
 def test_projection_carry_grouped_count_restricts_to_carried_rows(engine: str) -> None:
     """Was ``[{'t': 'Person', 'numPersons': 1}, {'t': NaN, 'numPersons': 2}]`` — the
     fast path re-matched all 3 persons and parked the 2 un-carried ones in a NULL
@@ -111,14 +141,7 @@ def test_projection_carry_grouped_count_restricts_to_carried_rows(engine: str) -
     assert _rows(engine, GROUPED_COUNT_PROJ) == [{"t": "Person", "numPersons": 1}]
 
 
-def test_projection_carry_grouped_count_polars_declines_typed() -> None:
-    pytest.importorskip("polars")
-    with pytest.raises(NotImplementedError) as exc_info:
-        _rows("polars", GROUPED_COUNT_PROJ)
-    assert POLARS_SCALAR_CARRY_DECLINE in str(exc_info.value)
-
-
-@pytest.mark.parametrize("engine", ["pandas", "cudf"])
+@pytest.mark.parametrize("engine", ["pandas", "polars", "cudf"])
 def test_projection_carry_null_scalar_survives_the_carry(engine: str) -> None:
     """NULL cell in the carried column: person 0's nickname is NULL, and the carried
     group key must stay NULL (this rendered as the sentinel string '0000-00-00'
@@ -128,11 +151,36 @@ def test_projection_carry_null_scalar_survives_the_carry(engine: str) -> None:
     assert pd.isna(rows[0]["t"])
 
 
-@pytest.mark.parametrize("engine", ["pandas", "cudf"])
+@pytest.mark.parametrize("engine", ["pandas", "polars", "cudf"])
 def test_projection_carry_row_form_control(engine: str) -> None:
     """CONTROL (discriminator): the non-aggregate row form of the same query was
     already restricted — the leak was fast-path-specific."""
     assert _rows(engine, ROWS_PROJ) == [{"t": "Person", "pid": 0}]
+
+
+@pytest.mark.parametrize(
+    ("scenario", "expected"),
+    [
+        ("zero", []),
+        ("one", [{"t": "Person", "numPersons": 1}]),
+        ("many", [{"t": "Person", "numPersons": 2}]),
+        ("whole", [{"t": "Person", "numPersons": 3}]),
+    ],
+)
+@pytest.mark.parametrize("engine", ["pandas", "polars", "cudf"])
+def test_projection_carry_seed_width(engine: str, scenario: str, expected: List[dict]) -> None:
+    extra = pd.DataFrame({"src": [], "dst": [], "rel": []})
+    if scenario == "many":
+        extra = pd.DataFrame({"src": [1], "dst": [20], "rel": ["HAS_INTEREST"]})
+    elif scenario == "whole":
+        extra = pd.DataFrame({
+            "src": [0, 1, 2], "dst": [20, 20, 20], "rel": ["HAS_INTEREST"] * 3
+        })
+    edges = EDGES if scenario != "zero" else EDGES[EDGES["rel"] != "HAS_INTEREST"]
+    edges = pd.concat([edges, extra], ignore_index=True)
+    assert _custom_rows(engine, edges, GROUPED_COUNT_PROJ) == expected
+
+
 
 
 # ------------------------------------- route 2: connected comma-pattern join
@@ -144,16 +192,9 @@ def test_bare_carry_connected_join_restricts_to_carried_rows(engine: str) -> Non
     assert _rows(engine, CONNECTED_JOIN_BARE) == [{"pid": 0, "pets": 1}]
 
 
-@pytest.mark.parametrize("engine", ["pandas", "cudf"])
+@pytest.mark.parametrize("engine", ["pandas", "polars", "cudf"])
 def test_projection_carry_connected_join_restricts_to_carried_rows(engine: str) -> None:
     assert _rows(engine, CONNECTED_JOIN_PROJ) == [{"t": "Person", "pets": 1}]
-
-
-def test_projection_carry_connected_join_polars_declines_typed() -> None:
-    pytest.importorskip("polars")
-    with pytest.raises(NotImplementedError) as exc_info:
-        _rows("polars", CONNECTED_JOIN_PROJ)
-    assert POLARS_SCALAR_CARRY_DECLINE in str(exc_info.value)
 
 
 # --------------------------------------------- route 3: two-hop count fast path
@@ -162,6 +203,14 @@ def test_projection_carry_connected_join_polars_declines_typed() -> None:
 def test_two_hop_count_after_carry_restricts_to_carried_rows(engine: str) -> None:
     """Was ``n=3`` (all persons re-matched). Only carried person 0's path counts."""
     assert _rows(engine, TWO_HOP_COUNT) == [{"n": 1}]
+
+# --------------------------------------------- route 4: repeated reentry
+
+@pytest.mark.parametrize("engine", ["pandas", "polars", "cudf"])
+def test_projection_carry_survives_repeated_reentry(engine: str) -> None:
+    """Persons 0 and 1 survive the initial unrestricted match and both repeated
+    WITH->MATCH reentries; the aggregate must not widen back to person 2."""
+    assert _rows(engine, REPEATED_REENTRY_CROSS_ENGINE) == [{"t": "Person", "n": 2}]
 
 
 # ----------------------------------------------------- helper-level unit pins
