@@ -813,6 +813,26 @@ class Test_restore_graph_edge_attrs:
         with pytest.raises(ValueError, match="unique \\(source, destination\\) edge pairs"):
             _restore_graph_edge_attrs(returned, original, "s", "d")
 
+    def test_declines_antiparallel_attribute_conflicts(self):
+        returned = pd.DataFrame({"s": ["a"], "d": ["b"]})
+        original = pd.DataFrame({
+            "s": ["a", "b"], "d": ["b", "a"], "label": ["ab", "ba"],
+        })
+
+        with pytest.raises(ValueError, match="antiparallel original edges"):
+            _restore_graph_edge_attrs(returned, original, "s", "d")
+
+    def test_allows_antiparallel_identical_attributes(self):
+        returned = pd.DataFrame({"s": ["a"], "d": ["b"]})
+        original = pd.DataFrame({
+            "s": ["a", "b"], "d": ["b", "a"], "label": ["same", "same"],
+        })
+
+        restored = _restore_graph_edge_attrs(returned, original, "s", "d")
+
+        assert restored.shape == (1, 3)
+        assert restored["label"].tolist() == ["same"]
+
     def test_returns_edges_without_attributes(self):
         returned = pd.DataFrame({"s": ["a"], "d": ["b"]})
         original = pd.DataFrame({"s": ["a"], "d": ["b"]})

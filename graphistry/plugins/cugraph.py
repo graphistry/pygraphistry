@@ -64,6 +64,7 @@ def _restore_graph_edge_attrs(
 
     returned_id = '__cugraph_returned_edge_id__'
     original_id = '__cugraph_original_edge_id__'
+    forward_match = '__cugraph_forward_match__'
     while (
         returned_id in existing_columns
         or original_id in existing_columns
@@ -71,6 +72,8 @@ def _restore_graph_edge_attrs(
     ):
         returned_id = f'_{returned_id}'
         original_id = f'_{original_id}'
+    while forward_match in existing_columns or forward_match == returned_id:
+        forward_match = f'_{forward_match}'
 
     returned = returned_edges.copy()
     original = (
@@ -86,6 +89,7 @@ def _restore_graph_edge_attrs(
         how='inner',
         on=[source, destination],
     )
+    forward[forward_match] = True
     reversed_original = original[[original_id, source, destination, *attr_columns]].rename(
         columns={source: destination, destination: source}
     )
@@ -94,10 +98,36 @@ def _restore_graph_edge_attrs(
         how='inner',
         on=[source, destination],
     )
+    reversed_matches[forward_match] = False
     concat = cudf.concat if cudf is not None and isinstance(returned_edges, cudf.DataFrame) else pd.concat
     selected = concat([forward, reversed_matches]).drop_duplicates(
-        subset=[returned_id], keep='first'
-    ).sort_values(returned_id)
+        subset=[returned_id, *attr_columns], keep='first'
+    )
+    conflicted_ids = selected.loc[
+        selected.duplicated(subset=[returned_id], keep=False), returned_id
+    ].unique()
+    forward_rows = returned[[returned_id, source, destination]]
+    reverse_rows = forward_rows.rename(columns={source: destination, destination: source})
+    counterparts = forward_rows.merge(
+        reverse_rows, on=[source, destination], suffixes=('_left', '_right')
+    )
+    counterpart_ids = counterparts.loc[
+        counterparts[f'{returned_id}_left'] != counterparts[f'{returned_id}_right'],
+        f'{returned_id}_left',
+    ].unique()
+    conflicted_id_set = set(conflicted_ids.tolist())
+    counterpart_id_set = set(counterpart_ids.tolist())
+    if conflicted_id_set - counterpart_id_set:
+        raise ValueError(
+            'cuGraph undirected graph algorithms return one orientation per endpoint pair; '
+            'antiparallel original edges with conflicting attributes are ambiguous; '
+            'normalize attributes or use a directed graph'
+        )
+    selected = selected.loc[
+        ~selected[returned_id].isin(conflicted_id_set)
+        | selected[forward_match]
+    ]
+    selected = selected.sort_values(returned_id)
 
     restored = returned.merge(
         selected[[returned_id, *attr_columns]],
