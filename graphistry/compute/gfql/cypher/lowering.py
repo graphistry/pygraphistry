@@ -4600,7 +4600,12 @@ def _lower_projection_chain(
         row_steps.append(projection_fn(plan.projection_items))
 
     if query.return_.distinct:
-        row_steps.append(distinct())
+        visible_distinct_keys = (
+            [plan.whole_row_sources[name] for name in plan.whole_row_output_names]
+            if final_whole_node_binding_rows
+            else None
+        )
+        row_steps.append(distinct(subset=visible_distinct_keys))
     if query.order_by is not None:
         row_steps.append(
             _lower_order_by_clause(
