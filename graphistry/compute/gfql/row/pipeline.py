@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Any, Callable, Dict, Iterable, List, Literal, 
 
 import pandas as pd
 from graphistry.Engine import (
+    is_polars_df,
     df_to_engine,
     Engine,
     EngineAbstract,
@@ -5096,18 +5097,20 @@ class RowPipelineMixin:
                 continue
             assignments = {id_col: left_df[node_id_col]}
             for prop_col in (requested_property_columns or {}).get(alias, ()):
-                if prop_col not in left_df.columns:
-                    raise GFQLValidationError(
-                        ErrorCode.E108,
-                        "Pattern WHERE aggregate references a property column absent from the active table",
-                        field="where",
-                        value={"alias": alias, "property": prop_col},
-                        suggestion="Reference properties bound in the active MATCH scope.",
-                        language="cypher",
-                    )
                 qualified_col = f"{alias}.{prop_col}"
-                if qualified_col not in left_df.columns:
-                    assignments[qualified_col] = left_df[prop_col]
+                if qualified_col in left_df.columns:
+                    continue
+                if prop_col not in left_df.columns:
+                    RowPipelineMixin._gfql_report_absent_property(qualified_col)
+                if prop_col in left_df.columns:
+                    prop_series = left_df[prop_col]
+                elif is_polars_df(left_df):
+                    import polars as pl
+
+                    prop_series = pl.Series(qualified_col, [None] * left_df.height, dtype=pl.Null)
+                else:
+                    prop_series = None
+                assignments[qualified_col] = prop_series
             left_df = left_df.assign(**assignments)
         join_cols, missing_aliases = RowPipelineMixin._gfql_shared_join_cols(
             left_df, right_df, join_aliases, node_id_col

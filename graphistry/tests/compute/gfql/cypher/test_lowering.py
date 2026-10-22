@@ -54,6 +54,7 @@ from graphistry.compute.gfql.cypher.lowering import (
     _expr_property_access_node_aliases,
     _is_multi_source_match_alias_boundary_error,
     _logical_plan_route_for_query,
+    _parse_row_expr,
     _projection_ref_from_expr_safe,
     _render_row_where_operand_text,
     _row_where_predicate_text,
@@ -1649,8 +1650,23 @@ def test_pattern_where_aggregate_deduplicates_edge_multiplicity(
             "MATCH (n) WHERE NOT (n)-->() AND n.kind = 'y' RETURN count(*) AS c",
             [{"c": 1}],
         ),
+        (
+            "MATCH (n) WHERE (n)-->() RETURN n.missing AS missing, count(*) AS c ORDER BY c",
+            [{"missing": None, "c": 2}],
+        ),
+        (
+            "MATCH (n) WHERE NOT (n)-->() RETURN n.missing AS missing, count(*) AS c ORDER BY c",
+            [{"missing": None, "c": 1}],
+        ),
     ],
-    ids=["positive-grouped", "negative-grouped", "positive-compound", "negative-compound"],
+    ids=[
+        "positive-grouped",
+        "negative-grouped",
+        "positive-compound",
+        "negative-compound",
+        "positive-missing",
+        "negative-missing",
+    ],
 )
 def test_pattern_where_aggregate_preserves_property_scope(
     engine: str,
@@ -1684,7 +1700,118 @@ def test_pattern_where_aggregate_preserves_property_scope(
         records = result._nodes.to_dicts()
     else:
         records = result._nodes.to_dict(orient="records")
+    records = [
+        {**record, "missing": None if pd.isna(record["missing"]) else record["missing"]}
+        if "missing" in record
+        else record
+        for record in records
+    ]
     assert records == expected
+
+
+@pytest.mark.parametrize("engine", ["pandas", "polars", "cudf"])
+@pytest.mark.parametrize(
+    "query",
+    [
+        "MATCH (n) WHERE (n)-->() RETURN n.missing AS missing, count(*) AS c",
+        "MATCH (n) WHERE NOT (n)-->() RETURN n.missing AS missing, count(*) AS c",
+    ],
+    ids=["positive-marker", "negative-marker"],
+)
+def test_pattern_where_aggregate_strict_missing_property_raises(
+    engine: str,
+    query: str,
+) -> None:
+    nodes = pd.DataFrame({"id": ["a", "b", "c"]})
+    edges = pd.DataFrame({"s": ["a", "a", "b"], "d": ["b", "b", "c"]})
+
+    if engine == "polars":
+        pl = pytest.importorskip("polars")
+        graph = cast(
+            _CypherTestGraph,
+            _CypherTestGraph()
+            .nodes(pl.from_pandas(nodes), "id")
+            .edges(pl.from_pandas(edges), "s", "d"),
+        )
+    elif engine == "cudf":
+        cudf = _require_cudf_runtime()
+        graph = cast(
+            _CypherTestGraph,
+            _CypherTestGraph()
+            .nodes(cudf.from_pandas(nodes), "id")
+            .edges(cudf.from_pandas(edges), "s", "d"),
+        )
+    else:
+        graph = _mk_graph(nodes, edges)
+
+    with pytest.raises(GFQLSchemaError) as exc_info:
+        graph.gfql(query, strict=True)
+    assert exc_info.value.code == "column-not-found"
+
+
+def test_pattern_semi_join_frame_preserves_existing_qualified_property() -> None:
+    from graphistry.compute.gfql.row.pipeline import RowPipelineMixin
+
+    left_df = pd.DataFrame(
+        {"id": ["1"], "n": [True], "kind": ["bare"], "n.kind": ["qualified"]}
+    )
+    right_df = pd.DataFrame({"n.id": ["1"]})
+
+    out_df, join_cols, missing_aliases = RowPipelineMixin._gfql_pattern_semi_join_frame(
+        left_df,
+        right_df,
+        ["n"],
+        "id",
+        {"n": ["kind"]},
+    )
+
+    assert join_cols == ["n.id"]
+    assert missing_aliases == []
+    assert out_df["n.kind"].tolist() == ["qualified"]
+    assert out_df["kind"].tolist() == ["bare"]
+
+
+def test_pattern_semi_join_frame_synthesizes_absent_qualified_property() -> None:
+    from graphistry.compute.gfql.row.pipeline import RowPipelineMixin
+    from graphistry.compute.gfql.strictness import strictness_scope
+
+    left_df = pd.DataFrame({"id": ["1", "2"], "n": [True, False]})
+    right_df = pd.DataFrame({"n.id": ["1"]})
+
+    with strictness_scope("quiet"):
+        out_df, join_cols, missing_aliases = (
+            RowPipelineMixin._gfql_pattern_semi_join_frame(
+                left_df,
+                right_df,
+                ["n"],
+                "id",
+                {"n": ["kind"]},
+            )
+        )
+
+    assert join_cols == ["n.id"]
+    assert missing_aliases == []
+    assert pd.isna(out_df["n.kind"]).all()
+
+
+def test_pattern_semi_join_frame_strict_absent_qualified_property_raises() -> None:
+    from graphistry.compute.exceptions import GFQLSchemaError
+    from graphistry.compute.gfql.row.pipeline import RowPipelineMixin
+    from graphistry.compute.gfql.strictness import strictness_scope
+
+    left_df = pd.DataFrame({"id": ["1"], "n": [True]})
+    right_df = pd.DataFrame({"n.id": ["1"]})
+
+    with strictness_scope("strict"), pytest.raises(GFQLSchemaError) as exc_info:
+        RowPipelineMixin._gfql_pattern_semi_join_frame(
+            left_df,
+            right_df,
+            ["n"],
+            "id",
+            {"n": ["kind"]},
+        )
+
+    assert exc_info.value.code == "column-not-found"
 
 
 def test_gfql_executes_reverse_fixed_point_where_pattern_predicate_as_seeded_match() -> None:
@@ -22325,6 +22452,7 @@ def test_lowering_coverage_helper_direct_margin_paths() -> None:
 
     assert _expr_property_access_node_aliases(
         "[a.city, r.weight]",
+        parse_row_expr=_parse_row_expr,
         alias_targets=alias_targets,
         params=None,
         field="return",
