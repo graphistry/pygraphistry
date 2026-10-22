@@ -11,6 +11,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ### Fixed
 
 - **igraph calls on nodes with a `name` column**: a node attribute named `name`, other than the node ID column, no longer makes `to_igraph`, `compute_igraph`, and `CALL graphistry.igraph.*` fail with `Vertex attribute conflict`. It moves to a generated name for igraph, which reserves `name` for node IDs, and is restored by `from_igraph` (#2217).
+- **`from_igraph` on empty graphs**: an empty graph with a node `name` column keeps every node column's original type, and an edge list with no edges gets endpoints of the node ID type instead of `float64`, so such a graph no longer fails with a merge dtype mismatch.
 
 ## [0.61.1] - 2026-10-21
 
