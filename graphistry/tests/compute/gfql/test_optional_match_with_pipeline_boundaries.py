@@ -13,11 +13,12 @@ Every expected value here is HAND-COMPUTED from the openCypher contract
 when the pattern does not match; WITH without DISTINCT/ORDER BY/SKIP/LIMIT is a
 row no-op; a WHERE on a stage filters binding ROWS with three-valued logic).
 Cross-engine agreement is NOT the oracle: ``test_carried_prefix_row_multiplicity``
-below is a shape where all three engines agree on the WRONG answer.
+below was a shape where all three engines agreed on the WRONG answer before the
+#1935 prefix-multiplicity repair.
 
-Anti-vacuity (re-measured at this PR's base 21167e08, which reproduces the
-figure first taken at a7c9d6f): 30 of the first 45 cells FAIL there -- 10 of
-the 15 shapes answer differently, in silent inner-joins that drop every
+Anti-vacuity, historical and scoped to pre-fix base 21167e08 (which reproduces
+the figure first taken at a7c9d6f): 30 of the first 45 cells FAIL there -- 10
+of the 15 shapes answer differently, in silent inner-joins that drop every
 unmatched seed, a wrong row count under a null-valued predicate, and two
 declines whose message described a different limitation. Of the remaining 5
 shapes, 4 are marked ``deliberate control`` in their docstring -- each kills a
@@ -380,9 +381,10 @@ def test_full_row_equality_handles_missing_scalars_and_arrays():
 # NULL axis (NULL ids, NULL carried values, a NULL key shared by a matched and
 # an unmatched row) that the sibling PR's silent-wrong answer came from.
 #
-# Anti-vacuity, measured at this PR's base 21167e08: 27 of the 29 cells below
-# FAIL there. The two that do not are the strict xfail, whose defect predates
-# the PR and xfails on both trees. No cell here is base-passing.
+# Anti-vacuity, historical and scoped to pre-fix base 21167e08: 27 of the 29
+# cells below FAIL there. The two that do not were strict xfails whose defects
+# predate the PR and xfail on both trees. No surviving cell here is
+# base-passing.
 
 # A PATH alias (`MATCH path = ...`) is the one carried bare identifier that no
 # MATCH clause binds as a pattern variable.

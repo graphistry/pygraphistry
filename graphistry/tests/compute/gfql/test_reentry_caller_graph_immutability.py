@@ -39,6 +39,12 @@ NESTED = (
     "MATCH (a {kind:'a'}) WITH a MATCH (a)-[]->(b) WITH b MATCH (b)-[]->(c) "
     "RETURN count(*) AS c"
 )
+DUPLICATE_NESTED_NODES = pd.DataFrame({"id": [1, 2, 3]})
+DUPLICATE_NESTED_EDGES = pd.DataFrame({"s": [1, 1, 2], "d": [2, 2, 3]})
+DUPLICATE_NESTED = (
+    "MATCH (a) WITH a MATCH (a)-[]->(b) WITH b MATCH (b)-[]->(c) "
+    "RETURN count(*) AS c"
+)
 
 # Independently established on this fixed graph (identical on both engines).
 PLAIN_COUNT = 13
@@ -90,11 +96,37 @@ def test_repeated_reentry_is_stable(engine):
 
 @pytest.mark.parametrize("engine", ENGINES)
 def test_nested_reentry(engine):
-    """Two WITH boundaries in one query, then an unrelated query on the same graph."""
+    """Two WITH boundaries in one query, then an unrelated query on the same graph.
+
+    The original graph's node 6 is duplicated in the carried prefix but has no
+    outgoing arm, so the old Polars route passed count 2 by coincidence. With
+    edge 6->1 added, the old route returns 4 while direct edge-row enumeration
+    gives 5. This PR therefore keeps the safer typed Polars decline rather
+    than restoring an accidentally passing route; pandas nested carry remains
+    owned by #1935.
+    """
     g = _g()
-    assert _count(g, NESTED, engine) == NESTED_COUNT
+    if engine == "polars":
+        with pytest.raises(NotImplementedError, match="cypher row op 'rows'"):
+            _count(g, NESTED, engine)
+    else:
+        assert _count(g, NESTED, engine) == NESTED_COUNT
     assert g._gfql_start_nodes is None
     assert _count(g, PLAIN, engine) == PLAIN_COUNT
+
+
+def test_nested_reentry_duplicate_prefix_declines_polars():
+    """A duplicate-bearing nested control for the typed Polars boundary.
+
+    The first traversal produces duplicate b=2 rows before the second WITH.
+    Polars must decline nested carry rather than rely on those duplicates
+    having no outgoing arm. Pandas nested multiplicity remains owned by #1935.
+    """
+    g = graphistry.nodes(DUPLICATE_NESTED_NODES, "id").edges(
+        DUPLICATE_NESTED_EDGES, "s", "d"
+    )
+    with pytest.raises(NotImplementedError, match="cypher row op 'rows'"):
+        _count(g, DUPLICATE_NESTED, "polars")
 
 
 @pytest.mark.parametrize("engine", ENGINES)
