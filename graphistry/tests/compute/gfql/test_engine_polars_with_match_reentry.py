@@ -7,9 +7,9 @@ identities") because the native projector never emitted the whole-entity id side
 bounded-reentry executor + seeded binding pipeline were pandas-only.
 
 Pandas is the oracle: every supported query returns an identical result table, polars-typed (no
-pandas bridge). Shapes still out of subset (scalar WITH columns carried alongside the whole-row
-alias) must raise NotImplementedError, never silently diverge. Companion of the seeded
-``rows(binding_ops)`` work in test_engine_polars_binding_rows.
+pandas bridge). Scalar WITH columns carried alongside the whole-row alias are served by the native
+Polars payload path. Companion of the seeded ``rows(binding_ops)`` work in
+test_engine_polars_binding_rows.
 """
 import random
 
@@ -234,19 +234,20 @@ def test_with_match_reentry_binding_table_parity(monkeypatch):
     assert seeded_calls["n"] > 0, "query did not route through the seeded binding_rows path"
 
 
-def test_scalar_carry_declines_cleanly_polars():
-    """WITH that carries a scalar column ALONGSIDE the whole-row alias into the trailing MATCH is
-    pandas-only so far; polars must DECLINE (NotImplementedError), never crash or silently diverge.
-    pandas still answers it (oracle), so this documents an honest capability gap."""
+def test_scalar_carry_matches_pandas_oracle_polars():
+    """A WITH that carries a scalar column alongside the whole-row alias into the trailing
+    MATCH returns the same rows on native Polars and the pandas oracle."""
     q = (
         "MATCH (p {id:0})-[:KNOWS]-(friend) WITH DISTINCT friend, friend.val AS fv "
         "MATCH (friend)-[:HAS_CREATOR]-(post) RETURN post.id AS pid, fv"
     )
-    # pandas oracle succeeds
-    _to_pandas(BASE.gfql(q, engine="pandas")._nodes)
-    # polars declines honestly
-    with pytest.raises(NotImplementedError):
-        BASE.gfql(q, engine="polars")
+    oracle = BASE.gfql(q, engine="pandas")._nodes
+    got = BASE.gfql(q, engine="polars")._nodes
+    pd.testing.assert_frame_equal(
+        _to_pandas(oracle).reset_index(drop=True),
+        _to_pandas(got).reset_index(drop=True),
+        check_dtype=False,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -359,8 +360,8 @@ class TestReentryPolarsFramesServingEngineMatrix:
         "MATCH (a {kind:'person'}) WITH a MATCH (a)-[]->(b) RETURN b.id AS bid",
         "MATCH (a) WITH a MATCH (a)-[:KNOWS]->(b) RETURN a.id AS aid, b.id AS bid",
     ]
-    # Whole-row carry + scalar WITH columns into the trailing MATCH: the payload merge is
-    # pandas-only (parity-or-NIE), so explicit engine='polars' declines while pandas/auto answer.
+    # Whole-row carry + scalar WITH columns into the trailing MATCH now uses the
+    # native Polars payload path; pandas remains the cross-engine oracle.
     SCALAR_CARRY = [
         "MATCH (a {kind:'person'}) WITH a, a.val AS av MATCH (a)-[]->(b) RETURN av, b.id AS bid",
         "MATCH (a) WITH a, a.val AS av MATCH (a)-[:KNOWS]->(b) RETURN av, b.kind AS bk",
@@ -375,24 +376,15 @@ class TestReentryPolarsFramesServingEngineMatrix:
         _assert_same_answers(query, oracle, got)
 
     @pytest.mark.parametrize("query", SCALAR_CARRY)
-    @pytest.mark.parametrize("engine", ["pandas", "auto"])
+    @pytest.mark.parametrize("engine", ["pandas", "polars", "auto"])
     @pytest.mark.parametrize("lazy", [False, True])
     def test_scalar_carry_answers_match_pandas_oracle(self, query, engine, lazy):
         oracle = BASE.gfql(query, engine="pandas")._nodes
         got = _polars_base(lazy).gfql(query, engine=engine)._nodes
         _assert_same_answers(query, oracle, got)
 
-    @pytest.mark.parametrize("query", SCALAR_CARRY)
-    @pytest.mark.parametrize("lazy", [False, True])
-    def test_scalar_carry_polars_engine_declines_and_its_suggestion_works(self, query, lazy):
-        g = _polars_base(lazy)
-        with pytest.raises(NotImplementedError, match="engine='pandas'"):
-            g.gfql(query, engine="polars")
-        oracle = BASE.gfql(query, engine="pandas")._nodes
-        _assert_same_answers(query, oracle, g.gfql(query, engine="pandas")._nodes)
-
     def test_carry_reentry_polars_frames_pandas_engine_returns_values(self):
-        # Exact release-blocker repro: previously raised the NIE whose own message
+        # Exact release-blocker repro: the previous native-Polars decline whose own message
         # suggested the engine='pandas' already being used.
         g = graphistry.nodes(pl.DataFrame({"id": [0, 1], "v": [10, 20]}), "id").edges(
             pl.DataFrame({"s": [0], "d": [1]}), "s", "d")
