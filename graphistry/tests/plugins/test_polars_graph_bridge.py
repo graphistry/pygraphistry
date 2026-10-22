@@ -100,6 +100,33 @@ def test_compute_igraph_preserves_edge_collision_on_polars() -> None:
 
 
 @pytest.mark.skipif(not has_igraph, reason="Requires igraph")
+def test_compute_igraph_keeps_node_name_column_and_edge_collisions_on_polars() -> None:
+    nodes = pl.DataFrame({"id": ["a", "b", "c"], "name": ["A", "B", "C"], "__attr_name_2__": [1, 2, 3]})
+    edges = pl.DataFrame({"s": ["a", "b"], "d": ["b", "c"], "source": ["sa", "sb"], "target": ["ta", "tb"]})
+
+    out = graphistry.edges(edges, "s", "d").nodes(nodes, "id").compute_igraph("pagerank")
+    assert isinstance(out._nodes, pl.DataFrame) and isinstance(out._edges, pl.DataFrame)
+    assert out._nodes.columns == ["id", "name", "__attr_name_2__", "pagerank"]
+    assert out._nodes.drop("pagerank").equals(nodes)
+    assert out._edges.equals(edges)
+
+
+@pytest.mark.skipif(not has_igraph, reason="Requires igraph")
+@pytest.mark.parametrize("id_dtype", [pl.String, pl.Int64])
+def test_compute_igraph_empty_graph_with_node_name_column_on_polars(id_dtype: Any) -> None:
+    nodes = pl.DataFrame({
+        "id": pl.Series([], dtype=id_dtype), "name": pl.Series([], dtype=pl.String), "k": pl.Series([], dtype=pl.Int64),
+    })
+    edges = pl.DataFrame({"s": pl.Series([], dtype=id_dtype), "d": pl.Series([], dtype=id_dtype)})
+
+    out = graphistry.edges(edges, "s", "d").nodes(nodes, "id").compute_igraph("pagerank")
+    assert isinstance(out._nodes, pl.DataFrame) and isinstance(out._edges, pl.DataFrame)
+    assert out._nodes.drop("pagerank").schema == nodes.schema
+    assert out._edges.schema == edges.schema
+    assert len(out._nodes) == 0 and len(out._edges) == 0
+
+
+@pytest.mark.skipif(not has_igraph, reason="Requires igraph")
 @pytest.mark.parametrize("name", ["source", "target"])
 def test_compute_igraph_does_not_confuse_vertex_attribute_with_edge_collision_name(name: str) -> None:
     big = 2**53 + 1
