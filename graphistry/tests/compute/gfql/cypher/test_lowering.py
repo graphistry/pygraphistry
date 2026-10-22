@@ -3228,6 +3228,49 @@ def test_cypher_to_gfql_supports_standalone_graph_constructor() -> None:
     assert result._edges[["s", "d"]].to_dict(orient="records") == [{"s": "a", "d": "b"}]
 
 
+@pytest.mark.parametrize("engine", ["pandas", "cudf"])
+@pytest.mark.parametrize(
+    "query,expected",
+    [
+        (
+            "MATCH (n) RETURN n.name AS name, count(*) AS c ORDER BY name",
+            [{"name": "A", "c": 2}, {"name": "B", "c": 2}],
+        ),
+        (
+            "MATCH (n) RETURN n.name AS name, n.town AS town, sum(n.score) AS s ORDER BY name, town",
+            [
+                {"name": "A", "town": "x", "s": 3},
+                {"name": "A", "town": "y", "s": 4},
+                {"name": "B", "town": "x", "s": 6},
+            ],
+        ),
+        (
+            "MATCH (n) WITH n.name AS name, count(n.name) AS c WHERE c > 1 RETURN name, c ORDER BY name",
+            [{"name": "A", "c": 2}, {"name": "B", "c": 2}],
+        ),
+    ],
+)
+def test_string_cypher_groups_by_a_key_named_name(engine: str, query: str, expected: list) -> None:
+    if engine == "cudf":
+        cudf = pytest.importorskip("cudf")
+    nodes = pd.DataFrame(
+        {
+            "id": ["a", "b", "c", "e"],
+            "name": ["A", "B", "A", "B"],
+            "town": ["x", "x", "y", "x"],
+            "score": [3, 1, 4, 5],
+        }
+    )
+    edges = pd.DataFrame({"s": ["a", "b"], "d": ["b", "c"]})
+    if engine == "cudf":
+        nodes, edges = cudf.from_pandas(nodes), cudf.from_pandas(edges)
+
+    result = graphistry.nodes(nodes, "id").edges(edges, "s", "d").gfql(query, engine=engine)
+
+    out = result._nodes.to_pandas() if engine == "cudf" else result._nodes
+    assert out.to_dict(orient="records") == expected
+
+
 def test_string_cypher_formats_filtered_edge_entity_projection_on_cudf() -> None:
     cudf = pytest.importorskip("cudf")
 
