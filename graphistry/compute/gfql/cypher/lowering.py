@@ -141,6 +141,10 @@ from graphistry.compute.gfql.cypher.call_procedures import (
     ProcedureOutputColumn as CompiledProcedureOutputColumn,
     compile_cypher_call,
 )
+from graphistry.compute.gfql.cypher.pattern_where_properties import (
+    expr_property_access_node_aliases as _expr_property_access_node_aliases,
+    where_pattern_property_columns as _where_pattern_property_columns,
+)
 from graphistry.compute.gfql.cypher.ast_normalizer import ASTNormalizer
 from graphistry.compute.gfql.expr_const_fold import fold_constants
 from graphistry.compute.gfql.cypher.shortest_path_aliases import (
@@ -2467,49 +2471,14 @@ def _binding_prop_alias_set(
             # referenced within the aggregate (#1273). ``non_aggregate_aliases`` alone
             # (which excludes aggregate context) would drop it -> a missing column.
             prop_aliases = _expr_property_access_node_aliases(
-                text, alias_targets=alias_targets, params=params,
-                field="return", line=line, column=column,
+                text, parse_row_expr=_parse_row_expr, alias_targets=alias_targets,
+                params=params, field="return", line=line, column=column,
             )
         except GFQLValidationError:
             return None  # can't analyze cleanly → conservative attach-all
         referenced.update(a for a in non_aggregate_aliases if a in node_aliases)
         referenced.update(a for a in prop_aliases if a in node_aliases)
     return sorted(referenced)
-
-
-def _expr_property_access_node_aliases(
-    expr_text: str,
-    *,
-    alias_targets: Mapping[str, ASTObject],
-    params: Optional[Mapping[str, Any]],
-    field: str,
-    line: int,
-    column: int,
-) -> Set[str]:
-    """Node aliases that appear in a ``alias.prop`` property access anywhere in the
-    expression (INCLUDING inside aggregates). Used by #1711 projection-pushdown so a
-    property referenced only via ``avg(alias.prop)`` still keeps that alias's join."""
-    node = _parse_row_expr(
-        expr_text, params=params, alias_targets=alias_targets,
-        allow_missing_params=True, field=field, line=line, column=column,
-    )
-    out: Set[str] = set()
-
-    def _visit(n: ExprNode) -> None:
-        if isinstance(n, PropertyAccessExpr) and isinstance(n.value, Identifier):
-            root = n.value.name.split(".", 1)[0]
-            if root in alias_targets:
-                out.add(root)
-        for child in getattr(n, "__dict__", {}).values():
-            if is_expr_node(child):
-                _visit(cast(ExprNode, child))
-            elif isinstance(child, (list, tuple)):
-                for c in child:
-                    if is_expr_node(c):
-                        _visit(cast(ExprNode, c))
-
-    _visit(node)
-    return out
 
 
 def _is_multi_source_match_alias_boundary_error(
@@ -6594,6 +6563,7 @@ def _lower_pattern_predicate_to_row_marker(
     alias_targets: Mapping[str, ASTObject],
     params: Optional[Mapping[str, Any]],
     out_col: str,
+    requested_property_columns: Optional[Mapping[str, Sequence[str]]] = None,
 ) -> ASTCall:
     if len(predicate.pattern) < 3:
         raise _unsupported(
@@ -6650,6 +6620,7 @@ def _lower_pattern_predicate_to_row_marker(
         join_aliases=shared_aliases,
         out_col=out_col,
         neq=predicate.pattern_neq,
+        requested_property_columns=requested_property_columns,
     )
 
 
@@ -6658,6 +6629,7 @@ def _rewrite_where_expr_patterns_to_markers(
     where: WhereClause,
     alias_targets: Mapping[str, ASTObject],
     params: Optional[Mapping[str, Any]],
+    requested_property_columns: Optional[Mapping[str, Sequence[str]]] = None,
 ) -> Tuple[Optional[ExpressionText], List[ASTCall]]:
     if where.expr_tree is None:
         return None, []
@@ -6696,6 +6668,7 @@ def _rewrite_where_expr_patterns_to_markers(
                     alias_targets=alias_targets,
                     params=params,
                     out_col=marker_col,
+                    requested_property_columns=requested_property_columns,
                 )
             )
             return BooleanExpr(
@@ -6737,6 +6710,7 @@ def _lower_negated_pattern_predicate_to_row_filter(
     *,
     alias_targets: Mapping[str, ASTObject],
     params: Optional[Mapping[str, Any]],
+    requested_property_columns: Optional[Mapping[str, Sequence[str]]] = None,
 ) -> ASTCall:
     if len(predicate.pattern) < 3:
         raise _unsupported(
@@ -6792,6 +6766,7 @@ def _lower_negated_pattern_predicate_to_row_filter(
         binding_ops=serialize_binding_ops(pattern_ops),
         join_aliases=shared_aliases,
         neq=predicate.pattern_neq,
+        requested_property_columns=requested_property_columns,
     )
 
 
@@ -6828,6 +6803,23 @@ def lower_match_query(
     where_out.extend(dynamic_where_out)
     row_pre_filters: List[ASTCall] = []
 
+    where_projection_expressions: List[Tuple[str, SourceSpan]] = []
+    if query.return_ is not None:
+        where_projection_expressions.extend(
+            (item.expression.text, item.expression.span) for item in query.return_.items
+        )
+    if query.order_by is not None:
+        where_projection_expressions.extend(
+            (item.expression.text, item.expression.span) for item in query.order_by.items
+        )
+    requested_property_columns = (
+        None
+        if query.where is None
+        else _where_pattern_property_columns(query.where, parse_row_expr=_parse_row_expr,
+                                             alias_targets=alias_targets, params=params,
+                                             extra_expressions=where_projection_expressions)
+    )
+
     row_where: Optional[ExpressionText] = None
     row_where_predicates: List[str] = list(dynamic_row_where_predicates)
     if query.where is not None:
@@ -6848,6 +6840,7 @@ def lower_match_query(
             where=query.where,
             alias_targets=alias_targets,
             params=params,
+            requested_property_columns=requested_property_columns,
         )
         row_pre_filters.extend(where_pattern_row_filters)
         marker_cols_in_use: Set[str] = {
@@ -6882,6 +6875,7 @@ def lower_match_query(
                             predicate,
                             alias_targets=alias_targets,
                             params=params,
+                        requested_property_columns=requested_property_columns,
                         )
                     )
                     continue
@@ -6895,6 +6889,7 @@ def lower_match_query(
                         alias_targets=alias_targets,
                         params=params,
                         out_col=marker_col,
+                        requested_property_columns=requested_property_columns,
                     )
                 )
                 row_where_predicates.append(marker_col)
@@ -8685,6 +8680,7 @@ def _connected_join_required_property_aliases(
             )
             prop_aliases = _expr_property_access_node_aliases(
                 text,
+                parse_row_expr=_parse_row_expr,
                 alias_targets=alias_targets,
                 params=params,
                 field=field_name,
@@ -8912,6 +8908,7 @@ def _apply_where_to_ops(
     alias_targets: Dict[str, ASTObject],
     *,
     params: Optional[Mapping[str, Any]],
+    requested_property_columns: Optional[Mapping[str, Sequence[str]]] = None,
 ) -> Tuple[List[WhereComparison], List[ExpressionText], List[ASTCall]]:
     """Apply a WHERE clause's predicates to already-lowered ops.
 
@@ -8930,6 +8927,7 @@ def _apply_where_to_ops(
         where=where,
         alias_targets=alias_targets,
         params=params,
+        requested_property_columns=requested_property_columns,
     )
     row_pre_filters.extend(where_pattern_row_filters)
     marker_cols_in_use: Set[str] = {
@@ -8965,6 +8963,7 @@ def _apply_where_to_ops(
                         predicate,
                         alias_targets=alias_targets,
                         params=params,
+                        requested_property_columns=requested_property_columns,
                     )
                 )
                 continue
