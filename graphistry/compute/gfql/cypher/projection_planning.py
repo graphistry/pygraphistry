@@ -680,13 +680,15 @@ def _optional_projection_row_guard_plan(
 
 
 def _whole_node_projection_routing(
-    query: CypherQuery,
+    query,
     *,
-    plan: _ProjectionPlan,
-    alias_targets: Mapping[str, ASTObject],
-) -> Tuple[int, bool, bool]:
-    merged_match = _merged_match_clause(query)
-    relationship_count = _match_relationship_count(merged_match) if merged_match is not None else 0
+    plan,
+    alias_targets,
+):
+    merged_match = _lowering._merged_match_clause(query)
+    relationship_count = (
+        _lowering._match_relationship_count(merged_match) if merged_match is not None else 0
+    )
     final_whole_node_binding_rows = (
         plan.clause_kind == "return"
         and not query.with_stages
@@ -695,17 +697,17 @@ def _whole_node_projection_routing(
         and bool(plan.whole_row_output_names)
         and relationship_count > 0
         and all(
-            isinstance(alias_targets.get(alias_name), ASTNode)
+            isinstance(alias_targets.get(alias_name), _lowering.ASTNode)
             for alias_name in plan.whole_row_sources.values()
         )
     )
-    force_multiplicity_bindings = plan.all_source_aliases is None and _forces_relationship_multiplicity_projection_bindings(
+    force_multiplicity_bindings = plan.all_source_aliases is None and _lowering._forces_relationship_multiplicity_projection_bindings(
         query,
         alias_targets=alias_targets,
         relationship_count=relationship_count,
         items=query.return_.items,
         order_by=query.order_by,
-        bag_preserving_whole_row_aliases=_bag_preserving_whole_row_aliases(query, plan=plan),
+        bag_preserving_whole_row_aliases=_lowering._bag_preserving_whole_row_aliases(query, plan=plan),
     )
     return (
         relationship_count,
