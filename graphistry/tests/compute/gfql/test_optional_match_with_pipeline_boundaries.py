@@ -281,25 +281,43 @@ def test_reentry_single_prefix_row_with_zero_matches_null_extends(engine):
 
 
 @pytest.mark.parametrize("engine", ENGINES)
-@pytest.mark.xfail(
-    strict=True,
-    reason="KNOWN WRONG (all three engines agree): a whole-row WITH carry "
-           "deduplicates the prefix frame by node id, so a prefix row that "
-           "appears twice contributes its arm matches once. #1897 fixed the "
-           "unmatched-row half of this shape (a2 is now null-extended instead "
-           "of dropped) but not the multiplicity half.",
-)
 def test_carried_prefix_row_multiplicity_survives_the_reentry(engine):
-    """`MATCH (a:P)-[]->(c)` binds a1 twice (a1->b1, a1->b2) and a2 once, so
+    """Preserve relationship binding-row multiplicity across whole-node carry.
+
+    `MATCH (a:P)-[]->(c)` binds a1 twice (a1->b1, a1->b2) and a2 once, so
     `WITH a AS p` carries THREE rows. Each a1 row then expands to a1's two
     KNOWS matches and a2's row null-extends: 5 rows, with (a1,b1) and (a1,b2)
-    each appearing twice. Cross-engine agreement is not evidence here -- all
-    three engines return the 3-row deduplicated answer."""
+    each appearing twice."""
     q = ("MATCH (a:P)-[]->(c) WITH a AS p OPTIONAL MATCH (p)-[:KNOWS]->(d) "
          "RETURN p.id AS pid, d.id AS did")
+    if engine == "polars":
+        with pytest.raises(NotImplementedError, match="does not yet natively support cypher row op 'rows'"):
+            _run(q, engine)
+        return
     _assert_rows(_run(q, engine), [
         {"pid": "a1", "did": "b1"}, {"pid": "a1", "did": "b2"},
         {"pid": "a1", "did": "b1"}, {"pid": "a1", "did": "b2"},
+        {"pid": "a2", "did": None},
+    ])
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_duplicated_unmatched_prefix_rows_each_null_extend(engine):
+    """Duplicate carried rows are independent bindings, not a set of entities.
+
+    The prefix still has two a1 rows and one a2 row. If the whole-node carry
+    deduplicates a1, the missing edge pattern would produce two null rows
+    instead of the required three."""
+    q = ("MATCH (a:P)-[]->(c) WITH a AS p "
+         "OPTIONAL MATCH (p)-[:MISSING]->(d) "
+         "RETURN p.id AS pid, d.id AS did")
+    if engine == "polars":
+        with pytest.raises(NotImplementedError, match="does not yet natively support cypher row op 'rows'"):
+            _run(q, engine)
+        return
+    _assert_rows(_run(q, engine), [
+        {"pid": "a1", "did": None},
+        {"pid": "a1", "did": None},
         {"pid": "a2", "did": None},
     ])
 

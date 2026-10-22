@@ -714,7 +714,7 @@ def _whole_node_projection_routing(
             relationship_count=relationship_count,
             items=query.return_.items,
             order_by=query.order_by,
-            bag_preserving_whole_row_aliases=_lowering._bag_preserving_whole_row_aliases(query, plan=plan),
+                bag_preserving_whole_row_aliases=_bag_preserving_whole_row_aliases(query, plan=plan),
         )
     )
     return (
@@ -722,6 +722,33 @@ def _whole_node_projection_routing(
         final_whole_node_binding_rows,
         force_multiplicity_bindings,
     )
+
+
+def _bag_preserving_whole_row_aliases(
+    query: CypherQuery,
+    *,
+    plan: _ProjectionPlan,
+) -> AbstractSet[str]:
+    """Return whole-row aliases that may use relationship binding rows."""
+    if query.return_.distinct:
+        return frozenset()
+    whole_row_sources = frozenset(plan.whole_row_sources.values())
+    if query.return_is_reentry_carry and (
+        query.order_by is not None
+        or query.skip is not None
+        or query.limit is not None
+        or not query.return_.items
+        or not all(item.expression.text.strip() in whole_row_sources for item in query.return_.items)
+    ):
+        return frozenset()
+    if any(
+        _is_variable_length_relationship_pattern(element)
+        for clause in query.matches
+        for element in _match_pattern_elements(clause)
+        if isinstance(element, RelationshipPattern)
+    ):
+        return frozenset()
+    return frozenset(plan.whole_row_sources.values())
 
 
 def _whole_node_distinct_temporary_items(

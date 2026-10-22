@@ -233,7 +233,7 @@ def _optional_reentry_unmatched_identity_null_rows(
     if result_df is None or len(result_df) == 0:
         return fill_from
     prefix_keys = [_optional_reentry_key(record, src_cols) for record in prefix_records]
-    if len(set(prefix_keys)) != len(prefix_keys):
+    if _has_ambiguous_duplicate_prefix_keys(prefix_df, prefix_records, prefix_keys):
         return None
     matched_keys = {
         _optional_reentry_key(record, tuple(out for out, _ in pairs))
@@ -244,6 +244,38 @@ def _optional_reentry_unmatched_identity_null_rows(
         for row, key in zip(fill_from, prefix_keys)
         if key not in matched_keys
     ]
+
+
+def _has_ambiguous_duplicate_prefix_keys(
+    prefix_df: DataFrameT,
+    prefix_records: List[CypherFillRow],
+    prefix_keys: List[Tuple[CypherFillValue, ...]],
+) -> bool:
+    """Duplicate join keys are safe only as duplicate copies of one prefix row."""
+    indices_by_key: Dict[Tuple[CypherFillValue, ...], List[int]] = {}
+    for index, key in enumerate(prefix_keys):
+        indices_by_key.setdefault(key, []).append(index)
+    duplicate_indices = [indices for indices in indices_by_key.values() if len(indices) > 1]
+    if not duplicate_indices:
+        return False
+    all_columns = tuple(str(column) for column in prefix_df.columns)
+    full_records = _records_for_columns(prefix_df, all_columns)
+    return any(
+        not _records_are_identical([full_records[index] for index in indices])
+        for indices in duplicate_indices
+    )
+
+
+def _records_are_identical(records: List[CypherFillRow]) -> bool:
+    first = records[0]
+    return all(_record_values_are_identical(first, record) for record in records[1:])
+
+
+def _record_values_are_identical(left: CypherFillRow, right: CypherFillRow) -> bool:
+    return left.keys() == right.keys() and all(
+        _optional_reentry_key_value(left[column]) == _optional_reentry_key_value(right[column])
+        for column in left
+    )
 
 
 def _optional_reentry_carried_null_rows(
