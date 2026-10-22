@@ -1,10 +1,13 @@
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Set, Union
+
+import numpy as np
 import pandas as pd
 import warnings
 
 from graphistry.constants import NODE
 from graphistry.compute.typing import DataFrameT
 from graphistry.Engine import EngineAbstract
+from graphistry.Engine import is_cudf_series
 from graphistry.Plottable import Plottable
 from graphistry.plugins_types.cugraph_types import CuGraphKind
 from graphistry.util import setup_logger
@@ -28,6 +31,14 @@ def df_to_gdf(df: Any):
         return cudf.from_pandas(df)
     else:
         raise ValueError('Unsupported data type, expected pd.DataFrame or cudf.DataFrame, got: %s', type(df))
+
+
+def _unique_ids_to_set(values: object) -> Set[Any]:
+    if is_cudf_series(values):
+        return set(values.to_arrow().to_pylist())
+    if isinstance(values, (pd.Series, np.ndarray)):
+        return set(values.tolist())
+    raise TypeError(f'Unsupported unique-ID type: {type(values)}')
 
 
 def _restore_graph_edge_attrs(
@@ -115,8 +126,8 @@ def _restore_graph_edge_attrs(
         counterparts[f'{returned_id}_left'] != counterparts[f'{returned_id}_right'],
         f'{returned_id}_left',
     ].unique()
-    conflicted_id_set = set(conflicted_ids.tolist())
-    counterpart_id_set = set(counterpart_ids.tolist())
+    conflicted_id_set = _unique_ids_to_set(conflicted_ids)
+    counterpart_id_set = _unique_ids_to_set(counterpart_ids)
     if conflicted_id_set - counterpart_id_set:
         raise ValueError(
             'cuGraph undirected graph algorithms return one orientation per endpoint pair; '
