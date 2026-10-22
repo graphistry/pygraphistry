@@ -5,7 +5,8 @@ import pandas as pd
 import warnings
 
 from graphistry.constants import NODE
-from graphistry.compute.typing import DataFrameT
+from graphistry.compute.typing import DataFrameT, SeriesT
+from graphistry.compute.typing import NodeId
 from graphistry.Engine import EngineAbstract
 from graphistry.Engine import is_cudf_series
 from graphistry.Plottable import Plottable
@@ -33,7 +34,7 @@ def df_to_gdf(df: Any):
         raise ValueError('Unsupported data type, expected pd.DataFrame or cudf.DataFrame, got: %s', type(df))
 
 
-def _unique_ids_to_set(values: object) -> Set[Any]:
+def _unique_ids_to_set(values: Union[SeriesT, np.ndarray]) -> Set[NodeId]:
     if is_cudf_series(values):
         return set(values.to_arrow().to_pylist())
     if isinstance(values, (pd.Series, np.ndarray)):
