@@ -1629,6 +1629,64 @@ def test_pattern_where_aggregate_deduplicates_edge_multiplicity(
     assert result._nodes.to_dict(orient="records") == expected
 
 
+@pytest.mark.parametrize("engine", ["pandas", "polars", "cudf"])
+@pytest.mark.parametrize(
+    "query,expected",
+    [
+        (
+            "MATCH (n) WHERE (n)-->() RETURN n.kind AS kind, count(*) AS c ORDER BY kind",
+            [{"kind": "x", "c": 2}],
+        ),
+        (
+            "MATCH (n) WHERE NOT (n)-->() RETURN n.kind AS kind, count(*) AS c ORDER BY kind",
+            [{"kind": "y", "c": 1}],
+        ),
+        (
+            "MATCH (n) WHERE (n)-->() AND n.kind = 'x' RETURN count(*) AS c",
+            [{"c": 2}],
+        ),
+        (
+            "MATCH (n) WHERE NOT (n)-->() AND n.kind = 'y' RETURN count(*) AS c",
+            [{"c": 1}],
+        ),
+    ],
+    ids=["positive-grouped", "negative-grouped", "positive-compound", "negative-compound"],
+)
+def test_pattern_where_aggregate_preserves_property_scope(
+    engine: str,
+    query: str,
+    expected: list[dict[str, object]],
+) -> None:
+    nodes = pd.DataFrame({"id": ["a", "b", "c"], "kind": ["x", "x", "y"]})
+    edges = pd.DataFrame({"s": ["a", "a", "b"], "d": ["b", "b", "c"]})
+
+    if engine == "polars":
+        pl = pytest.importorskip("polars")
+        graph = cast(
+            _CypherTestGraph,
+            _CypherTestGraph()
+            .nodes(pl.from_pandas(nodes), "id")
+            .edges(pl.from_pandas(edges), "s", "d"),
+        )
+    elif engine == "cudf":
+        cudf = _require_cudf_runtime()
+        graph = cast(
+            _CypherTestGraph,
+            _CypherTestGraph()
+            .nodes(cudf.from_pandas(nodes), "id")
+            .edges(cudf.from_pandas(edges), "s", "d"),
+        )
+    else:
+        graph = _mk_graph(nodes, edges)
+
+    result = graph.gfql(query)
+    if engine == "polars":
+        records = result._nodes.to_dicts()
+    else:
+        records = result._nodes.to_dict(orient="records")
+    assert records == expected
+
+
 def test_gfql_executes_reverse_fixed_point_where_pattern_predicate_as_seeded_match() -> None:
     nodes = pd.DataFrame({"id": ["a", "b", "c", "x", "y"]})
     edges = pd.DataFrame(

@@ -5093,7 +5093,18 @@ class RowPipelineMixin:
                 or not RowPipelineMixin._gfql_series_bool_like(left_df[alias_col])
             ):
                 continue
-            left_df = left_df.assign(**{id_col: left_df[node_id_col]})
+            assignments = {id_col: left_df[node_id_col]}
+            for prop_col in left_df.columns:
+                if (
+                    prop_col == alias
+                    or prop_col == node_id_col
+                    or str(prop_col).startswith("__gfql_")
+                ):
+                    continue
+                qualified_col = f"{alias}.{prop_col}"
+                if qualified_col not in left_df.columns:
+                    assignments[qualified_col] = left_df[prop_col]
+            left_df = left_df.assign(**assignments)
         join_cols, missing_aliases = RowPipelineMixin._gfql_shared_join_cols(
             left_df, right_df, join_aliases, node_id_col
         )
