@@ -54,6 +54,7 @@ CypherFillRow = Dict[str, CypherFillValue]
 
 
 from graphistry.Engine import is_polars_df as _is_polars_df
+from graphistry.Engine import is_polars_series as _is_polars_series
 
 
 def _serving_engine_base_graph(base_graph: Plottable, engine: Union[EngineAbstract, str]) -> Plottable:
@@ -482,18 +483,10 @@ def compiled_query_reentry_state(
             value=output_name,
             suggestion=REENTRY_SCALAR_SUGGESTION,
         )
-    if _is_polars_df(carried_ids) or _is_polars_df(aligned_prefix_rows) or _is_polars_df(base_nodes):
-        # Whole-row re-entry that ALSO carries scalar WITH columns (e.g. `WITH a, a.val AS av
-        # MATCH (a)-...`) threads hidden ``__cypher_reentry_*`` payload columns through the
-        # binding pipeline; that carry path is pandas/cuDF-only so far. The seed-only whole-row
-        # case (no carried scalars) returned above. Decline honestly rather than run the
-        # pandas/cuDF payload merge on polars frames (parity-or-NIE; no silent bridge).
-        raise NotImplementedError(
-            "polars engine does not yet natively support Cypher WITH -> MATCH re-entry that carries "
-            "scalar WITH columns into the trailing MATCH; use engine='pandas' or engine='cudf' "
-            "for this query (no silent fallback; parity-or-error by design)"
-        )
-    duplicate_mask = carried_ids.duplicated()
+    if _is_polars_series(carried_ids):
+        duplicate_mask = carried_ids.is_duplicated()
+    else:
+        duplicate_mask = carried_ids.duplicated()
     if bool(duplicate_mask.any()) if hasattr(duplicate_mask, "any") else False:
         raise reentry_validation_error(
             "Cypher MATCH after WITH carried scalar columns currently require unique carried node rows",
@@ -511,7 +504,7 @@ def compiled_query_reentry_state(
     )
     hidden_columns = [name for name in map(_reentry_hidden_column_name, carried_columns) if name in base_nodes.columns]
     merge_base = cast(DataFrameT, base_nodes.drop(columns=hidden_columns)) if hidden_columns else base_nodes
-    node_rows = cast(DataFrameT, safe_merge(merge_base, carry_payload, on=id_column, how="left"))
+    node_rows = cast(DataFrameT, ordered_left_join(merge_base, carry_payload, on=id_column))
 
     dispatch_graph = _bind_reentry_graph(base_graph, node_rows)
     return dispatch_graph, ordered_reentry_start_nodes(
@@ -701,6 +694,19 @@ def reentry_carry_payload(
             "Cypher MATCH after WITH could not recover a carried scalar column from the prefix stage",
             value=missing_column,
             suggestion="Project the scalar column explicitly before MATCH re-entry.",
+        )
+    if _is_polars_df(carried_node_ids):
+        import polars as pl
+
+        return cast(
+            DataFrameT,
+            carried_node_ids.with_columns([
+                pl.Series(
+                    _reentry_hidden_column_name(output_name),
+                    prefix_rows[output_name],
+                )
+                for output_name in carried_columns
+            ]),
         )
     return cast(
         DataFrameT,
