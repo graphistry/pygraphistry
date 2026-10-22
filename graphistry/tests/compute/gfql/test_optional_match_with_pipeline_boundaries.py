@@ -22,9 +22,8 @@ unmatched seed, a wrong row count under a null-valued predicate, and two
 declines whose message described a different limitation. Of the remaining 5
 shapes, 4 are marked ``deliberate control`` in their docstring -- each kills a
 mutation of this PR's diff, one of them (the single-prefix-row control) also
-covered by an existing pandas-only pin named in its docstring -- and the 5th is
-the strict xfail below, which fails as expected on both trees because the
-defect it names predates this PR.
+covered by an existing pandas-only pin named in its docstring -- and the
+former strict xfail is now the positive multiplicity oracle above.
 """
 from __future__ import annotations
 
@@ -359,6 +358,9 @@ def test_full_row_equality_handles_missing_scalars_and_arrays():
     distinct_array = {"column": np.array([1.0, 2.0])}
 
     assert _record_values_are_identical(missing, missing)
+    assert _record_values_are_identical(
+        {"column": np.array(["x", "y"])}, {"column": np.array(["x", "y"])}
+    )
     assert _record_values_are_identical(
         {"column": np.array([1.0, np.nan])}, numeric_array
     )

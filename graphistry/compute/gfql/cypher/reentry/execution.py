@@ -295,7 +295,18 @@ def _reentry_values_equal(left: CypherFillValue, right: CypherFillValue) -> bool
         if left.shape != right.shape:
             return False
         try:
-            return bool(np.array_equal(left, right, equal_nan=True))
+            if left.dtype.kind in ("f", "c"):
+                left_is_missing = np.isnan(left)
+                right_is_missing = np.isnan(right)
+            elif left.dtype.kind == "M":
+                left_is_missing = np.isnat(left)
+                right_is_missing = np.isnat(right)
+            else:
+                left_is_missing = np.zeros(left.shape, dtype=bool)
+                right_is_missing = np.zeros(right.shape, dtype=bool)
+            return bool(
+                ((left == right) | (left_is_missing & right_is_missing)).all()
+            )
         except (TypeError, ValueError):
             return False
     try:
