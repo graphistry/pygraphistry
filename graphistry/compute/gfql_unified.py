@@ -1178,6 +1178,32 @@ def _reject_unrepresentable_polars_union(frames: List[DataFrameT]) -> None:
         )
 
 
+def _reject_unrepresentable_cudf_union(frames: List[DataFrameT]) -> None:
+    """Decline a UNION whose branches disagree on a non numeric column type.
+
+    A cuDF column holds one type: a string branch next to an int branch raises a bare
+    ValueError, and a boolean branch next to an int branch turns ``true`` into ``1``
+    before the DISTINCT. Same contract as the polars decline; numeric widening stays served.
+    """
+    for name in frames[0].columns:
+        dtypes: List[Any] = []
+        for frame in frames:
+            if name not in frame.columns or bool(frame[name].isna().all()):
+                continue
+            dtype = frame[name].dtype
+            if dtype not in dtypes:
+                dtypes.append(dtype)
+        if len(dtypes) <= 1:
+            continue
+        if all(pd.api.types.is_numeric_dtype(d) and not pd.api.types.is_bool_dtype(d) for d in dtypes):
+            continue
+        raise NotImplementedError(
+            "cudf engine does not yet natively support UNION over branches with "
+            f"different value types for column {name!r} ({', '.join(str(d) for d in dtypes)}); "
+            "use engine='pandas' for this query"
+        )
+
+
 def _pandas_union_widen_boolean_columns(frames: List[DataFrameT]) -> List[DataFrameT]:
     """Keep BOOLEAN branch values distinguishable from numeric ones.
 
@@ -1222,6 +1248,10 @@ def _concat_union_branch_rows(
         return frames[0]
     if concrete_engine in POLARS_ENGINES:
         _reject_unrepresentable_polars_union(frames)
+    elif concrete_engine == Engine.CUDF:
+        # a branch served by a pandas fast path comes back pandas under engine='cudf'
+        frames = [df_to_engine(frame, Engine.CUDF) for frame in frames]
+        _reject_unrepresentable_cudf_union(frames)
     elif concrete_engine == Engine.PANDAS:
         frames = _pandas_union_widen_boolean_columns(frames)
     return concat(frames, ignore_index=True, sort=False)

@@ -466,10 +466,10 @@ def test_a4_union_null_next_to_boolean_keeps_both():
     assert len(out) == 2
 
 
-def test_a4_cudf_union_parity_or_named_divergence():
-    """cuDF (dataframe ops only): same-type UNION dedups; the bool-vs-int collapse is
-    pinned as a KNOWN cross-engine divergence (pandas keeps both, cuDF upcasts like
-    pre-fix pandas). Flip this when the widening is ported."""
+def test_a4_cudf_union_parity_or_typed_decline():
+    """cuDF: a UNION over one column type dedups and numeric widening is served. A cuDF column cannot
+    keep a bool or string branch distinct from an int branch, so like polars those decline
+    typed instead of collapsing ``true`` into ``1`` or raising a bare ValueError."""
     cudf = pytest.importorskip("cudf")
     g = graphistry.nodes(cudf.from_pandas(UNION_NODES), "id").edges(
         cudf.from_pandas(UNION_EDGES), "src", "dst"
@@ -477,5 +477,24 @@ def test_a4_cudf_union_parity_or_named_divergence():
     same = g.gfql("MATCH (n) RETURN n.i AS x UNION MATCH (n) RETURN n.i AS x",
                   engine="cudf")._nodes
     assert len(same.to_pandas()) == 3
-    mixed = g.gfql("RETURN true AS x UNION RETURN 1 AS x", engine="cudf")._nodes
-    assert len(mixed.to_pandas()) == 1  # KNOWN divergence: openCypher (and pandas) keep 2
+    widened = g.gfql("MATCH (n) RETURN n.v AS x UNION MATCH (n) RETURN n.fnan AS x", engine="cudf")
+    assert [v for v in _values(widened) if v == v] == [1, 2, 3, 1.5]
+    for query in [
+        "RETURN true AS x UNION RETURN 1 AS x",
+        "MATCH (n) RETURN n.flag AS x UNION MATCH (n) RETURN n.v AS x",
+        "MATCH (n) RETURN n.txt AS x UNION MATCH (n) RETURN n.i AS x",
+    ]:
+        with pytest.raises(NotImplementedError, match="different value types"):
+            g.gfql(query, engine="cudf")
+
+
+def test_a4_cudf_union_of_a_pandas_bound_graph_returns_cudf_rows():
+    """A branch served by a pandas fast path came back pandas under engine='cudf', and the
+    cuDF concat raised TypeError on the mixed frames."""
+    pytest.importorskip("cudf")
+    result = union_graph().gfql(
+        "MATCH (n) WHERE n.txt = '7' RETURN n.id AS x UNION MATCH (n) WHERE n.v > 2 RETURN n.id AS x",
+        engine="cudf",
+    )
+    assert type(result._nodes).__module__.startswith("cudf")
+    assert sorted(_values(result)) == ["a", "c"]
