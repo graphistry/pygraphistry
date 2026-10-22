@@ -726,7 +726,7 @@ def _whole_node_projection_routing(
 
 def _whole_node_distinct_temporary_items(
     plan: _ProjectionPlan,
-) -> List[Tuple[str, Any]]:
+) -> List[Tuple[str, Any]]:  # hygiene-ok: explicit-any -- plan runtime values are pre-resolved literals or rendered expressions
     return [
         (f"__gfql_return_distinct_{index}__", runtime_expr)
         for index, (_, runtime_expr) in enumerate(plan.projection_items)
