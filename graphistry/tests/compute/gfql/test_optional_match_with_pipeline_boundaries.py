@@ -30,11 +30,13 @@ from __future__ import annotations
 
 import math
 
+import numpy as np
 import pandas as pd
 import pytest
 
 import graphistry
 from graphistry.compute.exceptions import GFQLValidationError
+from graphistry.compute.gfql.cypher.reentry.execution import _record_values_are_identical
 
 ENGINES = ["pandas", "polars", "cudf"]
 
@@ -320,6 +322,52 @@ def test_duplicated_unmatched_prefix_rows_each_null_extend(engine):
         {"pid": "a1", "did": None},
         {"pid": "a2", "did": None},
     ])
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_duplicated_prefix_rows_with_nullable_properties_still_match(engine):
+    """A nullable property copied into each complete prefix row must not turn
+    full-row equality into a pandas predicate. Both a1 copies are identical,
+    so the matched arm keeps its 5-row bag and the missing arm keeps 3."""
+    nodes = _nodes()
+    nodes["nullable"] = pd.array([pd.NA, 2, 3, 4, 10, 20, 99], dtype="Int64")
+
+    matched = ("MATCH (a:P)-[]->(c) WITH a AS p "
+               "OPTIONAL MATCH (p)-[:KNOWS]->(d) RETURN p.id AS pid, d.id AS did")
+    if engine == "polars":
+        with pytest.raises(NotImplementedError, match="does not yet natively support cypher row op 'rows'"):
+            _run(matched, engine, nodes=nodes)
+        return
+    _assert_rows(_run(matched, engine, nodes=nodes), [
+        {"pid": "a1", "did": "b1"}, {"pid": "a1", "did": "b2"},
+        {"pid": "a1", "did": "b1"}, {"pid": "a1", "did": "b2"},
+        {"pid": "a2", "did": None},
+    ])
+
+    unmatched = ("MATCH (a:P)-[]->(c) WITH a AS p "
+                 "OPTIONAL MATCH (p)-[:MISSING]->(d) RETURN p.id AS pid, d.id AS did")
+    _assert_rows(_run(unmatched, engine, nodes=nodes), [
+        {"pid": "a1", "did": None}, {"pid": "a1", "did": None},
+        {"pid": "a2", "did": None},
+    ])
+
+
+def test_full_row_equality_handles_missing_scalars_and_arrays():
+    """Complete-row copies compare structurally; NA compares as one null."""
+    missing = {"column": pd.NA}
+    numeric_array = {"column": np.array([1.0, np.nan])}
+    distinct_array = {"column": np.array([1.0, 2.0])}
+
+    assert _record_values_are_identical(missing, missing)
+    assert _record_values_are_identical(
+        {"column": np.array([1.0, np.nan])}, numeric_array
+    )
+    assert not _record_values_are_identical(
+        {"column": pd.NA}, {"column": 1}
+    )
+    assert not _record_values_are_identical(
+        numeric_array, distinct_array
+    )
 
 
 # ===================================================== round 2

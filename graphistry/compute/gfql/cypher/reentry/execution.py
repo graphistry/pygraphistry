@@ -5,6 +5,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Dict, List, Mapping, Optional, Sequence, Set, Tuple, Union, cast
 
+import numpy as np
+import pandas as pd
+
 from graphistry.Engine import (
     EngineAbstract,
     assign_constant_columns,
@@ -273,9 +276,46 @@ def _records_are_identical(records: List[CypherFillRow]) -> bool:
 
 def _record_values_are_identical(left: CypherFillRow, right: CypherFillRow) -> bool:
     return left.keys() == right.keys() and all(
-        _optional_reentry_key_value(left[column]) == _optional_reentry_key_value(right[column])
+        _reentry_values_equal(left[column], right[column])
         for column in left
     )
+
+
+def _reentry_values_equal(left: CypherFillValue, right: CypherFillValue) -> bool:
+    """Compare copied cells without treating missing scalars as false predicates."""
+    if left is right:
+        return True
+    left_is_null = _reentry_value_is_null(left)
+    right_is_null = _reentry_value_is_null(right)
+    if left_is_null or right_is_null:
+        return left_is_null and right_is_null
+    if isinstance(left, np.ndarray) or isinstance(right, np.ndarray):
+        if not isinstance(left, np.ndarray) or not isinstance(right, np.ndarray):
+            return False
+        if left.shape != right.shape:
+            return False
+        try:
+            return bool(np.array_equal(left, right, equal_nan=True))
+        except (TypeError, ValueError):
+            return False
+    try:
+        equality = left == right
+    except (TypeError, ValueError):
+        return False
+    if isinstance(equality, np.ndarray):
+        return bool(equality.all())
+    return bool(equality)
+
+
+def _reentry_value_is_null(value: CypherFillValue) -> bool:
+    if value is None or value is pd.NA:
+        return True
+    if isinstance(value, np.ndarray):
+        return False
+    try:
+        return bool(pd.isna(value))
+    except (TypeError, ValueError):
+        return False
 
 
 def _optional_reentry_carried_null_rows(
