@@ -795,6 +795,24 @@ def chain_polars(self: Plottable, ops, start_nodes: Optional[Any] = None) -> Plo
                     )
                 _seen[_name] = _idx
 
+    # twin of the pandas path for graphs without edges in chain._chain_impl: an empty typed edge frame the result drops
+    if self._edges is None and self._nodes is not None and self._node is not None:
+        if any(isinstance(op, ASTEdge) for op in ops):
+            from graphistry.compute.exceptions import ErrorCode, GFQLSchemaError
+            raise GFQLSchemaError(
+                ErrorCode.E304,
+                'Cannot traverse edges: graph has no edges bound',
+                suggestion='Bind edges via g.edges(df, source, destination), or use a node-only pattern'
+            )
+        import polars as pl
+        from graphistry.compute.util import generate_safe_column_name
+        id_dtype = self._nodes.schema[self._node]
+        synth_src = generate_safe_column_name('src', self._nodes, prefix='__gfql_', suffix='__')
+        synth_dst = generate_safe_column_name('dst', self._nodes, prefix='__gfql_', suffix='__')
+        empty_edges = pl.DataFrame(schema={synth_src: id_dtype, synth_dst: id_dtype})
+        out = chain_polars(self.edges(empty_edges, synth_src, synth_dst), ops, start_nodes)
+        return self.nodes(out._nodes, self._node)
+
     point_rows = _try_point_rows_polars(self, ops, start_nodes)
     if point_rows is not None:
         return point_rows

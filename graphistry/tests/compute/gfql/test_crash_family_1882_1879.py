@@ -1,4 +1,4 @@
-"""Crash-family pins: #1882 (+#1913 finding-4) and #1879's pandas half.
+"""Crash-family pins: #1882 (+#1913 finding-4) and #1879 on pandas and polars.
 
 Every case reproduces a verified-live crash at master ``e6625ed28`` with a hand-computed
 oracle, plus the both-sides pins that lock the behavior that already worked:
@@ -16,8 +16,10 @@ oracle, plus the both-sides pins that lock the behavior that already worked:
   bare ``TypeError: 'NoneType' object is not subscriptable`` (``ast.py`` slicing
   ``g._edges[:0]``), with or without a policy attached (the policy toggle was inert
   because BOTH paths crashed). Now a node-only pattern is served (it needs no edges) and
-  an edge pattern declines with a typed GFQLSchemaError; polars keeps its typed decline,
-  whose advice recommends engines that must actually serve (pinned live here).
+  an edge pattern declines with a typed GFQLSchemaError.
+* #1879 polars half: polars declined every query on a graph without edges with a NotImplementedError.
+  It now serves patterns with only nodes like pandas and declines edge patterns with the same
+  typed GFQLSchemaError.
 * empty-but-BOUND edges kept working throughout -- pinned on both engines so the
   nodes-only fix can never regress it.
 """
@@ -172,18 +174,48 @@ class TestNodesOnlyCypherPandas:
             _nodes_only("pandas").chain([n(), e_forward(), n()])
 
 
-class TestNodesOnlyPolarsDecline:
-    """#1879 polars side: still a typed decline, and its advice must name WORKING engines."""
+class TestNodesOnlyCypherPolars:
+    """#1879 polars half: polars serves patterns with only nodes like pandas on a graph without edges."""
 
     @polars_only
-    def test_polars_declines_typed_with_live_advice(self):
-        with pytest.raises(NotImplementedError) as exc:
-            _nodes_only("polars").gfql("MATCH (a) RETURN a.id AS id ORDER BY id", engine="polars")
-        advice = str(exc.value)
-        assert "pandas" in advice
-        # the advice is only valid because the recommended engine now serves -- run it
-        res = _nodes_only("pandas").gfql("MATCH (a) RETURN a.id AS id ORDER BY id", engine="pandas")
-        assert res._nodes["id"].tolist() == [0, 1, 2]
+    @pytest.mark.parametrize("lazy", [False, True], ids=["eager", "lazy"])
+    @pytest.mark.parametrize("_name,query,expect", NODES_ONLY_QUERIES)
+    def test_nodes_only_matches_pandas(self, _name, query, expect, lazy):
+        g = _nodes_only("polars")
+        if lazy:
+            g = g.nodes(g._nodes.lazy(), "id")
+        res = g.gfql(query, engine="polars")
+        assert isinstance(res._nodes, pl.DataFrame)
+        assert res._edges is None
+        baseline = _nodes_only("pandas").gfql(query, engine="pandas")
+        pd.testing.assert_frame_equal(
+            res._nodes.to_pandas(), baseline._nodes.reset_index(drop=True), check_dtype=False)
+
+    @polars_only
+    @pytest.mark.parametrize("_name,query,expect", NODES_ONLY_QUERIES)
+    def test_policy_does_not_toggle_answers(self, _name, query, expect):
+        calls = []
+        res = _nodes_only("polars").gfql(
+            query, engine="polars", policy={"preload": lambda ctx: calls.append(ctx["hook"])})
+        assert calls == ["preload"]
+        baseline = _nodes_only("polars").gfql(query, engine="polars")
+        assert res._nodes.equals(baseline._nodes)
+
+    @polars_only
+    def test_chain_node_only_serves_and_result_stays_nodes_only(self):
+        out = _nodes_only("polars").gfql([n({"id": 0})], engine="polars")
+        assert out._nodes["id"].to_list() == [0]
+        assert out._edges is None
+
+    @polars_only
+    def test_edge_pattern_declines_typed_cypher(self):
+        with pytest.raises(GFQLSchemaError, match="no edges"):
+            _nodes_only("polars").gfql("MATCH (a)-[r]->(b) RETURN a.id AS id", engine="polars")
+
+    @polars_only
+    def test_edge_op_declines_typed_chain(self):
+        with pytest.raises(GFQLSchemaError, match="no edges"):
+            _nodes_only("polars").gfql([n(), e_forward(), n()], engine="polars")
 
 
 class TestEmptyBoundEdgesStillServe:
