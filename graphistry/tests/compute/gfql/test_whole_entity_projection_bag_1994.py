@@ -122,6 +122,18 @@ def test_distinct_whole_entity_still_dedupes(engine: _GFQLEngine) -> None:
 
 
 @pytest.mark.parametrize("engine", _ENGINES)
+def test_distinct_whole_entity_dedupes_parallel_edges(engine: _GFQLEngine) -> None:
+    assert _bag(_run("MATCH (a)-->(b) RETURN DISTINCT b", engine, parallel=True), "b.id") == [2, 3]
+
+
+@pytest.mark.parametrize("engine", _ENGINES)
+def test_distinct_whole_entity_with_sibling_property(engine: _GFQLEngine) -> None:
+    df = _run("MATCH (a)-->(b) RETURN DISTINCT b, b.id AS x", engine, parallel=True)
+    assert _bag(df, "b.id") == [2, 3]
+    assert _bag(df, "x") == [2, 3]
+
+
+@pytest.mark.parametrize("engine", _ENGINES)
 def test_whole_entity_projection_without_relationship_unchanged(engine: _GFQLEngine) -> None:
     assert _bag(_run("MATCH (a) RETURN a", engine), "a.id") == [1, 2, 3, 4, 5]
 

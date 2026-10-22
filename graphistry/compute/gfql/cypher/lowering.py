@@ -4094,6 +4094,7 @@ def _lower_order_by_clause(
                 ):
                     order_key = render_cypher_identifier(order_key)
             else:
+                property_name = cast(str, prop)
                 source_alias = (
                     plan.whole_row_sources.get(alias_name, plan.source_alias)
                     if alias_name in plan.whole_row_output_names
@@ -4111,9 +4112,9 @@ def _lower_order_by_clause(
                         language="cypher",
                     )
                 order_key = (
-                    f"{source_alias}.{prop}"
+                    f"{source_alias}.{property_name}"
                     if plan.whole_row_output_names
-                    else plan.projected_property_outputs.get(prop, prop)
+                    else plan.projected_property_outputs.get(property_name, property_name)
                 )
         else:
             if alias_targets is None:
@@ -4565,22 +4566,18 @@ def _lower_projection_chain(
             if not _projection._can_lower_multi_alias_projection_bindings(plan, alias_targets=alias_targets):
                 raise _multi_alias_exc
 
-    merged_match = _merged_match_clause(query)
-    force_multiplicity_bindings = (
-        plan.all_source_aliases is None
-        and _forces_relationship_multiplicity_projection_bindings(
-            query,
-            alias_targets=alias_targets,
-            relationship_count=_match_relationship_count(merged_match) if merged_match is not None else 0,
-            items=query.return_.items,
-            order_by=query.order_by,
-            bag_preserving_whole_row_aliases=_bag_preserving_whole_row_aliases(query, plan=plan),
-        )
-    )
+    relationship_count, final_whole_node_binding_rows, force_multiplicity_bindings = (
+        _projection._whole_node_projection_routing(query, plan=plan, alias_targets=alias_targets))
     allowed_match_aliases = ({plan.source_alias} | plan.all_source_aliases | binding_row_aliases) if plan.all_source_aliases is not None else binding_row_aliases
     if force_multiplicity_bindings:
         allowed_match_aliases = allowed_match_aliases | set(alias_targets.keys())
-    if plan.all_source_aliases is not None or force_multiplicity_bindings or pre_scope_binding_row_aliases or lowered.row_pre_filters:
+    if (
+        final_whole_node_binding_rows
+        or plan.all_source_aliases is not None
+        or force_multiplicity_bindings
+        or pre_scope_binding_row_aliases
+        or lowered.row_pre_filters
+    ):
         row_steps: List[ASTObject] = [rows(binding_ops=serialize_binding_ops(lowered.query))]
     else:
         row_steps = [rows(table=plan.table, source=plan.source_alias)]
@@ -4600,11 +4597,18 @@ def _lower_projection_chain(
     )
 
     if not plan.whole_row_output_names:
-        projection_fn = with_ if plan.clause_kind == "with" else return_
-        row_steps.append(projection_fn(plan.projection_items))
+        row_steps.append((with_ if plan.clause_kind == "with" else return_)(plan.projection_items))
+    elif final_whole_node_binding_rows and plan.projection_items:
+        row_steps.append(with_(_projection._whole_node_distinct_temporary_items(plan), extend=True))
 
     if query.return_.distinct:
-        row_steps.append(distinct())
+        visible_distinct_keys = (
+            _projection._whole_node_distinct_keys(plan)
+            if final_whole_node_binding_rows else None
+        )
+        row_steps.append(distinct(subset=visible_distinct_keys))
+        if final_whole_node_binding_rows and plan.projection_items:
+            row_steps.append(drop_cols(_projection._whole_node_distinct_temporary_names(plan)))
     if query.order_by is not None:
         row_steps.append(
             _lower_order_by_clause(
@@ -9848,11 +9852,8 @@ def compile_cypher_query(
                     params=params,
                 )
             optional_arm_has_no_null_extension_mechanism = (
-                len(query.matches) >= 2
-                and any(m.optional for m in query.matches)
-                and empty_result_row is None
-                and optional_null_fill is None
-                and optional_projection_row_guard is None
+                len(query.matches) >= 2 and any(m.optional for m in query.matches)
+                and empty_result_row is None and optional_null_fill is None and optional_projection_row_guard is None
             )
             if optional_arm_has_no_null_extension_mechanism:
                 raise _unsupported(

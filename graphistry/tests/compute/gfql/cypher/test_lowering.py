@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import fields as dataclass_fields
+from collections import Counter
 from pathlib import Path
 import pandas as pd
 import pytest
@@ -2804,6 +2805,136 @@ def test_cypher_to_gfql_executes_whole_row_alias_pipeline() -> None:
     assert result._nodes[["id", "type", "score"]].to_dict(orient="records") == [
         {"id": "b", "type": "Person", "score": 9}
     ]
+
+
+@pytest.mark.parametrize(
+    ("nodes", "edges", "query", "alias", "expected"),
+    [
+        pytest.param(
+            ["a", "b", "c"],
+            [("a", "b"), ("c", "b")],
+            "MATCH (a)-[e]->(b)<-[f]-(c) WHERE a.id = 'a' RETURN DISTINCT c",
+            "c",
+            ["c"],
+            id="direct-fan-in",
+        ),
+        pytest.param(
+            ["a", "b"],
+            [("a", "a"), ("a", "b")],
+            "MATCH (a)-->(b)-->(c) RETURN DISTINCT c",
+            "c",
+            ["b"],
+            id="self-loop-and-multi-edge",
+        ),
+        pytest.param(
+            ["a", "b", "c", "d"],
+            [("a", "b"), ("b", "c"), ("c", "d"), ("a", "c")],
+            "MATCH (a)-[*2..2]->(c) WHERE a.id = 'a' RETURN DISTINCT c",
+            "c",
+            ["c", "d"],
+            id="exact-two-hop",
+        ),
+        pytest.param(
+            ["x", "y", "z"],
+            [("x", "y"), ("y", "z"), ("z", "x")],
+            "MATCH (a)-[*1..3]-(b) WHERE a.id = 'x' RETURN DISTINCT b",
+            "b",
+            ["x", "y", "z"],
+            id="undirected-cycle",
+        ),
+        pytest.param(
+            ["x", "a", "b"],
+            [("a", "b")],
+            "MATCH (a)-[*0..1]->(b) WHERE a.id = 'x' RETURN DISTINCT b",
+            "b",
+            ["x"],
+            id="zero-hop",
+        ),
+        pytest.param(
+            ["a", "b", "c", "d"],
+            [("a", "b"), ("b", "c"), ("b", "d"), ("a", "c")],
+            "MATCH (a)-[e]-(b) WHERE b.id = 'c' RETURN DISTINCT a",
+            "a",
+            ["a", "b"],
+            id="far-end-filter",
+        ),
+    ],
+)
+def test_cypher_whole_node_projection_matches_relationship_unique_paths(
+    nodes: List[str],
+    edges: List[Tuple[str, str]],
+    query: str,
+    alias: str,
+    expected: List[str],
+) -> None:
+    nodes_df = pd.DataFrame({"id": nodes})
+    edges_df = pd.DataFrame({"s": [edge[0] for edge in edges], "d": [edge[1] for edge in edges]})
+    result = _mk_graph(nodes_df, edges_df).gfql(query, strict="strict")
+
+    assert sorted(result._nodes[f"{alias}.id"]) == expected
+
+
+@pytest.mark.parametrize("engine", ["pandas", "polars", "cudf"])
+@pytest.mark.parametrize(
+    ("values", "expected"),
+    [
+        pytest.param([1, 2], [(1,), (2,)], id="distinct-projected-values-are-retained"),
+        pytest.param([1, 1], [(1,)], id="equal-projected-values-collapse"),
+        pytest.param([None, None], [(None,)], id="equal-null-projected-values-collapse"),
+        pytest.param([None, 1], [(None,), (1,)], id="null-and-value-are-retained"),
+    ],
+)
+def test_whole_node_distinct_keys_on_projected_values(
+    engine: str,
+    values: List[Optional[int]],
+    expected: List[Tuple[Optional[int], ...]],
+) -> None:
+    nodes = pd.DataFrame({"id": ["a", "b", "c", "d"], "v": [None, None, values[0], values[1]]})
+    edges = pd.DataFrame({"s": ["a", "c", "d"], "d": ["b", "b", "b"]})
+    query = "MATCH (a)-[e]->(b)<-[f]-(c) WHERE a.id = 'a' RETURN DISTINCT b, c.v AS v"
+    if engine == "cudf":
+        _require_cudf_runtime()
+        graph = _mk_cudf_graph(nodes, edges)
+    elif engine == "polars":
+        graph = _mk_polars_graph(nodes, edges)
+    else:
+        graph = _mk_graph(nodes, edges)
+
+    rows = _to_pandas_df(graph.gfql(query, strict="strict")._nodes)
+    actual_rows = Counter(
+        tuple(None if pd.isna(value) else value for value in row)
+        for row in zip(rows["v"])
+    )
+    assert actual_rows == Counter(expected)
+
+
+@pytest.mark.parametrize("engine", ["pandas", "polars", "cudf"])
+@pytest.mark.parametrize(
+    ("distinct", "expected"),
+    [
+        pytest.param(True, [("c",)], id="parallel-relationship-set-collapses"),
+        pytest.param(False, [("c",), ("c",)], id="parallel-relationship-bag-retains-relationships"),
+    ],
+)
+def test_whole_node_distinct_preserves_bag_or_set_semantics(
+    engine: str,
+    distinct: bool,
+    expected: List[Tuple[str, ...]],
+) -> None:
+    nodes = pd.DataFrame({"id": ["a", "b", "c"]})
+    edges = pd.DataFrame({"s": ["a", "a", "c"], "d": ["b", "b", "b"]})
+    distinct_sql = " DISTINCT" if distinct else ""
+    query = f"MATCH (a)-[e]->(b)<-[f]-(c) WHERE a.id = 'a' AND c.id = 'c' RETURN{distinct_sql} b, c.id AS cid"
+    if engine == "cudf":
+        _require_cudf_runtime()
+        graph = _mk_cudf_graph(nodes, edges)
+    elif engine == "polars":
+        graph = _mk_polars_graph(nodes, edges)
+    else:
+        graph = _mk_graph(nodes, edges)
+
+    rows = _to_pandas_df(graph.gfql(query, strict="strict")._nodes)
+    assert sorted(zip(rows["cid"])) == expected
 
 
 def test_string_cypher_formats_single_node_entity_projection() -> None:

@@ -631,7 +631,8 @@ SAFELIST_V1: Dict[str, Dict[str, Any]] = {
     ),
 
     'distinct': _safelist_entry(
-        set(),
+        {'subset'},
+        param_validators={'subset': is_list_of_strings},
         description='Drop duplicate rows from active row table',
     ),
 

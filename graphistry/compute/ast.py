@@ -1796,9 +1796,9 @@ def limit(value: Any) -> ASTCall:
     return ASTCall("limit", {"value": value})
 
 
-def distinct() -> ASTCall:
-    """Create a DISTINCT operation for GFQL row pipelines."""
-    return ASTCall("distinct", {})
+def distinct(subset: Optional[Sequence[str]] = None) -> ASTCall:
+    """Create a DISTINCT operation, optionally keyed by visible columns."""
+    return ASTCall("distinct", {"subset": list(subset)} if subset else {})
 
 
 def unwind(expr: Any, as_: str = "value") -> ASTCall:
