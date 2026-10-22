@@ -4094,9 +4094,11 @@ def _lower_order_by_clause(
                 ):
                     order_key = render_cypher_identifier(order_key)
             else:
-                property_name = prop if prop is not None else ""
-                source_alias = plan.whole_row_sources.get(
-                    alias_name, plan.source_alias or alias_name
+                property_name = cast(str, prop)
+                source_alias = (
+                    plan.whole_row_sources.get(alias_name, plan.source_alias)
+                    if alias_name in plan.whole_row_output_names
+                    else alias_name
                 )
                 if source_alias != plan.source_alias and alias_name not in plan.whole_row_output_names:
                     raise GFQLValidationError(

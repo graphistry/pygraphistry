@@ -698,6 +698,7 @@ def _whole_node_projection_routing(
         plan.clause_kind == "return"
         and not query.with_stages
         and not query.return_is_reentry_carry
+        and query.return_.distinct
         and not any(clause.optional for clause in query.matches)
         and bool(plan.whole_row_output_names)
         and relationship_count > 0
