@@ -282,7 +282,7 @@ def from_igraph(self,
 
         if len(edges_df) == 0 and g._nodes is not None and g._node in g._nodes:
             # igraph exports an empty edge list's endpoints as float64
-            node_id_dtype = ensure_pandas(g._nodes[[g._node]])[g._node].dtype
+            node_id_dtype = _pandas_dtype(g._nodes, g._node)
             edges_df = edges_df.astype({'source': node_id_dtype, 'target': node_id_dtype})
         elif ig_index_to_node_id_df is not None:
             edges_df['source'] = edges_df[['source']].merge(
