@@ -20,6 +20,9 @@ oracle, plus the both-sides pins that lock the behavior that already worked:
 * #1879 polars half: polars declined every query on a graph without edges with a NotImplementedError.
   It now serves patterns with only nodes like pandas and declines edge patterns with the same
   typed GFQLSchemaError.
+* #1879 OPTIONAL MATCH: an optional edge arm on a graph without edges raised a bare
+  TypeError on pandas and E304 on polars. An optional arm matches nothing there, so every
+  engine now returns the base rows with nulls.
 * empty-but-BOUND edges kept working throughout -- pinned on both engines so the
   nodes-only fix can never regress it.
 """
@@ -216,6 +219,41 @@ class TestNodesOnlyCypherPolars:
     def test_edge_op_declines_typed_chain(self):
         with pytest.raises(GFQLSchemaError, match="no edges"):
             _nodes_only("polars").gfql([n(), e_forward(), n()], engine="polars")
+
+
+OPTIONAL_ON_NODES_ONLY = [
+    ("ids", "MATCH (n) OPTIONAL MATCH (n)-[r]->(m) RETURN n.id AS id ORDER BY id",
+     {"id": [0, 1, 2]}),
+    ("nulls", "MATCH (n) WHERE n.id = 1 OPTIONAL MATCH (n)<-[r]-(m) RETURN n.id AS id, m.id AS mid",
+     {"id": [1], "mid": [None]}),
+    ("count", "MATCH (n) OPTIONAL MATCH (n)-[r]->(m) RETURN n.id AS id, count(m) AS c ORDER BY id",
+     {"id": [0, 1, 2], "c": [0, 0, 0]}),
+]
+
+
+class TestNodesOnlyOptionalMatch:
+    """#1879: an OPTIONAL edge arm on a graph without edges matches nothing on every engine."""
+
+    @pytest.mark.parametrize("engine", ENGINES)
+    @pytest.mark.parametrize("with_policy", [False, True], ids=["no_policy", "policy"])
+    @pytest.mark.parametrize("_name,query,expect", OPTIONAL_ON_NODES_ONLY)
+    def test_optional_arm_returns_base_rows(self, engine, with_policy, _name, query, expect):
+        kwargs = {"policy": {"preload": lambda ctx: None}} if with_policy else {}
+        res = _nodes_only(engine).gfql(query, engine=engine, **kwargs)
+        got = _pd(res._nodes)
+        assert got.astype(object).where(got.notna(), None).to_dict("list") == expect
+
+    @polars_only
+    def test_optional_arm_on_lazy_polars(self):
+        g = _nodes_only("polars")
+        g = g.nodes(g._nodes.lazy(), "id")
+        res = g.gfql(OPTIONAL_ON_NODES_ONLY[0][1], engine="polars")
+        assert res._nodes["id"].to_list() == [0, 1, 2]
+
+    @pytest.mark.parametrize("engine", ENGINES)
+    def test_required_edge_pattern_still_declines_typed(self, engine):
+        with pytest.raises(GFQLSchemaError, match="no edges"):
+            _nodes_only(engine).gfql("MATCH (n)-[r]->(m) RETURN n.id AS id", engine=engine)
 
 
 class TestEmptyBoundEdgesStillServe:

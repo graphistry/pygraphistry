@@ -378,6 +378,24 @@ def _synthesize_bare_alias_from_prefixed_column(
     return joined
 
 
+def _bind_empty_edges_like_node_ids(g: Plottable) -> Plottable:
+    """Bind an empty edge frame typed like the node ids, so an OPTIONAL arm on a graph
+    without edges matches nothing instead of failing."""
+    from graphistry.compute.util import generate_safe_column_name
+    node_col = g._node
+    if g._nodes is None or node_col is None:
+        return g
+    src = generate_safe_column_name('src', g._nodes, prefix='__gfql_', suffix='__')
+    dst = generate_safe_column_name('dst', g._nodes, prefix='__gfql_', suffix='__')
+    if is_polars_df(g._nodes):
+        import polars as pl
+        empty = g._nodes.select([pl.col(node_col).alias(src), pl.col(node_col).alias(dst)]).head(0)
+    else:
+        ids = g._nodes[[node_col]].head(0)
+        empty = ids.rename(columns={node_col: src}).assign(**{dst: ids[node_col].values})
+    return g.edges(empty, src, dst)
+
+
 def _apply_connected_optional_match(
     base_graph: Plottable,
     plan: ConnectedOptionalMatchPlan,
@@ -394,6 +412,9 @@ def _apply_connected_optional_match(
     3. Delegate RETURN / ORDER BY / SKIP / LIMIT to the standard row pipeline.
     """
     from graphistry.compute.ast import ASTCall, serialize_binding_ops
+
+    if base_graph._edges is None:
+        base_graph = _bind_empty_edges_like_node_ids(base_graph)
 
     def _split_binding_and_post_ops(ops: Sequence[ASTObject]) -> Tuple[List[ASTObject], List[ASTObject]]:
         """Split ops into contiguous binding path ops and post-row ops."""
