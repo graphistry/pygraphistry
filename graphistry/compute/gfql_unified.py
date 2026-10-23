@@ -378,6 +378,24 @@ def _synthesize_bare_alias_from_prefixed_column(
     return joined
 
 
+def _bind_empty_edges_like_node_ids(g: Plottable) -> Plottable:
+    """Bind an empty edge frame typed like the node ids, so an OPTIONAL arm on a graph
+    without edges matches nothing instead of failing."""
+    from graphistry.compute.util import generate_safe_column_name
+    node_col = g._node
+    if g._nodes is None or node_col is None:
+        return g
+    src = generate_safe_column_name('src', g._nodes, prefix='__gfql_', suffix='__')
+    dst = generate_safe_column_name('dst', g._nodes, prefix='__gfql_', suffix='__')
+    if is_polars_df(g._nodes):
+        import polars as pl
+        empty = g._nodes.select([pl.col(node_col).alias(src), pl.col(node_col).alias(dst)]).head(0)
+    else:
+        ids = g._nodes[[node_col]].head(0)
+        empty = ids.rename(columns={node_col: src}).assign(**{dst: ids[node_col].values})
+    return g.edges(empty, src, dst)
+
+
 def _apply_connected_optional_match(
     base_graph: Plottable,
     plan: ConnectedOptionalMatchPlan,
@@ -394,6 +412,9 @@ def _apply_connected_optional_match(
     3. Delegate RETURN / ORDER BY / SKIP / LIMIT to the standard row pipeline.
     """
     from graphistry.compute.ast import ASTCall, serialize_binding_ops
+
+    if base_graph._edges is None:
+        base_graph = _bind_empty_edges_like_node_ids(base_graph)
 
     def _split_binding_and_post_ops(ops: Sequence[ASTObject]) -> Tuple[List[ASTObject], List[ASTObject]]:
         """Split ops into contiguous binding path ops and post-row ops."""
@@ -1178,6 +1199,54 @@ def _reject_unrepresentable_polars_union(frames: List[DataFrameT]) -> None:
         )
 
 
+def _decategorize_cudf_union(frames: List[DataFrameT]) -> List[DataFrameT]:
+    """Cast categorical columns to their category value type where branch dtypes differ.
+
+    Every cuDF categorical dtype prints as ``category``, so an int and a string categorical
+    looked alike to the type check and reached the concat. Cypher reads a categorical as its
+    values, as pandas does, so compare and concat the values instead.
+    """
+    cast: Dict[int, Dict[str, object]] = {}
+    for name in frames[0].columns:
+        dtypes = [frame[name].dtype for frame in frames if name in frame.columns]
+        if all(dtype == dtypes[0] for dtype in dtypes):
+            continue
+        for i, frame in enumerate(frames):
+            if name in frame.columns and str(frame[name].dtype) == "category":
+                cast.setdefault(i, {})[name] = frame[name].dtype.categories.dtype
+    if not cast:
+        return frames
+    return [frame.astype(cast[i]) if i in cast else frame for i, frame in enumerate(frames)]
+
+
+def _reject_unrepresentable_cudf_union(frames: List[DataFrameT]) -> None:
+    """Decline a UNION whose branches disagree on a non numeric column type.
+
+    A cuDF column holds one type: a string branch next to an int branch raises a bare
+    ValueError, and a boolean branch next to an int branch turns ``true`` into ``1``
+    before the DISTINCT. Same contract as the polars decline; numeric widening stays served.
+    """
+    for name in frames[0].columns:
+        columns = [frame[name] for frame in frames if name in frame.columns]
+        if all(column.dtype == columns[0].dtype for column in columns):
+            continue
+        dtypes: List[object] = []
+        for column in columns:
+            if bool(column.isna().all()):
+                continue
+            if column.dtype not in dtypes:
+                dtypes.append(column.dtype)
+        if len(dtypes) <= 1:
+            continue
+        if all(pd.api.types.is_numeric_dtype(d) and not pd.api.types.is_bool_dtype(d) for d in dtypes):
+            continue
+        raise NotImplementedError(
+            "cudf engine does not yet natively support UNION over branches with "
+            f"different value types for column {name!r} ({', '.join(str(d) for d in dtypes)}); "
+            "use engine='pandas' for this query"
+        )
+
+
 def _pandas_union_widen_boolean_columns(frames: List[DataFrameT]) -> List[DataFrameT]:
     """Keep BOOLEAN branch values distinguishable from numeric ones.
 
@@ -1222,6 +1291,10 @@ def _concat_union_branch_rows(
         return frames[0]
     if concrete_engine in POLARS_ENGINES:
         _reject_unrepresentable_polars_union(frames)
+    elif concrete_engine == Engine.CUDF:
+        # a branch served by a pandas fast path comes back pandas under engine='cudf'
+        frames = _decategorize_cudf_union([df_to_engine(frame, Engine.CUDF) for frame in frames])
+        _reject_unrepresentable_cudf_union(frames)
     elif concrete_engine == Engine.PANDAS:
         frames = _pandas_union_widen_boolean_columns(frames)
     return concat(frames, ignore_index=True, sort=False)

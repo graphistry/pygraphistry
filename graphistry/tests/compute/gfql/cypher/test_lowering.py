@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import fields as dataclass_fields
 from collections import Counter
 from pathlib import Path
+import os
+
 import pandas as pd
 import pytest
 import graphistry
@@ -3226,6 +3228,73 @@ def test_cypher_to_gfql_supports_standalone_graph_constructor() -> None:
     result = _mk_simple_path_graph().gfql(chain)
     assert set(result._nodes["id"].tolist()) == {"a", "b"}
     assert result._edges[["s", "d"]].to_dict(orient="records") == [{"s": "a", "d": "b"}]
+
+
+_requires_test_cudf = pytest.mark.skipif(
+    os.environ.get("TEST_CUDF", "0") != "1", reason="cudf tests need TEST_CUDF=1 and a GPU")
+
+
+@pytest.mark.parametrize("engine", ["pandas", pytest.param("cudf", marks=_requires_test_cudf)])
+@pytest.mark.parametrize(
+    "query,expected",
+    [
+        (
+            "MATCH (n) RETURN n.name AS name, count(*) AS c ORDER BY name",
+            [{"name": "A", "c": 2}, {"name": "B", "c": 2}],
+        ),
+        (
+            "MATCH (n) RETURN n.name AS name, n.town AS town, sum(n.score) AS s ORDER BY name, town",
+            [
+                {"name": "A", "town": "x", "s": 3},
+                {"name": "A", "town": "y", "s": 4},
+                {"name": "B", "town": "x", "s": 6},
+            ],
+        ),
+        (
+            "MATCH (n) WITH n.name AS name, count(n.name) AS c WHERE c > 1 RETURN name, c ORDER BY name",
+            [{"name": "A", "c": 2}, {"name": "B", "c": 2}],
+        ),
+    ],
+)
+def test_string_cypher_groups_by_a_key_named_name(engine: str, query: str, expected: list) -> None:
+    if engine == "cudf":
+        cudf = pytest.importorskip("cudf")
+    nodes = pd.DataFrame(
+        {
+            "id": ["a", "b", "c", "e"],
+            "name": ["A", "B", "A", "B"],
+            "town": ["x", "x", "y", "x"],
+            "score": [3, 1, 4, 5],
+        }
+    )
+    edges = pd.DataFrame({"s": ["a", "b"], "d": ["b", "c"]})
+    if engine == "cudf":
+        nodes, edges = cudf.from_pandas(nodes), cudf.from_pandas(edges)
+
+    result = graphistry.nodes(nodes, "id").edges(edges, "s", "d").gfql(query, engine=engine)
+
+    out = result._nodes.to_pandas() if engine == "cudf" else result._nodes
+    assert out.to_dict(orient="records") == expected
+
+
+@pytest.mark.parametrize("engine", ["pandas", pytest.param("cudf", marks=_requires_test_cudf)])
+@pytest.mark.parametrize("alias", ["__gfql_name_key__", "__gfql_name_key___x", "c"])
+def test_string_cypher_groups_by_name_with_an_aggregate_alias_like_the_internal_key(
+    engine: str, alias: str
+) -> None:
+    if engine == "cudf":
+        cudf = pytest.importorskip("cudf")
+    nodes = pd.DataFrame({"id": [0, 1], "name": ["A", "A"]})
+    edges = pd.DataFrame({"s": [0], "d": [1]})
+    if engine == "cudf":
+        nodes, edges = cudf.from_pandas(nodes), cudf.from_pandas(edges)
+
+    result = graphistry.nodes(nodes, "id").edges(edges, "s", "d").gfql(
+        f"MATCH (n) RETURN n.name AS name, count(*) AS {alias}", engine=engine
+    )
+
+    out = result._nodes.to_pandas() if engine == "cudf" else result._nodes
+    assert out.to_dict(orient="records") == [{"name": "A", alias: 2}]
 
 
 def test_string_cypher_formats_filtered_edge_entity_projection_on_cudf() -> None:

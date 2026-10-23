@@ -5718,6 +5718,15 @@ class RowPipelineMixin:
                     if isinstance(col, str) and col.startswith(prefix) and col not in seen:
                         key_cols.append(col)
                         seen.add(col)
+        # cuDF groupby(...).size() fails on a key column named 'name'; group on a copy and restore it on output
+        name_key = None
+        if type(table_df).__module__.startswith("cudf") and "name" in key_cols:
+            name_key = RowPipelineMixin._gfql_fresh_col_name(
+                [*table_df.columns, *(str(agg[0]) for agg in aggregations if agg)],
+                "__gfql_name_key__",
+            )
+            table_df = table_df.assign(**{name_key: table_df["name"]})
+            key_cols = [name_key if k == "name" else k for k in key_cols]
         from graphistry.compute.gfql.agg_types import validate_aggregation_output
 
         validate_aggregation_output(bool(key_cols), bool(aggregations))
@@ -5918,6 +5927,8 @@ class RowPipelineMixin:
 
         out_df = out_df.sort_values(by=[group_order_col]).reset_index(drop=True)
         out_df = out_df.drop(columns=[group_order_col])
+        if name_key is not None:
+            out_df = out_df.rename(columns={name_key: "name"})
         if global_key is not None:
             out_df = out_df.drop(columns=[global_key])
             if len(out_df) == 0:

@@ -262,8 +262,9 @@ class ASTNode(ASTObject):
             .nodes(prev_node_wavefront if prev_node_wavefront is not None else g._nodes)
             .filter_nodes_by_dict(self.filter_dict)
             .nodes(lambda g_dynamic: g_dynamic._nodes.query(self.query) if self.query is not None else g_dynamic._nodes)
-            .edges(g._edges[:0])
         )
+        if g._edges is not None:
+            out_g = out_g.edges(g._edges[:0])
         if target_wave_front is not None:
             assert g._node is not None
             reduced_nodes = safe_merge(cast(DataFrameT, out_g._nodes), target_wave_front[[g._node]], on=g._node, how='inner')

@@ -2589,11 +2589,17 @@ def _execute_single_hop_grouped_aggregate_fast_path(
         if joined_end is None:
             return None
         work = joined_end
+        # cuDF DataFrameGroupBy.size() fails when any column is named 'name'; count a fresh column there
+        size_col = None
+        if type(work).__module__.startswith("cudf") and "name" in work.columns:
+            size_col = generate_safe_column_name("group_size", work, prefix="__gfql_", suffix="__")
+            work = work.assign(**{size_col: 1})
         try:
             grouped = work.groupby(group_keys, sort=False, dropna=False)
         except TypeError:
             grouped = work.groupby(group_keys, sort=False)
-        out_df = grouped.size().reset_index(name="__gfql_group_size__")[group_keys]
+        sized = grouped[size_col] if size_col is not None else grouped
+        out_df = sized.size().reset_index(name="__gfql_group_size__")[group_keys]
         for alias, func, expr_alias in aggregations:
             # Twin of the polars branch above: one Cypher sum()/avg() type contract, enforced on
             # whichever engine runs the fast path (see gfql/agg_types.py).
@@ -2608,7 +2614,7 @@ def _execute_single_hop_grouped_aggregate_fast_path(
                     if dtype_label is not None:
                         raise_non_numeric_aggregation(func, expr_alias, dtype_label, alias)
             if func == "count" and (expr_alias is None or with_items[expr_alias][1] is None):
-                agg_df = grouped.size().reset_index(name=alias)
+                agg_df = sized.size().reset_index(name=alias)
             elif func == "count" and expr_alias is not None:
                 agg_df = grouped[expr_alias].count().reset_index(name=alias)
             elif func == "avg" and expr_alias is not None:
