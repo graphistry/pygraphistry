@@ -1640,7 +1640,11 @@ def _execute_compiled_query_chain_non_union(
         ):
             # #1786: on the no-seed-rows path `_seeded_dispatch_graph` hands back
             # `base_graph` ITSELF (the caller's object), so this must land on a copy.
-            dispatch_graph = attach_row_exec_context(dispatch_graph, start_nodes=start_nodes)
+            dispatch_graph = attach_row_exec_context(
+                dispatch_graph,
+                start_nodes=start_nodes,
+                preserve_start_node_multiplicity=not compiled_query.optional_reentry,
+            )
 
     result = _chain_dispatch(dispatch_graph, compiled_query.chain, engine, policy, context, start_nodes=start_nodes)
     # Attach/detach pair (#1786): the chain has run, so the seed is spent and must not
@@ -1829,6 +1833,19 @@ def _execute_compiled_query_with_reentry_impl(
                         suggestion=_REENTRY_WHOLE_ROW_SUGGESTION,
                     )
                 row_results = []
+                chain_ops = list(compiled_query.chain.chain)
+                first_call_index = next(
+                    (index for index, op in enumerate(chain_ops) if isinstance(op, ASTCall)),
+                    None,
+                )
+                if first_call_index is None:
+                    raise _reentry_validation_error(
+                        "Cypher MATCH after WITH multi-row free-form re-entry requires a trailing MATCH operation",
+                        value=None,
+                        suggestion=_REENTRY_WHOLE_ROW_SUGGESTION,
+                    )
+                match_ops = chain_ops[:first_call_index + 1]
+                suffix_ops = chain_ops[first_call_index + 1:]
                 for i in range(prefix_row_count_freeform):
                     row_graph = _freeform_broadcast_row_to_nodes(
                         base_graph,
@@ -1837,18 +1854,41 @@ def _execute_compiled_query_with_reentry_impl(
                         plan,
                         row_index=i,
                     )
-                    row_result = _execute_compiled_query(
+                    row_result = _chain_dispatch(
                         row_graph,
-                        compiled_query=compiled_query,
-                        engine=engine,
-                        policy=policy,
-                        context=context,
-                        start_nodes=None,
+                        Chain(match_ops),
+                        engine,
+                        policy,
+                        context,
                     )
                     row_results.append(row_result)
-                return _union_scalar_reentry_results(
+                combined_result = _union_scalar_reentry_results(
                     row_results, base_graph=base_graph, engine=engine
                 )
+                if suffix_ops:
+                    combined_result = _chain_dispatch(
+                        combined_result,
+                        Chain(suffix_ops),
+                        engine,
+                        policy,
+                        context,
+                    )
+                if compiled_query.result_projection is not None:
+                    combined_result = apply_result_projection(
+                        combined_result,
+                        compiled_query.result_projection,
+                        structured=(
+                            compiled_query.optional_projection_row_guard is None
+                        ),
+                        source_node_id=base_graph._node,
+                    )
+                if compiled_query.empty_result_row is not None:
+                    combined_result = _apply_empty_result_row(
+                        combined_result,
+                        engine=engine,
+                        empty_result_row=compiled_query.empty_result_row,
+                    )
+                return combined_result
             compiled_base_graph, start_nodes = _compiled_query_freeform_reentry_state(
                 base_graph,
                 prefix_result,
