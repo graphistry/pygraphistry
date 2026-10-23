@@ -59,6 +59,8 @@ POLARS_TEST_FILES=(
     graphistry/tests/compute/gfql/test_optional_match_semantics.py
     graphistry/tests/compute/gfql/test_optional_match_with_pipeline_boundaries.py
     graphistry/tests/compute/gfql/test_row_multiplicity_semantics.py
+    # #2034 ID-contract pins are engine-parametrized; polars params only run here
+    graphistry/tests/compute/gfql/test_issue_2034_id_contracts.py
     # whole-entity RETURN bag multiplicity: engine-parametrized pandas/polars/cudf, and the
     # polars params (multi-entity binding-row rendering) only ever run here
     graphistry/tests/compute/gfql/test_whole_entity_projection_bag_1994.py

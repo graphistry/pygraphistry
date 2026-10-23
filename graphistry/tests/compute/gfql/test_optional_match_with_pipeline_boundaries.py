@@ -13,18 +13,9 @@ Every expected value here is HAND-COMPUTED from the openCypher contract
 when the pattern does not match; WITH without DISTINCT/ORDER BY/SKIP/LIMIT is a
 row no-op; a WHERE on a stage filters binding ROWS with three-valued logic).
 Cross-engine agreement is NOT the oracle: ``test_carried_prefix_row_multiplicity``
-below was a shape where all three engines agreed on the WRONG answer before the
-#1935 prefix-multiplicity repair.
-
-Anti-vacuity, historical and scoped to pre-fix base 21167e08 (which reproduces
-the figure first taken at a7c9d6f): 30 of the first 45 cells FAIL there -- 10
-of the 15 shapes answer differently, in silent inner-joins that drop every
-unmatched seed, a wrong row count under a null-valued predicate, and two
-declines whose message described a different limitation. Of the remaining 5
-shapes, 4 are marked ``deliberate control`` in their docstring -- each kills a
-mutation of this PR's diff, one of them (the single-prefix-row control) also
-covered by an existing pandas-only pin named in its docstring -- and the
-former strict xfail is now the positive multiplicity oracle above.
+below pins the post-#1935 multiset contract. The historical pre-fix baseline
+(base 21167e08) had 30 failing cells out of the first 45; retain that receipt
+for archaeology, not as a description of current behavior.
 """
 from __future__ import annotations
 
@@ -562,12 +553,11 @@ def test_expression_over_a_carried_alias_declines_as_irreproducible(engine):
     assert "the null-extension cannot reproduce" in str(err.value), str(err.value)
 
 
-@pytest.mark.parametrize("engine", ["pandas", "cudf"])
+@pytest.mark.parametrize("engine", ["pandas", "polars", "cudf"])
 def test_whole_entity_carried_alias_keeps_its_values_on_the_null_extended_row(engine):
     """`WITH a AS p, a.id AS pid` binds p for every carried row. OPTIONAL MATCH
     cannot unbind it, so a2's null-extended row must still carry a2's own node
-    columns; only `bid` is NULL. polars declines this shape outright with the
-    typed scalar-carry NotImplementedError, so it is not parametrized here."""
+    columns; only `bid` is NULL."""
     q = ("MATCH (a:P) WITH a AS p, a.id AS pid LIMIT 2 "
          "OPTIONAL MATCH (p)-[:KNOWS]->(b) RETURN p, pid, b.id AS bid")
     _assert_rows(_run(q, engine), [
