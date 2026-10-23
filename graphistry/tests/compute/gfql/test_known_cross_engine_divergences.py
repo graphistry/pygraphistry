@@ -6,6 +6,8 @@ malformed -- dangling edge endpoints, duplicate node ids. They are pinned
 executable so (a) the release notes can point at exactly what diverges, and
 (b) the fix PR flips a strict xfail instead of rediscovering the shape.
 """
+import os
+
 import pandas as pd
 import pytest
 
@@ -254,8 +256,7 @@ _OM_AGG_ORACLE = [
 ]
 
 _needs_cudf = pytest.mark.skipif(
-    __import__("importlib.util", fromlist=["util"]).find_spec("cudf") is None,
-    reason="cudf lane requires a GPU box (--gpus all)")
+    os.environ.get("TEST_CUDF", "0") != "1", reason="cudf tests need TEST_CUDF=1 and a GPU")
 
 
 @pytest.mark.parametrize("engine", [
