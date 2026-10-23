@@ -3327,6 +3327,13 @@ def _seeded_typed_hop_bag_rows(
     return joined.drop(columns=[_SEEDED_BAG_KEY]).reset_index(drop=True)  # type: ignore[no-any-return]
 
 
+def _seed_rows_have_duplicate_id(seed_rows: DataFrameT, node: str, *, is_polars: bool) -> bool:
+    """Whether the matched seed rows retain more than one binding row per ID."""
+    if is_polars:
+        return bool(seed_rows.get_column(node).is_duplicated().any())  # type: ignore[union-attr]
+    return bool(seed_rows[node].duplicated().any())
+
+
 def _pandas_frame_has_extension_dtype(frame: DataFrameT) -> bool:
     """A pandas frame carrying a non-numpy dtype other than the string dtype (categorical,
     nullable): the full path's frame ops widen its neighbours, which the lean paths do not."""
@@ -3796,6 +3803,19 @@ def _execute_seeded_typed_hop_fast_path(
             served=False,
             reason="unsupported_shape",
             hop_count=1,
+            public_seed_scan=node not in n0.filter_dict,
+        )
+        return None
+    p_rows, _edges, seed_rows, kernel_admits = dst_res
+    if _seed_rows_have_duplicate_id(seed_rows, node, is_polars=is_polars):
+        # The property bag expansion keys on endpoint IDs, so duplicate seed IDs
+        # would lose seed-row multiplicity. The full positional pipeline serves it.
+        _record_indexed_traversal(
+            seam="destination_return",
+            engine=requested_engine,
+            served=False,
+            reason="duplicate_seed_id",
+            hop_count=1,
             public_seed_scan=node not in cast(Dict[str, Any], n0.filter_dict),
         )
         return None
@@ -3808,7 +3828,6 @@ def _execute_seeded_typed_hop_fast_path(
         public_seed_scan=node not in cast(Dict[str, Any], n0.filter_dict),
         hop_details=[{"hop": 1}] if index_ctx is not None else None,
     )
-    p_rows, _edges, seed_rows, kernel_admits = dst_res
     canonical_keeps_source_dtypes = True  # the general chain path keeps source dtypes on every route
     if wants_multi_alias:
         assert select_items is not None
