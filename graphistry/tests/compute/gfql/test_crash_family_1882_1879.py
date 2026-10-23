@@ -44,8 +44,17 @@ polars_only = pytest.mark.skipif(not HAS_POLARS, reason="polars not installed")
 
 ENGINES = ["pandas", pytest.param("polars", marks=polars_only)]
 
+cudf_only = pytest.mark.skipif(
+    __import__("importlib.util", fromlist=["util"]).find_spec("cudf") is None,
+    reason="cudf not installed")
+
+ENGINES_WITH_CUDF = [*ENGINES, pytest.param("cudf", marks=cudf_only)]
+
 
 def _frame(engine, df):
+    if engine == "cudf":
+        import cudf
+        return cudf.from_pandas(df)
     return pl.from_pandas(df) if engine == "polars" else df
 
 
@@ -190,6 +199,8 @@ class TestNodesOnlyCypherPolars:
         res = g.gfql(query, engine="polars")
         assert isinstance(res._nodes, pl.DataFrame)
         assert res._edges is None
+        baseline_binding = _nodes_only("pandas").gfql(query, engine="pandas")._node
+        assert res._node == baseline_binding
         baseline = _nodes_only("pandas").gfql(query, engine="pandas")
         pd.testing.assert_frame_equal(
             res._nodes.to_pandas(), baseline._nodes.reset_index(drop=True), check_dtype=False)
@@ -234,7 +245,7 @@ OPTIONAL_ON_NODES_ONLY = [
 class TestNodesOnlyOptionalMatch:
     """#1879: an OPTIONAL edge arm on a graph without edges matches nothing on every engine."""
 
-    @pytest.mark.parametrize("engine", ENGINES)
+    @pytest.mark.parametrize("engine", ENGINES_WITH_CUDF)
     @pytest.mark.parametrize("with_policy", [False, True], ids=["no_policy", "policy"])
     @pytest.mark.parametrize("_name,query,expect", OPTIONAL_ON_NODES_ONLY)
     def test_optional_arm_returns_base_rows(self, engine, with_policy, _name, query, expect):
@@ -250,7 +261,7 @@ class TestNodesOnlyOptionalMatch:
         res = g.gfql(OPTIONAL_ON_NODES_ONLY[0][1], engine="polars")
         assert res._nodes["id"].to_list() == [0, 1, 2]
 
-    @pytest.mark.parametrize("engine", ENGINES)
+    @pytest.mark.parametrize("engine", ENGINES_WITH_CUDF)
     def test_required_edge_pattern_still_declines_typed(self, engine):
         with pytest.raises(GFQLSchemaError, match="no edges"):
             _nodes_only(engine).gfql("MATCH (n)-[r]->(m) RETURN n.id AS id", engine=engine)
