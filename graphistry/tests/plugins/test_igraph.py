@@ -419,6 +419,18 @@ class Test_from_igraph(NoAuthTestCase):
                 assert g3._nodes["label"].tolist() == nodes_df["label"].tolist()
                 assert len(g3._nodes) == n
 
+    def test_node_name_attribute_restored_by_module_level_from_igraph(self):
+        nodes_df = pd.DataFrame({"id": ["a", "b", "c"], "name": ["A", "B", "C"], "k": [1, 2, 3]})
+        edges_df = pd.DataFrame({"s": ["a", "b"], "d": ["b", "c"]})
+        g = graphistry.nodes(nodes_df, "id").edges(edges_df, "s", "d")
+
+        g2 = graphistry.from_igraph(g.to_igraph())
+        assert g2._nodes[g2._node].tolist() == ["a", "b", "c"]
+        assert g2._nodes["name"].tolist() == ["A", "B", "C"]
+        assert g2._nodes["k"].tolist() == [1, 2, 3]
+        assert "__attr_name_2__" not in g2._nodes
+        assert g2._edges[[g2._source, g2._destination]].values.tolist() == [["a", "b"], ["b", "c"]]
+
     def test_node_name_and_edge_endpoint_attributes_round_trip(self):
         nodes_df = pd.DataFrame({"id": ["a", "b", "c"], "name": ["A", "B", "C"], "__attr_name_2__": [1, 2, 3]})
         edges_df = pd.DataFrame({"s": ["a", "b"], "d": ["b", "c"], "source": ["sa", "sb"], "target": ["ta", "tb"]})
