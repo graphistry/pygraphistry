@@ -105,6 +105,7 @@ from graphistry.compute.gfql.cypher.ast import (
     BooleanExpr,
     CypherGraphQuery,
     CypherLiteral,
+    CypherScalar,
     CypherQuery,
     CypherUnionQuery,
     ExpressionText,
@@ -733,7 +734,7 @@ def _parse_validated_row_expr_node(
 def _parse_row_expr(
     expr_text: str,
     *,
-    params: Optional[Mapping[str, Any]] = None,
+    params: Optional[Mapping[str, object]] = None,
     alias_targets: Optional[Mapping[str, ASTObject]] = None,
     allow_missing_params: bool = False,
     field: str,
@@ -1616,7 +1617,7 @@ def _expr_match_alias_usage(
     expr_text: str,
     *,
     alias_targets: Mapping[str, ASTObject],
-    params: Optional[Mapping[str, Any]] = None,
+    params: Optional[Mapping[str, object]] = None,
     field: str,
     line: int,
     column: int,
@@ -6916,8 +6917,8 @@ def lower_match_query(
                     )
                 )
                 continue
-            if _is_zoned_iso_temporal_comparison(predicate):
-                zoned_row_expr = _row_where_predicate_text(predicate)
+            if _is_zoned_iso_temporal_comparison(predicate, params=params):
+                zoned_row_expr = _row_where_predicate_text(predicate, params=params)
                 if zoned_row_expr is not None:
                     row_where_predicates.append(zoned_row_expr)
                     continue
@@ -6983,18 +6984,23 @@ _ZONED_ISO_TEMPORAL_TEXT_RE = re.compile(
 )
 
 
-def _is_zoned_iso_temporal_comparison(predicate: WherePredicate) -> bool:
-    """Comparison against tz-suffixed ISO temporal TEXT: keep it a ``where_rows``
-    residual. Pushed down, the raw pandas compare raises on a naive datetime
-    column and its equality silently matches zero rows; the row pipeline's
-    temporal path compares instants on both column shapes."""
+def _is_zoned_iso_temporal_comparison(
+    predicate: WherePredicate, *, params: Optional[Mapping[str, CypherScalar]] = None
+) -> bool:
+    """Keep tz-suffixed ISO temporal TEXT comparisons in ``where_rows``."""
     if predicate.op not in {"==", "!=", "<>", "<", "<=", ">", ">="}:
         return False
     right = predicate.right
+    if isinstance(right, ParameterRef):
+        if params is None or right.name not in params:
+            return False
+        right = params[right.name]
     return isinstance(right, str) and _ZONED_ISO_TEMPORAL_TEXT_RE.match(right) is not None
 
 
-def _row_where_predicate_text(predicate: WherePredicate) -> Optional[str]:
+def _row_where_predicate_text(
+    predicate: WherePredicate, *, params: Optional[Mapping[str, CypherScalar]] = None
+) -> Optional[str]:
     if isinstance(predicate.left, LabelRef):
         return None
     if predicate.op in {"is_null", "is_not_null"}:
@@ -7008,10 +7014,13 @@ def _row_where_predicate_text(predicate: WherePredicate) -> Optional[str]:
     rendered_op = op_map.get(predicate.op, predicate.op)
     if rendered_op not in {"=", "!=", "<", "<=", ">", ">="}:
         return None
+    right_operand: Union[PropertyRef, CypherLiteral] = predicate.right
+    if isinstance(right_operand, ParameterRef) and params is not None and right_operand.name in params:
+        right_operand = params[right_operand.name]
     return (
         f"{_render_row_where_operand_text(predicate.left)} "
         f"{rendered_op} "
-        f"{_render_row_where_operand_text(predicate.right)}"
+        f"{_render_row_where_operand_text(right_operand)}"
     )
 
 
@@ -9000,8 +9009,8 @@ def _apply_where_to_ops(
                 )
             )
             continue
-        if _is_zoned_iso_temporal_comparison(predicate):
-            zoned_row_expr = _row_where_predicate_text(predicate)
+        if _is_zoned_iso_temporal_comparison(predicate, params=params):
+            zoned_row_expr = _row_where_predicate_text(predicate, params=params)
             if zoned_row_expr is not None:
                 row_expr_filters.append(ExpressionText(text=zoned_row_expr, span=predicate.span))
                 continue
