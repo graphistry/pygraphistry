@@ -27,6 +27,8 @@ ISO string, and a tz-AWARE column) are pinned alongside as the regression fence.
 """
 from __future__ import annotations
 
+import os
+
 import pandas as pd
 import pytest
 
@@ -490,6 +492,11 @@ def test_a4_cudf_union_type_check_declines_only_non_numeric_disagreement(branche
         _reject_unrepresentable_cudf_union(frames)
 
 
+_requires_test_cudf = pytest.mark.skipif(
+    os.environ.get("TEST_CUDF", "0") != "1", reason="cudf tests need TEST_CUDF=1 and a GPU")
+
+
+@_requires_test_cudf
 def test_a4_cudf_union_parity_or_typed_decline():
     """cuDF: a UNION over one column type dedups and numeric widening is served. A cuDF column cannot
     keep a bool or string branch distinct from an int branch, so like polars those decline
@@ -512,6 +519,7 @@ def test_a4_cudf_union_parity_or_typed_decline():
             g.gfql(query, engine="cudf")
 
 
+@_requires_test_cudf
 def test_a4_cudf_union_of_a_pandas_bound_graph_returns_cudf_rows():
     """A branch served by a pandas fast path came back pandas under engine='cudf', and the
     cuDF concat raised TypeError on the mixed frames."""

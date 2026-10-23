@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import fields as dataclass_fields
 from collections import Counter
 from pathlib import Path
+import os
+
 import pandas as pd
 import pytest
 import graphistry
@@ -3228,7 +3230,11 @@ def test_cypher_to_gfql_supports_standalone_graph_constructor() -> None:
     assert result._edges[["s", "d"]].to_dict(orient="records") == [{"s": "a", "d": "b"}]
 
 
-@pytest.mark.parametrize("engine", ["pandas", "cudf"])
+_requires_test_cudf = pytest.mark.skipif(
+    os.environ.get("TEST_CUDF", "0") != "1", reason="cudf tests need TEST_CUDF=1 and a GPU")
+
+
+@pytest.mark.parametrize("engine", ["pandas", pytest.param("cudf", marks=_requires_test_cudf)])
 @pytest.mark.parametrize(
     "query,expected",
     [
@@ -3271,7 +3277,7 @@ def test_string_cypher_groups_by_a_key_named_name(engine: str, query: str, expec
     assert out.to_dict(orient="records") == expected
 
 
-@pytest.mark.parametrize("engine", ["pandas", "cudf"])
+@pytest.mark.parametrize("engine", ["pandas", pytest.param("cudf", marks=_requires_test_cudf)])
 @pytest.mark.parametrize("alias", ["__gfql_name_key__", "__gfql_name_key___x", "c"])
 def test_string_cypher_groups_by_name_with_an_aggregate_alias_like_the_internal_key(
     engine: str, alias: str

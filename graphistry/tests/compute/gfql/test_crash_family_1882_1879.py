@@ -26,6 +26,8 @@ oracle, plus the both-sides pins that lock the behavior that already worked:
 * empty-but-BOUND edges kept working throughout -- pinned on both engines so the
   nodes-only fix can never regress it.
 """
+import os
+
 import pandas as pd
 import pytest
 
@@ -45,8 +47,7 @@ polars_only = pytest.mark.skipif(not HAS_POLARS, reason="polars not installed")
 ENGINES = ["pandas", pytest.param("polars", marks=polars_only)]
 
 cudf_only = pytest.mark.skipif(
-    __import__("importlib.util", fromlist=["util"]).find_spec("cudf") is None,
-    reason="cudf not installed")
+    os.environ.get("TEST_CUDF", "0") != "1", reason="cudf tests need TEST_CUDF=1 and a GPU")
 
 ENGINES_WITH_CUDF = [*ENGINES, pytest.param("cudf", marks=cudf_only)]
 
