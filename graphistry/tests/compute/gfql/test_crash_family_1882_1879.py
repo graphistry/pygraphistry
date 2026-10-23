@@ -266,6 +266,30 @@ class TestNodesOnlyOptionalMatch:
         with pytest.raises(GFQLSchemaError, match="no edges"):
             _nodes_only(engine).gfql("MATCH (n)-[r]->(m) RETURN n.id AS id", engine=engine)
 
+    @pytest.mark.parametrize("engine", ENGINES)
+    def test_edge_chain_declines_typed_without_schema_validation(self, engine):
+        with pytest.raises(GFQLSchemaError, match="no edges"):
+            _nodes_only(engine).chain([n(), e_forward(), n()], engine=engine, validate_schema=False)
+
+
+PATTERN_PREDICATES_ON_NODES_ONLY = [
+    ("exists", "MATCH (n) WHERE EXISTS { (n)-->() } RETURN n.id AS id", {"id": []}),
+    ("not_exists", "MATCH (n) WHERE NOT EXISTS { (n)-->() } RETURN n.id AS id ORDER BY id",
+     {"id": [0, 1, 2]}),
+    ("pattern", "MATCH (n) WHERE (n)-->() RETURN n.id AS id", {"id": []}),
+    ("not_pattern_count", "MATCH (n) WHERE NOT (n)<--() RETURN count(*) AS c", {"c": [3]}),
+]
+
+
+class TestNodesOnlyPatternPredicates:
+    """#1879: a pattern predicate on a graph without edges matches nothing on every engine."""
+
+    @pytest.mark.parametrize("engine", ENGINES_WITH_CUDF)
+    @pytest.mark.parametrize("_name,query,expect", PATTERN_PREDICATES_ON_NODES_ONLY)
+    def test_pattern_predicate_answers(self, engine, _name, query, expect):
+        got = _pd(_nodes_only(engine).gfql(query, engine=engine)._nodes)
+        assert got.to_dict("list") == expect
+
 
 class TestEmptyBoundEdgesStillServe:
     """Both-sides pin: empty-but-BOUND edges worked before the fix and must keep working."""
