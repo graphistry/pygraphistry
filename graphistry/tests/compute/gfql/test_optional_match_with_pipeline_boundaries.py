@@ -13,28 +13,30 @@ Every expected value here is HAND-COMPUTED from the openCypher contract
 when the pattern does not match; WITH without DISTINCT/ORDER BY/SKIP/LIMIT is a
 row no-op; a WHERE on a stage filters binding ROWS with three-valued logic).
 Cross-engine agreement is NOT the oracle: ``test_carried_prefix_row_multiplicity``
-below is a shape where all three engines agree on the WRONG answer.
+below was a shape where all three engines agreed on the WRONG answer before the
+#1935 prefix-multiplicity repair.
 
-Anti-vacuity (re-measured at this PR's base 21167e08, which reproduces the
-figure first taken at a7c9d6f): 30 of the first 45 cells FAIL there -- 10 of
-the 15 shapes answer differently, in silent inner-joins that drop every
+Anti-vacuity, historical and scoped to pre-fix base 21167e08 (which reproduces
+the figure first taken at a7c9d6f): 30 of the first 45 cells FAIL there -- 10
+of the 15 shapes answer differently, in silent inner-joins that drop every
 unmatched seed, a wrong row count under a null-valued predicate, and two
 declines whose message described a different limitation. Of the remaining 5
 shapes, 4 are marked ``deliberate control`` in their docstring -- each kills a
 mutation of this PR's diff, one of them (the single-prefix-row control) also
-covered by an existing pandas-only pin named in its docstring -- and the 5th is
-the strict xfail below, which fails as expected on both trees because the
-defect it names predates this PR.
+covered by an existing pandas-only pin named in its docstring -- and the
+former strict xfail is now the positive multiplicity oracle above.
 """
 from __future__ import annotations
 
 import math
 
+import numpy as np
 import pandas as pd
 import pytest
 
 import graphistry
 from graphistry.compute.exceptions import GFQLValidationError
+from graphistry.compute.gfql.cypher.reentry.execution import _record_values_are_identical
 
 ENGINES = ["pandas", "polars", "cudf"]
 
@@ -281,27 +283,94 @@ def test_reentry_single_prefix_row_with_zero_matches_null_extends(engine):
 
 
 @pytest.mark.parametrize("engine", ENGINES)
-@pytest.mark.xfail(
-    strict=True,
-    reason="KNOWN WRONG (all three engines agree): a whole-row WITH carry "
-           "deduplicates the prefix frame by node id, so a prefix row that "
-           "appears twice contributes its arm matches once. #1897 fixed the "
-           "unmatched-row half of this shape (a2 is now null-extended instead "
-           "of dropped) but not the multiplicity half.",
-)
 def test_carried_prefix_row_multiplicity_survives_the_reentry(engine):
-    """`MATCH (a:P)-[]->(c)` binds a1 twice (a1->b1, a1->b2) and a2 once, so
+    """Preserve relationship binding-row multiplicity across whole-node carry.
+
+    `MATCH (a:P)-[]->(c)` binds a1 twice (a1->b1, a1->b2) and a2 once, so
     `WITH a AS p` carries THREE rows. Each a1 row then expands to a1's two
     KNOWS matches and a2's row null-extends: 5 rows, with (a1,b1) and (a1,b2)
-    each appearing twice. Cross-engine agreement is not evidence here -- all
-    three engines return the 3-row deduplicated answer."""
+    each appearing twice."""
     q = ("MATCH (a:P)-[]->(c) WITH a AS p OPTIONAL MATCH (p)-[:KNOWS]->(d) "
          "RETURN p.id AS pid, d.id AS did")
+    if engine == "polars":
+        with pytest.raises(NotImplementedError, match="does not yet natively support cypher row op 'rows'"):
+            _run(q, engine)
+        return
     _assert_rows(_run(q, engine), [
         {"pid": "a1", "did": "b1"}, {"pid": "a1", "did": "b2"},
         {"pid": "a1", "did": "b1"}, {"pid": "a1", "did": "b2"},
         {"pid": "a2", "did": None},
     ])
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_duplicated_unmatched_prefix_rows_each_null_extend(engine):
+    """Duplicate carried rows are independent bindings, not a set of entities.
+
+    The prefix still has two a1 rows and one a2 row. If the whole-node carry
+    deduplicates a1, the missing edge pattern would produce two null rows
+    instead of the required three."""
+    q = ("MATCH (a:P)-[]->(c) WITH a AS p "
+         "OPTIONAL MATCH (p)-[:MISSING]->(d) "
+         "RETURN p.id AS pid, d.id AS did")
+    if engine == "polars":
+        with pytest.raises(NotImplementedError, match="does not yet natively support cypher row op 'rows'"):
+            _run(q, engine)
+        return
+    _assert_rows(_run(q, engine), [
+        {"pid": "a1", "did": None},
+        {"pid": "a1", "did": None},
+        {"pid": "a2", "did": None},
+    ])
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_duplicated_prefix_rows_with_nullable_properties_still_match(engine):
+    """A nullable property copied into each complete prefix row must not turn
+    full-row equality into a pandas predicate. Both a1 copies are identical,
+    so the matched arm keeps its 5-row bag and the missing arm keeps 3."""
+    nodes = _nodes()
+    nodes["nullable"] = pd.array([pd.NA, 2, 3, 4, 10, 20, 99], dtype="Int64")
+
+    matched = ("MATCH (a:P)-[]->(c) WITH a AS p "
+               "OPTIONAL MATCH (p)-[:KNOWS]->(d) RETURN p.id AS pid, d.id AS did")
+    if engine == "polars":
+        with pytest.raises(NotImplementedError, match="does not yet natively support cypher row op 'rows'"):
+            _run(matched, engine, nodes=nodes)
+        return
+    _assert_rows(_run(matched, engine, nodes=nodes), [
+        {"pid": "a1", "did": "b1"}, {"pid": "a1", "did": "b2"},
+        {"pid": "a1", "did": "b1"}, {"pid": "a1", "did": "b2"},
+        {"pid": "a2", "did": None},
+    ])
+
+    unmatched = ("MATCH (a:P)-[]->(c) WITH a AS p "
+                 "OPTIONAL MATCH (p)-[:MISSING]->(d) RETURN p.id AS pid, d.id AS did")
+    _assert_rows(_run(unmatched, engine, nodes=nodes), [
+        {"pid": "a1", "did": None}, {"pid": "a1", "did": None},
+        {"pid": "a2", "did": None},
+    ])
+
+
+def test_full_row_equality_handles_missing_scalars_and_arrays():
+    """Complete-row copies compare structurally; NA compares as one null."""
+    missing = {"column": pd.NA}
+    numeric_array = {"column": np.array([1.0, np.nan])}
+    distinct_array = {"column": np.array([1.0, 2.0])}
+
+    assert _record_values_are_identical(missing, missing)
+    assert _record_values_are_identical(
+        {"column": np.array(["x", "y"])}, {"column": np.array(["x", "y"])}
+    )
+    assert _record_values_are_identical(
+        {"column": np.array([1.0, np.nan])}, numeric_array
+    )
+    assert not _record_values_are_identical(
+        {"column": pd.NA}, {"column": 1}
+    )
+    assert not _record_values_are_identical(
+        numeric_array, distinct_array
+    )
 
 
 # ===================================================== round 2
@@ -312,9 +381,10 @@ def test_carried_prefix_row_multiplicity_survives_the_reentry(engine):
 # NULL axis (NULL ids, NULL carried values, a NULL key shared by a matched and
 # an unmatched row) that the sibling PR's silent-wrong answer came from.
 #
-# Anti-vacuity, measured at this PR's base 21167e08: 27 of the 29 cells below
-# FAIL there. The two that do not are the strict xfail, whose defect predates
-# the PR and xfails on both trees. No cell here is base-passing.
+# Anti-vacuity, historical and scoped to pre-fix base 21167e08: 27 of the 29
+# cells below FAIL there. The two that do not were strict xfails whose defects
+# predate the PR and xfail on both trees. No surviving cell here is
+# base-passing.
 
 # A PATH alias (`MATCH path = ...`) is the one carried bare identifier that no
 # MATCH clause binds as a pattern variable.

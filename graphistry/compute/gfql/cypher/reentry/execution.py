@@ -5,6 +5,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Dict, List, Mapping, Optional, Sequence, Set, Tuple, Union, cast
 
+import numpy as np
+import pandas as pd
+
 from graphistry.Engine import (
     EngineAbstract,
     assign_constant_columns,
@@ -233,7 +236,7 @@ def _optional_reentry_unmatched_identity_null_rows(
     if result_df is None or len(result_df) == 0:
         return fill_from
     prefix_keys = [_optional_reentry_key(record, src_cols) for record in prefix_records]
-    if len(set(prefix_keys)) != len(prefix_keys):
+    if _has_ambiguous_duplicate_prefix_keys(prefix_df, prefix_records, prefix_keys):
         return None
     matched_keys = {
         _optional_reentry_key(record, tuple(out for out, _ in pairs))
@@ -244,6 +247,86 @@ def _optional_reentry_unmatched_identity_null_rows(
         for row, key in zip(fill_from, prefix_keys)
         if key not in matched_keys
     ]
+
+
+def _has_ambiguous_duplicate_prefix_keys(
+    prefix_df: DataFrameT,
+    prefix_records: List[CypherFillRow],
+    prefix_keys: List[Tuple[CypherFillValue, ...]],
+) -> bool:
+    """Duplicate join keys are safe only as duplicate copies of one prefix row."""
+    indices_by_key: Dict[Tuple[CypherFillValue, ...], List[int]] = {}
+    for index, key in enumerate(prefix_keys):
+        indices_by_key.setdefault(key, []).append(index)
+    duplicate_indices = [indices for indices in indices_by_key.values() if len(indices) > 1]
+    if not duplicate_indices:
+        return False
+    all_columns = tuple(str(column) for column in prefix_df.columns)
+    full_records = _records_for_columns(prefix_df, all_columns)
+    return any(
+        not _records_are_identical([full_records[index] for index in indices])
+        for indices in duplicate_indices
+    )
+
+
+def _records_are_identical(records: List[CypherFillRow]) -> bool:
+    first = records[0]
+    return all(_record_values_are_identical(first, record) for record in records[1:])
+
+
+def _record_values_are_identical(left: CypherFillRow, right: CypherFillRow) -> bool:
+    return left.keys() == right.keys() and all(
+        _reentry_values_equal(left[column], right[column])
+        for column in left
+    )
+
+
+def _reentry_values_equal(left: CypherFillValue, right: CypherFillValue) -> bool:
+    """Compare copied cells without treating missing scalars as false predicates."""
+    if left is right:
+        return True
+    left_is_null = _reentry_value_is_null(left)
+    right_is_null = _reentry_value_is_null(right)
+    if left_is_null or right_is_null:
+        return left_is_null and right_is_null
+    if isinstance(left, np.ndarray) or isinstance(right, np.ndarray):
+        if not isinstance(left, np.ndarray) or not isinstance(right, np.ndarray):
+            return False
+        if left.shape != right.shape:
+            return False
+        try:
+            if left.dtype.kind in ("f", "c"):
+                left_is_missing = np.isnan(left)
+                right_is_missing = np.isnan(right)
+            elif left.dtype.kind == "M":
+                left_is_missing = np.isnat(left)
+                right_is_missing = np.isnat(right)
+            else:
+                left_is_missing = np.zeros(left.shape, dtype=bool)
+                right_is_missing = np.zeros(right.shape, dtype=bool)
+            return bool(
+                ((left == right) | (left_is_missing & right_is_missing)).all()
+            )
+        except (TypeError, ValueError):
+            return False
+    try:
+        equality = left == right
+    except (TypeError, ValueError):
+        return False
+    if isinstance(equality, np.ndarray):
+        return bool(equality.all())
+    return bool(equality)
+
+
+def _reentry_value_is_null(value: CypherFillValue) -> bool:
+    if value is None or value is pd.NA:
+        return True
+    if isinstance(value, np.ndarray):
+        return False
+    try:
+        return bool(pd.isna(value))
+    except (TypeError, ValueError):
+        return False
 
 
 def _optional_reentry_carried_null_rows(
