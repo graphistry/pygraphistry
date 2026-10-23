@@ -1207,13 +1207,15 @@ def _reject_unrepresentable_cudf_union(frames: List[DataFrameT]) -> None:
     before the DISTINCT. Same contract as the polars decline; numeric widening stays served.
     """
     for name in frames[0].columns:
+        columns = [frame[name] for frame in frames if name in frame.columns]
+        if len({str(column.dtype) for column in columns}) <= 1:
+            continue
         dtypes: List[object] = []
-        for frame in frames:
-            if name not in frame.columns or bool(frame[name].isna().all()):
+        for column in columns:
+            if bool(column.isna().all()):
                 continue
-            dtype = frame[name].dtype
-            if dtype not in dtypes:
-                dtypes.append(dtype)
+            if column.dtype not in dtypes:
+                dtypes.append(column.dtype)
         if len(dtypes) <= 1:
             continue
         if all(pd.api.types.is_numeric_dtype(d) and not pd.api.types.is_bool_dtype(d) for d in dtypes):
