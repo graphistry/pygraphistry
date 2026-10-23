@@ -292,6 +292,40 @@ class TestNodesOnlyPatternPredicates:
         assert got.to_dict("list") == expect
 
 
+class TestZeroNodesWithoutEdges:
+    """#1879 boundary: zero nodes and no bound edges, so the synthetic edge frame is empty too."""
+
+    @staticmethod
+    def _graph(engine, lazy=False):
+        ndf = pd.DataFrame({"id": pd.Series([], dtype="int64"), "v": pd.Series([], dtype="int64")})
+        nodes = _frame(engine, ndf)
+        return graphistry.nodes(nodes.lazy() if lazy else nodes, "id")
+
+    @pytest.mark.parametrize("engine", ENGINES_WITH_CUDF)
+    @pytest.mark.parametrize("query", [
+        "MATCH (n) RETURN n.id AS id",
+        "MATCH (n) OPTIONAL MATCH (n)-[r]->(m) RETURN n.id AS id, m.id AS mid",
+        "MATCH (n) WHERE EXISTS { (n)-->() } RETURN n.id AS id",
+    ], ids=["plain", "optional", "exists"])
+    def test_node_patterns_return_no_rows(self, engine, query):
+        assert len(_pd(self._graph(engine).gfql(query, engine=engine)._nodes)) == 0
+
+    @pytest.mark.parametrize("engine", ENGINES_WITH_CUDF)
+    def test_count_star_is_zero(self, engine):
+        got = _pd(self._graph(engine).gfql("MATCH (n) RETURN count(*) AS c", engine=engine)._nodes)
+        assert got["c"].tolist() == [0]
+
+    @polars_only
+    def test_lazy_polars_count_star_is_zero(self):
+        got = self._graph("polars", lazy=True).gfql("MATCH (n) RETURN count(*) AS c", engine="polars")._nodes
+        assert got["c"].to_list() == [0]
+
+    @pytest.mark.parametrize("engine", ENGINES_WITH_CUDF)
+    def test_required_edge_pattern_declines_typed(self, engine):
+        with pytest.raises(GFQLSchemaError, match="no edges"):
+            self._graph(engine).gfql("MATCH (n)-[r]->(m) RETURN n.id AS id", engine=engine)
+
+
 class TestEmptyBoundEdgesStillServe:
     """Both-sides pin: empty-but-BOUND edges worked before the fix and must keep working."""
 
