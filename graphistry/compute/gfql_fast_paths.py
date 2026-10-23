@@ -2591,7 +2591,7 @@ def _execute_single_hop_grouped_aggregate_fast_path(
         work = joined_end
         # cuDF DataFrameGroupBy.size() fails when any column is named 'name'; count a fresh column there
         size_col = None
-        if "name" in work.columns and type(work).__module__.startswith("cudf"):
+        if type(work).__module__.startswith("cudf") and "name" in work.columns:
             size_col = generate_safe_column_name("group_size", work, prefix="__gfql_", suffix="__")
             work = work.assign(**{size_col: 1})
         try:

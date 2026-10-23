@@ -5720,7 +5720,7 @@ class RowPipelineMixin:
                         seen.add(col)
         # cuDF groupby(...).size() fails on a key column named 'name'; group on a copy and restore it on output
         name_key = None
-        if "name" in key_cols and type(table_df).__module__.startswith("cudf"):
+        if type(table_df).__module__.startswith("cudf") and "name" in key_cols:
             name_key = RowPipelineMixin._gfql_fresh_col_name(
                 [*table_df.columns, *(str(agg[0]) for agg in aggregations if agg)],
                 "__gfql_name_key__",
