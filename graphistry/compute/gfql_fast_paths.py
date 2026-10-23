@@ -3803,7 +3803,7 @@ def _execute_seeded_typed_hop_fast_path(
             served=False,
             reason="unsupported_shape",
             hop_count=1,
-            public_seed_scan=node not in cast(Dict[str, Any], n0.filter_dict),
+            public_seed_scan=node not in n0.filter_dict,
         )
         return None
     p_rows, _edges, seed_rows, kernel_admits = dst_res
