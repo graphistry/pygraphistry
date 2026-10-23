@@ -32,7 +32,11 @@ def _run(graph, query, engine, *, full=False):
 def _assert_parity(graph, query, engine, expected):
     seeded = _run(graph, query, engine, full=False)
     general = _run(graph, query, engine, full=True)
-    assert len(seeded) == len(expected)
+    actual_rows = [
+        tuple(None if pd.isna(value) else value for value in row)
+        for row in seeded.itertuples(index=False, name=None)
+    ]
+    assert actual_rows == expected
     assert seeded.equals(general)
     return seeded
 
@@ -83,7 +87,7 @@ def test_node_lookup_duplicate_and_null_ids_follow_the_row_contract(engine):
         null_graph,
         "MATCH (p {name: 'n3'}) RETURN p.id AS pid, p.age AS age",
         engine,
-        [(None, 4)],
+        [(4, None)],
     )
     assert out["pid"].isna().all()
     assert out["age"].tolist() == [4]
@@ -94,6 +98,7 @@ def test_node_lookup_duplicate_and_null_ids_follow_the_row_contract(engine):
 
 
 @pytest.mark.parametrize("engine", ENGINES)
+@pytest.mark.route_engaged("cypher-fast")
 def test_seeded_typed_hop_trace_reports_duplicate_decline_and_unique_serve(engine):
     duplicate_graph = _graph(
         engine,
@@ -108,9 +113,10 @@ def test_seeded_typed_hop_trace_reports_duplicate_decline_and_unique_serve(engin
     with index_trace() as steps:
         duplicate_graph.gfql(query, engine=engine)
     assert any(
-        step.get("op") == "fast_path"
-        and step.get("seam") == "seeded_typed_hop"
+        step.get("op") == "indexed_traversal"
+        and step.get("seam") == "destination_return"
         and step.get("served") is False
+        and step.get("reason") == "duplicate_seed_id"
         for step in steps
     ), steps
 
@@ -163,9 +169,8 @@ def test_seeded_typed_hop_duplicate_seed_rows_match_the_general_path(engine):
         reverse_graph,
         "MATCH (p {id: 7})<-[:KNOWS]-(d) RETURN d.age AS age",
         engine,
-        [(1,), (1,), (1,), (1,)],
+        [(3,), (3,), (3,), (3,)],
     )
-    assert out["age"].tolist() == [3, 3, 3, 3]
 
     unique_graph = _graph(
         engine,
