@@ -1199,6 +1199,26 @@ def _reject_unrepresentable_polars_union(frames: List[DataFrameT]) -> None:
         )
 
 
+def _decategorize_cudf_union(frames: List[DataFrameT]) -> List[DataFrameT]:
+    """Cast categorical columns to their category value type where branch dtypes differ.
+
+    Every cuDF categorical dtype prints as ``category``, so an int and a string categorical
+    looked alike to the type check and reached the concat. Cypher reads a categorical as its
+    values, as pandas does, so compare and concat the values instead.
+    """
+    cast: Dict[int, Dict[str, object]] = {}
+    for name in frames[0].columns:
+        dtypes = [frame[name].dtype for frame in frames if name in frame.columns]
+        if all(dtype == dtypes[0] for dtype in dtypes):
+            continue
+        for i, frame in enumerate(frames):
+            if name in frame.columns and str(frame[name].dtype) == "category":
+                cast.setdefault(i, {})[name] = frame[name].dtype.categories.dtype
+    if not cast:
+        return frames
+    return [frame.astype(cast[i]) if i in cast else frame for i, frame in enumerate(frames)]
+
+
 def _reject_unrepresentable_cudf_union(frames: List[DataFrameT]) -> None:
     """Decline a UNION whose branches disagree on a non numeric column type.
 
@@ -1208,7 +1228,7 @@ def _reject_unrepresentable_cudf_union(frames: List[DataFrameT]) -> None:
     """
     for name in frames[0].columns:
         columns = [frame[name] for frame in frames if name in frame.columns]
-        if len({str(column.dtype) for column in columns}) <= 1:
+        if all(column.dtype == columns[0].dtype for column in columns):
             continue
         dtypes: List[object] = []
         for column in columns:
@@ -1273,7 +1293,7 @@ def _concat_union_branch_rows(
         _reject_unrepresentable_polars_union(frames)
     elif concrete_engine == Engine.CUDF:
         # a branch served by a pandas fast path comes back pandas under engine='cudf'
-        frames = [df_to_engine(frame, Engine.CUDF) for frame in frames]
+        frames = _decategorize_cudf_union([df_to_engine(frame, Engine.CUDF) for frame in frames])
         _reject_unrepresentable_cudf_union(frames)
     elif concrete_engine == Engine.PANDAS:
         frames = _pandas_union_widen_boolean_columns(frames)
