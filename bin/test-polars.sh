@@ -171,6 +171,7 @@ POLARS_TEST_FILES=(
     # polars params (Z-suffix text-temporal compare, IN [datetime(...)], mixed-type UNION
     # decline) only run here
     graphistry/tests/compute/gfql/test_temporal_and_union_semantics_1915.py
+    graphistry/tests/compute/gfql/test_temporal_param_zoned_iso_1949.py
     # #1915 B-5/B-7/B-8/A-4 + #1880 temporal-half pins: the polars cells (literal
     # temporal fold, temporal-vs-string parse-or-E302, union name alignment) only run here
     graphistry/tests/compute/gfql/test_temporal_leak_family_1915.py
