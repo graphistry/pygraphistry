@@ -466,6 +466,30 @@ def test_a4_union_null_next_to_boolean_keeps_both():
     assert len(out) == 2
 
 
+@pytest.mark.parametrize(
+    "branches,declines",
+    [
+        ([[1, 2], [3.5]], False),
+        ([["7"], ["8"]], False),
+        ([[1, 2], [None, None]], False),
+        ([[True], [1]], True),
+        ([["7"], [7]], True),
+    ],
+    ids=["int_float", "string_string", "all_null_branch", "bool_int", "string_int"],
+)
+def test_a4_cudf_union_type_check_declines_only_non_numeric_disagreement(branches, declines):
+    """The cuDF UNION check reads only dtypes, so it runs on CPU frames of the same dtypes
+    (cuDF strings are object columns, like these)."""
+    from graphistry.compute.gfql_unified import _reject_unrepresentable_cudf_union
+
+    frames = [pd.DataFrame({"x": values}) for values in branches]
+    if declines:
+        with pytest.raises(NotImplementedError, match="different value types for column 'x'"):
+            _reject_unrepresentable_cudf_union(frames)
+    else:
+        _reject_unrepresentable_cudf_union(frames)
+
+
 def test_a4_cudf_union_parity_or_typed_decline():
     """cuDF: a UNION over one column type dedups and numeric widening is served. A cuDF column cannot
     keep a bool or string branch distinct from an int branch, so like polars those decline
