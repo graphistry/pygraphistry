@@ -27,6 +27,34 @@ def _is_string_dtype_safe(dtype: Any) -> bool:
 
 
 
+def _coerce_temporal_filter_scalar(value: FilterValue, dtype: DType, *, field: str) -> FilterValue:
+    if not isinstance(value, str):
+        return value
+    try:
+        is_datetime = pd.api.types.is_datetime64_any_dtype(dtype)
+        is_timedelta = pd.api.types.is_timedelta64_dtype(dtype)
+    except (TypeError, ValueError):
+        return value
+    if not is_datetime and not is_timedelta:
+        return value
+
+    from graphistry.compute.exceptions import ErrorCode, GFQLSchemaError
+
+    try:
+        if is_datetime:
+            return pd.to_datetime(value)
+        return pd.to_timedelta(value)
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise GFQLSchemaError(
+            ErrorCode.E302,
+            f'Type mismatch: unparseable temporal filter value for column "{field}"',
+            field=field,
+            value=value,
+            column_type=str(dtype),
+            suggestion="Use a parseable pandas timestamp or duration string",
+        ) from exc
+
+
 def _is_membership_filter_value(value: Any) -> bool:
     return isinstance(value, (list, tuple, set, frozenset, pd.Index, pd.Series))
 
@@ -169,6 +197,7 @@ def _prepare_filter_dict(
                 continue
             # Check for obvious type mismatches
             col_dtype = df[resolved_col].dtype
+            resolved_val = _coerce_temporal_filter_scalar(resolved_val, col_dtype, field=col)
             if _is_numeric_dtype_safe(col_dtype) and isinstance(resolved_val, str):
                 raise GFQLSchemaError(
                     ErrorCode.E302,
