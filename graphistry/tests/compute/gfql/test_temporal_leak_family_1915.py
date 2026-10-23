@@ -22,6 +22,8 @@ a typed decline.
 """
 from __future__ import annotations
 
+import os
+
 import pandas as pd
 import pytest
 
@@ -37,6 +39,11 @@ try:
     import cudf
 except ImportError:
     cudf = None  # type: ignore[assignment]
+
+CUDF_GPU_MARK = pytest.mark.skipif(
+    cudf is None or os.getenv("TEST_CUDF") != "1",
+    reason="cudf installed with GPU execution required (set TEST_CUDF=1)",
+)
 
 
 def _nodes_pd() -> pd.DataFrame:
@@ -274,13 +281,45 @@ class TestB7TemporalStringLeaks:
 
     @pytest.mark.parametrize("engine", [
         "pandas",
+        pytest.param("cudf", marks=CUDF_GPU_MARK),
         pytest.param("polars", marks=pytest.mark.skipif(pl is None, reason="polars not installed")),
     ])
-    def test_string_vs_duration_column_parity(self, engine):
+    def test_string_vs_duration_column_equality_parity(self, engine):
         """#1880: `a.dur = '1 days'` leaked a raw polars cast InvalidOperationError."""
         g = _graph(engine)
         assert _ids(g, "MATCH (n) WHERE n.dur = '1 days' RETURN n.id", engine) == ["p"]
+
+    @pytest.mark.parametrize("engine", [
+        "pandas",
+        pytest.param("cudf", marks=CUDF_GPU_MARK),
+        pytest.param("polars", marks=pytest.mark.skipif(pl is None, reason="polars not installed")),
+    ])
+    def test_naive_timestamp_string_column_equality_answers(self, engine):
+        """The proved AST seam must answer parseable naive timestamp equality."""
+        from graphistry.compute.ast import n
+        g = _graph(engine)
+        assert _ids(g, [n({"ts": "2021-06-15T08:30:00"})], engine) == ["q"]
+
+    @pytest.mark.parametrize("engine", [
+        "pandas",
+        pytest.param("polars", marks=pytest.mark.skipif(pl is None, reason="polars not installed")),
+    ])
+    def test_string_vs_duration_column_ordering_parity(self, engine):
+        g = _graph(engine)
         assert _ids(g, "MATCH (n) WHERE n.dur > '2 days' RETURN n.id", engine) == ["r", "s"]
+
+    @pytest.mark.parametrize("engine", [
+        "pandas",
+        pytest.param("cudf", marks=CUDF_GPU_MARK),
+    ])
+    def test_unparseable_temporal_string_typed_schema_error(self, engine):
+        """Fail closed on pandas/cuDF instead of silently treating incompatible text as empty."""
+        from graphistry.compute.ast import n
+        g = _graph(engine)
+        for filter_dict in ({"dur": "not-a-duration"}, {"ts": "not-a-timestamp"}):
+            with pytest.raises(GFQLSchemaError) as excinfo:
+                g.gfql([n(filter_dict)], engine=engine)
+            assert excinfo.value.code == ErrorCode.E302
 
     @pytest.mark.skipif(pl is None, reason="polars not installed")
     def test_polars_unparseable_string_typed_schema_error(self):
