@@ -8,13 +8,43 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [Development]
 <!-- Do Not Erase This Section - Used for tracking unreleased changes -->
 
+## [0.61.2] - 2026-10-23
+
 ### Fixed
 
 - **igraph calls on nodes with a `name` column**: a node attribute named `name`, other than the node ID column, no longer makes `to_igraph`, `compute_igraph`, and `CALL graphistry.igraph.*` fail with `Vertex attribute conflict`. It moves to a generated name for igraph, which reserves `name` for node IDs, and is restored by `from_igraph` (#2217).
+
 - **`from_igraph` on empty graphs**: an empty graph with a node `name` column keeps every node column's original type, and an edge list with no edges gets endpoints of the node ID type instead of `float64`, so such a graph no longer fails with a merge dtype mismatch. On populated graphs with a node `name` column, the node ID, `name`, and edge endpoint columns also keep their original types, such as `int32`, `Int64`, and `category`; on polars, `compute_igraph` still widens a nullable `Int64` node attribute to `Float64`, as before (#2217).
+
 - **GFQL Cypher on graphs without edges**: patterns with only nodes, such as `MATCH (n) RETURN count(*)` now return results on the polars engine like pandas instead of raising `NotImplementedError`, and edge patterns raise the same typed `GFQLSchemaError`. An `OPTIONAL MATCH` edge arm on such a graph returns the base rows with nulls on every engine instead of failing, and `WHERE EXISTS { (n)-->() }` and `WHERE (n)-->()` no longer fail on pandas and cuDF with `'NoneType' object is not subscriptable`: a positive pattern matches no nodes and a negated one matches every node (#1879).
-- **GFQL Cypher UNION on cuDF**: a UNION whose branch is served by a pandas fast path no longer fails with `TypeError` under `engine='cudf'`, and branches that disagree on a non numeric value type, such as a boolean or string next to an integer, raise a typed `NotImplementedError` like polars instead of a bare `ValueError` or silently turning `true` into `1`. Categorical columns are compared and combined by their values, as on pandas, so compatible categories return their values and an integer next to a string categorical declines with the same typed error.
+
+- **GFQL Cypher UNION on cuDF**: a UNION whose branch is served by a pandas fast path no longer fails with `TypeError` under `engine='cudf'`, and branches that disagree on a non numeric value type, such as a boolean or string next to an integer, raise a typed `NotImplementedError` like polars instead of a bare `ValueError` or silently turning `true` into `1`. Categorical columns are compared and combined by their values, as on pandas, so compatible categories return their values and an integer next to a string categorical declines with the same typed error (#2231).
+
 - **GFQL Cypher grouping by a `name` column on cuDF**: aggregates grouped by a property called `name`, such as `RETURN n.name, count(*)` and `MATCH (a)-[:R]->(b) RETURN b.name AS key, count(a)`, no longer fail on cuDF with "The truth value of a Series is ambiguous", in the row pipeline and in the single hop grouped aggregate fast path. The fast path also serves on cuDF when an edge endpoint column is named `name`. pandas and polars run the same code as before (#1946).
+
+- **GFQL Cypher pattern predicates with aggregates**: a pattern predicate in `WHERE`, such as `MATCH (n) WHERE (n)-->() RETURN count(*)` or its `NOT` form, keeps the matched node's properties, so aggregates over the result return the right counts on pandas and no longer fail on cuDF. Absent properties in strict mode raise `GFQLSchemaError` (#2216).
+
+- **GFQL Cypher backslash escapes**: a backslash in a string literal is decoded once in every row expression, so `NOT`, `OR`, and nested predicates match the same rows as a plain `WHERE`; for example `NOT n.ip =~ '10\\..*'` no longer matches every row (#2215).
+
+- **GFQL Cypher whole node results of traversal patterns**: `RETURN DISTINCT x` on a traversal now follows openCypher semantics, matching the property projection of the same query: relationship uniqueness within a `MATCH`, paths of exactly `min_hops..max_hops` relationships, the start node for undirected variable length when a cycle returns to it, and the zero length match for `*0..n`. Whole node results without `DISTINCT` are unchanged (#2221).
+
+- **GFQL Cypher reentry row multiplicity**: a whole row carry through `WITH` that feeds `OPTIONAL MATCH`, and non optional nested reentry, keep duplicate binding and seed rows instead of collapsing them; genuinely ambiguous identities still decline with a typed error (#1935).
+
+- **GFQL native polars scalar carry reentry**: Cypher reentry that carries scalar columns through `WITH` now runs natively on polars instead of raising `NotImplementedError` (#1712).
+
+- **GFQL seeded typed hops with duplicate seed IDs**: when the matched seed node IDs are duplicated, the seeded typed hop fast path declines so the full path keeps row multiplicity, matching pandas, polars, and cuDF (#2034).
+
+- **GFQL Cypher temporal parameters**: a zoned ISO string passed as a Cypher parameter, such as `WHERE n.ts > $since` with `since = '2021-01-01T00:00:00Z'`, is compared like the same literal instead of silently returning no rows (#1949).
+
+- **GFQL temporal string filters**: an equality filter that compares a datetime or duration column with a string parses the string first, so parseable naive timestamps and durations match, and a string that cannot be parsed for the column raises the typed `GFQLSchemaError` E302 instead of silently returning no rows (#1949).
+
+- **GEXF import endpoint attributes**: edge attributes whose title collides with an endpoint binding keep their original names and values on import; only the endpoint fields move to collision safe internal columns (#2212).
+
+- **cuGraph graph returning algorithms and `src`/`dst` bindings**: algorithms that return a graph no longer create duplicate cuDF columns when the endpoint bindings are `src` and `dst`, keep the caller's source and destination bindings, and preserve the original edge attributes on retained rows (#2211).
+
+### Documentation
+
+- **Hybrid planner polling**: the internal `.agents` planner workflow keeps polling an external worker while it is presumed running, instead of ending on mailbox silence (#2223).
 
 ## [0.61.1] - 2026-10-21
 
