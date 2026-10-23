@@ -3271,6 +3271,26 @@ def test_string_cypher_groups_by_a_key_named_name(engine: str, query: str, expec
     assert out.to_dict(orient="records") == expected
 
 
+@pytest.mark.parametrize("engine", ["pandas", "cudf"])
+@pytest.mark.parametrize("alias", ["__gfql_name_key__", "__gfql_name_key___x", "c"])
+def test_string_cypher_groups_by_name_with_an_aggregate_alias_like_the_internal_key(
+    engine: str, alias: str
+) -> None:
+    if engine == "cudf":
+        cudf = pytest.importorskip("cudf")
+    nodes = pd.DataFrame({"id": [0, 1], "name": ["A", "A"]})
+    edges = pd.DataFrame({"s": [0], "d": [1]})
+    if engine == "cudf":
+        nodes, edges = cudf.from_pandas(nodes), cudf.from_pandas(edges)
+
+    result = graphistry.nodes(nodes, "id").edges(edges, "s", "d").gfql(
+        f"MATCH (n) RETURN n.name AS name, count(*) AS {alias}", engine=engine
+    )
+
+    out = result._nodes.to_pandas() if engine == "cudf" else result._nodes
+    assert out.to_dict(orient="records") == [{"name": "A", alias: 2}]
+
+
 def test_string_cypher_formats_filtered_edge_entity_projection_on_cudf() -> None:
     cudf = pytest.importorskip("cudf")
 

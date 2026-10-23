@@ -5718,7 +5718,10 @@ class RowPipelineMixin:
         # cuDF groupby fails on a key column named 'name'; group on a copy and restore it on output
         name_key = None
         if "name" in key_cols:
-            name_key = RowPipelineMixin._gfql_fresh_col_name(table_df.columns, "__gfql_name_key__")
+            name_key = RowPipelineMixin._gfql_fresh_col_name(
+                [*table_df.columns, *(str(agg[0]) for agg in aggregations if agg)],
+                "__gfql_name_key__",
+            )
             table_df = table_df.assign(**{name_key: table_df["name"]})
             key_cols = [name_key if k == "name" else k for k in key_cols]
         from graphistry.compute.gfql.agg_types import validate_aggregation_output
