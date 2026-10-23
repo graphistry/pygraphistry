@@ -95,15 +95,22 @@ def _graph_with_property(engine: str, col: str):
 def test_grouped_aggregate_fast_path_serves_a_property_named_name(engine, col, _case, query, expected) -> None:
     """A node property named ``name`` crashed this path on cuDF (#1946); ``title`` is the control."""
     g = _graph_with_property(engine, col)
-    q = query.replace("COL", col)
-    assert_fast_path(g, q, "single_hop_grouped_aggregate", served=True, engine=engine)
-    want = [{(col if k == "COL" else k): v for k, v in row.items()} for row in expected]
-    assert _rows(g.gfql(q, engine=engine)._nodes) == sorted(want, key=lambda r: str(r))
+    assert_fast_path(g, query.replace("COL", col), "single_hop_grouped_aggregate", served=True, engine=engine)
 
 
-@pytest.mark.route_engaged("cypher-fast")
 @pytest.mark.parametrize("engine", GPU_GATED_ENGINES)
-def test_grouped_aggregate_fast_path_serves_an_edge_source_column_named_name(engine) -> None:
+@pytest.mark.parametrize("col", ["title", "name"])
+@pytest.mark.parametrize("_case,query,expected", GROUPED_BY_PROPERTY, ids=[c[0] for c in GROUPED_BY_PROPERTY])
+def test_grouped_aggregate_by_a_property_named_name_matches_the_oracle(engine, col, _case, query, expected) -> None:
+    g = _graph_with_property(engine, col)
+    want = [{(col if k == "COL" else k): v for k, v in row.items()} for row in expected]
+    assert _rows(g.gfql(query.replace("COL", col), engine=engine)._nodes) == sorted(want, key=lambda r: str(r))
+
+
+Q_BY_SOURCE_KIND = "MATCH (a)-[]->(b) RETURN a.kind AS k, count(*) AS c ORDER BY k"
+
+
+def _graph_with_edge_source_named_name(engine: str):
     nodes = pd.DataFrame({"id": [1, 2, 3, 4, 5], "kind": ["x", "y", "x", "y", "x"]})
     edges = pd.DataFrame({"name": [1, 1, 1, 2, 3, 5], "d": [2, 3, 4, 3, 4, 1]})
     if engine == "polars":
@@ -112,10 +119,20 @@ def test_grouped_aggregate_fast_path_serves_an_edge_source_column_named_name(eng
     elif engine == "cudf":
         cudf = pytest.importorskip("cudf")
         nodes, edges = cudf.from_pandas(nodes), cudf.from_pandas(edges)
-    g = graphistry.nodes(nodes, "id").edges(edges, "name", "d")
-    q = "MATCH (a)-[]->(b) RETURN a.kind AS k, count(*) AS c ORDER BY k"
-    assert_fast_path(g, q, "single_hop_grouped_aggregate", served=True, engine=engine)
-    assert _rows(g.gfql(q, engine=engine)._nodes) == [{"k": "x", "c": 5}, {"k": "y", "c": 1}]
+    return graphistry.nodes(nodes, "id").edges(edges, "name", "d")
+
+
+@pytest.mark.route_engaged("cypher-fast")
+@pytest.mark.parametrize("engine", GPU_GATED_ENGINES)
+def test_grouped_aggregate_fast_path_serves_an_edge_source_column_named_name(engine) -> None:
+    assert_fast_path(_graph_with_edge_source_named_name(engine), Q_BY_SOURCE_KIND,
+                     "single_hop_grouped_aggregate", served=True, engine=engine)
+
+
+@pytest.mark.parametrize("engine", GPU_GATED_ENGINES)
+def test_grouped_aggregate_with_an_edge_source_column_named_name_matches_the_oracle(engine) -> None:
+    g = _graph_with_edge_source_named_name(engine)
+    assert _rows(g.gfql(Q_BY_SOURCE_KIND, engine=engine)._nodes) == [{"k": "x", "c": 5}, {"k": "y", "c": 1}]
 
 
 @pytest.mark.parametrize("engine", ENGINES)
