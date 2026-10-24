@@ -1775,8 +1775,14 @@ class RowPipelineMixin:
                 inner = values[0]
                 if hasattr(inner, "astype"):
                     null_mask = self._gfql_null_mask(table_df, inner)
-                    out = inner.astype(float).fillna(0).astype("int64")
-                    return True, out.where(~null_mask, pd.NA)
+                    engine = resolve_engine(EngineAbstract.AUTO, table_df)
+                    to_numeric = s_to_numeric(engine)
+                    numeric = to_numeric(inner, errors="coerce")
+                    finite_mask = numeric.notna() & (numeric.abs() != float("inf"))
+                    out = numeric.where(finite_mask).fillna(0).astype("int64")
+                    if engine == Engine.PANDAS:
+                        out = out.astype("Int64")
+                    return True, out.where(~null_mask & finite_mask, pd.NA)
                 if is_null_scalar(inner):
                     return True, None
                 if isinstance(inner, str):

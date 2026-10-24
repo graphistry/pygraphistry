@@ -15,7 +15,12 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 - **GFQL Cypher grouped aggregates after scalar reentry**: when a multirow scalar `WITH` prefix feeds another `MATCH`, grouping now covers all joined suffix rows together. For example, `WITH s MATCH (b)-[]->(s) RETURN s.type, count(*)` returns one aggregate per group instead of one per carried prefix row (#2235).
 - **GFQL temporal membership filters** (#1949): `IN`, `IsIn`, and list filter values on datetime columns parse scalar strings with the same aware/naive temporal contract as equality, instead of silently matching zero rows or raising an opaque engine error. Unparseable values fail with structured `E302`; Polars datetime membership lowers natively. Typed timestamps must match the column's awareness, though offset-equivalent aware values match. Raw-list `NaT` is not a member; predicate `IsIn` `NaT` handling remains engine-specific.
+<<<<<<< HEAD
 - **GFQL Cypher compile limit for extreme MATCH chains**: each MATCH sequence or UNION branch with more than 512 MATCH clauses now fails immediately with a typed `GFQLValidationError` naming the clause limit, instead of consuming super-linear planner time and crashing with a `RecursionError` (#2235).
+- **GFQL Cypher `toInteger` on strings**: unparseable, non-finite, overflow, and null strings now return Cypher null instead of raising or leaking an input value. Pandas preserves a nullable integer result (#2235).
+=======
+- **GFQL Cypher `toInteger` on strings**: unparseable, non-finite, overflow, and null strings now return Cypher null instead of raising or leaking an input value. Pandas preserves a nullable integer result (#2235).
+>>>>>>> 6b50bc41b (fix: return null for invalid Cypher toInteger strings)
 ## [0.61.2] - 2026-10-23
 
 ### Fixed

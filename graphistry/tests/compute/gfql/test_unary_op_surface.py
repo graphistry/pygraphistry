@@ -10,6 +10,8 @@ zero; `%` is the truncated remainder carrying the sign of the DIVIDEND; an integ
 zero divisor is an error). Cross-engine agreement is NOT used as an oracle -- pandas,
 polars and cudf have been wrong together before on this stack.
 """
+import os
+
 import pandas as pd
 import pytest
 
@@ -38,7 +40,13 @@ except ImportError:
 ENGINES = [
     "pandas",
     pytest.param("polars", marks=pytest.mark.skipif(not HAS_POLARS, reason="polars not installed")),
-    pytest.param("cudf", marks=pytest.mark.skipif(not HAS_CUDF, reason="cudf not installed")),
+    pytest.param(
+        "cudf",
+        marks=pytest.mark.skipif(
+            not HAS_CUDF or os.environ.get("TEST_CUDF") != "1",
+            reason="cudf tests need TEST_CUDF=1 (e.g. dgx-spark)",
+        ),
+    ),
 ]
 
 # neg spans both signs so a floored `//` (-7 // 2 == -4) cannot pass as truncation (-3).
@@ -265,6 +273,16 @@ def test_tointeger_of_a_string_without_an_integer_value_is_null(engine, literal,
     except NotImplementedError as decline:
         assert engine == "polars", f"{engine} must not decline: {decline}"
         assert "does not yet natively support cypher row op" in str(decline)
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_tointeger_string_column_boundaries_are_null(engine):
+    """A string column covers parse-and-truncate, invalid, non-finite, and null cells."""
+    nodes = pd.DataFrame({
+        "id": ["a", "b", "c", "d"],
+        "s": ["12.9", "x1", "inf", None],
+    })
+    assert _values(engine, "toInteger(n.s)", nodes=nodes) == [12, None, None, None]
 
 
 @pytest.mark.parametrize("engine", ENGINES)
