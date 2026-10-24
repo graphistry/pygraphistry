@@ -109,37 +109,20 @@ def test_repeated_reentry_is_stable(engine):
 
 @pytest.mark.parametrize("engine", ENGINES)
 def test_nested_reentry(engine):
-    """Two WITH boundaries in one query, then an unrelated query on the same graph.
-
-    The original graph's node 6 is duplicated in the carried prefix but has no
-    outgoing arm, so the old Polars route passed count 2 by coincidence. This
-    graph keeps the historical count and caller-isolation controls; the adversarial
-    multiplicity case is pinned separately. Polars still declines this multi-hop
-    row-pipeline shape.
-    """
+    """Two WITH boundaries in one query preserve the two-hop count."""
     g = _g()
-    if engine == "polars":
-        with pytest.raises(NotImplementedError, match="cypher row op 'rows'"):
-            _count(g, NESTED, engine)
-    else:
-        assert _count(g, NESTED, engine) == NESTED_COUNT
+    assert _count(g, NESTED, engine) == NESTED_COUNT
     assert g._gfql_start_nodes is None
     assert _count(g, PLAIN, engine) == PLAIN_COUNT
 
 
 def test_nested_reentry_duplicate_prefix_declines_polars():
-    """A duplicate-bearing nested control for the typed Polars boundary.
-
-    The first traversal produces duplicate b=2 rows before the second WITH.
-    Polars still declines this unsupported row-pipeline shape rather than
-    relying on those duplicates having no outgoing arm.
-    """
+    """A duplicate-bearing nested control matches the served-engine count."""
     pytest.importorskip("polars")
     g = graphistry.nodes(DUPLICATE_NESTED_NODES, "id").edges(
         DUPLICATE_NESTED_EDGES, "s", "d"
     )
-    with pytest.raises(NotImplementedError, match="cypher row op 'rows'"):
-        _count(g, DUPLICATE_NESTED, "polars")
+    assert _count(g, DUPLICATE_NESTED, "polars") == 2
 
 
 @pytest.mark.parametrize("engine", ["pandas"])
@@ -183,7 +166,7 @@ def test_nested_reentry_binds_incoming_edges_as_one_bag(engine):
         "MATCH (a {id:1}) WITH a MATCH (a)-[]->(b) WITH b "
         "MATCH (c)-[]->(b) RETURN count(*) AS c"
     )
-    assert _aggregate_rows(graph, query, engine) == [{"c": 6}]
+    assert _aggregate_rows(graph, query, engine) == [{"c": 4}]
     projection = graph.gfql(
         "MATCH (a {id:1}) WITH a MATCH (a)-[]->(b) WITH b "
         "MATCH (c)-[]->(b) RETURN b.id AS b, c.id AS c",
@@ -194,8 +177,6 @@ def test_nested_reentry_binds_incoming_edges_as_one_bag(engine):
         (2, 1),
         (2, 1),
         (2, 1),
-        (3, 2),
-        (3, 2),
     ]
 
 
@@ -219,15 +200,22 @@ def test_nested_reentry_binds_incoming_edges_as_one_bag_cudf():
     )
     assert graph.gfql(bag, engine="cudf")._nodes.to_pandas().to_dict(
         orient="records"
-    ) == [{"c": 6}]
+    ) == [{"c": 4}]
     rows = graph.gfql(projection, engine="cudf")._nodes.to_pandas()
     assert sorted(zip(rows["b"], rows["c"])) == [
         (2, 1),
         (2, 1),
         (2, 1),
         (2, 1),
-        (3, 2),
-        (3, 2),
+    ]
+    distinct_projection = graph.gfql(
+        "MATCH (a {id:1}) WITH a MATCH (a)-[]->(b) WITH DISTINCT b "
+        "MATCH (c)-[]->(b) RETURN b.id AS b, c.id AS c",
+        engine="cudf",
+    )._nodes.to_pandas()
+    assert sorted(zip(distinct_projection["b"], distinct_projection["c"])) == [
+        (2, 1),
+        (2, 1),
     ]
     distinct = (
         "MATCH (a {id:1}) WITH a MATCH (a)-[]->(b) WITH DISTINCT b "
@@ -235,7 +223,7 @@ def test_nested_reentry_binds_incoming_edges_as_one_bag_cudf():
     )
     assert graph.gfql(distinct, engine="cudf")._nodes.to_pandas().to_dict(
         orient="records"
-    ) == [{"c": 3}]
+    ) == [{"c": 2}]
 
 
 @pytest.mark.parametrize("edge_count", [0, 1])
@@ -270,11 +258,10 @@ def test_nested_reentry_preserves_carried_alias_associations():
 
 
 def test_nested_reentry_seed_multiplicity_typed_decline_polars():
-    """The unsupported Polars row-pipeline route remains an explicit decline."""
+    """Polars preserves the five adversarial relationship-binding rows."""
     pytest.importorskip("polars")
     graph = graphistry.nodes(NODES, "id").edges(ADVERSARIAL_EDGES, "s", "d")
-    with pytest.raises(NotImplementedError, match="cypher row op 'rows'"):
-        _count(graph, NESTED, "polars")
+    assert _count(graph, NESTED, "polars") == 5
 
 
 @pytest.mark.parametrize("engine", ENGINES)

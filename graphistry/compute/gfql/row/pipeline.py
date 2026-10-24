@@ -4207,7 +4207,13 @@ class RowPipelineMixin:
         first_nodes = self._gfql_apply_alias_prefilter(
             first_nodes, first_alias, alias_prefilters
         )
-        if getattr(self._g, "_gfql_preserve_start_node_multiplicity", False):
+        owner_graph = self._g
+        if owner_graph is None:
+            self._gfql_bindings_error(
+                "Cypher multi-alias row bindings require a bound graph"
+            )
+        preserve_start_multiplicity = owner_graph._gfql_preserve_start_node_multiplicity
+        if preserve_start_multiplicity:
             state_df = first_nodes[[node_id_col]].copy()
         else:
             state_df = (
@@ -4219,7 +4225,11 @@ class RowPipelineMixin:
         alias_frames: Dict[str, DataFrameT] = {}
         if isinstance(first_alias, str):
             state_df[first_alias] = state_df[WALK_CURRENT_COL]
-            alias_frames[first_alias] = first_nodes
+            alias_frames[first_alias] = (
+                first_nodes.drop_duplicates(subset=[node_id_col], keep="first")
+                if preserve_start_multiplicity
+                else first_nodes
+            )
 
         # Positional, not index-based: per-hop frames reset their index so it cannot identify an edge.
         trail_cols: List[str] = []

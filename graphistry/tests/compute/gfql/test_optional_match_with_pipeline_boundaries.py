@@ -283,10 +283,6 @@ def test_carried_prefix_row_multiplicity_survives_the_reentry(engine):
     each appearing twice."""
     q = ("MATCH (a:P)-[]->(c) WITH a AS p OPTIONAL MATCH (p)-[:KNOWS]->(d) "
          "RETURN p.id AS pid, d.id AS did")
-    if engine == "polars":
-        with pytest.raises(NotImplementedError, match="does not yet natively support cypher row op 'rows'"):
-            _run(q, engine)
-        return
     _assert_rows(_run(q, engine), [
         {"pid": "a1", "did": "b1"}, {"pid": "a1", "did": "b2"},
         {"pid": "a1", "did": "b1"}, {"pid": "a1", "did": "b2"},
@@ -304,10 +300,6 @@ def test_duplicated_unmatched_prefix_rows_each_null_extend(engine):
     q = ("MATCH (a:P)-[]->(c) WITH a AS p "
          "OPTIONAL MATCH (p)-[:MISSING]->(d) "
          "RETURN p.id AS pid, d.id AS did")
-    if engine == "polars":
-        with pytest.raises(NotImplementedError, match="does not yet natively support cypher row op 'rows'"):
-            _run(q, engine)
-        return
     _assert_rows(_run(q, engine), [
         {"pid": "a1", "did": None},
         {"pid": "a1", "did": None},
@@ -325,10 +317,6 @@ def test_duplicated_prefix_rows_with_nullable_properties_still_match(engine):
 
     matched = ("MATCH (a:P)-[]->(c) WITH a AS p "
                "OPTIONAL MATCH (p)-[:KNOWS]->(d) RETURN p.id AS pid, d.id AS did")
-    if engine == "polars":
-        with pytest.raises(NotImplementedError, match="does not yet natively support cypher row op 'rows'"):
-            _run(matched, engine, nodes=nodes)
-        return
     _assert_rows(_run(matched, engine, nodes=nodes), [
         {"pid": "a1", "did": "b1"}, {"pid": "a1", "did": "b2"},
         {"pid": "a1", "did": "b1"}, {"pid": "a1", "did": "b2"},

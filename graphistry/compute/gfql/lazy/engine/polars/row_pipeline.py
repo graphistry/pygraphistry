@@ -1977,14 +1977,12 @@ def binding_rows_polars(
     if nodes is None or edges is None or node_id is None or src is None or dst is None:
         return None
     seed_ids_lf: Optional[Any] = None  # LazyFrame; Any avoids the union-typed seed_nodes.join mismatch
+    seed_row_col: Optional[str] = None
     start_nodes = g._gfql_start_nodes
     if start_nodes is not None:
-        # Bounded WITH->MATCH re-entry: the carried WITH rows seed the first
-        # alias. Constrain the first node alias to the carried ids via a semi-join —
-        # the native twin of the pandas wavefront seed. Support only UNIQUE carried
-        # ids: then the semi-join contributes each seed node exactly once, matching the
-        # pandas seed row-for-row; duplicate carried ids could change path multiplicity,
-        # so decline (return None -> honest NIE), never risk a silent-wrong count.
+        # Bounded WITH->MATCH re-entry: the carried WITH rows seed the first alias.
+        # A multiplicity key turns duplicate carried ids into vectorized bag joins,
+        # preserving one logical path bag per prefix row without per-row execution.
         from graphistry.Engine import Engine as _Engine, df_to_engine as _df_to_engine, is_polars_df as _is_polars
         sn = start_nodes.collect() if isinstance(start_nodes, pl.LazyFrame) else start_nodes
         if not _is_polars(sn):
@@ -1995,7 +1993,10 @@ def binding_rows_polars(
         # eager by construction (a LazyFrame start_nodes is collected above), but the polars
         # guard narrows to the eager-or-lazy union and cannot express "eager only"
         if seed_ids.height != seed_ids.unique().height:  # type: ignore[union-attr]
-            return None
+            seed_row_col = generate_safe_column_name_from(
+                "__gfql_seed_row__", [node_id, *sn.columns]
+            )
+            seed_ids = seed_ids.with_row_index(seed_row_col)
         seed_ids_lf = seed_ids.lazy()
 
     ops: List[ASTObject] = [ast_from_json(op_json, validate=False) for op_json in binding_ops]
@@ -2174,20 +2175,42 @@ def binding_rows_polars(
         if not isinstance(first_op, ASTNode):
             return None
         seed_nodes = filter_by_dict_polars(nodes_lf, first_op.filter_dict)
-        if seed_ids_lf is not None:
+        if seed_row_col is not None:
+            _duplicate_source_ids = bool(
+                seed_nodes.select(pl.col(node_id).is_duplicated().any()).collect().item()
+            )
+            if _duplicate_source_ids:
+                return None
+        if seed_ids_lf is not None and seed_row_col is None:
             # WITH->MATCH re-entry seed: constrain the first alias to the carried ids.
             seed_nodes = seed_nodes.join(seed_ids_lf, on=node_id, how="semi")
+        elif seed_ids_lf is not None:
+            seed_nodes = seed_nodes.join(seed_ids_lf, on=node_id, how="inner")
+
         # L4 pushdown twin of pandas `_gfql_connected_bindings_state`'s seed prefilter
         seed_nodes = _apply_alias_prefilters_polars(seed_nodes, first_op._name, alias_prefilters)  # honoured, never dropped (#1804)
-        state = seed_nodes.select(
-            pl.col(node_id).alias(WALK_CURRENT_COL)
-        ).unique(subset=[WALK_CURRENT_COL], maintain_order=True)
+        if seed_row_col is not None:
+            state = seed_nodes.select(
+                pl.col(seed_row_col), pl.col(node_id).alias(WALK_CURRENT_COL)
+            ).unique(subset=[seed_row_col, WALK_CURRENT_COL], maintain_order=True)
+        else:
+            state = seed_nodes.select(
+                pl.col(node_id).alias(WALK_CURRENT_COL)
+            ).unique(subset=[WALK_CURRENT_COL], maintain_order=True)
         alias_frames: Dict[str, pl.LazyFrame] = {}
         node_aliases: List[str] = []
         first_alias = first_op._name
         if isinstance(first_alias, str):
             state = state.with_columns(pl.col(WALK_CURRENT_COL).alias(first_alias))
-            alias_frames[first_alias] = seed_nodes
+            if seed_row_col is not None:
+                # Duplicate carried seed ids: collapse the alias frame to one row
+                # per node so per-seed-row bags stay isolated; the multiplicity
+                # lives in the state rows, not the alias binding.
+                alias_frames[first_alias] = seed_nodes.drop(seed_row_col).unique(
+                    subset=[node_id], keep="first", maintain_order=True
+                )
+            else:
+                alias_frames[first_alias] = seed_nodes
             node_aliases.append(first_alias)
 
         for edge_idx in range(1, len(ops), 2):
@@ -2387,6 +2410,8 @@ def binding_rows_polars(
             _present = [c for c in trail_cols_pl if c in _names(state)]
             if _present:
                 state = state.drop(_present)
+        if seed_row_col is not None:
+            state = state.drop(seed_row_col)
         # The finisher's frame type is a constrained TypeVar so `state.join(lookup)`
         # type-checks. The GENERIC builder above mixes eager and lazy frames across
         # its (pre-existing) branches, so inference cannot pick one here; the

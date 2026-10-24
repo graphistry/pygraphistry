@@ -510,10 +510,7 @@ def compiled_query_reentry_state(
                     value=id_column,
                     suggestion=REENTRY_WHOLE_ROW_SUGGESTION,
                 )
-            carried_node_ids = cast(
-                DataFrameT,
-                cast(DataFrameT, base_nodes[[id_column]]).iloc[0:0].reset_index(drop=True),
-            )
+            carried_node_ids = base_nodes[[id_column]].iloc[0:0].reset_index(drop=True)
             return base_graph, ordered_reentry_start_nodes(
                 node_rows=base_nodes,
                 carried_node_ids=carried_node_ids,
@@ -579,7 +576,6 @@ def compiled_query_reentry_state(
             carried_row_count=len(carried_ids),
             carried_scalar_columns=tuple(carried_columns),
         )
-
     carry_payload = reentry_carry_payload(
         carried_node_ids=carried_node_ids,
         prefix_rows=aligned_prefix_rows,
@@ -615,7 +611,12 @@ def union_scalar_reentry_results(
         node_rows = cast(DataFrameT, concat(node_frames, ignore_index=True))
     else:
         base_nodes = base_graph._nodes
-        node_rows = cast(DataFrameT, base_nodes.iloc[0:0]) if base_nodes is not None else None
+        if base_nodes is None:
+            node_rows = None
+        elif _is_polars_df(base_nodes):
+            node_rows = cast(DataFrameT, base_nodes.slice(0, 0))
+        else:
+            node_rows = cast(DataFrameT, base_nodes.iloc[0:0])
     return _bind_reentry_graph(base_graph, node_rows)
 
 
