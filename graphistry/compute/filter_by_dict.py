@@ -42,16 +42,7 @@ def _coerce_temporal_filter_scalar(value: FilterValue, dtype: DType, *, field: s
 
     from graphistry.compute.exceptions import ErrorCode, GFQLSchemaError
 
-    timezone_resolution_errors: Tuple[Type[BaseException], ...] = (ValueError,)
-    try:
-        pytz_exceptions = import_module("pytz.exceptions")
-
-        timezone_resolution_errors += (
-            pytz_exceptions.AmbiguousTimeError,
-            pytz_exceptions.NonExistentTimeError,
-        )
-    except ModuleNotFoundError:
-        pass
+    timezone_resolution_errors = _timezone_resolution_errors()
 
     try:
         if is_datetime:
@@ -79,6 +70,19 @@ def _coerce_temporal_filter_scalar(value: FilterValue, dtype: DType, *, field: s
             column_type=str(dtype),
             suggestion="Use a parseable pandas timestamp or duration string",
         ) from exc
+
+
+def _timezone_resolution_errors() -> Tuple[Type[BaseException], ...]:
+    timezone_resolution_errors: Tuple[Type[BaseException], ...] = (ValueError,)
+    try:
+        pytz_exceptions = import_module("pytz.exceptions")
+        timezone_resolution_errors += (
+            pytz_exceptions.AmbiguousTimeError,
+            pytz_exceptions.NonExistentTimeError,
+        )
+    except ModuleNotFoundError:
+        pass
+    return timezone_resolution_errors
 
 
 def _is_membership_filter_value(value: Any) -> bool:

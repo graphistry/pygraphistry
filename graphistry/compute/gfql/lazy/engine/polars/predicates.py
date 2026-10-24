@@ -167,17 +167,8 @@ def _temporal_membership_expr(
     import datetime as _dt
     import pandas as pd
     import polars as pl
+    from graphistry.compute.ast_temporal import TemporalValue
     from graphistry.compute.filter_by_dict import _coerce_temporal_filter_scalar
-
-    timezone_resolution_errors: "Tuple[object, ...]" = (ValueError,)
-    try:
-        pytz_exceptions = __import__("pytz.exceptions", fromlist=["exceptions"])
-        timezone_resolution_errors += (
-            pytz_exceptions.AmbiguousTimeError,
-            pytz_exceptions.NonExistentTimeError,
-        )
-    except ModuleNotFoundError:
-        pass
 
     if not isinstance(dtype, pl.Datetime):
         return pl.col(col).is_in(values)
@@ -191,27 +182,28 @@ def _temporal_membership_expr(
             return "null", None
         if isinstance(value, str):
             value = _coerce_temporal_filter_scalar(value, pandas_dtype, field=col)
-        elif hasattr(value, "as_pandas_value"):
+        elif isinstance(value, TemporalValue):
             value = value.as_pandas_value()
         elif isinstance(value, (_dt.datetime, _dt.date)):
             value = pd.Timestamp(value)
+        if value is pd.NaT:
+            return "no_match", None
         if not isinstance(value, pd.Timestamp):
             _raise_temporal_member_mismatch(col, dtype, value)
 
-        ts = value
+        ts = pd.Timestamp(value)
         if dtype.time_zone is None:
             if ts.tzinfo is not None:
-                _raise_temporal_member_mismatch(col, dtype, value)
+                return "no_match", None
         elif ts.tzinfo is None:
-            try:
-                ts = ts.tz_localize(dtype.time_zone)
-            except (TypeError, OverflowError, *timezone_resolution_errors):
-                _raise_temporal_member_mismatch(col, dtype, value)
+            return "no_match", None
         if isinstance(ts, pd.Timestamp):
             count = _utc_timestamp_count(ts, dtype.time_unit)
             if count is None:
                 return "no_match", None
             return "exact", count
+
+        return "no_match", None
 
     col_utc = (
         pl.col(col).dt.replace_time_zone("UTC")
