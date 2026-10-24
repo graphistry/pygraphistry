@@ -36,6 +36,7 @@ if TYPE_CHECKING:
 from graphistry.Plottable import Plottable
 from graphistry.compute.gfql.cache_registry import register_clearable_dict
 from graphistry.utils.json import JSONVal
+_INT64_LIMIT_HIGH = 2**63
 # Engine-neutral wire-format payload types (ASTCall.params). Shapes are safelist-validated
 # (gfql/call/validation.py) before reaching these helpers, so the runtime isinstance/len
 # checks below are defense-in-depth, not the contract.
@@ -258,26 +259,35 @@ def _lower_function(node: FunctionCall, columns: Sequence[str]) -> Optional[pl.E
         # offset>=0, length>=0 (or None=to-end) → identical chars on pandas/polars.
         return args[0].str.slice(start_node.value, length_val)
     if name == "tointeger" and len(args) == 1:
-        # toInteger oracle: pandas inner.astype(float).fillna(0).astype("int64") + isna() null_mask
-        # restored, so NaN IS null (NaN/null -> null); finite floats truncate toward zero
-        # (== polars float->int cast). Admit only output dtypes polars provably reproduces:
+        # Exact integer strings are parsed in Int64 without a lossy Float64 hop. Decimal
+        # and other non-integer strings use Float64, then reject nonfinite/out-of-range.
         dt = _expr_output_dtype(args[0])
         if _dtype_is_int(dt) or dt == pl.Boolean:
-            # Int/Bool: identity widening (True/False -> 1/0); no NaN possible, nulls preserved.
-            return args[0].cast(pl.Int64)
+            if dt == pl.Boolean:
+                return args[0].cast(pl.Int64)
+            widened = args[0].cast(pl.Int64, strict=False)
+            return pl.when(args[0].is_null() | (args[0].abs() >= pl.lit(_INT64_LIMIT_HIGH))).then(
+                pl.lit(None, dtype=pl.Int64)
+            ).otherwise(widened)
         if _dtype_is_float(dt):
-            # Float: NaN AND null -> null on pandas; finite truncates. Mask NaN/null EXPLICITLY
-            # (don't trust polars' NaN->int cast internals); strict=False truncates the rest
-            # (masked rows never fail the cast).
-            return pl.when(args[0].is_nan() | args[0].is_null()).then(
+            return pl.when(
+                args[0].is_nan() | args[0].is_null()
+                | (args[0].abs() >= pl.lit(_INT64_LIMIT_HIGH))
+            ).then(
                 pl.lit(None, dtype=pl.Int64)
             ).otherwise(args[0].cast(pl.Int64, strict=False))
-        # String: parse through float, matching pandas to_numeric(coerce). Invalid, overflow and
-        # non-finite inputs become null; finite decimal strings truncate toward zero.
+        # String and statically unknown scalar dtypes.
         parsed = args[0].cast(pl.Float64, strict=False)
-        return pl.when(parsed.is_null() | parsed.is_nan() | parsed.is_infinite()).then(
-            pl.lit(None, dtype=pl.Int64)
-        ).otherwise(parsed.cast(pl.Int64, strict=False))
+        decimal = pl.when(
+            parsed.is_null() | parsed.is_nan() | parsed.is_infinite()
+            | (parsed.abs() >= pl.lit(_INT64_LIMIT_HIGH))
+        ).then(pl.lit(None, dtype=pl.Int64)).otherwise(parsed.cast(pl.Int64, strict=False))
+        text = args[0].cast(pl.String, strict=False).str.strip_chars()
+        return pl.when(
+            text.str.contains(r"^[+-]?\d+$")
+        ).then(
+            text.cast(pl.Int64, strict=False)
+        ).otherwise(decimal)
     if name == "tofloat" and len(args) == 1:
         # toFloat oracle: pandas inner.astype(float) + isna() mask via .where(~mask, pd.NA).
         # CRUCIALLY no .fillna(0)/int step (contrast toInteger): float64 has no null sentinel, so

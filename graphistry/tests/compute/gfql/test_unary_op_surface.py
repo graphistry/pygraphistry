@@ -75,7 +75,7 @@ def _values(engine, expr, column="v", nodes=None):
         f"MATCH (n) RETURN n.id AS id, {expr} AS {column}", engine=engine
     )._nodes
     if hasattr(out, "to_pandas"):
-        out = out.to_pandas()
+        out = out.to_pandas(use_pyarrow_extension_array=True)
     return [None if pd.isna(v) else v for v in out.sort_values("id")[column].tolist()]
 
 
@@ -254,6 +254,10 @@ def test_case_over_unmatched_optional_alias_when_null_falls_to_else(engine):
 @pytest.mark.parametrize("engine", ENGINES)
 @pytest.mark.parametrize("literal,expected", [
     ("'12'", 12),
+    ("'9223372036854775807'", 9223372036854775807),
+    ("'-9223372036854775808'", -9223372036854775808),
+    ("'9223372036854775808'", None),
+    ("'-9223372036854775809'", None),
     ("'1.9'", 1),          # truncates toward zero, like Neo4j
     ("'x1'", None),        # unparseable -> null
     ("'nan'", None),
@@ -261,8 +265,8 @@ def test_case_over_unmatched_optional_alias_when_null_falls_to_else(engine):
     ("'-inf'", None),
     ("'1e400'", None),     # overflows to inf on the float hop
 ])
-def test_tointeger_of_a_string_without_an_integer_value_is_null(engine, literal, expected):
-    """openCypher: toInteger of a string that is not an integer is null -- never a raw
+def test_tointeger_of_a_string_without_an_in_range_integer_value_is_null(engine, literal, expected):
+    """openCypher: toInteger of a string without an in-range integer value is null -- never a raw
     OverflowError surfacing as 'AST evaluator unsupported'.
 
     polars may decline this lowering; the decline must be a TYPED NotImplementedError
@@ -277,12 +281,19 @@ def test_tointeger_of_a_string_without_an_integer_value_is_null(engine, literal,
 
 @pytest.mark.parametrize("engine", ENGINES)
 def test_tointeger_string_column_boundaries_are_null(engine):
-    """A string column covers parse-and-truncate, invalid, non-finite, and null cells."""
+    """A string column covers exact boundaries, truncation, invalid, non-finite, and null cells."""
     nodes = pd.DataFrame({
-        "id": ["a", "b", "c", "d"],
-        "s": ["12.9", "x1", "inf", None],
+        "id": list("abcdefghijk"),
+        "s": [
+            "9223372036854775807", "-9223372036854775808",
+            "9223372036854775808", "-9223372036854775809",
+            "12.9", "x1", "inf", "-inf", "nan", "1e400", None,
+        ],
     })
-    assert _values(engine, "toInteger(n.s)", nodes=nodes) == [12, None, None, None]
+    assert _values(engine, "toInteger(n.s)", nodes=nodes) == [
+        9223372036854775807, -9223372036854775808, None, None,
+        12, None, None, None, None, None, None,
+    ]
 
 
 @pytest.mark.parametrize("engine", ENGINES)

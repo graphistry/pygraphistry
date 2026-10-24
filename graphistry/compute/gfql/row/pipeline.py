@@ -126,6 +126,39 @@ GFQLParseExprFn = Callable[[str], "ExprNode"]
 GFQLValidateExprFn = Callable[["ExprNode"], List[str]]
 GFQLRuntimeParserBundle = Tuple[GFQLParseExprFn, GFQLValidateExprFn, ModuleType]
 _GFQL_MISSING_BOOL_OPERAND = object()
+_INT64_MIN = -(2**63)
+_INT64_LIMIT_HIGH = 2**63
+_EXACT_INT64_STRING_RE = re.compile(r"^[+-]?\d+$")
+
+
+def _to_cypher_int64_scalar(value: object) -> Optional[int]:
+    """Convert a scalar according to Cypher toInteger, with overflow as null."""
+    if is_null_scalar(value):
+        return None
+    if isinstance(value, str):
+        text = value.strip()
+        if _EXACT_INT64_STRING_RE.fullmatch(text):
+            parsed = int(text)
+        else:
+            try:
+                parsed_float = float(text)
+            except ValueError:
+                return None
+            if not math.isfinite(parsed_float):
+                return None
+            parsed = math.trunc(parsed_float)
+    elif isinstance(value, bool):
+        parsed = int(value)
+    elif isinstance(value, numbers.Real):
+        as_float = float(value)
+        if not math.isfinite(as_float):
+            return None
+        parsed = math.trunc(as_float)
+    elif isinstance(value, numbers.Integral):
+        parsed = int(value)
+    else:
+        parsed = int(float(value))
+    return parsed if _INT64_MIN <= parsed < _INT64_LIMIT_HIGH else None
 
 
 @lru_cache(maxsize=1)
@@ -1776,22 +1809,48 @@ class RowPipelineMixin:
                 if hasattr(inner, "astype"):
                     null_mask = self._gfql_null_mask(table_df, inner)
                     engine = resolve_engine(EngineAbstract.AUTO, table_df)
-                    to_numeric = s_to_numeric(engine)
-                    numeric = to_numeric(inner, errors="coerce")
-                    finite_mask = numeric.notna() & (numeric.abs() != float("inf"))
-                    out = numeric.where(finite_mask).fillna(0).astype("int64")
-                    if engine == Engine.PANDAS:
-                        out = out.astype("Int64")
-                    return True, out.where(~null_mask & finite_mask, pd.NA)
+                    if engine == Engine.PANDAS and isinstance(inner, pd.Series):
+                        exact = pd.Series(
+                            [
+                                (
+                                    int(str(value).strip())
+                                    if _INT64_MIN <= int(str(value).strip()) < _INT64_LIMIT_HIGH
+                                    else None
+                                )
+                                if pd.notna(value) and _EXACT_INT64_STRING_RE.fullmatch(str(value).strip())
+                                else None
+                                for value in inner
+                            ],
+                            index=inner.index,
+                            dtype=object,
+                        ).astype("Int64")
+                        numeric = s_to_numeric(engine)(inner, errors="coerce")
+                        finite_mask = numeric.notna() & (numeric.abs() != float("inf"))
+                        in_range = numeric.ge(_INT64_MIN) & numeric.lt(_INT64_LIMIT_HIGH)
+                        decimal = pd.Series(
+                            [
+                                int(value) if value is not None and value == value and value not in (float("inf"), float("-inf")) else None
+                                for value in numeric.where(finite_mask & in_range)
+                            ],
+                            index=inner.index,
+                            dtype="Int64",
+                        )
+                        out = exact.fillna(decimal)
+                    else:
+                        numeric = s_to_numeric(engine)(inner, errors="coerce")
+                        finite_mask = numeric.notna() & (numeric.abs() != float("inf"))
+                        in_range = numeric.ge(_INT64_MIN) & numeric.lt(_INT64_LIMIT_HIGH)
+                        safe_numeric = numeric.where(finite_mask & in_range)
+                        out = safe_numeric.map(
+                            lambda value: int(value) if value is not None else None
+                        ).astype("Int64")
+                    return True, out.where(~null_mask, pd.NA)
                 if is_null_scalar(inner):
                     return True, None
                 if isinstance(inner, str):
                     # A string with no integer value is null; invalid TYPES below still error.
-                    try:
-                        return True, int(float(inner))
-                    except (ValueError, OverflowError):
-                        return True, None
-                return True, int(float(inner))
+                    return True, _to_cypher_int64_scalar(inner)
+                return True, _to_cypher_int64_scalar(inner)
 
             if fn == "substring" and len(values) in {2, 3}:
                 inner = values[0]
