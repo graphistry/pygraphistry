@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import os
+import datetime
 
 import pandas as pd
 import pytest
 
 import graphistry
+from graphistry.compute.ast import n
 from graphistry.compute.exceptions import ErrorCode, GFQLSchemaError
 from graphistry.compute.filter_by_dict import filter_by_dict
 
@@ -76,6 +78,22 @@ def _nodes_pd_unit(unit: str) -> pd.DataFrame:
         "datetime64[ns, UTC]"
     ).astype(pd.DatetimeTZDtype(unit, "UTC"))
     return pd.DataFrame({"id": ["neg", "exact", "pos", "null"], "ts": stamps})
+
+
+def _nodes_pd_aware_with_null() -> pd.DataFrame:
+    return pd.DataFrame({
+        "id": ["q", "null"],
+        "ts_aw": pd.to_datetime(["2021-06-15T08:30:00Z", None], utc=True),
+    })
+
+
+def _nodes_pd_naive_date_membership(unit: str) -> pd.DataFrame:
+    exact = pd.Timestamp("2020-01-15").value
+    values_ns = [exact, pd.Timestamp("2020-01-15T12:00:00").value, exact + 1, None]
+    stamps = pd.Series(values_ns, dtype="Int64").astype("datetime64[ns]").astype(
+        f"datetime64[{unit}]"
+    )
+    return pd.DataFrame({"id": ["mid", "noon", "adjacent", "null"], "ts": stamps})
 
 
 @pytest.mark.parametrize(
@@ -193,13 +211,55 @@ def test_typed_timestamp_timezone_mismatch_is_not_member(engine):
 
 
 @pytest.mark.parametrize("engine", ["pandas", "polars"])
-def test_typed_nat_is_not_member(engine):
+def test_typed_timestamp_wall_time_awareness_mismatch_is_not_member(engine):
     if engine == "polars":
         if pl is None:
             pytest.skip("polars not installed")
         nodes = pl.from_pandas(_nodes_pd())
     else:
         nodes = _nodes_pd()
+    assert _ids(filter_by_dict(
+        nodes,
+        {"ts_aw": [pd.Timestamp("2021-06-15T08:30:00", tz=None)]},
+        engine=engine,
+    )) == []
+    assert _ids(filter_by_dict(
+        nodes,
+        {"ts_aw": [pd.Timestamp("2021-06-15T08:30:00", tz="UTC")]},
+        engine=engine,
+    )) == ["q"]
+
+
+@pytest.mark.parametrize("unit,engine", [
+    ("ns", "pandas"), ("ns", "polars"),
+    ("us", "pandas"), ("us", "polars"),
+])
+def test_naive_datetime_date_isin_exact_instant_boundary(unit, engine):
+    if engine == "polars":
+        if pl is None:
+            pytest.skip("polars not installed")
+        nodes = pl.from_pandas(_nodes_pd_naive_date_membership(unit))
+    else:
+        nodes = _nodes_pd_naive_date_membership(unit)
+    from graphistry.compute.predicates.is_in import IsIn
+
+    graph = graphistry.nodes(nodes, "id")
+    result = graph.gfql(
+        [n({"ts": IsIn(options=[datetime.date(2020, 1, 15)])})],
+        engine=engine,
+    )._nodes
+    expected = ["mid"] if unit == "ns" else ["adjacent", "mid"]
+    assert _ids(result) == expected
+
+
+@pytest.mark.parametrize("engine", ["pandas", "polars"])
+def test_typed_nat_is_not_member(engine):
+    if engine == "polars":
+        if pl is None:
+            pytest.skip("polars not installed")
+        nodes = pl.from_pandas(_nodes_pd_aware_with_null())
+    else:
+        nodes = _nodes_pd_aware_with_null()
     assert _ids(filter_by_dict(nodes, {"ts_aw": [pd.NaT]}, engine=engine)) == []
 
 
