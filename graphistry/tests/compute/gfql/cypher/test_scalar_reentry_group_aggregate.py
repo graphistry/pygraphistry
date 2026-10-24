@@ -117,11 +117,29 @@ def test_scalar_reentry_preserves_unequal_seed_multiplicity(engine: str) -> None
         assert sorted(records, key=lambda row: row["t"]) == expected
 
 
-@pytest.mark.parametrize("engine", ["pandas", "polars"])
+@pytest.mark.parametrize(
+    "engine",
+    [
+        "pandas",
+        "polars",
+        pytest.param(
+            "cudf",
+            marks=pytest.mark.skipif(
+                os.environ.get("TEST_CUDF") != "1", reason="cudf tests need TEST_CUDF=1"
+            ),
+        ),
+    ],
+)
 def test_scalar_reentry_empty_suffix_aggregation(engine: str) -> None:
     pytest.importorskip(engine, reason=f"{engine} unavailable")
+    if engine == "cudf":
+        import cudf
+
     nodes = pd.DataFrame({"nid": ["a", "s", "z"], "type": ["u", "x", "z"]})
     edges = pd.DataFrame([("a", "s")], columns=["s", "d"])
+    if engine == "cudf":
+        nodes = cudf.from_pandas(nodes)
+        edges = cudf.from_pandas(edges)
     graph: Plottable = graphistry.nodes(nodes, "nid").edges(edges, "s", "d")
     positive = graph.gfql(
         "MATCH (a)-[]->(s) WITH s MATCH (b)-[]->(s) RETURN count(*) AS c",
