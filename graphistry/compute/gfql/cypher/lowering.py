@@ -3167,6 +3167,7 @@ def _lower_relationship(
     params: Optional[Mapping[str, Any]],
     prune_to_endpoints: bool = False,
     hop_column: Optional[str] = None,
+    relationship_scope: int = 0,
 ) -> ASTObject:
     edge_match = _filter_dict_from_entries(
         discriminator_key="type",
@@ -3210,6 +3211,7 @@ def _lower_relationship(
                 name=relationship.variable,
                 prune_to_endpoints=prune_to_endpoints,
                 include_zero_hop_seed=include_zero_hop_seed,
+                relationship_scope=relationship_scope,
             ),
         )
     if relationship.direction == "reverse":
@@ -3225,6 +3227,7 @@ def _lower_relationship(
                 name=relationship.variable,
                 prune_to_endpoints=prune_to_endpoints,
                 include_zero_hop_seed=include_zero_hop_seed,
+                relationship_scope=relationship_scope,
             ),
         )
     return cast(
@@ -3239,6 +3242,7 @@ def _lower_relationship(
             name=relationship.variable,
             prune_to_endpoints=prune_to_endpoints,
             include_zero_hop_seed=include_zero_hop_seed,
+                relationship_scope=relationship_scope,
         ),
     )
 
@@ -3621,6 +3625,7 @@ def _lower_match_clause_with_alias_equalities(
     clause: MatchClause,
     *,
     params: Optional[Mapping[str, Any]],
+    scope_boundaries: Sequence[SourceSpan] = (),
 ) -> Tuple[List[ASTObject], List[WhereComparison]]:
     out: List[ASTObject] = []
     where_out: List[WhereComparison] = []
@@ -3699,11 +3704,16 @@ def _lower_match_clause_with_alias_equalities(
             )
         )
         is_varlen = _is_variable_length_relationship_pattern(element)
+        relationship_scope = sum(
+            element.span.start_pos >= boundary.end_pos
+            for boundary in scope_boundaries
+        )
         lowered_edge = _lower_relationship(
             element,
             params=params,
             prune_to_endpoints=is_varlen and idx < last_rel_idx,
             hop_column=hop_col,
+            relationship_scope=relationship_scope,
         )
         if alias is not None:
             seen_alias_ops[alias] = lowered_edge
@@ -6787,7 +6797,10 @@ def lower_match_query(
             line=query.return_.span.line,
             column=query.return_.span.column,
         )
-    ops, duplicate_alias_where = _lower_match_clause_with_alias_equalities(merged_match, params=params)
+    scope_boundaries = [match.span for match in query.matches] if len(query.matches) > 1 else []
+    ops, duplicate_alias_where = _lower_match_clause_with_alias_equalities(
+        merged_match, params=params, scope_boundaries=scope_boundaries
+    )
     alias_targets = _alias_target(ops)
     binding_row_aliases = _binding_row_aliases_for_match(query.match, alias_targets=alias_targets)
     where_out: List[WhereComparison] = list(duplicate_alias_where)

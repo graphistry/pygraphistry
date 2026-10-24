@@ -2170,6 +2170,7 @@ def binding_rows_polars(
         _ident_col = generate_safe_column_name_from(ROW_EDGE_IDENTITY_BASE, _edge_schema.names())
         edges_lf = edges_lf.with_row_index(_ident_col)
         trail_cols_pl: List[str] = []
+        previous_relationship_scope = 0
         first_op = ops[0]
         if not isinstance(first_op, ASTNode):
             return None
@@ -2194,6 +2195,13 @@ def binding_rows_polars(
             edge_op = ops[edge_idx]
             if not isinstance(edge_op, ASTEdge):
                 return None
+            relationship_scope = edge_op.relationship_scope
+            if relationship_scope != previous_relationship_scope:
+                _present_trails = [trail_col for trail_col in trail_cols_pl if trail_col in _names(state)]
+                if _present_trails:
+                    state = state.drop(_present_trails)
+                trail_cols_pl = []
+                previous_relationship_scope = relationship_scope
             sem = EdgeSemantics.from_edge(edge_op)
             from graphistry.compute.gfql.index.property_lookup import property_candidate_positions
             from graphistry.compute.gfql.index.engine_arrays import take_rows_polars

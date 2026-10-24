@@ -4888,6 +4888,39 @@ def test_string_cypher_keeps_single_edge_relationship_global_count() -> None:
     assert result._nodes.to_dict(orient="records") == [{"cnt": 2}]
 
 
+def test_string_cypher_allows_relationship_reuse_across_match_clauses() -> None:
+    graph = _mk_graph(
+        pd.DataFrame({"id": ["a"]}),
+        pd.DataFrame({"s": ["a"], "d": ["a"]}),
+    )
+    got = graph.gfql(
+        "MATCH (x)-[e]->(y) MATCH (y)<-[f]-(z) RETURN x.id AS x, z.id AS z"
+    )
+    assert got._nodes.to_dict(orient="records") == [{"x": "a", "z": "a"}]
+
+
+def test_string_cypher_allows_anonymous_relationship_reuse_across_match_clauses() -> None:
+    graph = _mk_graph(
+        pd.DataFrame({"id": ["a"]}),
+        pd.DataFrame({"s": ["a"], "d": ["a"]}),
+    )
+    got = graph.gfql(
+        "MATCH (x)-->(y) MATCH (y)<--(z) RETURN x.id AS x, z.id AS z"
+    )
+    assert got._nodes.to_dict(orient="records") == [{"x": "a", "z": "a"}]
+
+
+def test_string_cypher_keeps_relationship_uniqueness_within_one_match_clause() -> None:
+    graph = _mk_graph(
+        pd.DataFrame({"id": ["a"]}),
+        pd.DataFrame({"s": ["a"], "d": ["a"]}),
+    )
+    got = graph.gfql(
+        "MATCH (x)-[e]->(y)<-[f]-(z) RETURN x.id AS x, z.id AS z"
+    )
+    assert got._nodes.to_dict(orient="records") == []
+
+
 def test_string_cypher_supports_with_whole_row_grouping_then_return() -> None:
     graph = _mk_graph(
         pd.DataFrame(
