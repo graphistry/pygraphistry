@@ -553,6 +553,20 @@ def compiled_query_reentry_state(
         prefix_rows=prefix_result._nodes,
         output_name=output_name,
     )
+    if len(plan.aliases) > 1:
+        duplicate_mask = (
+            carried_ids.is_duplicated()
+            if _is_polars_series(carried_ids)
+            else carried_ids.duplicated()
+        )
+        if bool(duplicate_mask.any()):
+            raise reentry_validation_error(
+                "Cypher chained MATCH after WITH currently requires unique carried node rows when multiple aliases are carried",
+                value=output_name,
+                suggestion="Use one reentry boundary per WITH stage, or avoid carrying scalar columns into chained MATCH re-entry.",
+                reason=REENTRY_DUPLICATE_CARRIED_ROWS_REASON,
+                carried_row_count=len(carried_ids),
+            )
     carried_node_ids = cast(DataFrameT, df_cons(concrete_engine)({id_column: carried_ids}))
     if not carried_columns:
         return base_graph, ordered_reentry_start_nodes(
@@ -566,20 +580,6 @@ def compiled_query_reentry_state(
             value=output_name,
             suggestion=REENTRY_SCALAR_SUGGESTION,
         )
-    if _is_polars_series(carried_ids):
-        duplicate_mask = carried_ids.is_duplicated()
-    else:
-        duplicate_mask = carried_ids.duplicated()
-    if bool(duplicate_mask.any()) if hasattr(duplicate_mask, "any") else False:
-        raise reentry_validation_error(
-            "Cypher MATCH after WITH carried scalar columns currently require unique carried node rows",
-            value=output_name,
-            suggestion="Use a single-node seed WITH shape, or avoid carrying scalar columns into MATCH re-entry.",
-            reason=REENTRY_DUPLICATE_CARRIED_ROWS_REASON,
-            carried_row_count=len(carried_ids),
-            carried_scalar_columns=tuple(carried_columns),
-        )
-
     carry_payload = reentry_carry_payload(
         carried_node_ids=carried_node_ids,
         prefix_rows=aligned_prefix_rows,
@@ -615,7 +615,12 @@ def union_scalar_reentry_results(
         node_rows = cast(DataFrameT, concat(node_frames, ignore_index=True))
     else:
         base_nodes = base_graph._nodes
-        node_rows = cast(DataFrameT, base_nodes.iloc[0:0]) if base_nodes is not None else None
+        if base_nodes is None:
+            node_rows = None
+        elif _is_polars_df(base_nodes):
+            node_rows = cast(DataFrameT, base_nodes.slice(0, 0))
+        else:
+            node_rows = cast(DataFrameT, base_nodes.iloc[0:0])
     return _bind_reentry_graph(base_graph, node_rows)
 
 
