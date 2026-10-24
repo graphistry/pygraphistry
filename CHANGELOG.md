@@ -13,6 +13,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - **GFQL temporal scalar filters**: an empty timestamp or duration string no longer silently becomes a `NaT` bound; it raises the same typed `GFQLSchemaError` E302 as an unparseable bound. Naive bounds are handled as `Timestamp` values before timezone localization, and optional `pytz` exception discovery is confined to aware-column localization.
 
 - **GFQL Cypher grouped aggregates after scalar reentry**: when a multirow scalar `WITH` prefix feeds another `MATCH`, grouping now covers all joined suffix rows together. For example, `WITH s MATCH (b)-[]->(s) RETURN s.type, count(*)` returns one aggregate per group instead of one per carried prefix row (#2235).
+- **GFQL temporal membership filters** (#1949): `IN`, `IsIn`, and list filter values on datetime columns parse scalar strings with the same aware/naive temporal contract as equality, instead of silently matching zero rows or raising an opaque engine error. Unparseable values fail with structured `E302`; Polars datetime membership lowers natively. Typed timestamps must match the column's awareness, though offset-equivalent aware values match. Raw-list `NaT` is not a member; predicate `IsIn` `NaT` handling remains engine-specific.
 ## [0.61.2] - 2026-10-23
 
 ### Fixed
