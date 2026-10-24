@@ -43,18 +43,23 @@ def _is_string_dtype_safe(dtype: Any) -> bool:
 
 
 
-def _coerce_temporal_filter_scalar(value: FilterValue, dtype: DType, *, field: str) -> FilterValue:
-    if not isinstance(value, str):
-        return value
+def _is_temporal_dtype(dtype: DType) -> bool:
     try:
-        is_datetime = pd.api.types.is_datetime64_any_dtype(dtype)
-        is_timedelta = pd.api.types.is_timedelta64_dtype(dtype)
+        return bool(
+            pd.api.types.is_datetime64_any_dtype(dtype)
+            or pd.api.types.is_timedelta64_dtype(dtype)
+        )
     except (TypeError, ValueError):
-        return value
-    if not is_datetime and not is_timedelta:
+        return False
+
+
+def _coerce_temporal_filter_scalar(value: FilterValue, dtype: DType, *, field: str) -> FilterValue:
+    if not isinstance(value, str) or not _is_temporal_dtype(dtype):
         return value
 
     from graphistry.compute.exceptions import ErrorCode, GFQLSchemaError
+
+    is_datetime = pd.api.types.is_datetime64_any_dtype(dtype)
 
     try:
         if is_datetime:
@@ -98,6 +103,8 @@ def _is_membership_filter_value(value: Any) -> bool:
 
 
 def _coerce_temporal_filter_members(values: Iterable[FilterValue], dtype: DType, *, field: str) -> List[FilterValue]:
+    if not _is_temporal_dtype(dtype):
+        return list(values)
     return [
         _coerce_temporal_filter_scalar(value, dtype, field=field)
         for value in values
@@ -275,7 +282,7 @@ def _prepare_filter_dict(
 
             col_dtype = df[resolved_col].dtype
 
-            if isinstance(resolved_val, IsIn):
+            if isinstance(resolved_val, IsIn) and _is_temporal_dtype(col_dtype):
                 resolved_val = IsIn(
                     _coerce_temporal_filter_members(
                         resolved_val.options, col_dtype, field=col

@@ -10,6 +10,7 @@ import pandas as pd
 import pytest
 import graphistry
 from graphistry.compute.ast import n, e_forward, e_reverse, e_undirected, call, let, rows, with_, return_
+from graphistry.compute.predicates.is_in import IsIn
 
 # No polars wheel (e.g. cp314) -> skip module cleanly, not per-case non-NIE ImportError "fails".
 pytest.importorskip("polars")
@@ -1219,6 +1220,9 @@ def _native_ok_query_cases():
         ("temporal-gt-tzaware-datetimevalue", _temporal_graph,
          [n({"ts": GT(val=datetime.datetime(2020, 1, 15, 12, 0))})],
          "tz-tagged DateTimeValue lowers via the exact naive-UTC DateTimeValue compare"),
+        ("temporal-isin-date", _temporal_graph,
+         [n({"ts": IsIn(options=[datetime.date(2020, 1, 15), datetime.date(2020, 2, 1)])})],
+         "pandas and Polars agree that a date member is the exact midnight instant, not calendar-day membership"),
         ("leapyear-naive", _leapyear_graph, [n({"ts": is_leap_year()})],
          "provable Gregorian leap-year derivation on a naive Datetime column"),
         ("in-membership-row-expr", lambda: _graph(1),
@@ -1236,9 +1240,6 @@ def _polars_nie_query_cases():
     from graphistry.compute.predicates.is_in import IsIn
     import graphistry.compute.predicates.temporal as T
     return [
-        ("temporal-isin", _temporal_graph,
-         [n({"ts": IsIn(options=[datetime.date(2020, 1, 15), datetime.date(2020, 2, 1)])})], None,
-         "pandas is EXACT-instant membership (not date-truncated); cross-precision is_in unproven"),
         ("leapyear-nontemporal-col", _leapyear_graph, [n({"v": T.is_leap_year()})], None,
          "IsLeapYear on an int column has no proven parity"),
         ("leapyear-tzaware", _tzaware_graph, [n({"ts": T.is_leap_year()})], None,
