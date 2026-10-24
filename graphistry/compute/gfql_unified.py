@@ -1800,6 +1800,23 @@ def _execute_compiled_query_with_reentry(
             base_graph, compiled_query=compiled_query, engine=engine, policy=policy, context=context)
 
 
+def _split_deferred_group_suffix(
+    chain_ops: Sequence[ASTObject],
+) -> Optional[Tuple[List[ASTObject], List[ASTObject]]]:
+    """Split before a suffix-level group so scalar reentry partitions stay unaggregated."""
+    group_index = next(
+        (
+            index
+            for index, operation in enumerate(chain_ops)
+            if isinstance(operation, ASTCall) and operation.function == "group_by"
+        ),
+        None,
+    )
+    if group_index is None:
+        return None
+    return list(chain_ops[:group_index]), list(chain_ops[group_index:])
+
+
 def _execute_compiled_query_with_reentry_impl(
     base_graph: Plottable,
     *,
@@ -1848,6 +1865,7 @@ def _execute_compiled_query_with_reentry_impl(
                         field="optional_reentry",
                     )
                 row_results = []
+                deferred_group = _split_deferred_group_suffix(compiled_query.chain.chain)
                 for i in range(prefix_row_count):
                     row_graph, row_start = _compiled_query_scalar_reentry_state(
                         base_graph,
@@ -1855,9 +1873,18 @@ def _execute_compiled_query_with_reentry_impl(
                         carried_columns=plan.scalar_columns,
                         row_index=i,
                     )
+                    row_compiled = (
+                        replace(
+                            compiled_query,
+                            chain=Chain(deferred_group[0]),
+                            post_processing=None,
+                        )
+                        if deferred_group is not None
+                        else compiled_query
+                    )
                     row_result = _execute_compiled_query(
                         row_graph,
-                        compiled_query=compiled_query,
+                        compiled_query=row_compiled,
                         engine=engine,
                         policy=policy,
                         context=context,
@@ -1865,6 +1892,18 @@ def _execute_compiled_query_with_reentry_impl(
                     )
                     row_results.append(row_result)
                 result = _union_scalar_reentry_results(row_results, base_graph=base_graph, engine=engine)
+                if deferred_group is not None:
+                    suffix_compiled = replace(
+                        compiled_query,
+                        chain=Chain(deferred_group[1]),
+                    )
+                    result = _execute_compiled_query(
+                        result,
+                        compiled_query=suffix_compiled,
+                        engine=engine,
+                        policy=policy,
+                        context=context,
+                    )
                 return result
             else:
                 compiled_base_graph, start_nodes = _compiled_query_scalar_reentry_state(
