@@ -1,5 +1,6 @@
 from typing import Any, Dict, Mapping, Optional, Tuple, Type, Union, cast
 from importlib import import_module
+from functools import lru_cache
 
 import pandas as pd
 
@@ -13,6 +14,19 @@ from .typing import DataFrameT, DType, FilterDict, FilterValue, NodeDtypes, Seri
 
 
 logger = setup_logger(__name__)
+
+
+@lru_cache(maxsize=None)
+def _timezone_resolution_errors() -> Tuple[Type[BaseException], ...]:
+    try:
+        pytz_exceptions = import_module("pytz.exceptions")
+    except ModuleNotFoundError:
+        return (ValueError,)
+    return (
+        ValueError,
+        pytz_exceptions.AmbiguousTimeError,
+        pytz_exceptions.NonExistentTimeError,
+    )
 def _dtype_text(dtype: Any) -> str:
     from graphistry.compute.gfql.lazy.engine.polars.dtypes import dtype_text
     return dtype_text(dtype)
@@ -42,24 +56,19 @@ def _coerce_temporal_filter_scalar(value: FilterValue, dtype: DType, *, field: s
 
     from graphistry.compute.exceptions import ErrorCode, GFQLSchemaError
 
-    timezone_resolution_errors: Tuple[Type[BaseException], ...] = (ValueError,)
-    try:
-        pytz_exceptions = import_module("pytz.exceptions")
-
-        timezone_resolution_errors += (
-            pytz_exceptions.AmbiguousTimeError,
-            pytz_exceptions.NonExistentTimeError,
-        )
-    except ModuleNotFoundError:
-        pass
-
     try:
         if is_datetime:
             parsed = pd.to_datetime(value)
-            if getattr(parsed, "tzinfo", None) is None and isinstance(dtype, pd.DatetimeTZDtype):
+            if parsed is pd.NaT:
+                raise ValueError(f"Empty temporal value: {value!r}")
+            if (
+                isinstance(parsed, pd.Timestamp)
+                and parsed.tzinfo is None
+                and isinstance(dtype, pd.DatetimeTZDtype)
+            ):
                 try:
                     return parsed.tz_localize(dtype.tz)
-                except timezone_resolution_errors as exc:
+                except _timezone_resolution_errors() as exc:
                     raise GFQLSchemaError(
                         ErrorCode.E302,
                         f'Type mismatch: unresolvable temporal filter value for column "{field}"',
@@ -69,7 +78,10 @@ def _coerce_temporal_filter_scalar(value: FilterValue, dtype: DType, *, field: s
                         suggestion="Use an explicit UTC offset or a resolvable column-local timestamp",
                     ) from exc
             return parsed
-        return pd.to_timedelta(value)
+        parsed = pd.to_timedelta(value)
+        if parsed is pd.NaT:
+            raise ValueError(f"Empty duration value: {value!r}")
+        return parsed
     except (TypeError, ValueError, OverflowError) as exc:
         raise GFQLSchemaError(
             ErrorCode.E302,

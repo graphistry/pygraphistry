@@ -394,8 +394,10 @@ class TestB7TemporalStringLeaks:
 
         dtype = pd.DatetimeTZDtype("ns", "UTC")
         monkeypatch.setattr(pd.Timestamp, "tz_localize", fail_localize)
-        with pytest.raises(RuntimeError, match="boom"):
+        with pytest.raises(RuntimeError) as excinfo:
             _coerce_temporal_filter_scalar("2024-01-01", dtype, field="ts_aw")
+        assert type(excinfo.value) is RuntimeError
+        assert excinfo.value.args == ("boom",)
 
     def test_aware_null_empty_and_malformed_boundaries(self):
         """Empty/null-only supported frames return values; malformed bounds stay E302."""
@@ -409,6 +411,87 @@ class TestB7TemporalStringLeaks:
         with pytest.raises(GFQLSchemaError) as excinfo:
             null_only.gfql([n({"ts_aw": "not-a-timestamp"})], engine="pandas")
         assert excinfo.value.code == ErrorCode.E302
+
+    @pytest.mark.parametrize(("column", "bound"), [
+        ("ts_aw", ""),
+        ("dur", ""),
+    ])
+    def test_empty_temporal_bound_is_typed_schema_error(self, column: str, bound: str):
+        from graphistry.compute.ast import n
+        g = _graph("pandas")
+        with pytest.raises(GFQLSchemaError) as excinfo:
+            g.gfql([n({column: bound})], engine="pandas")
+        assert excinfo.value.code == ErrorCode.E302
+
+    @pytest.mark.parametrize("public_form", ["string", "json", "param"])
+    def test_aware_dst_error_contract_without_pytz(self, monkeypatch, public_form):
+        """Optional exception discovery falls back to ValueError without pytz."""
+        import json
+        from graphistry.compute.ast import n
+        from graphistry.compute.filter_by_dict import _coerce_temporal_filter_scalar
+        from graphistry.compute.filter_by_dict import _timezone_resolution_errors
+        from graphistry.compute import filter_by_dict
+        from importlib import import_module as real_import_module
+
+        _timezone_resolution_errors.cache_clear()
+        import_calls = []
+        def no_pytz(name: str, *args: object, **kwargs: object):
+            import_calls.append(name)
+            if name == "pytz.exceptions":
+                raise ModuleNotFoundError("No module named 'pytz.exceptions'")
+            return real_import_module(name, *args, **kwargs)
+
+        monkeypatch.setattr(filter_by_dict, "import_module", no_pytz)
+        assert _timezone_resolution_errors() == (ValueError,)
+        assert "pytz.exceptions" in import_calls
+        _timezone_resolution_errors.cache_clear()
+
+        zone_nodes = pd.DataFrame({
+            "id": ["fall_early", "fall_late"],
+            "ts_zone": pd.to_datetime([
+                "2024-11-03T01:30:00", "2024-11-03T01:30:00",
+            ]).tz_localize("America/New_York", ambiguous=[True, False]),
+        })
+        graph = graphistry.nodes(zone_nodes, "id").edges(_edges_pd(), "s", "d")
+        bound = "2024-11-03T01:30:00"
+        dtype = pd.DatetimeTZDtype("ns", "America/New_York")
+        def fail_localize(value, tz):
+            raise ValueError("no pytz fallback")
+
+        monkeypatch.setattr(pd.Timestamp, "tz_localize", fail_localize)
+        if public_form == "string":
+            query = f"MATCH (n) WHERE n.ts_zone = '{bound}' RETURN n.id"
+            with pytest.raises(GFQLSchemaError, match="unresolvable temporal filter value"):
+                graph.gfql(query, engine="pandas")
+        elif public_form == "json":
+            query = [json.loads(json.dumps(n({"ts_zone": bound}).to_json()))]
+            with pytest.raises(GFQLSchemaError, match="unresolvable temporal filter value"):
+                graph.gfql(query, engine="pandas")
+        else:
+            with pytest.raises(GFQLSchemaError, match="unresolvable temporal filter value"):
+                _coerce_temporal_filter_scalar(bound, dtype, field="ts_zone")
+
+    def test_duration_does_not_discover_optional_timezone_exceptions(self, monkeypatch):
+        from graphistry.compute.filter_by_dict import _timezone_resolution_errors
+        _timezone_resolution_errors.cache_clear()
+        real_import = __import__
+
+        import_calls = []
+
+        def tracked_import(name: str, *args: object, **kwargs: object):
+            import_calls.append(name)
+            if name == "pytz.exceptions":
+                raise ModuleNotFoundError("No module named 'pytz.exceptions'")
+            return real_import(name, *args, **kwargs)
+
+        monkeypatch.setattr(
+            "graphistry.compute.filter_by_dict.import_module",
+            tracked_import,
+        )
+        g = _graph("pandas")
+        assert _ids(g, "MATCH (n) WHERE n.dur = '1 days' RETURN n.id", "pandas") == ["p"]
+        assert "pytz.exceptions" not in import_calls
+        _timezone_resolution_errors.cache_clear()
 
     @pytest.mark.parametrize("engine", [
         "pandas",
