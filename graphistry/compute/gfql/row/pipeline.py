@@ -2048,6 +2048,21 @@ class RowPipelineMixin:
             return True, out.reset_index(drop=True)
 
         if isinstance(node, ListComprehension):
+            projection = node.projection
+            if (
+                isinstance(projection, FunctionCall)
+                and projection.name.lower() in {"tofloat", "tointeger"}
+                and isinstance(node.source, ListLiteral)
+                and any(
+                    isinstance(item, (ListLiteral, MapLiteral))
+                    or (
+                        isinstance(item, Literal)
+                        and isinstance(item.value, (bool, list, dict))
+                    )
+                    for item in node.source.items
+                )
+            ):
+                return False, None
             source_ok, list_value = self._gfql_eval_expr_ast(table_df, node.source)
             if not source_ok:
                 return False, None
