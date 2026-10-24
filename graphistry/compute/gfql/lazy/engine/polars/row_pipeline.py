@@ -2175,6 +2175,12 @@ def binding_rows_polars(
         if not isinstance(first_op, ASTNode):
             return None
         seed_nodes = filter_by_dict_polars(nodes_lf, first_op.filter_dict)
+        if seed_row_col is not None:
+            _duplicate_source_ids = bool(
+                seed_nodes.select(pl.col(node_id).is_duplicated().any()).collect().item()
+            )
+            if _duplicate_source_ids:
+                return None
         if seed_ids_lf is not None and seed_row_col is None:
             # WITH->MATCH re-entry seed: constrain the first alias to the carried ids.
             seed_nodes = seed_nodes.join(seed_ids_lf, on=node_id, how="semi")

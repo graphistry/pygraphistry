@@ -120,9 +120,20 @@ def test_scalar_reentry_preserves_unequal_seed_multiplicity(engine: str) -> None
 @pytest.mark.parametrize("engine", ["pandas", "polars"])
 def test_scalar_reentry_empty_suffix_aggregation(engine: str) -> None:
     pytest.importorskip(engine, reason=f"{engine} unavailable")
-    nodes = pd.DataFrame({"nid": ["s", "z"], "type": ["x", "z"]})
+    nodes = pd.DataFrame({"nid": ["a", "s", "z"], "type": ["u", "x", "z"]})
     edges = pd.DataFrame([("a", "s")], columns=["s", "d"])
     graph: Plottable = graphistry.nodes(nodes, "nid").edges(edges, "s", "d")
+    positive = graph.gfql(
+        "MATCH (a)-[]->(s) WITH s MATCH (b)-[]->(s) RETURN count(*) AS c",
+        engine=engine,
+    )
+    positive_records = (
+        positive._nodes.to_dicts()
+        if engine == "polars"
+        else positive._nodes.to_dict(orient="records")
+    )
+    assert positive_records == [{"c": 1}]
+
     # Original crash boundary: nonempty WITH prefix, suffix filtered AFTER the
     # second MATCH so the grouped/ungrouped empty result diverges.
     grouped = graph.gfql(
@@ -243,3 +254,30 @@ def test_binding_pipeline_preserves_duplicate_source_node_rows(engine: str) -> N
         {"v": "x", "w": "z"},
         {"v": "y", "w": "z"},
     ]
+
+
+def test_reentry_declines_duplicate_base_node_rows_on_polars() -> None:
+    """Duplicate node IDs can represent distinct properties; do not collapse them."""
+    nodes = pd.DataFrame({"nid": [1, 1, 2], "v": ["x", "y", "z"]})
+    edges = pd.DataFrame([(1, 2)], columns=["s", "d"])
+    graph: Plottable = graphistry.nodes(nodes, "nid").edges(edges, "s", "d")
+    result = graph.gfql(
+        "MATCH (a) WHERE a.nid = 1 WITH a "
+        "MATCH (a)-[]->(b) RETURN a.v AS v, b.v AS w",
+        engine="pandas",
+    )
+    records = result._nodes.to_dict(orient="records")
+    assert sorted(records, key=lambda row: row["v"]) == [
+        {"v": "x", "w": "z"},
+        {"v": "x", "w": "z"},
+        {"v": "y", "w": "z"},
+        {"v": "y", "w": "z"},
+    ]
+
+    pytest.importorskip("polars")
+    with pytest.raises(NotImplementedError):
+        graph.gfql(
+            "MATCH (a) WHERE a.nid = 1 WITH a "
+            "MATCH (a)-[]->(b) RETURN a.v AS v, b.v AS w",
+            engine="polars",
+        )

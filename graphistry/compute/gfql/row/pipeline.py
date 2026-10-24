@@ -4207,7 +4207,12 @@ class RowPipelineMixin:
         first_nodes = self._gfql_apply_alias_prefilter(
             first_nodes, first_alias, alias_prefilters
         )
-        preserve_start_multiplicity = self._g._gfql_preserve_start_node_multiplicity
+        owner_graph = self._g
+        if owner_graph is None:
+            self._gfql_bindings_error(
+                "Cypher multi-alias row bindings require a bound graph"
+            )
+        preserve_start_multiplicity = owner_graph._gfql_preserve_start_node_multiplicity
         if preserve_start_multiplicity:
             state_df = first_nodes[[node_id_col]].copy()
         else:
