@@ -324,6 +324,7 @@ class TestB7TemporalStringLeaks:
         """A date is column-local midnight; equivalent offsets compare as instants."""
         import json
         from graphistry.compute.ast import n
+        from graphistry.compute.filter_by_dict import _coerce_temporal_filter_scalar
         nodes = pd.DataFrame({
             "id": ["local_midnight", "local_noon", "utc_midnight", "next_day"],
             "ts_zone": pd.to_datetime([
@@ -364,6 +365,37 @@ class TestB7TemporalStringLeaks:
             assert excinfo.value.code == ErrorCode.E302
         assert _ids(g, "MATCH (n) WHERE n.ts_zone = '2024-11-03T01:30:00-04:00' RETURN n.id", "pandas") == ["fall_early"]
         assert _ids(g, "MATCH (n) WHERE n.ts_zone = '2024-11-03T01:30:00-05:00' RETURN n.id", "pandas") == ["fall_late"]
+
+    def test_aware_utc_date_only_answers_and_propagates_runtime_failure(self, monkeypatch):
+        """Date-only bounds select column-local midnight across public forms."""
+        import json
+        from graphistry.compute.ast import n
+        from graphistry.compute.filter_by_dict import _coerce_temporal_filter_scalar
+        nodes = pd.DataFrame({
+            "id": ["utc_midnight", "utc_noon"],
+            "ts_aw": pd.to_datetime([
+                "2024-01-01T00:00:00", "2024-01-01T12:00:00",
+            ], utc=True),
+        })
+        g = graphistry.nodes(nodes, "id").edges(_edges_pd(), "s", "d")
+        expected = ["utc_midnight"]
+
+        assert _ids(g, "MATCH (n) WHERE n.ts_aw = '2024-01-01' RETURN n.id", "pandas") == expected
+        out = g.gfql(
+            "MATCH (n) WHERE n.ts_aw = $bound RETURN n.id",
+            engine="pandas", params={"bound": "2024-01-01"},
+        )._nodes
+        assert sorted(out["n.id"].tolist()) == expected
+        chain = json.loads(json.dumps(n({"ts_aw": "2024-01-01"}).to_json()))
+        assert _ids(g, [chain], "pandas") == expected
+
+        def fail_localize(self, tz):
+            raise RuntimeError("boom")
+
+        dtype = pd.DatetimeTZDtype("ns", "UTC")
+        monkeypatch.setattr(pd.Timestamp, "tz_localize", fail_localize)
+        with pytest.raises(RuntimeError, match="boom"):
+            _coerce_temporal_filter_scalar("2024-01-01", dtype, field="ts_aw")
 
     def test_aware_null_empty_and_malformed_boundaries(self):
         """Empty/null-only supported frames return values; malformed bounds stay E302."""

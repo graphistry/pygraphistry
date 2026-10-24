@@ -39,6 +39,10 @@ def _coerce_temporal_filter_scalar(value: FilterValue, dtype: DType, *, field: s
         return value
 
     from graphistry.compute.exceptions import ErrorCode, GFQLSchemaError
+    timezone_resolution_error_types = {
+        ("pytz.exceptions", "AmbiguousTimeError"),
+        ("pytz.exceptions", "NonExistentTimeError"),
+    }
 
     try:
         if is_datetime:
@@ -47,6 +51,9 @@ def _coerce_temporal_filter_scalar(value: FilterValue, dtype: DType, *, field: s
                 try:
                     return parsed.tz_localize(dtype.tz)
                 except Exception as exc:
+                    exception_type = type(exc)
+                    if (exception_type.__module__, exception_type.__name__) not in timezone_resolution_error_types:
+                        raise
                     raise GFQLSchemaError(
                         ErrorCode.E302,
                         f'Type mismatch: unresolvable temporal filter value for column "{field}"',
