@@ -8,6 +8,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [Development]
 <!-- Do Not Erase This Section - Used for tracking unreleased changes -->
 
+### Fixed
+
+- **GFQL Cypher compile limit for extreme MATCH chains**: a query with more than 512 MATCH clauses now fails immediately with a typed `GFQLValidationError` naming the clause limit, instead of consuming super-linear planner time and crashing with a `RecursionError` (#2235).
+
 ## [0.61.2] - 2026-10-23
 
 ### Fixed
