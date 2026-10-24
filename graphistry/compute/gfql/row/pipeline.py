@@ -1,5 +1,6 @@
 import ast
 import math
+from decimal import Decimal, InvalidOperation
 import numpy as np
 import numbers
 import re
@@ -128,8 +129,14 @@ GFQLRuntimeParserBundle = Tuple[GFQLParseExprFn, GFQLValidateExprFn, ModuleType]
 _GFQL_MISSING_BOOL_OPERAND = object()
 _INT64_MIN = -(2**63)
 _INT64_LIMIT_HIGH = 2**63
-_EXACT_INT64_STRING_RE = re.compile(r"^[+-]?\d+$")
-_PYARROW_DECIMAL_PRECISION = 38
+_EXACT_INT64_STRING_RE = re.compile(r"^[+-]?[0-9]+$")
+_UNICODE_EXACT_INT64_STRING_RE = re.compile(r"^[+-]?\d+$")
+_DIGIT_TRANSLATION = str.maketrans({
+    **{digit: str(offset) for offset, digit in enumerate("٠١٢٣٤٥٦٧٨٩")},
+    **{digit: str(offset) for offset, digit in enumerate("০১২৩৪৫৬৭৮৯")},
+})
+_INT64_MAX_POSITIVE_DIGITS = str(_INT64_LIMIT_HIGH - 1)
+_INT64_MIN_ABSOLUTE_DIGITS = str(-_INT64_MIN)
 
 
 def _to_cypher_int64_scalar(value: object) -> Optional[int]:
@@ -140,6 +147,11 @@ def _to_cypher_int64_scalar(value: object) -> Optional[int]:
         text = value.strip()
         if _EXACT_INT64_STRING_RE.fullmatch(text):
             parsed = int(text)
+        elif _UNICODE_EXACT_INT64_STRING_RE.fullmatch(text):
+            try:
+                parsed = int(Decimal(text.translate(_DIGIT_TRANSLATION)))
+            except InvalidOperation:
+                return None
         else:
             try:
                 parsed_float = float(text)
@@ -157,8 +169,12 @@ def _to_cypher_int64_scalar(value: object) -> Optional[int]:
         if not math.isfinite(as_float):
             return None
         parsed = math.trunc(as_float)
+    elif isinstance(value, Decimal):
+        if not value.is_finite():
+            return None
+        parsed = int(value.to_integral_value(rounding="ROUND_DOWN"))
     else:
-        parsed = int(float(value))
+        return None
     return parsed if _INT64_MIN <= parsed < _INT64_LIMIT_HIGH else None
 
 
@@ -184,32 +200,43 @@ def _pandas_series_to_int64(inner: pd.Series) -> pd.Series:
 
     text = inner.astype("string").str.strip()
     exact_mask = text.str.fullmatch(_EXACT_INT64_STRING_RE).fillna(False)
+    unicode_mask = text.str.fullmatch(_UNICODE_EXACT_INT64_STRING_RE).fillna(False) & ~exact_mask
     out = pd.Series(pd.NA, index=index, dtype="Int64")
     if exact_mask.any():
         import pyarrow as pa
         import pyarrow.compute as pc
 
         exact = text.loc[exact_mask]
-        decimal_mask = exact.str.len().le(_PYARROW_DECIMAL_PRECISION)
-        exact_in_decimal = exact.loc[decimal_mask]
+        signs = exact.str[0]
+        negative = signs.eq("-")
+        digits = exact.str.replace(r"^[+-]", "", regex=True).str.lstrip("0").fillna("")
+        digit_count = digits.str.len()
+        at_max_count = digit_count.eq(len(_INT64_MAX_POSITIVE_DIGITS))
+        in_range = digits.eq("") | digit_count.lt(len(_INT64_MAX_POSITIVE_DIGITS)) | (
+            at_max_count & ~negative & digits.le(_INT64_MAX_POSITIVE_DIGITS)
+        ) | (
+            at_max_count & negative & digits.le(_INT64_MIN_ABSOLUTE_DIGITS)
+        )
+        exact_in_decimal = exact.loc[in_range]
         if not exact_in_decimal.empty:
             decimals = pc.cast(pa.array(exact_in_decimal, type=pa.string()), pa.decimal128(38, 0))
-            in_range = pc.greater_equal(
-                decimals, pa.scalar(_INT64_MIN, type=pa.decimal128(38, 0))
+            in_range_index = exact_in_decimal.index
+            exact_values = pc.cast(decimals, pa.int64())
+            out.loc[in_range_index] = pd.Series(
+                exact_values.to_numpy(zero_copy_only=False), index=in_range_index, dtype="Int64"
             )
-            in_range = pc.and_(in_range, pc.less(decimals, pa.scalar(_INT64_LIMIT_HIGH, type=pa.decimal128(38, 0))))
-            in_range_index = exact_in_decimal.index[np.asarray(in_range, dtype=bool)]
-            if not in_range_index.empty:
-                exact_values = pc.cast(pc.filter(decimals, in_range), pa.int64())
-                out.loc[in_range_index] = pd.Series(
-                    exact_values.to_numpy(zero_copy_only=False), index=in_range_index, dtype="Int64"
-                )
 
-    other = inner.loc[~exact_mask]
-    if not other.empty:
-        numeric = pd.to_numeric(other, errors="coerce")
+    unicode_other = inner.loc[unicode_mask]
+    if not unicode_other.empty:
+        normalized = unicode_other.astype("string").str.translate(_DIGIT_TRANSLATION)
+        unicode_values = normalized.map(lambda value: Decimal(value))
+        out.loc[unicode_other.index] = unicode_values.map(_to_cypher_int64_scalar)
+
+    remaining = inner.loc[~exact_mask & ~unicode_mask]
+    if not remaining.empty:
+        numeric = pd.to_numeric(remaining, errors="coerce")
         if len(numeric):
-            out.loc[other.index] = _pandas_series_to_int64(numeric)
+            out.loc[remaining.index] = _pandas_series_to_int64(numeric)
     return out
 
 

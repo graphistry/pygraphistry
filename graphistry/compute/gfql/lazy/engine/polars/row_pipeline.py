@@ -266,8 +266,10 @@ def _lower_function(node: FunctionCall, columns: Sequence[str]) -> Optional[pl.E
         # offset>=0, length>=0 (or None=to-end) → identical chars on pandas/polars.
         return args[0].str.slice(start_node.value, length_val)
     if name == "tointeger" and len(args) == 1:
-        # Exact integer strings are parsed in Int64 without a lossy Float64 hop. Decimal
-        # and other non-integer strings use Float64, then reject nonfinite/out-of-range.
+        # Exact decimal-digit strings are normalized to ASCII, then parsed in Int64
+        # without a lossy Float64 hop. Other non-integer strings use Float64, then
+        # reject nonfinite/out-of-range. Unicode decimal-digit forms outside this
+        # explicit translation are an inherited Polars null fallback.
         dt = _expr_output_dtype(args[0])
         if _dtype_is_int(dt) or dt == pl.Boolean:
             if dt == pl.Boolean:
@@ -294,10 +296,11 @@ def _lower_function(node: FunctionCall, columns: Sequence[str]) -> Optional[pl.E
             | (parsed >= pl.lit(float(_INT64_LIMIT_HIGH)))
         ).then(pl.lit(None, dtype=pl.Int64)).otherwise(parsed.cast(pl.Int64, strict=False))
         text = args[0].cast(pl.String, strict=False).str.strip_chars()
+        normalized_text = text.str.replace_many(_UNICODE_DECIMAL_DIGIT_REPLACEMENTS)
         return pl.when(
-            text.str.contains(r"^[+-]?\d+$")
+            normalized_text.str.contains(r"^[+-]?[0-9]+$")
         ).then(
-            text.cast(pl.Int64, strict=False)
+            normalized_text.cast(pl.Int64, strict=False)
         ).otherwise(decimal)
     if name == "tofloat" and len(args) == 1:
         # toFloat oracle: pandas inner.astype(float) + isna() mask via .where(~mask, pd.NA).
@@ -333,6 +336,10 @@ def _lower_function(node: FunctionCall, columns: Sequence[str]) -> Optional[pl.E
 
 
 _ISO_DURATION_RE = re.compile(r"^-?P(?=[0-9T])")
+_UNICODE_DECIMAL_DIGIT_REPLACEMENTS = {
+    **{digit: str(offset) for offset, digit in enumerate("٠١٢٣٤٥٦٧٨٩")},
+    **{digit: str(offset) for offset, digit in enumerate("০১২৩৪৫৬৭৮৯")},
+}
 
 # ISO-8601 date/datetime/time-with-seconds-or-timezone — what cypher date()/time()/datetime()
 # lower to; polars string </> compares these LEXICOGRAPHICALLY (wrong across timezones/precision).

@@ -13,5 +13,9 @@
       "max_properties": 0
     }
   },
-  "lowering_py_max_lines": 9917
+<<<<<<< HEAD
+  "lowering_py_max_lines": 9927
+=======
+  "lowering_py_max_lines": 9905
+>>>>>>> 801ecc02e (fix: use exact integer magnitude for GFQL toInteger)
 }
