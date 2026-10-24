@@ -1,4 +1,5 @@
 import ast
+import copy
 import math
 import numpy as np
 import numbers
@@ -4248,15 +4249,23 @@ class RowPipelineMixin:
             current_nodes = base_nodes[base_nodes[node_id_col].isin(state_df[WALK_CURRENT_COL])].copy()
             if len(current_nodes) == 0:
                 return state_df.iloc[0:0], alias_frames
-            edge_result = edge_op.execute(
+            sem = EdgeSemantics.from_edge(edge_op)
+            candidate_wavefront = base_nodes if sem.is_multihop else current_nodes
+            candidate_edge_op = edge_op
+            if sem.is_multihop:
+                candidate_edge_op = copy.copy(edge_op)
+                candidate_edge_op.hops = 1
+                candidate_edge_op.min_hops = 1
+                candidate_edge_op.max_hops = 1
+                candidate_edge_op.to_fixed_point = False
+            edge_result = candidate_edge_op.execute(
                 g=base_graph,
-                prev_node_wavefront=current_nodes,
+                prev_node_wavefront=candidate_wavefront,
                 target_wave_front=None,
                 engine=engine,
             )
             edges_df_step = edge_result._edges
             step_nodes = edge_result._nodes
-            sem = EdgeSemantics.from_edge(edge_op)
             edge_alias = getattr(edge_op, "_name", None)
             if sem.is_multihop and edge_alias is not None:
                 self._gfql_bindings_error(

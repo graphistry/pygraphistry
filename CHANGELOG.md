@@ -8,6 +8,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [Development]
 <!-- Do Not Erase This Section - Used for tracking unreleased changes -->
 
+### Fixed
+
+- **GFQL Cypher exact-depth variable-length patterns**: a self-loop can now supply the nonterminal hop of an exact match such as `MATCH (a)-[*2..2]->(b)`, so paths that reuse the graph's shortest-hop frontier remain available to later hops on the connected-bindings row route (#2235).
+
 ## [0.61.2] - 2026-10-23
 
 ### Fixed
