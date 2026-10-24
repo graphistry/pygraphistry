@@ -8,6 +8,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [Development]
 <!-- Do Not Erase This Section - Used for tracking unreleased changes -->
 
+### Fixed
+
+- **GFQL temporal scalar filters**: an empty timestamp or duration string no longer silently becomes a `NaT` bound; it raises the same typed `GFQLSchemaError` E302 as an unparseable bound. Naive bounds are handled as `Timestamp` values before timezone localization, and optional `pytz` exception discovery is confined to aware-column localization.
+
 ## [0.61.2] - 2026-10-23
 
 ### Fixed
