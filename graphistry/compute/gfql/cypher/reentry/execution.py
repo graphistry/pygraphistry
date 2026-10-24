@@ -510,10 +510,7 @@ def compiled_query_reentry_state(
                     value=id_column,
                     suggestion=REENTRY_WHOLE_ROW_SUGGESTION,
                 )
-            carried_node_ids = cast(
-                DataFrameT,
-                cast(DataFrameT, base_nodes[[id_column]]).iloc[0:0].reset_index(drop=True),
-            )
+            carried_node_ids = base_nodes[[id_column]].iloc[0:0].reset_index(drop=True)
             return base_graph, ordered_reentry_start_nodes(
                 node_rows=base_nodes,
                 carried_node_ids=carried_node_ids,
@@ -553,20 +550,6 @@ def compiled_query_reentry_state(
         prefix_rows=prefix_result._nodes,
         output_name=output_name,
     )
-    if len(plan.aliases) > 1:
-        duplicate_mask = (
-            carried_ids.is_duplicated()
-            if _is_polars_series(carried_ids)
-            else carried_ids.duplicated()
-        )
-        if bool(duplicate_mask.any()):
-            raise reentry_validation_error(
-                "Cypher chained MATCH after WITH currently requires unique carried node rows when multiple aliases are carried",
-                value=output_name,
-                suggestion="Use one reentry boundary per WITH stage, or avoid carrying scalar columns into chained MATCH re-entry.",
-                reason=REENTRY_DUPLICATE_CARRIED_ROWS_REASON,
-                carried_row_count=len(carried_ids),
-            )
     carried_node_ids = cast(DataFrameT, df_cons(concrete_engine)({id_column: carried_ids}))
     if not carried_columns:
         return base_graph, ordered_reentry_start_nodes(
@@ -579,6 +562,19 @@ def compiled_query_reentry_state(
             "Cypher MATCH after WITH could not recover carried row columns from the prefix stage",
             value=output_name,
             suggestion=REENTRY_SCALAR_SUGGESTION,
+        )
+    if _is_polars_series(carried_ids):
+        duplicate_mask = carried_ids.is_duplicated()
+    else:
+        duplicate_mask = carried_ids.duplicated()
+    if bool(duplicate_mask.any()) if hasattr(duplicate_mask, "any") else False:
+        raise reentry_validation_error(
+            "Cypher MATCH after WITH carried scalar columns currently require unique carried node rows",
+            value=output_name,
+            suggestion="Use a single-node seed WITH shape, or avoid carrying scalar columns into MATCH re-entry.",
+            reason=REENTRY_DUPLICATE_CARRIED_ROWS_REASON,
+            carried_row_count=len(carried_ids),
+            carried_scalar_columns=tuple(carried_columns),
         )
     carry_payload = reentry_carry_payload(
         carried_node_ids=carried_node_ids,

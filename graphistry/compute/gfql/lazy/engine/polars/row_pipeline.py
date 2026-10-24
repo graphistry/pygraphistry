@@ -2196,12 +2196,15 @@ def binding_rows_polars(
         first_alias = first_op._name
         if isinstance(first_alias, str):
             state = state.with_columns(pl.col(WALK_CURRENT_COL).alias(first_alias))
-            seed_alias_nodes = (
-                seed_nodes.drop(seed_row_col) if seed_row_col is not None else seed_nodes
-            )
-            alias_frames[first_alias] = seed_alias_nodes.unique(
-                subset=[node_id], keep="first", maintain_order=True
-            )
+            if seed_row_col is not None:
+                # Duplicate carried seed ids: collapse the alias frame to one row
+                # per node so per-seed-row bags stay isolated; the multiplicity
+                # lives in the state rows, not the alias binding.
+                alias_frames[first_alias] = seed_nodes.drop(seed_row_col).unique(
+                    subset=[node_id], keep="first", maintain_order=True
+                )
+            else:
+                alias_frames[first_alias] = seed_nodes
             node_aliases.append(first_alias)
 
         for edge_idx in range(1, len(ops), 2):

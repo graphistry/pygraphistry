@@ -111,6 +111,30 @@ def _is_duplicate_carried_rows_reentry_error(exc: GFQLValidationError) -> bool:
     return context.get("reason") == _REENTRY_DUPLICATE_CARRIED_ROWS_REASON
 
 
+def _slice_reentry_prefix_result_row(
+    prefix_result: Plottable,
+    *,
+    output_name: str,
+    row_index: int,
+) -> Plottable:
+    rows_df = cast(Optional[DataFrameT], prefix_result._nodes)
+    if rows_df is None:
+        return prefix_result
+    out = prefix_result.bind()
+    out._nodes = cast(DataFrameT, rows_df.iloc[row_index:row_index + 1].reset_index(drop=True))
+    out._cypher_entity_projection_presence = entity_projection_presence_for_rows(prefix_result, [row_index])
+    entry = prefix_result._cypher_entity_projection_meta.get(output_name)
+    if entry is not None:
+        sliced_entry = entry.copy()
+        ids = entry["ids"]
+        sliced_entry["ids"] = (
+            ids.slice(row_index, 1) if is_polars_projection_ids(ids)
+            else ids.iloc[row_index:row_index + 1].reset_index(drop=True)
+        )
+        out._cypher_entity_projection_meta = {output_name: sliced_entry}
+    return out
+
+
 def _apply_empty_result_row(
     result: Plottable,
     *,
@@ -1680,13 +1704,20 @@ def _execute_compiled_query_chain_non_union(
     # call shape; an all-call reentry chain otherwise re-matched the carried alias
     # from the WHOLE graph, dropping the prefix filter (silent wrong count).
     if start_nodes is not None:
-        # #1786: on the no-seed-rows path `_seeded_dispatch_graph` hands back
-        # `base_graph` ITSELF (the caller's object), so this must land on a copy.
-        dispatch_graph = attach_row_exec_context(
-            dispatch_graph,
-            start_nodes=start_nodes,
-            preserve_start_node_multiplicity=not compiled_query.optional_reentry,
-        )
+        _chain_ops = list(compiled_query.chain.chain) if compiled_query.chain is not None else []
+        _first_op = _chain_ops[0] if _chain_ops else None
+        if (
+            isinstance(_first_op, ASTCall)
+            and _first_op.function == "rows"
+            and _first_op.params.get("binding_ops") is not None
+        ):
+            # #1786: on the no-seed-rows path `_seeded_dispatch_graph` hands back
+            # `base_graph` ITSELF (the caller's object), so this must land on a copy.
+            dispatch_graph = attach_row_exec_context(
+                dispatch_graph,
+                start_nodes=start_nodes,
+                preserve_start_node_multiplicity=not compiled_query.optional_reentry,
+            )
 
     result = _chain_dispatch(dispatch_graph, compiled_query.chain, engine, policy, context, start_nodes=start_nodes)
     # Attach/detach pair (#1786): the chain has run, so the seed is spent and must not
@@ -1976,12 +2007,57 @@ def _execute_compiled_query_with_reentry_impl(
                 plan=plan,
             )
         else:
-            compiled_base_graph, start_nodes = _compiled_query_reentry_state(
-                base_graph,
-                plan,
-                prefix_result,
-                engine=engine,
+            prefix_rows_for_whole_row = cast(Optional[DataFrameT], prefix_result._nodes)
+            prefix_row_count_for_whole_row = (
+                len(prefix_rows_for_whole_row) if prefix_rows_for_whole_row is not None else 0
             )
+            try:
+                compiled_base_graph, start_nodes = _compiled_query_reentry_state(
+                    base_graph,
+                    plan,
+                    prefix_result,
+                    engine=engine,
+                )
+            except GFQLValidationError as exc:
+                if not (
+                    plan.scalar_columns
+                    and prefix_row_count_for_whole_row > 1
+                    and _is_duplicate_carried_rows_reentry_error(exc)
+                ):
+                    raise
+                if compiled_query.optional_reentry:
+                    raise _reentry_validation_error(
+                        "Cypher OPTIONAL MATCH after a multi-row whole-row WITH prefix is not yet supported"
+                        " — null-fill for unmatched prefix rows is not implemented for N>1 prefix rows",
+                        value=prefix_row_count_for_whole_row,
+                        suggestion="Use MATCH instead of OPTIONAL MATCH, or reduce the WITH prefix to a single row",
+                        field="optional_reentry",
+                    ) from exc
+                row_results = []
+                for i in range(prefix_row_count_for_whole_row):
+                    row_prefix_result = _slice_reentry_prefix_result_row(
+                        prefix_result,
+                        output_name=plan.reentry_alias_name,
+                        row_index=i,
+                    )
+                    row_graph, row_start = _compiled_query_reentry_state(
+                        base_graph,
+                        plan,
+                        row_prefix_result,
+                        engine=engine,
+                    )
+                    row_result = _execute_compiled_query(
+                        row_graph,
+                        compiled_query=compiled_query,
+                        engine=engine,
+                        policy=policy,
+                        context=context,
+                        start_nodes=row_start,
+                    )
+                    row_results.append(row_result)
+                return _union_scalar_reentry_results(
+                    row_results, base_graph=base_graph, engine=engine
+                )
     result = _execute_compiled_query(
         compiled_base_graph,
         compiled_query=compiled_query,

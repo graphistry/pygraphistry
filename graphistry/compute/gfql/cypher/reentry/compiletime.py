@@ -2,19 +2,16 @@
 from __future__ import annotations
 
 from dataclasses import replace
-from typing import Any, Callable, Dict, List, Literal, Mapping, NoReturn, Optional, Tuple, cast
+from typing import Any, Callable, Dict, List, Mapping, NoReturn, Optional, Tuple, cast
 
 from graphistry.compute.gfql.cypher.ast import (
     CypherQuery,
     ExpressionText,
     MatchClause,
     OrderByClause,
-    PatternElement,
     ProjectionStage,
     ReturnClause,
     ReturnItem,
-    NodePattern,
-    RelationshipPattern,
     UnwindClause,
 )
 from graphistry.compute.gfql.cypher.lowering import (
@@ -216,41 +213,6 @@ def _rewrite_multi_whole_row_prefix(
     return replace(prefix_stage, clause=new_clause), cleaned_tail, carried_props
 
 
-def _orient_reentry_match_to_seed(clause: MatchClause, seed_alias: Optional[str]) -> MatchClause:
-    """Reverse a linear suffix so a carried terminal node can seed traversal."""
-    if seed_alias is None or len(clause.patterns) != 1:
-        return clause
-    pattern = clause.patterns[0]
-    if not pattern or not isinstance(pattern[0], NodePattern):
-        return clause
-    if pattern[0].variable == seed_alias:
-        return clause
-    seed_nodes = [
-        element
-        for element in pattern
-        if isinstance(element, NodePattern) and element.variable == seed_alias
-    ]
-    if len(seed_nodes) != 1 or not isinstance(pattern[-1], NodePattern) or pattern[-1].variable != seed_alias:
-        raise _unsupported_at_span(
-            "Cypher MATCH after WITH can preserve a reused bare node alias only when it is terminal in one linear suffix pattern",
-            field="match",
-            value=seed_alias,
-            span=clause.span,
-        )
-
-    reversed_elements: List[PatternElement] = []
-    for element in reversed(pattern):
-        if isinstance(element, RelationshipPattern):
-            direction = {
-                "forward": "reverse",
-                "reverse": "forward",
-                "undirected": "undirected",
-            }[element.direction]
-            element = replace(element, direction=cast(Literal["forward", "reverse", "undirected"], direction))
-        reversed_elements.append(element)
-    return replace(clause, patterns=(tuple(reversed_elements),))
-
-
 def _optional_reentry_logical_route_marker(reentry_match: MatchClause) -> LogicalPlan:
     component = _connected_component_from_pattern(
         _match_pattern_elements(reentry_match),
@@ -334,22 +296,7 @@ def _compile_bounded_reentry_query(
                 value=carry_name,
                 span=item.span,
             )
-    reentry_match = query.reentry_matches[0]
-    reentry_first_alias = _first_pattern_node_alias(reentry_match)
-    reentry_node_aliases = set().union(
-        *(_pattern_node_aliases(pattern) for pattern in reentry_match.patterns)
-    ) if reentry_match.patterns else set()
-    primary_alias_hint = next(
-        (
-            cast(str, carry_name)
-            for item in prefix_stage.clause.items
-            if (carry_name := _is_bare_carry_with_item(item)) in reentry_node_aliases
-        ),
-        reentry_first_alias,
-    )
-    if len(query.with_stages) == 1 and len(query.reentry_matches) == 1:
-        reentry_match = _orient_reentry_match_to_seed(reentry_match, primary_alias_hint)
-        query = replace(query, reentry_matches=(reentry_match,))
+    primary_alias_hint = _first_pattern_node_alias(query.reentry_matches[0])
     multi_alias_carries: Dict[str, Tuple[str, ...]] = {}
     if primary_alias_hint is not None:
         match_node_aliases = _all_match_node_aliases(query)
@@ -395,9 +342,10 @@ def _compile_bounded_reentry_query(
             value="union",
             span=prefix_stage.span,
         )
+    reentry_match = query.reentry_matches[0]
     remaining_with_stages = query.with_stages[1:]
     remaining_reentry_matches = query.reentry_matches[1:]
-    first_alias = primary_alias_hint
+    first_alias = _first_pattern_node_alias(reentry_match)
     prefix_projection = prefix_compiled.result_projection
     scalar_only_prefix = prefix_projection is None
     if scalar_only_prefix:
