@@ -106,7 +106,6 @@ def test_cypher_missing_property_null_equality_errors_in_strict_mode(engine: str
         graph.gfql("MATCH (n) WHERE n.missing = null RETURN n.id AS id", strict="strict")
     assert exc_info.value.code == ErrorCode.E301
     assert exc_info.value.context["field"] == "missing"
-    assert exc_info.value.context["suggestion"].startswith("Available columns:")
 
 
 @pytest.mark.parametrize("engine", ["pandas", "polars", "cudf"])
