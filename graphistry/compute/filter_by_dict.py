@@ -1,4 +1,6 @@
 from typing import Any, Dict, Mapping, Optional, Tuple, Union, cast
+from importlib import import_module
+
 import pandas as pd
 
 from graphistry.Engine import Engine, EngineAbstract, POLARS_ENGINES, df_cons, df_to_engine, resolve_engine, s_cons
@@ -39,10 +41,17 @@ def _coerce_temporal_filter_scalar(value: FilterValue, dtype: DType, *, field: s
         return value
 
     from graphistry.compute.exceptions import ErrorCode, GFQLSchemaError
-    timezone_resolution_error_types = {
-        ("pytz.exceptions", "AmbiguousTimeError"),
-        ("pytz.exceptions", "NonExistentTimeError"),
-    }
+
+    timezone_resolution_errors: Tuple[type[BaseException], ...] = (ValueError,)
+    try:
+        pytz_exceptions = import_module("pytz.exceptions")
+
+        timezone_resolution_errors += (
+            pytz_exceptions.AmbiguousTimeError,
+            pytz_exceptions.NonExistentTimeError,
+        )
+    except ModuleNotFoundError:
+        pass
 
     try:
         if is_datetime:
@@ -50,10 +59,7 @@ def _coerce_temporal_filter_scalar(value: FilterValue, dtype: DType, *, field: s
             if getattr(parsed, "tzinfo", None) is None and isinstance(dtype, pd.DatetimeTZDtype):
                 try:
                     return parsed.tz_localize(dtype.tz)
-                except Exception as exc:
-                    exception_type = type(exc)
-                    if (exception_type.__module__, exception_type.__name__) not in timezone_resolution_error_types:
-                        raise
+                except timezone_resolution_errors as exc:
                     raise GFQLSchemaError(
                         ErrorCode.E302,
                         f'Type mismatch: unresolvable temporal filter value for column "{field}"',
