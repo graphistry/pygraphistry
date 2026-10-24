@@ -300,6 +300,116 @@ class TestB7TemporalStringLeaks:
         g = _graph(engine)
         assert _ids(g, [n({"ts": "2021-06-15T08:30:00"})], engine) == ["q"]
 
+    def test_aware_timestamp_plain_date_string_answers(self):
+        """A naive scalar must not lose an aware-column equality comparison (#2233)."""
+        from graphistry.compute.ast import ASTNode
+        g = _graph("pandas")
+        chain = ASTNode.from_json({"filter_dict": {"ts_aw": "2020-06-15T08:30:00"}})
+        assert _ids(g, [chain], "pandas") == ["p"]
+        assert _ids(g, "MATCH (n) WHERE n.ts_aw = '2020-06-15T08:30:00' RETURN n.id", "pandas") == ["p"]
+
+    def test_aware_timestamp_non_utc_local_date_answers(self):
+        """Plain strings follow the column's local timeline; offsets compare instants."""
+        nodes = pd.DataFrame({
+            "id": ["a", "b"],
+            "ts_zone": pd.to_datetime([
+                "2020-06-15", "2020-06-16",
+            ]).tz_localize("America/New_York"),
+        })
+        g = graphistry.nodes(nodes, "id").edges(_edges_pd(), "s", "d")
+        assert _ids(g, "MATCH (n) WHERE n.ts_zone = '2020-06-15' RETURN n.id", "pandas") == ["a"]
+        assert _ids(g, "MATCH (n) WHERE n.ts_zone = '2020-06-15T04:00:00Z' RETURN n.id", "pandas") == ["a"]
+
+    def test_aware_timezone_boundary_matrix(self):
+        """A date is column-local midnight; equivalent offsets compare as instants."""
+        import json
+        from graphistry.compute.ast import n
+        from graphistry.compute.filter_by_dict import _coerce_temporal_filter_scalar
+        nodes = pd.DataFrame({
+            "id": ["local_midnight", "local_noon", "utc_midnight", "next_day"],
+            "ts_zone": pd.to_datetime([
+                "2024-01-01T05:00:00", "2024-01-01T12:00:00", "2024-01-01T00:00:00", "2024-01-02T05:00:00",
+            ], utc=True).tz_convert("America/New_York"),
+        })
+        nodes.loc[nodes["id"] == "local_noon", "ts_zone"] = pd.Timestamp(
+            "2024-01-01T12:00:00", tz="America/New_York"
+        )
+        g = graphistry.nodes(nodes, "id").edges(_edges_pd(), "s", "d")
+        cases = [
+            ("2024-01-01", ["local_midnight"]),
+            ("2024-01-01T00:00:00-05:00", ["local_midnight"]),
+            ("2024-01-01T06:00:00+01:00", ["local_midnight"]),
+            ("2024-01-01T00:00:00Z", ["utc_midnight"]),
+            ("2024-01-02", ["next_day"]),
+        ]
+        for bound, expected in cases:
+            assert _ids(g, f"MATCH (n) WHERE n.ts_zone = '{bound}' RETURN n.id", "pandas") == expected
+            out = g.gfql("MATCH (n) WHERE n.ts_zone = $bound RETURN n.id",
+                         engine="pandas", params={"bound": bound})._nodes
+            assert sorted(out["n.id"].tolist()) == expected
+            assert _ids(g, [json.loads(json.dumps(n({"ts_zone": bound}).to_json()))],
+                        "pandas") == expected
+
+    def test_aware_dst_bound_does_not_guess_a_fold(self):
+        """Unresolvable local bounds fail closed; explicit offsets select one instant."""
+        nodes = pd.DataFrame({
+            "id": ["fall_early", "fall_late"],
+            "ts_zone": pd.to_datetime([
+                "2024-11-03T01:30:00", "2024-11-03T01:30:00",
+            ]).tz_localize("America/New_York", ambiguous=[True, False]),
+        })
+        g = graphistry.nodes(nodes, "id").edges(_edges_pd(), "s", "d")
+        for bound in ("2024-11-03T01:30:00", "2024-03-10T02:30:00"):
+            with pytest.raises(GFQLSchemaError) as excinfo:
+                g.gfql(f"MATCH (n) WHERE n.ts_zone = '{bound}' RETURN n.id", engine="pandas")
+            assert excinfo.value.code == ErrorCode.E302
+        assert _ids(g, "MATCH (n) WHERE n.ts_zone = '2024-11-03T01:30:00-04:00' RETURN n.id", "pandas") == ["fall_early"]
+        assert _ids(g, "MATCH (n) WHERE n.ts_zone = '2024-11-03T01:30:00-05:00' RETURN n.id", "pandas") == ["fall_late"]
+
+    def test_aware_utc_date_only_answers_and_propagates_runtime_failure(self, monkeypatch):
+        """Date-only bounds select column-local midnight across public forms."""
+        import json
+        from graphistry.compute.ast import n
+        from graphistry.compute.filter_by_dict import _coerce_temporal_filter_scalar
+        nodes = pd.DataFrame({
+            "id": ["utc_midnight", "utc_noon"],
+            "ts_aw": pd.to_datetime([
+                "2024-01-01T00:00:00", "2024-01-01T12:00:00",
+            ], utc=True),
+        })
+        g = graphistry.nodes(nodes, "id").edges(_edges_pd(), "s", "d")
+        expected = ["utc_midnight"]
+
+        assert _ids(g, "MATCH (n) WHERE n.ts_aw = '2024-01-01' RETURN n.id", "pandas") == expected
+        out = g.gfql(
+            "MATCH (n) WHERE n.ts_aw = $bound RETURN n.id",
+            engine="pandas", params={"bound": "2024-01-01"},
+        )._nodes
+        assert sorted(out["n.id"].tolist()) == expected
+        chain = json.loads(json.dumps(n({"ts_aw": "2024-01-01"}).to_json()))
+        assert _ids(g, [chain], "pandas") == expected
+
+        def fail_localize(self, tz):
+            raise RuntimeError("boom")
+
+        dtype = pd.DatetimeTZDtype("ns", "UTC")
+        monkeypatch.setattr(pd.Timestamp, "tz_localize", fail_localize)
+        with pytest.raises(RuntimeError, match="boom"):
+            _coerce_temporal_filter_scalar("2024-01-01", dtype, field="ts_aw")
+
+    def test_aware_null_empty_and_malformed_boundaries(self):
+        """Empty/null-only supported frames return values; malformed bounds stay E302."""
+        from graphistry.compute.ast import n
+        empty_nodes = pd.DataFrame({"id": pd.Series([], dtype="string"), "ts_aw": pd.Series([], dtype="datetime64[ns, UTC]")})
+        null_nodes = pd.DataFrame({"id": ["x"], "ts_aw": pd.to_datetime([None], utc=True)})
+        empty = graphistry.nodes(empty_nodes, "id").edges(_edges_pd(), "s", "d")
+        null_only = graphistry.nodes(null_nodes, "id").edges(_edges_pd(), "s", "d")
+        assert _ids(empty, "MATCH (n) WHERE n.ts_aw = '2020-06-15' RETURN n.id", "pandas") == []
+        assert _ids(null_only, "MATCH (n) WHERE n.ts_aw = '2020-06-15' RETURN n.id", "pandas") == []
+        with pytest.raises(GFQLSchemaError) as excinfo:
+            null_only.gfql([n({"ts_aw": "not-a-timestamp"})], engine="pandas")
+        assert excinfo.value.code == ErrorCode.E302
+
     @pytest.mark.parametrize("engine", [
         "pandas",
         pytest.param("polars", marks=pytest.mark.skipif(pl is None, reason="polars not installed")),
