@@ -3924,7 +3924,7 @@ def _predicate_value(op: str, value: Any) -> Any:
         if op == "!=":
             return notna()
     if op == "==":
-        return value
+        return never_match() if value is None else value
     if op == "!=":
         return ne(value)
     if op == "<":
