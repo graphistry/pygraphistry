@@ -269,6 +269,8 @@ def test_case_over_unmatched_optional_alias_when_null_falls_to_else(engine):
     ("'-9223372036854775808'", -9223372036854775808),
     ("'9223372036854775808'", None),
     ("'-9223372036854775809'", None),
+    ("'00000000000000000000000000000000000000001'", 1),
+    ("'-00000000000000000000000000000000000000001'", -1),
     ("'1.9'", 1),          # truncates toward zero, like Neo4j
     ("'x1'", None),        # unparseable -> null
     ("'nan'", None),
@@ -305,6 +307,16 @@ def test_tointeger_string_column_boundaries_are_null(engine):
         9223372036854775807, -9223372036854775808, None, None,
         12, None, None, None, None, None, None,
     ]
+
+
+@pytest.mark.parametrize("engine,expected", [
+    ("pandas", 1),
+    pytest.param("polars", None, marks=pytest.mark.skipif(not HAS_POLARS, reason="polars not installed")),
+])
+def test_tointeger_numeric_string_grammar_is_ascii_and_consistent(engine, expected):
+    """ASCII grammar stays exact; non-ASCII digits follow each engine's numeric-string fallback."""
+    nodes = pd.DataFrame({"id": list("ab"), "s": ["١", "2"]})
+    assert _values(engine, "toInteger(n.s)", nodes=nodes) == [expected, 2]
 
 
 @pytest.mark.parametrize("engine", ENGINES)
@@ -383,7 +395,16 @@ def test_tointeger_comprehension_accepts_boolean_items_on_pandas(engine):
         assert _values(engine, "[x IN [true, false] | toInteger(x)]") == [[1, 0]] * 4
     except NotImplementedError as decline:
         assert engine == "polars", f"{engine} must not decline: {decline}"
-        assert "does not yet natively support" in str(decline)
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_tointeger_leading_zeros_use_numeric_magnitude(engine):
+    """Exact-integer admission is based on normalized magnitude, not raw text length."""
+    nodes = pd.DataFrame({
+        "id": list("abcd"),
+        "s": ["0" * 40 + "1", "-" + "0" * 40 + "1", "+" + "0" * 40 + "1", "0" * 40],
+    })
+    assert _values(engine, "toInteger(n.s)", nodes=nodes) == [1, -1, 1, 0]
 
 
 @pytest.mark.parametrize("engine", ["pandas"])

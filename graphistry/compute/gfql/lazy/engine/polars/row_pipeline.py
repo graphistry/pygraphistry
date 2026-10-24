@@ -295,7 +295,7 @@ def _lower_function(node: FunctionCall, columns: Sequence[str]) -> Optional[pl.E
         ).then(pl.lit(None, dtype=pl.Int64)).otherwise(parsed.cast(pl.Int64, strict=False))
         text = args[0].cast(pl.String, strict=False).str.strip_chars()
         return pl.when(
-            text.str.contains(r"^[+-]?\d+$")
+            text.str.contains(r"^[+-]?[0-9]+$")
         ).then(
             text.cast(pl.Int64, strict=False)
         ).otherwise(decimal)
