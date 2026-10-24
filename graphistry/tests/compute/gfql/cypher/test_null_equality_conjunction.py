@@ -1,12 +1,13 @@
 from __future__ import annotations
 
+import os
 from typing import Any, cast, List, Optional
 
 import pandas as pd
 import pytest
 from graphistry.tests.test_compute import CGFull
 from graphistry.Engine import series_to_pylist
-from graphistry.compute.exceptions import GFQLSchemaError
+from graphistry.compute.exceptions import ErrorCode, GFQLSchemaError
 
 
 class _CypherTestGraph(CGFull):
@@ -26,11 +27,16 @@ def _mk_polars_graph(nodes_df: pd.DataFrame, edges_df: pd.DataFrame) -> _CypherT
 
 
 def _require_cudf_runtime() -> Any:
-    cudf = pytest.importorskip("cudf")
+    if os.environ.get("TEST_CUDF") != "1":
+        pytest.skip("cuDF lane requires TEST_CUDF=1")
+    try:
+        import cudf
+    except ModuleNotFoundError as exc:
+        pytest.fail(f"TEST_CUDF=1 requires the cuDF package: {exc}")
     try:
         _ = cudf.Series([1, 2, 3])
-    except Exception as exc:  # pragma: no cover - environment-dependent
-        pytest.skip(f"cudf installed but runtime is unavailable: {exc}")
+    except Exception as exc:
+        pytest.fail(f"TEST_CUDF=1 requires a usable cuDF runtime: {exc}")
     return cudf
 
 
@@ -96,8 +102,11 @@ def test_cypher_missing_property_null_equality_errors_in_strict_mode(engine: str
     nodes_df = pd.DataFrame({"id": ["a", "b"]})
     edges_df = pd.DataFrame({"s": ["a"], "d": ["b"]})
     graph = _mk_graph_for_engine(engine, nodes_df, edges_df)
-    with pytest.raises(GFQLSchemaError, match='Column "missing" does not exist'):
+    with pytest.raises(GFQLSchemaError) as exc_info:
         graph.gfql("MATCH (n) WHERE n.missing = null RETURN n.id AS id", strict="strict")
+    assert exc_info.value.code == ErrorCode.E301
+    assert exc_info.value.context["field"] == "missing"
+    assert exc_info.value.context["suggestion"].startswith("Available columns:")
 
 
 @pytest.mark.parametrize("engine", ["pandas", "polars", "cudf"])
