@@ -11,6 +11,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ### Fixed
 
 - **GFQL temporal scalar filters**: an empty timestamp or duration string no longer silently becomes a `NaT` bound; it raises the same typed `GFQLSchemaError` E302 as an unparseable bound. Naive bounds are handled as `Timestamp` values before timezone localization, and optional `pytz` exception discovery is confined to aware-column localization.
+- **GFQL Cypher null-equality conjunctions**: comparisons such as `n.v = null` now preserve three-valued `UNKNOWN` when combined with `AND`, instead of being replaced as if no predicate existed. `NeverMatch` predicates now round-trip through GFQL JSON, and raw JSON `filter_dict` null matching is unchanged.
 
 - **GFQL Cypher grouped aggregates after scalar reentry**: when a multirow scalar `WITH` prefix feeds another `MATCH`, grouping now covers all joined suffix rows together. For example, `WITH s MATCH (b)-[]->(s) RETURN s.type, count(*)` returns one aggregate per group instead of one per carried prefix row (#2235).
 ## [0.61.2] - 2026-10-23

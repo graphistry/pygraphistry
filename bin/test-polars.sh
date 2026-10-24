@@ -50,6 +50,7 @@ POLARS_TEST_FILES=(
     graphistry/tests/compute/gfql/test_size_nonlist_decline_1985.py
     graphistry/tests/compute/gfql/test_polars_string_predicate_nonstring.py
     graphistry/tests/compute/gfql/cypher/test_order_by_null_placement.py
+    graphistry/tests/compute/gfql/cypher/test_null_equality_conjunction.py
     # quoted map keys/MATCH aliases are engine-parametrized; pandas runs in core,
     # polars params only run in this lane
     graphistry/tests/compute/gfql/cypher/test_backtick_identifiers.py

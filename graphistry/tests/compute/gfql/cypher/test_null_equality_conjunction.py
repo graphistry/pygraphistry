@@ -5,6 +5,8 @@ from typing import Any, cast, List, Optional
 import pandas as pd
 import pytest
 from graphistry.tests.test_compute import CGFull
+from graphistry.Engine import series_to_pylist
+from graphistry.compute.exceptions import GFQLSchemaError
 
 
 class _CypherTestGraph(CGFull):
@@ -49,12 +51,53 @@ def _mk_graph_for_engine(engine: str, nodes_df: pd.DataFrame, edges_df: pd.DataF
 
 
 def _result_ids(result: Any) -> list[Optional[str]]:
-    nodes = result._nodes
-    if hasattr(nodes, "to_arrow"):
-        nodes = nodes.to_arrow().to_pandas()
-    elif hasattr(nodes, "to_pandas"):
-        nodes = nodes.to_pandas()
-    return nodes["id"].tolist()
+    return cast(List[Optional[str]], series_to_pylist(result._nodes["id"]))
+
+
+@pytest.mark.parametrize("engine", ["pandas", "polars", "cudf"])
+@pytest.mark.parametrize(
+    ("query", "expected"),
+    [
+        pytest.param(
+            "MATCH (n) WHERE NOT (n.v = null) RETURN n.id AS id",
+            [],
+            id="not-null-equality",
+        ),
+        pytest.param(
+            "MATCH (n) WHERE n.v = null OR true RETURN n.id AS id",
+            ["a", "b", "c"],
+            id="null-equality-or-true",
+        ),
+        pytest.param(
+            "MATCH (n) WHERE n.v = null OR false RETURN n.id AS id",
+            [],
+            id="null-equality-or-false",
+        ),
+        pytest.param(
+            "MATCH (n) WITH n.v = null AS unknown RETURN unknown IS NULL AS known",
+            [True, True, True],
+            id="null-equality-projection-unknown",
+        ),
+    ],
+)
+def test_cypher_null_unknown_controls(
+    engine: str, query: str, expected: List[object]
+) -> None:
+    nodes_df = pd.DataFrame({"id": ["a", "b", "c"], "v": [None, "x", "y"]})
+    edges_df = pd.DataFrame({"s": ["a"], "d": ["b"]})
+    result = _mk_graph_for_engine(engine, nodes_df, edges_df).gfql(query, strict="strict")
+
+    output_name = "known" if "known" in query else "id"
+    assert series_to_pylist(result._nodes[output_name]) == expected
+
+
+@pytest.mark.parametrize("engine", ["pandas", "polars", "cudf"])
+def test_cypher_missing_property_null_equality_errors_in_strict_mode(engine: str) -> None:
+    nodes_df = pd.DataFrame({"id": ["a", "b"]})
+    edges_df = pd.DataFrame({"s": ["a"], "d": ["b"]})
+    graph = _mk_graph_for_engine(engine, nodes_df, edges_df)
+    with pytest.raises(GFQLSchemaError, match='Column "missing" does not exist'):
+        graph.gfql("MATCH (n) WHERE n.missing = null RETURN n.id AS id", strict="strict")
 
 
 @pytest.mark.parametrize("engine", ["pandas", "polars", "cudf"])
@@ -87,6 +130,11 @@ def _result_ids(result: Any) -> list[Optional[str]]:
             id="equality-alone",
         ),
         pytest.param(
+            "MATCH (n) WHERE n.v = null AND n.v = null RETURN n.id AS id",
+            [],
+            id="repeated-equality",
+        ),
+        pytest.param(
             "MATCH (n) WHERE null = n.v RETURN n.id AS id",
             [],
             id="reversed-equality",
@@ -109,6 +157,19 @@ def test_cypher_null_equality_conjunction(engine: str, query: str, expected: Lis
     result = _mk_graph_for_engine(engine, nodes_df, edges_df).gfql(query, strict="strict")
 
     assert _result_ids(result) == expected
+
+
+@pytest.mark.parametrize("engine", ["pandas", "polars", "cudf"])
+def test_cypher_null_where_parameter_matches_nothing(engine: str) -> None:
+    nodes_df = pd.DataFrame({"id": ["a", "b", "c"], "v": [None, "x", "y"]})
+    edges_df = pd.DataFrame({"s": ["a"], "d": ["b"]})
+    result = _mk_graph_for_engine(engine, nodes_df, edges_df).gfql(
+        "MATCH (n) WHERE n.v = $p RETURN n.id AS id",
+        params={"p": None},
+        strict="strict",
+    )
+
+    assert _result_ids(result) == []
 
 
 def test_raw_json_filter_dict_null_is_no_match() -> None:
