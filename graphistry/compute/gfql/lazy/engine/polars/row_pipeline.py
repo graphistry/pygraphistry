@@ -37,6 +37,7 @@ from graphistry.Plottable import Plottable
 from graphistry.compute.gfql.cache_registry import register_clearable_dict
 from graphistry.utils.json import JSONVal
 _INT64_LIMIT_HIGH = 2**63
+_INT64_MIN = -(2**63)
 # Engine-neutral wire-format payload types (ASTCall.params). Shapes are safelist-validated
 # (gfql/call/validation.py) before reaching these helpers, so the runtime isinstance/len
 # checks below are defense-in-depth, not the contract.
@@ -51,7 +52,13 @@ from graphistry.compute.gfql.agg_types import (
 from graphistry.compute.gfql.call.support import AggSpec, OrderKey, SelectItem
 from graphistry.compute.gfql.identifiers import ROW_EDGE_IDENTITY_BASE
 from graphistry.compute.util import generate_safe_column_name_from
-from .dtypes import is_float as _dtype_is_float, is_int as _dtype_is_int, is_numeric as _dtype_is_numeric, is_stringlike as _dtype_is_stringlike
+from .dtypes import (
+    is_float as _dtype_is_float,
+    is_int as _dtype_is_int,
+    is_numeric as _dtype_is_numeric,
+    is_stringlike as _dtype_is_stringlike,
+    is_unsigned as _dtype_is_unsigned,
+)
 # Same-package sibling holding the var-length specializations. Safe at module scope:
 # `varlen_rows` has no runtime module-level imports of its own (polars and the pandas
 # mixin are both function-local there), so it cannot cycle back through this module.
@@ -266,13 +273,16 @@ def _lower_function(node: FunctionCall, columns: Sequence[str]) -> Optional[pl.E
             if dt == pl.Boolean:
                 return args[0].cast(pl.Int64)
             widened = args[0].cast(pl.Int64, strict=False)
-            return pl.when(args[0].is_null() | (args[0].abs() >= pl.lit(_INT64_LIMIT_HIGH))).then(
-                pl.lit(None, dtype=pl.Int64)
-            ).otherwise(widened)
+            if _dtype_is_unsigned(dt):
+                return pl.when(args[0].is_null() | (args[0] >= pl.lit(_INT64_LIMIT_HIGH))).then(
+                    pl.lit(None, dtype=pl.Int64)
+                ).otherwise(widened)
+            return widened
         if _dtype_is_float(dt):
             return pl.when(
                 args[0].is_nan() | args[0].is_null()
-                | (args[0].abs() >= pl.lit(_INT64_LIMIT_HIGH))
+                | (args[0] < pl.lit(float(_INT64_MIN)))
+                | (args[0] >= pl.lit(float(_INT64_LIMIT_HIGH)))
             ).then(
                 pl.lit(None, dtype=pl.Int64)
             ).otherwise(args[0].cast(pl.Int64, strict=False))
@@ -280,7 +290,8 @@ def _lower_function(node: FunctionCall, columns: Sequence[str]) -> Optional[pl.E
         parsed = args[0].cast(pl.Float64, strict=False)
         decimal = pl.when(
             parsed.is_null() | parsed.is_nan() | parsed.is_infinite()
-            | (parsed.abs() >= pl.lit(_INT64_LIMIT_HIGH))
+            | (parsed < pl.lit(float(_INT64_MIN)))
+            | (parsed >= pl.lit(float(_INT64_LIMIT_HIGH)))
         ).then(pl.lit(None, dtype=pl.Int64)).otherwise(parsed.cast(pl.Int64, strict=False))
         text = args[0].cast(pl.String, strict=False).str.strip_chars()
         return pl.when(
