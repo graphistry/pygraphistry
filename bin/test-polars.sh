@@ -23,6 +23,7 @@ python -m pytest --version
 POLARS_TEST_FILES=(
     graphistry/tests/compute/gfql/index/test_sorted_csr_build_ownership.py
     graphistry/tests/compute/gfql/test_searchany_wysiwyg_datetime.py
+    graphistry/tests/compute/gfql/test_temporal_membership_1949.py
     graphistry/tests/test_plotterbase_optional_deps.py
     graphistry/tests/compute/test_polars.py
     # cache-coverage lock: its static scans run everywhere, but the functional pin for the
