@@ -662,6 +662,20 @@ def _unsupported_at_span(message: str, *, field: str, value: Any, span: SourceSp
     )
 
 
+_MAX_MATCH_CLAUSES = 512
+
+
+def _reject_excessive_match_clauses(matches: Sequence[MatchClause]) -> None:
+    if len(matches) <= _MAX_MATCH_CLAUSES:
+        return
+    raise _unsupported_at_span(
+        f"Cypher query has too many MATCH clauses; maximum is {_MAX_MATCH_CLAUSES}",
+        field="matches",
+        value=len(matches),
+        span=matches[0].span,
+    )
+
+
 def _rewrite_unquoted_expr_segments(
     expr_text: str,
     *,
@@ -9400,6 +9414,14 @@ def compile_cypher_query(
     node_dtypes: Optional[NodeDtypes] = None,
 ) -> Union[CompiledCypherQuery, CompiledCypherUnionQuery, CompiledCypherGraphQuery]:
     from graphistry.compute.gfql.cypher import projection_planning as _projection
+
+    if isinstance(query, CypherQuery):
+        _reject_excessive_match_clauses(query.matches)
+    elif isinstance(query, CypherUnionQuery):
+        for branch in query.branches:
+            _reject_excessive_match_clauses(branch.matches)
+    elif isinstance(query, CypherGraphQuery):
+        _reject_excessive_match_clauses(query.constructor.matches)
 
     prepass_bound_ir = FrontendBinder().bind(query, PlanContext(), strict_name_resolution=True)
     prepass_context = _build_bound_lowering_context(bound_ir=prepass_bound_ir, params=params)
