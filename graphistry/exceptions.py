@@ -18,6 +18,15 @@ class SsoStateInvalidException(SsoException):
     pass
 
 
+class SsoPendingException(SsoException):
+    """
+    Raised while the SSO token is not ready yet: the browser login is still in
+    flight, so the token endpoint answers with a non-OK body status (typically
+    "State is invalid"). Retryable -- the poll loop keeps waiting on it.
+    """
+    pass
+
+
 
 class TokenExpireException(Exception):
     """
