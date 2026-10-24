@@ -11,9 +11,10 @@ from __future__ import annotations
 
 import operator
 import re
-from typing import TYPE_CHECKING, Any, Callable, Dict, List, Mapping, Optional, TypeVar, Union
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Mapping, Optional, Tuple, TypeVar, Union
 
 from graphistry.compute.predicates.ASTPredicate import ASTPredicate
+from graphistry.compute.predicates.is_in import IsIn
 from graphistry.compute.predicates.str import Contains, Endswith, Fullmatch, Match, Startswith
 from graphistry.compute.filter_by_dict import resolve_filter_column_or_absent
 from graphistry.compute.gfql.strictness import absent_column_matches
@@ -21,6 +22,7 @@ from .dtypes import is_numeric as _dtype_numeric, is_stringlike as _dtype_string
 
 if TYPE_CHECKING:
     import datetime
+    import pandas as pd
     import polars as pl
 
     # Constrained TypeVar keeps eager DataFrame / lazy LazyFrame flavor through `.filter`.
@@ -79,6 +81,22 @@ def _dtype_is_temporal(dtype: "Optional[pl.DataType]") -> bool:
     )
 
 
+def _utc_timestamp_count(ts: "pd.Timestamp", time_unit: str) -> Optional[int]:
+    """Encode a timestamp as the exact integer count at a Polars datetime unit."""
+    import datetime as _dt
+    utc = ts.tz_convert("UTC") if ts.tzinfo is not None else ts.tz_localize("UTC")
+    days = (utc.date() - _dt.date(1970, 1, 1)).days
+    secs = days * 86400 + utc.hour * 3600 + utc.minute * 60 + utc.second
+    frac_ns = utc.microsecond * 1000 + utc.nanosecond
+    scale = {"s": 10**9, "ms": 10**6, "us": 10**3, "ns": 1}[time_unit]
+    if frac_ns % scale != 0:
+        return None
+    count = secs * (10**9 // scale) + frac_ns // scale
+    if not (-(2**63) <= count <= 2**63 - 1):
+        return None
+    return count
+
+
 def _parse_temporal_filter_scalar(
     val: str, dtype: "pl.DataType"
 ) -> "Optional[Union[datetime.date, datetime.time, datetime.datetime, datetime.timedelta]]":
@@ -128,6 +146,88 @@ def _raise_temporal_str_mismatch(col: str, dtype: "pl.DataType", val: str) -> No
         suggestion='Use matching temporal text (e.g. a naive ISO datetime for a naive '
                    'datetime column) or a temporal value such as date(...)',
     )
+
+
+def _raise_temporal_member_mismatch(col: str, dtype: "pl.DataType", value: object) -> None:
+    from graphistry.compute.exceptions import ErrorCode, GFQLSchemaError
+    raise GFQLSchemaError(
+        ErrorCode.E302,
+        f'Type mismatch: column "{col}" is temporal ({dtype}) but filter value is not comparable',
+        field=col,
+        value=value,
+        column_type=str(dtype),
+        suggestion='Use matching temporal values with the same timezone contract',
+    )
+
+
+def _temporal_membership_expr(
+    col: str, values: List[object], dtype: "Optional[pl.DataType]",
+) -> "pl.Expr":
+    """Coerce temporal members of a Polars datetime column with the pandas contract."""
+    import datetime as _dt
+    import pandas as pd
+    import polars as pl
+    from graphistry.compute.filter_by_dict import _coerce_temporal_filter_scalar
+
+    timezone_resolution_errors: "Tuple[object, ...]" = (ValueError,)
+    try:
+        pytz_exceptions = __import__("pytz.exceptions", fromlist=["exceptions"])
+        timezone_resolution_errors += (
+            pytz_exceptions.AmbiguousTimeError,
+            pytz_exceptions.NonExistentTimeError,
+        )
+    except ModuleNotFoundError:
+        pass
+
+    if not isinstance(dtype, pl.Datetime):
+        return pl.col(col).is_in(values)
+    if dtype.time_zone is None:
+        pandas_dtype = pd.api.types.pandas_dtype(f"datetime64[{dtype.time_unit}]")
+    else:
+        pandas_dtype = pd.DatetimeTZDtype(dtype.time_unit, dtype.time_zone)
+
+    def _coerce_member(value: object) -> Tuple[str, object]:
+        if value is None:
+            return "null", None
+        if isinstance(value, str):
+            value = _coerce_temporal_filter_scalar(value, pandas_dtype, field=col)
+        elif hasattr(value, "as_pandas_value"):
+            value = value.as_pandas_value()
+        elif isinstance(value, (_dt.datetime, _dt.date)):
+            value = pd.Timestamp(value)
+        if not isinstance(value, pd.Timestamp):
+            _raise_temporal_member_mismatch(col, dtype, value)
+
+        ts = value
+        if dtype.time_zone is None:
+            if ts.tzinfo is not None:
+                _raise_temporal_member_mismatch(col, dtype, value)
+        elif ts.tzinfo is None:
+            try:
+                ts = ts.tz_localize(dtype.time_zone)
+            except (TypeError, OverflowError, *timezone_resolution_errors):
+                _raise_temporal_member_mismatch(col, dtype, value)
+        if isinstance(ts, pd.Timestamp):
+            count = _utc_timestamp_count(ts, dtype.time_unit)
+            if count is None:
+                return "no_match", None
+            return "exact", count
+
+    col_utc = (
+        pl.col(col).dt.replace_time_zone("UTC")
+        if dtype.time_zone is None
+        else pl.col(col).dt.convert_time_zone("UTC")
+    )
+
+    members = [_coerce_member(value) for value in values]
+    if not members:
+        return pl.lit(False)
+    exact_counts = [count for kind, count in members if kind == "exact"]
+    if exact_counts:
+        return col_utc.dt.replace_time_zone(None).cast(pl.Int64).is_in(exact_counts)
+    if any(kind == "null" for kind, _ in members):
+        return pl.lit(None, dtype=pl.Boolean)
+    return pl.lit(False)
 
 
 def _temporal_str_cmp_expr(
@@ -198,16 +298,8 @@ def _cmp_expr(
         import polars as pl
         if isinstance(dtype, pl.Datetime) and op in _CMP_OPS:
             ts = val.as_pandas_value()  # type: ignore[union-attr]
-            scale = {"s": 10**9, "ms": 10**6, "us": 10**3, "ns": 1}[dtype.time_unit]
-            # Use scalar components: int(ts.value) can overflow on wide bounds.
-            utc = ts.tz_convert("UTC")
-            days = (utc.date() - _dt.date(1970, 1, 1)).days
-            secs = days * 86400 + utc.hour * 3600 + utc.minute * 60 + utc.second
-            frac_ns = utc.microsecond * 1000 + utc.nanosecond
-            if frac_ns % scale != 0:
-                return None
-            count = secs * (10**9 // scale) + frac_ns // scale
-            if not (-(2**63) <= count <= 2**63 - 1):
+            count = _utc_timestamp_count(ts, dtype.time_unit)
+            if count is None:
                 return None
             bound = pl.lit(count).cast(pl.Int64).cast(pl.Datetime(dtype.time_unit))
             if dtype.time_zone is None:
@@ -648,6 +740,15 @@ def filter_expr_by_dict_polars(df: "Union[pl.DataFrame, pl.LazyFrame]", filter_d
                         column_type=str(_col_dtype),
                         suggestion='Use numeric predicates like gt() or lt() for numeric columns',
                     )
+            resolved_dtype = _dtype_of(resolved_col)
+            if isinstance(resolved_val, IsIn) and _dtype_is_temporal(resolved_dtype):
+                expr = _temporal_membership_expr(
+                    resolved_col,
+                    resolved_val.options,
+                    resolved_dtype,
+                )
+                exprs.append(expr)
+                continue
             expr = predicate_to_expr(resolved_col, resolved_val, _dtype_of(resolved_col))
             if expr is None:
                 # decline (NIE): no native lowering for this predicate; no pandas bridge.
@@ -659,7 +760,9 @@ def filter_expr_by_dict_polars(df: "Union[pl.DataFrame, pl.LazyFrame]", filter_d
                 )
             exprs.append(expr)
         elif _is_membership(resolved_val):
-            exprs.append(pl.col(resolved_col).is_in(list(resolved_val)))
+            exprs.append(_temporal_membership_expr(
+                resolved_col, list(resolved_val), _dtype_of(resolved_col)
+            ))
         elif isinstance(_dtype_of(resolved_col), pl.List):
             if resolved_col == "labels":
                 # MATCH (n:Label) = scalar match on the RESERVED `labels` List column ->
