@@ -166,6 +166,7 @@ def test_polars_isin_preserves_adjacent_precision():
     )) == ["pos"]
 
 
+@pytest.mark.skipif(pl is None, reason="polars not installed")
 def test_polars_typed_timestamp_membership_and_isin_preserve_precision():
     from graphistry.compute.predicates.is_in import is_in
 
@@ -202,6 +203,7 @@ def test_typed_nat_is_not_member(engine):
     assert _ids(filter_by_dict(nodes, {"ts_aw": [pd.NaT]}, engine=engine)) == []
 
 
+@pytest.mark.skipif(pl is None, reason="polars not installed")
 def test_polars_non_temporal_mixed_isin_declines():
     assert pl is not None
     from graphistry.compute.predicates.is_in import is_in
