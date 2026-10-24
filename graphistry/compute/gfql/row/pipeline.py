@@ -4223,6 +4223,7 @@ class RowPipelineMixin:
 
         # Positional, not index-based: per-hop frames reset their index so it cannot identify an edge.
         trail_cols: List[str] = []
+        previous_relationship_scope = 0
         base_edges_frame = base_graph._edges
         ident_col = (
             generate_safe_column_name(ROW_EDGE_IDENTITY_BASE, base_edges_frame)
@@ -4273,6 +4274,12 @@ class RowPipelineMixin:
                 )
             if not sem.is_multihop and (edges_df_step is None or len(edges_df_step) == 0):
                 return state_df.iloc[0:0], alias_frames
+
+            relationship_scope = edge_op.relationship_scope
+            if relationship_scope != previous_relationship_scope:
+                state_df = state_df.drop(columns=trail_cols, errors="ignore")
+                trail_cols = []
+                previous_relationship_scope = relationship_scope
 
             rename_map = {}
             if isinstance(edge_alias, str) and edges_df_step is not None:

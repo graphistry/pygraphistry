@@ -8,6 +8,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [Development]
 <!-- Do Not Erase This Section - Used for tracking unreleased changes -->
 
+### Fixed
+
+- **GFQL Cypher relationship uniqueness across `MATCH` clauses**: sequential connected `MATCH` clauses can reuse the same relationship with a new relationship variable, as in `MATCH (x)-[e]->(y) MATCH (y)<-[f]-(z)`, while uniqueness remains path-global within each clause (#2235).
+
 ## [0.61.2] - 2026-10-23
 
 ### Fixed
