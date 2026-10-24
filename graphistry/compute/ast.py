@@ -147,6 +147,7 @@ def _edge_from_json_kwargs(d: Dict[str, Any]) -> Dict[str, Any]:
         'edge_query': d['edge_query'] if 'edge_query' in d else None,
         'name': d['name'] if 'name' in d else None,
         'include_zero_hop_seed': d.get('include_zero_hop_seed', False),
+        'relationship_scope': d.get('relationship_scope', 0),
     }
 
 
@@ -320,6 +321,7 @@ class ASTEdge(ASTObject):
         name: Optional[str] = None,
         prune_to_endpoints: bool = False,
         include_zero_hop_seed: bool = False,
+        relationship_scope: int = 0,
     ):
 
         super().__init__(name)
@@ -351,6 +353,7 @@ class ASTEdge(ASTObject):
         self.edge_query = edge_query
         self.prune_to_endpoints = prune_to_endpoints
         self.include_zero_hop_seed = include_zero_hop_seed
+        self.relationship_scope = relationship_scope
 
     def __repr__(self) -> str:
         return f'ASTEdge(direction={self.direction}, edge_match={self.edge_match}, hops={self.hops}, min_hops={self.min_hops}, max_hops={self.max_hops}, output_min_hops={self.output_min_hops}, output_max_hops={self.output_max_hops}, label_node_hops={self.label_node_hops}, label_edge_hops={self.label_edge_hops}, label_seeds={self.label_seeds}, to_fixed_point={self.to_fixed_point}, source_node_match={self.source_node_match}, destination_node_match={self.destination_node_match}, name={self._name}, source_node_query={self.source_node_query}, destination_node_query={self.destination_node_query}, edge_query={self.edge_query}, include_zero_hop_seed={self.include_zero_hop_seed})'
@@ -468,6 +471,18 @@ class ASTEdge(ASTObject):
                 value=type(self.include_zero_hop_seed).__name__,
             )
 
+        if (
+            not isinstance(self.relationship_scope, int)
+            or isinstance(self.relationship_scope, bool)
+            or self.relationship_scope < 0
+        ):
+            raise GFQLTypeError(
+                ErrorCode.E103,
+                "relationship_scope must be a non-negative integer",
+                field="relationship_scope",
+                value=type(self.relationship_scope).__name__,
+            )
+
         # Validate to_fixed_point
         if not isinstance(self.to_fixed_point, bool):
             raise GFQLTypeError(
@@ -583,7 +598,8 @@ class ASTEdge(ASTObject):
             **({'source_node_query': self.source_node_query} if self.source_node_query is not None else {}),
             **({'destination_node_query': self.destination_node_query} if self.destination_node_query is not None else {}),
             **({'edge_query': self.edge_query} if self.edge_query is not None else {}),
-            **({'include_zero_hop_seed': self.include_zero_hop_seed} if self.include_zero_hop_seed else {})
+            **({'include_zero_hop_seed': self.include_zero_hop_seed} if self.include_zero_hop_seed else {}),
+            **({'relationship_scope': self.relationship_scope} if self.relationship_scope else {})
         }
     
     @classmethod
@@ -730,6 +746,7 @@ class ASTEdge(ASTObject):
             destination_node_query=self.source_node_query,
             edge_query=self.edge_query,
             include_zero_hop_seed=self.include_zero_hop_seed,
+            relationship_scope=self.relationship_scope,
         )
 
 def _init_directional_edge(edge: ASTEdge, direction: Direction, params: Dict[str, Any]) -> None:
@@ -762,6 +779,7 @@ class ASTEdgeForward(ASTEdge):
         edge_query: Optional[str] = None,
         prune_to_endpoints: bool = False,
         include_zero_hop_seed: bool = False,
+        relationship_scope: int = 0,
     ):
         _init_directional_edge(self, 'forward', locals())
 
@@ -798,6 +816,7 @@ class ASTEdgeReverse(ASTEdge):
         edge_query: Optional[str] = None,
         prune_to_endpoints: bool = False,
         include_zero_hop_seed: bool = False,
+        relationship_scope: int = 0,
     ):
         _init_directional_edge(self, 'reverse', locals())
 
@@ -834,6 +853,7 @@ class ASTEdgeUndirected(ASTEdge):
         edge_query: Optional[str] = None,
         prune_to_endpoints: bool = False,
         include_zero_hop_seed: bool = False,
+        relationship_scope: int = 0,
     ):
         _init_directional_edge(self, 'undirected', locals())
 

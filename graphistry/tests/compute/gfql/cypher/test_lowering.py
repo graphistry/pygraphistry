@@ -4888,6 +4888,86 @@ def test_string_cypher_keeps_single_edge_relationship_global_count() -> None:
     assert result._nodes.to_dict(orient="records") == [{"cnt": 2}]
 
 
+@pytest.mark.parametrize("engine", ["pandas", "polars"])
+def test_string_cypher_allows_relationship_reuse_across_match_clauses(engine: str) -> None:
+    if engine == "polars":
+        pytest.importorskip("polars")
+    graph = _mk_graph(
+        pd.DataFrame({"id": ["a"]}),
+        pd.DataFrame({"s": ["a"], "d": ["a"]}),
+    )
+    got = graph.gfql(
+        "MATCH (x)-[e]->(y) MATCH (y)<-[f]-(z) RETURN x.id AS x, z.id AS z",
+        engine=engine,
+    )
+    assert _to_pandas_df(got._nodes).to_dict(orient="records") == [{"x": "a", "z": "a"}]
+
+
+@pytest.mark.parametrize("engine", ["pandas", "polars"])
+def test_string_cypher_allows_anonymous_relationship_reuse_across_match_clauses(engine: str) -> None:
+    if engine == "polars":
+        pytest.importorskip("polars")
+    graph = _mk_graph(
+        pd.DataFrame({"id": ["a"]}),
+        pd.DataFrame({"s": ["a"], "d": ["a"]}),
+    )
+    got = graph.gfql(
+        "MATCH (x)-->(y) MATCH (y)<--(z) RETURN x.id AS x, z.id AS z",
+        engine=engine,
+    )
+    assert _to_pandas_df(got._nodes).to_dict(orient="records") == [{"x": "a", "z": "a"}]
+
+
+@pytest.mark.parametrize("engine", ["pandas", "polars"])
+def test_string_cypher_keeps_relationship_uniqueness_within_one_match_clause(engine: str) -> None:
+    if engine == "polars":
+        pytest.importorskip("polars")
+    graph = _mk_graph(
+        pd.DataFrame({"id": ["a"]}),
+        pd.DataFrame({"s": ["a"], "d": ["a"]}),
+    )
+    got = graph.gfql(
+        "MATCH (x)-[e]->(y)<-[f]-(z) RETURN x.id AS x, z.id AS z",
+        engine=engine,
+    )
+    assert _to_pandas_df(got._nodes).to_dict(orient="records") == []
+
+
+def test_string_cypher_resets_relationship_uniqueness_for_each_match_clause() -> None:
+    graph = _mk_graph(
+        pd.DataFrame({"id": ["a"]}),
+        pd.DataFrame({"s": ["a"], "d": ["a"]}),
+    )
+    got = graph.gfql(
+        "MATCH (x)-[e]->(y) MATCH (y)<-[f]-(z) MATCH (z)-[g]->(w) "
+        "RETURN x.id AS x, w.id AS w",
+    )
+    assert got._nodes.to_dict(orient="records") == [{"x": "a", "w": "a"}]
+
+
+def test_relationship_scope_json_roundtrip_preserves_boundary() -> None:
+    scoped = ASTEdge(relationship_scope=2)
+    assert scoped.to_json()["relationship_scope"] == 2
+    assert ASTEdge.from_json(scoped.to_json()).relationship_scope == 2
+
+    reverse = ASTEdgeReverse(relationship_scope=2)
+    assert ASTEdgeReverse.from_json(reverse.to_json()).relationship_scope == 2
+
+    default = ASTEdge()
+    assert "relationship_scope" not in default.to_json()
+    assert ASTEdge.from_json(default.to_json()).relationship_scope == 0
+
+
+@pytest.mark.parametrize("value", [-1, True, 1.0, "0"])
+def test_relationship_scope_rejects_nonnegative_integer_boundary(value: object) -> None:
+    with pytest.raises(GFQLTypeError) as raised:
+        ASTEdge(relationship_scope=value).validate()
+
+    assert raised.value.code == ErrorCode.E103
+    assert raised.value.context["field"] == "relationship_scope"
+    assert raised.value.context["value"] == type(value).__name__
+
+
 def test_string_cypher_supports_with_whole_row_grouping_then_return() -> None:
     graph = _mk_graph(
         pd.DataFrame(
