@@ -262,6 +262,8 @@ _NATIVE_OK_CYPHER = [
      "truncate toward zero, NaN/null -> null"),
     ("tointeger_int", "MATCH (n) RETURN n.id AS id, toInteger(n.num) AS i",
      "identity cast"),
+        ("tointeger_string", "MATCH (n) RETURN n.id AS id, toInteger(n.name) AS i",
+         "float parse then int cast: invalid/non-finite strings -> null"),
     ("toboolean_bool", "MATCH (n) RETURN n.id AS id, toBoolean(n.flag) AS b",
      "identity, nulls preserved"),
     ("tostring_bool", "MATCH (n) RETURN n.id AS id, toString(n.flag) AS s",
@@ -273,8 +275,6 @@ _NATIVE_OK_CYPHER = [
 _HONEST_NIE_CYPHER = [
     # (id, cypher over _graph(4), pandas_expect 'ok'|'raises', why-polars-declines)
     ("tofloat_string", "MATCH (n) RETURN n.id AS id, toFloat(n.name) AS f", "raises",
-     "pandas astype(float) RAISES on non-numeric strings; strict=False nulls would fabricate data"),
-    ("tointeger_string", "MATCH (n) RETURN n.id AS id, toInteger(n.name) AS i", "raises",
      "pandas astype(float) RAISES on non-numeric strings; strict=False nulls would fabricate data"),
     ("size_numeric", "MATCH (n) RETURN n.id AS id, size(n.num) AS sz", "raises",
      "size(non-string/non-list) has no defined answer: polars declines, pandas/cuDF raise"),

@@ -272,9 +272,12 @@ def _lower_function(node: FunctionCall, columns: Sequence[str]) -> Optional[pl.E
             return pl.when(args[0].is_nan() | args[0].is_null()).then(
                 pl.lit(None, dtype=pl.Int64)
             ).otherwise(args[0].cast(pl.Int64, strict=False))
-        # String: pandas astype(float) RAISES on non-numeric (not null-on-failure); polars
-        # strict=False would silently null -> divergence. Decline (NIE).
-        return None
+        # String: parse through float, matching pandas to_numeric(coerce). Invalid, overflow and
+        # non-finite inputs become null; finite decimal strings truncate toward zero.
+        parsed = args[0].cast(pl.Float64, strict=False)
+        return pl.when(parsed.is_null() | parsed.is_nan() | parsed.is_infinite()).then(
+            pl.lit(None, dtype=pl.Int64)
+        ).otherwise(parsed.cast(pl.Int64, strict=False))
     if name == "tofloat" and len(args) == 1:
         # toFloat oracle: pandas inner.astype(float) + isna() mask via .where(~mask, pd.NA).
         # CRUCIALLY no .fillna(0)/int step (contrast toInteger): float64 has no null sentinel, so
