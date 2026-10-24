@@ -1,4 +1,4 @@
-from typing import Any, Dict, Mapping, Optional, Tuple, Type, Union, cast
+from typing import Any, Dict, Iterable, List, Mapping, Optional, Tuple, Type, Union, cast
 from importlib import import_module
 
 import pandas as pd
@@ -83,6 +83,13 @@ def _coerce_temporal_filter_scalar(value: FilterValue, dtype: DType, *, field: s
 
 def _is_membership_filter_value(value: Any) -> bool:
     return isinstance(value, (list, tuple, set, frozenset, pd.Index, pd.Series))
+
+
+def _coerce_temporal_filter_members(values: Iterable[FilterValue], dtype: DType, *, field: str) -> List[FilterValue]:
+    return [
+        _coerce_temporal_filter_scalar(value, dtype, field=field)
+        for value in values
+    ]
 
 
 def _looks_like_edge_dataframe(df: DataFrameT) -> bool:
@@ -216,7 +223,12 @@ def _prepare_filter_dict(
         # Type checking for non-predicate values
         if not isinstance(resolved_val, ASTPredicate):
             if _is_membership_filter_value(resolved_val):
-                concrete_filters[col] = (resolved_col, list(resolved_val))
+                concrete_filters[col] = (
+                    resolved_col,
+                    _coerce_temporal_filter_members(
+                        resolved_val, df[resolved_col].dtype, field=col
+                    ),
+                )
                 continue
             if len(df) == 0:
                 concrete_filters[col] = (resolved_col, resolved_val)
@@ -246,9 +258,17 @@ def _prepare_filter_dict(
         else:
             # Validate predicates for appropriate column types
             from .predicates.numeric import NumericASTPredicate, Between
+            from .predicates.is_in import IsIn
             from .predicates.str import Contains, Startswith, Endswith, Match
 
             col_dtype = df[resolved_col].dtype
+
+            if isinstance(resolved_val, IsIn):
+                resolved_val = IsIn(
+                    _coerce_temporal_filter_members(
+                        resolved_val.options, col_dtype, field=col
+                    )
+                )
 
             # Check numeric predicates on non-numeric columns
             if isinstance(resolved_val, (NumericASTPredicate, Between)) and not _is_numeric_dtype_safe(col_dtype):
