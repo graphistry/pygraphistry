@@ -16,7 +16,13 @@ import pandas as pd
 import pytest
 
 import graphistry
-from graphistry.compute.exceptions import ErrorCode, GFQLTypeError, GFQLValidationError
+from graphistry.Engine import is_polars_df
+from graphistry.compute.exceptions import (
+    ErrorCode,
+    GFQLCallExecutionError,
+    GFQLTypeError,
+    GFQLValidationError,
+)
 from graphistry.compute.gfql.cypher.expression_text import render_expr_node
 from graphistry.compute.gfql.expr_parser import (
     GFQLExprParseError,
@@ -74,9 +80,14 @@ def _values(engine, expr, column="v", nodes=None):
     out = _graph(engine, nodes=nodes).gfql(
         f"MATCH (n) RETURN n.id AS id, {expr} AS {column}", engine=engine
     )._nodes
-    if hasattr(out, "to_pandas"):
+    if is_polars_df(out):
         out = out.to_pandas(use_pyarrow_extension_array=True)
-    return [None if pd.isna(v) else v for v in out.sort_values("id")[column].tolist()]
+    elif engine == "cudf":
+        out = out.to_pandas()
+    return [
+        None if value is None or (not isinstance(value, (list, tuple, dict)) and pd.isna(value)) else value
+        for value in out.sort_values("id")[column].tolist()
+    ]
 
 
 # ---------------------------------------------------------------- the op set itself
@@ -297,6 +308,53 @@ def test_tointeger_string_column_boundaries_are_null(engine):
 
 
 @pytest.mark.parametrize("engine", ENGINES)
+def test_tointeger_native_integer_boundaries_stay_exact(engine):
+    """Native integer columns must remain integer-routed: no IEEE 53-bit or float hop."""
+    nodes = pd.DataFrame({
+        "id": list("abcd"),
+        "i": pd.Series([
+            2**53 + 1,
+            2**63 - 1,
+            -2**63,
+            None,
+        ], dtype="Int64"),
+    })
+    assert _values(engine, "toInteger(n.i)", nodes=nodes) == [
+        2**53 + 1, 2**63 - 1, -2**63, None,
+    ]
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_tointeger_unsigned_integer_overflow_is_null(engine):
+    """Unsigned integers above INT64_MAX are outside Cypher INTEGER, not wrapped."""
+    nodes = pd.DataFrame({
+        "id": list("abc"),
+        "u": pd.Series([0, 2**63 - 1, 2**63], dtype="uint64"),
+    })
+    assert _values(engine, "toInteger(n.u)", nodes=nodes) == [0, 2**63 - 1, None]
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_tointeger_float_bounds_are_asymmetric(engine):
+    """INT64_MIN is representable; float(INT64_MAX) and beyond overflow to null."""
+    nodes = pd.DataFrame({
+        "id": list("abcd"),
+        "f": [-float(2**63), float(2**63), 1e30, 12.9],
+    })
+    assert _values(engine, "toInteger(n.f)", nodes=nodes) == [
+        -2**63, None, None, 12,
+    ]
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_tointeger_scalar_literal_and_column_agree_at_boundaries(engine):
+    """Scalar literals take the same asymmetric-bound route as typed columns."""
+    assert _values(engine, "toInteger(9007199254740993)") == [9007199254740993] * 4
+    assert _values(engine, "toInteger(9223372036854775807)") == [2**63 - 1] * 4
+    assert _values(engine, "toInteger(-9223372036854775808)") == [-2**63] * 4
+
+
+@pytest.mark.parametrize("engine", ENGINES)
 def test_null_cell_propagates_through_truncated_division(engine):
     """null / 2 is null (Cypher 3VL) -- and must not become 0 via a fillna in the
     truncation path."""
@@ -316,3 +374,28 @@ def test_tointeger_and_tofloat_reject_non_scalar_comprehension_items(engine, exp
     with pytest.raises(GFQLValidationError) as error:
         graph.gfql(f"MATCH ()-[:T]->() RETURN {expression} AS v", engine=engine)
     assert error.value.code == ErrorCode.E108
+
+
+@pytest.mark.parametrize("engine", ["pandas", pytest.param("polars", marks=pytest.mark.skipif(not HAS_POLARS, reason="polars not installed"))])
+def test_tointeger_comprehension_accepts_boolean_items_on_pandas(engine):
+    """toInteger(Boolean) is valid, unlike toFloat; Polars keeps its existing NIE decline."""
+    try:
+        assert _values(engine, "[x IN [true, false] | toInteger(x)]") == [[1, 0]] * 4
+    except NotImplementedError as decline:
+        assert engine == "polars", f"{engine} must not decline: {decline}"
+        assert "does not yet natively support" in str(decline)
+
+
+@pytest.mark.parametrize("engine", ["pandas"])
+def test_tointeger_constant_projection_ignores_unconsumed_invalid_items(engine):
+    """An unsupported item is harmless when the projection never consumes x."""
+    assert _values(engine, "[x IN [1, []] | toInteger(1)]") == [[1, 1]] * 4
+
+
+@pytest.mark.parametrize("engine", ["pandas"])
+def test_numeric_comprehension_invalid_consumed_items_still_raise(engine):
+    """Relaxing the guard must not turn actual invalid item consumption into a list."""
+    for expression in ["[x IN [1, []] | toInteger(x)]", "[x IN [1, {}] | toFloat(x)]"]:
+        with pytest.raises(GFQLValidationError) as error:
+            _graph(engine).gfql(f"MATCH (n) RETURN {expression} AS v", engine=engine)
+        assert error.value.code == ErrorCode.E108

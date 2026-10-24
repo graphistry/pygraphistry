@@ -999,9 +999,12 @@ def _list_item_invalid_for_numeric_conversion(
     item: ExprNode,
     *,
     alias_targets: Optional[Mapping[str, ASTObject]],
+    allow_boolean: bool,
 ) -> bool:
     if isinstance(item, ExprLiteral):
-        return isinstance(item.value, bool) or isinstance(item.value, (list, dict))
+        if isinstance(item.value, (list, dict)):
+            return True
+        return isinstance(item.value, bool) and not allow_boolean
     if isinstance(item, (ListLiteral, MapLiteral)):
         return True
     if isinstance(item, Identifier):
@@ -1091,9 +1094,13 @@ def _validate_cypher_expr_constraints(
                 and current.projection.args[0].name == current.var
                 and isinstance(current.source, ListLiteral)
             ):
-                if current.projection.name in {"tofloat", "tointeger"}:
+                if current.projection.name.lower() in {"tofloat", "tointeger"}:
                     if any(
-                        _list_item_invalid_for_numeric_conversion(item, alias_targets=alias_targets)
+                        _list_item_invalid_for_numeric_conversion(
+                            item,
+                            alias_targets=alias_targets,
+                            allow_boolean=current.projection.name.lower() == "tointeger",
+                        )
                         for item in current.source.items
                     ):
                         _raise(

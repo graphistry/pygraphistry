@@ -129,6 +129,7 @@ _GFQL_MISSING_BOOL_OPERAND = object()
 _INT64_MIN = -(2**63)
 _INT64_LIMIT_HIGH = 2**63
 _EXACT_INT64_STRING_RE = re.compile(r"^[+-]?\d+$")
+_PYARROW_DECIMAL_PRECISION = 38
 
 
 def _to_cypher_int64_scalar(value: object) -> Optional[int]:
@@ -149,16 +150,67 @@ def _to_cypher_int64_scalar(value: object) -> Optional[int]:
             parsed = math.trunc(parsed_float)
     elif isinstance(value, bool):
         parsed = int(value)
+    elif isinstance(value, numbers.Integral):
+        parsed = int(value)
     elif isinstance(value, numbers.Real):
         as_float = float(value)
         if not math.isfinite(as_float):
             return None
         parsed = math.trunc(as_float)
-    elif isinstance(value, numbers.Integral):
-        parsed = int(value)
     else:
         parsed = int(float(value))
     return parsed if _INT64_MIN <= parsed < _INT64_LIMIT_HIGH else None
+
+
+def _pandas_series_to_int64(inner: pd.Series) -> pd.Series:
+    """Convert pandas values to Cypher integer semantics without a native-int float hop."""
+    index = inner.index
+    if pd.api.types.is_bool_dtype(inner.dtype):
+        return inner.astype("Int64")
+    if pd.api.types.is_integer_dtype(inner.dtype):
+        if inner.dtype.kind == "u":
+            in_range = inner.lt(_INT64_LIMIT_HIGH)
+            in_range_values = inner.loc[in_range].astype("int64")
+            out = pd.Series(pd.NA, index=index, dtype="Int64")
+            out.loc[in_range_values.index] = in_range_values
+            return out
+        return inner.astype("Int64")
+    if pd.api.types.is_float_dtype(inner.dtype):
+        values = inner.to_numpy(dtype="float64", na_value=np.nan)
+        finite = np.isfinite(values)
+        in_range = finite & (values >= _INT64_MIN) & (values < _INT64_LIMIT_HIGH)
+        truncated = np.trunc(values)
+        return pd.Series(truncated, index=index).where(in_range, pd.NA).astype("Int64")
+
+    text = inner.astype("string").str.strip()
+    exact_mask = text.str.fullmatch(_EXACT_INT64_STRING_RE).fillna(False)
+    out = pd.Series(pd.NA, index=index, dtype="Int64")
+    if exact_mask.any():
+        import pyarrow as pa
+        import pyarrow.compute as pc
+
+        exact = text.loc[exact_mask]
+        decimal_mask = exact.str.len().le(_PYARROW_DECIMAL_PRECISION)
+        exact_in_decimal = exact.loc[decimal_mask]
+        if not exact_in_decimal.empty:
+            decimals = pc.cast(pa.array(exact_in_decimal, type=pa.string()), pa.decimal128(38, 0))
+            in_range = pc.greater_equal(
+                decimals, pa.scalar(_INT64_MIN, type=pa.decimal128(38, 0))
+            )
+            in_range = pc.and_(in_range, pc.less(decimals, pa.scalar(_INT64_LIMIT_HIGH, type=pa.decimal128(38, 0))))
+            in_range_index = exact_in_decimal.index[np.asarray(in_range, dtype=bool)]
+            if not in_range_index.empty:
+                exact_values = pc.cast(pc.filter(decimals, in_range), pa.int64())
+                out.loc[in_range_index] = pd.Series(
+                    exact_values.to_numpy(zero_copy_only=False), index=in_range_index, dtype="Int64"
+                )
+
+    other = inner.loc[~exact_mask]
+    if not other.empty:
+        numeric = pd.to_numeric(other, errors="coerce")
+        if len(numeric):
+            out.loc[other.index] = _pandas_series_to_int64(numeric)
+    return out
 
 
 @lru_cache(maxsize=1)
@@ -1810,40 +1862,13 @@ class RowPipelineMixin:
                     null_mask = self._gfql_null_mask(table_df, inner)
                     engine = resolve_engine(EngineAbstract.AUTO, table_df)
                     if engine == Engine.PANDAS and isinstance(inner, pd.Series):
-                        exact = pd.Series(
-                            [
-                                (
-                                    int(str(value).strip())
-                                    if _INT64_MIN <= int(str(value).strip()) < _INT64_LIMIT_HIGH
-                                    else None
-                                )
-                                if pd.notna(value) and _EXACT_INT64_STRING_RE.fullmatch(str(value).strip())
-                                else None
-                                for value in inner
-                            ],
-                            index=inner.index,
-                            dtype=object,
-                        ).astype("Int64")
-                        numeric = s_to_numeric(engine)(inner, errors="coerce")
-                        finite_mask = numeric.notna() & (numeric.abs() != float("inf"))
-                        in_range = numeric.ge(_INT64_MIN) & numeric.lt(_INT64_LIMIT_HIGH)
-                        decimal = pd.Series(
-                            [
-                                int(value) if value is not None and value == value and value not in (float("inf"), float("-inf")) else None
-                                for value in numeric.where(finite_mask & in_range)
-                            ],
-                            index=inner.index,
-                            dtype="Int64",
-                        )
-                        out = exact.fillna(decimal)
+                        out = _pandas_series_to_int64(inner)
                     else:
                         numeric = s_to_numeric(engine)(inner, errors="coerce")
                         finite_mask = numeric.notna() & (numeric.abs() != float("inf"))
                         in_range = numeric.ge(_INT64_MIN) & numeric.lt(_INT64_LIMIT_HIGH)
                         safe_numeric = numeric.where(finite_mask & in_range)
-                        out = safe_numeric.map(
-                            lambda value: int(value) if value is not None else None
-                        ).astype("Int64")
+                        out = safe_numeric.astype("Int64")
                     return True, out.where(~null_mask, pd.NA)
                 if is_null_scalar(inner):
                     return True, None
@@ -2108,15 +2133,25 @@ class RowPipelineMixin:
 
         if isinstance(node, ListComprehension):
             projection = node.projection
+            projection_consumes_var = False
+
+            def _mark_projection_var(consumed_node: object) -> None:
+                nonlocal projection_consumes_var
+                if isinstance(consumed_node, Identifier) and consumed_node.name == node.var:
+                    projection_consumes_var = True
+
+            if projection is not None:
+                expr_parser_mod.walk_expr_nodes(projection, enter=_mark_projection_var)
             if (
                 isinstance(projection, FunctionCall)
                 and projection.name.lower() in {"tofloat", "tointeger"}
+                and projection_consumes_var
                 and isinstance(node.source, ListLiteral)
                 and any(
                     isinstance(item, (ListLiteral, MapLiteral))
                     or (
                         isinstance(item, Literal)
-                        and isinstance(item.value, (bool, list, dict))
+                        and isinstance(item.value, (list, dict))
                     )
                     for item in node.source.items
                 )
