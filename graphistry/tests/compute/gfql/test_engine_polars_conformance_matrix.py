@@ -65,6 +65,7 @@ def _predicate_queries():
     from graphistry.compute.predicates.is_in import IsIn
     from graphistry.compute.predicates.str import (
         Contains, Startswith, Endswith, Match, Fullmatch, IsNull, NotNull,
+        NeverMatch,
     )
     from graphistry.compute.predicates.numeric import IsNA, NotNA
     out = []
@@ -86,6 +87,7 @@ def _predicate_queries():
         (Fullmatch, "name", {"pat": r"node\.\d"}),   # full match 'node.X'
         (IsNA, "name", {}), (NotNA, "name", {}),
         (IsNull, "name", {}), (NotNull, "name", {}),   # str-module null predicates (distinct from numeric IsNA/NotNA)
+        (NeverMatch, "name", {}),                      # Cypher null-equality UNKNOWN sentinel
     ]:
         out.append((f"pred:{P.__name__}({col},{kw})", [n({col: P(**kw)})]))
     return out
