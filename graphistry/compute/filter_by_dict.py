@@ -1,4 +1,4 @@
-from typing import Any, Dict, Mapping, Optional, Tuple, Union, cast
+from typing import Any, Dict, Mapping, Optional, Tuple, Type, Union, cast
 from importlib import import_module
 
 import pandas as pd
@@ -42,7 +42,7 @@ def _coerce_temporal_filter_scalar(value: FilterValue, dtype: DType, *, field: s
 
     from graphistry.compute.exceptions import ErrorCode, GFQLSchemaError
 
-    timezone_resolution_errors: Tuple[type[BaseException], ...] = (ValueError,)
+    timezone_resolution_errors: Tuple[Type[BaseException], ...] = (ValueError,)
     try:
         pytz_exceptions = import_module("pytz.exceptions")
 
