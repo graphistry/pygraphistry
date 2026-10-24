@@ -16,7 +16,7 @@ import pandas as pd
 import pytest
 
 import graphistry
-from graphistry.compute.exceptions import GFQLTypeError
+from graphistry.compute.exceptions import ErrorCode, GFQLTypeError, GFQLValidationError
 from graphistry.compute.gfql.cypher.expression_text import render_expr_node
 from graphistry.compute.gfql.expr_parser import (
     GFQLExprParseError,
@@ -292,3 +292,16 @@ def test_null_cell_propagates_through_truncated_division(engine):
     nodes = pd.DataFrame({"id": ["a", "b"], "neg": pd.Series([-7, None], dtype="Int64"),
                           "flag": [True, False], "score": [1.0, 2.0]})
     assert _values(engine, "n.neg / 2", nodes=nodes) == [-3, None]
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+@pytest.mark.parametrize("expression", [
+    "[x IN [1, []] | toInteger(x)]",
+    "[x IN [1, {}] | toFloat(x)]",
+])
+def test_tointeger_and_tofloat_reject_non_scalar_comprehension_items(engine, expression):
+    """Numeric conversions accept scalar integer/float/string items only."""
+    graph = _graph(engine)
+    with pytest.raises(GFQLValidationError) as error:
+        graph.gfql(f"MATCH ()-[:T]->() RETURN {expression} AS v", engine=engine)
+    assert error.value.code == ErrorCode.E108

@@ -1009,7 +1009,7 @@ def _validate_cypher_boolean_literal_constraints(
         )
 
 
-def _list_item_invalid_for_tofloat(
+def _list_item_invalid_for_numeric_conversion(
     item: ExprNode,
     *,
     alias_targets: Optional[Mapping[str, ASTObject]],
@@ -1105,12 +1105,15 @@ def _validate_cypher_expr_constraints(
                 and current.projection.args[0].name == current.var
                 and isinstance(current.source, ListLiteral)
             ):
-                if current.projection.name == "tofloat":
+                if current.projection.name in {"tofloat", "tointeger"}:
                     if any(
-                        _list_item_invalid_for_tofloat(item, alias_targets=alias_targets)
+                        _list_item_invalid_for_numeric_conversion(item, alias_targets=alias_targets)
                         for item in current.source.items
                     ):
-                        _raise("Cypher toFloat() cannot consume the current list-comprehension item types in the local compiler")
+                        _raise(
+                            "Cypher toFloat()/toInteger() cannot consume the current "
+                            "list-comprehension item types in the local compiler"
+                        )
                 if current.projection.name == "tostring":
                     if any(
                         _list_item_invalid_for_tostring(item, alias_targets=alias_targets)
