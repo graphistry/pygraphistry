@@ -170,14 +170,36 @@ def test_polars_typed_timestamp_membership_and_isin_preserve_precision():
     from graphistry.compute.predicates.is_in import is_in
 
     nodes = _nodes_pd_unit("ns")
-    exact = pd.Timestamp(1, unit="ns")
-    adjacent = pd.Timestamp(2, unit="ns")
-    outside = pd.Timestamp(3, unit="ns")
+    exact = pd.Timestamp(1, unit="ns", tz="UTC")
+    adjacent = pd.Timestamp(2, unit="ns", tz="UTC")
+    outside = pd.Timestamp(3, unit="ns", tz="UTC")
     assert _ids(filter_by_dict(nodes, {"ts": [exact, outside]}, engine="polars")) == ["exact"]
     assert _ids(filter_by_dict(nodes, {"ts": [outside]}, engine="polars")) == []
     assert _ids(filter_by_dict(nodes, {"ts": [adjacent]}, engine="polars")) == ["pos"]
     assert _ids(filter_by_dict(nodes, {"ts": is_in([exact])}, engine="polars")) == ["exact"]
     assert _ids(filter_by_dict(nodes, {"ts": is_in([outside])}, engine="polars")) == []
+
+
+@pytest.mark.parametrize("engine", ["pandas", "polars"])
+def test_typed_timestamp_timezone_mismatch_is_not_member(engine):
+    if engine == "polars":
+        if pl is None:
+            pytest.skip("polars not installed")
+        nodes = pl.from_pandas(_nodes_pd())
+    else:
+        nodes = _nodes_pd()
+    assert _ids(filter_by_dict(nodes, {"ts_aw": [pd.Timestamp("2021-06-15")]}, engine=engine)) == []
+
+
+@pytest.mark.parametrize("engine", ["pandas", "polars"])
+def test_typed_nat_is_not_member(engine):
+    if engine == "polars":
+        if pl is None:
+            pytest.skip("polars not installed")
+        nodes = pl.from_pandas(_nodes_pd())
+    else:
+        nodes = _nodes_pd()
+    assert _ids(filter_by_dict(nodes, {"ts_aw": [pd.NaT]}, engine=engine)) == []
 
 
 def test_polars_non_temporal_mixed_isin_declines():

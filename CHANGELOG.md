@@ -76,7 +76,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
-- **GFQL temporal membership filters** (#1949): `IN`, `IsIn`, and list filter values on datetime columns parse scalar strings with the same aware/naive temporal contract as equality, instead of silently matching zero rows or raising an opaque engine error. Unparseable values fail with structured `E302`; Polars datetime membership lowers natively.
+- **GFQL temporal membership filters** (#1949): `IN`, `IsIn`, and list filter values on datetime columns parse scalar strings with the same aware/naive temporal contract as equality, instead of silently matching zero rows or raising an opaque engine error. Unparseable values fail with structured `E302`; Polars datetime membership lowers natively. Typed timestamps must share the column timezone, and `NaT` is not a member, matching pandas semantics.
 
 - **GFQL comparison predicates and typed wire inputs reject numeric-versus-datetime comparisons**: a bare integer no longer silently compares as an opaque unitless value against a datetime column. Use a typed ISO datetime value or explicit `DateTimeValue.from_epoch` UTC epoch units. There is no default epoch unit, and `epoch_ms` predicate flags are rejected (#2197). This boundary does not change all mixed-type Cypher `EQ`/`NE` semantics.
 - **GFQL Call runtime failures use structured `E306`**: exceptions from safelisted handlers are wrapped as `GFQLCallExecutionError` with the handler name, requested engine, original exception type, and original exception as `__cause__`; input/reference validation retains its existing structured codes (#2199).
