@@ -320,7 +320,7 @@ def _cudf_series_to_int64(inner: SeriesT) -> SeriesT:
         in_range = in_range.to_numpy(dtype=bool)
         selected_positions = exact_positions[in_range]
         exact_values = normalized_text.iloc[selected_positions].astype("int64")
-        out.iloc[selected_positions] = exact_values.to_numpy()
+        out.iloc[selected_positions] = exact_values
 
     remaining_positions = np.flatnonzero(~exact_mask)
     if len(remaining_positions):
@@ -329,7 +329,7 @@ def _cudf_series_to_int64(inner: SeriesT) -> SeriesT:
         finite_mask = numeric.notna() & (numeric.abs() != float("inf"))
         in_range = numeric.ge(_INT64_MIN_AS_FLOAT) & numeric.lt(_INT64_LIMIT_HIGH_AS_FLOAT)
         safe_numeric = numeric.where(finite_mask & in_range)
-        out.iloc[remaining_positions] = safe_numeric.astype("Int64").to_numpy()
+        out.iloc[remaining_positions] = safe_numeric.astype("Int64")
     return out
 
 
