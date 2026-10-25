@@ -11,6 +11,7 @@ zero divisor is an error). Cross-engine agreement is NOT used as an oracle -- pa
 polars and cudf have been wrong together before on this stack.
 """
 import os
+from decimal import Decimal
 
 import pandas as pd
 import pytest
@@ -29,7 +30,10 @@ from graphistry.compute.gfql.expr_parser import (
     UnaryOp,
     parse_expr,
 )
-from graphistry.compute.gfql.row.pipeline import _pandas_series_to_int64
+from graphistry.compute.gfql.row.pipeline import (
+    _pandas_series_to_int64,
+    _to_cypher_int64_scalar,
+)
 from graphistry.compute.gfql.language_defs import GFQL_ALLOWED_UNARY_OPS
 
 try:
@@ -293,6 +297,31 @@ def test_tointeger_of_a_string_without_an_in_range_integer_value_is_null(engine,
         assert _values(engine, f"toInteger({literal})") == [expected] * 4
     except NotImplementedError as decline:
         assert engine == "polars", f"{engine} must not decline: {decline}"
+
+
+@pytest.mark.parametrize("value,expected", [
+    (None, None),
+    (True, 1),
+    (False, 0),
+    ("  -007  ", -7),
+    ("١٢", 12),
+    ("١.٥", 1),
+    ("1.9", 1),
+    ("nan", None),
+    ("-inf", None),
+    ("x1", None),
+    (9223372036854775807, 9223372036854775807),
+    (2**63, None),
+    (9.9, 9),
+    (float("inf"), None),
+    (float("nan"), None),
+    (Decimal("-2.9"), -2),
+    (Decimal("Infinity"), None),
+    (object(), None),
+])
+def test_tointeger_scalar_uses_cypher_semantics_by_operand_type(value, expected):
+    """Scalar literals share one Cypher conversion contract, with overflow as null."""
+    assert _to_cypher_int64_scalar(value) == expected
 
 
 @pytest.mark.parametrize("engine", ENGINES)
