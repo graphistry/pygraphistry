@@ -205,7 +205,7 @@ def _pandas_series_to_int64(inner: pd.Series) -> pd.Series:
     from pyarrow.lib import ArrowInvalid
 
     text = inner.astype("string").str.strip()
-    exact_mask = text.str.fullmatch(_EXACT_INT64_STRING).fillna(False).to_numpy(dtype=bool)
+    exact_mask = text.str.match(_EXACT_INT64_STRING).fillna(False).to_numpy(dtype=bool)
     out = pd.Series(pd.NA, index=index, dtype="Int64")
     if exact_mask.any():
         exact_positions = np.flatnonzero(exact_mask)
@@ -219,7 +219,7 @@ def _pandas_series_to_int64(inner: pd.Series) -> pd.Series:
     remaining_positions = np.flatnonzero(remaining_mask)
     if len(remaining_positions):
         normalized_remaining = text.iloc[remaining_positions].str.translate(PANDAS_DIGIT_TRANSLATION)
-        unicode_exact_mask = normalized_remaining.str.fullmatch(
+        unicode_exact_mask = normalized_remaining.str.match(
             _EXACT_INT64_STRING
         ).fillna(False).to_numpy(dtype=bool)
         unicode_exact_positions = remaining_positions[np.flatnonzero(unicode_exact_mask)]
@@ -300,7 +300,7 @@ def _cudf_series_to_int64(inner: SeriesT) -> SeriesT:
         return safe_numeric.astype("Int64")
 
     normalized_text = inner.astype(str).str.strip().str.translate(PANDAS_DIGIT_TRANSLATION)
-    exact_mask = normalized_text.str.fullmatch(_EXACT_INT64_STRING).fillna(False).to_numpy(dtype=bool)
+    exact_mask = normalized_text.str.match(_EXACT_INT64_STRING).fillna(False).to_numpy(dtype=bool)
     out = cudf.Series(pd.NA, index=index, dtype="Int64")
     if exact_mask.any():
         exact_positions = np.flatnonzero(exact_mask)
