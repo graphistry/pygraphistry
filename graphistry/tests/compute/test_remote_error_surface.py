@@ -11,7 +11,14 @@ import requests
 import graphistry
 from graphistry.compute.ast import n
 from graphistry.compute.chain_remote import chain_remote_generic
-from graphistry.compute.exceptions import GFQLRemoteError, GFQLSchemaError, GFQLSyntaxError, GFQLTypeError
+from graphistry.compute.exceptions import (
+    ErrorCode,
+    GFQLRemoteError,
+    GFQLSchemaError,
+    GFQLSyntaxError,
+    GFQLTypeError,
+    GFQLValidationError,
+)
 from graphistry.compute.predicates.numeric import gt
 from graphistry.compute.python_remote import python_remote_generic
 
@@ -338,6 +345,26 @@ def test_shape_variant_accepts_cypher_params():
 
 
 # --- #1960 4: a column subset must not strand the result's own bindings -----
+
+
+# --- #1955: Let/DAG cannot use the valid identity program as a compatibility sentinel ---
+
+
+def test_let_wire_body_omits_identity_fallback_operations():
+    let = {'type': 'Let', 'bindings': {'foo': {'type': 'Chain', 'chain': [{'type': 'Node'}]}}}
+    transport = Transport(resp(200, json.dumps({'nodes': [], 'edges': []}).encode(), 'application/json'))
+    with transport:
+        with pytest.warns(UserWarning, match=r'gfql_query'):
+            gfql(bound_graph(), chain=let)
+    assert 'gfql_operations' not in transport.bodies[0]
+    assert transport.bodies[0]['gfql_query'] == let
+
+
+def test_unrecognized_remote_dict_is_declined_before_the_wire():
+    with Transport(resp(200, json.dumps({'nodes': [], 'edges': []}).encode(), 'application/json')):
+        with pytest.raises(GFQLValidationError) as error_info:
+            gfql(bound_graph(), chain={})
+    assert error_info.value.code == ErrorCode.E105
 
 
 @pytest.mark.parametrize('fmt,payload_key', [('json', 'json'), ('parquet', 'zip')])

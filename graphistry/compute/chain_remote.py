@@ -20,7 +20,8 @@ from graphistry.compute.gfql.strictness import (
     DEFAULT_STRICT_LEVEL, StrictInput, resolve_strict_level, schema_declared_names, strictness_scope)
 from graphistry.compute.gfql_validate import gfql_validate as gfql_preflight_validate
 from graphistry.io.metadata import deserialize_plottable_metadata
-from graphistry.compute.exceptions import ErrorCode, GFQLSyntaxError, GFQLTypeError
+from graphistry.compute.exceptions import (
+    ErrorCode, GFQLSyntaxError, GFQLTypeError, GFQLValidationError)
 from graphistry.compute.remote_df_io import (
     require_supported_frame_library,
     resolve_csv_reader,
@@ -202,6 +203,14 @@ def chain_remote_generic(
     elif isinstance(chain, dict):
         chain_json = chain
         is_let = chain_json.get('type') == 'Let'
+        if not is_let and chain_json.get('type') != 'Chain':
+            raise GFQLValidationError(
+                ErrorCode.E105,
+                "Remote query dict must be a serialized Let or Chain",
+                field="type",
+                value=chain_json.get('type'),
+                suggestion="Use Chain, List[ASTObject], ASTLet, Cypher string, or a dict with type='Chain' or type='Let'",
+            )
     else:
         raise TypeError(f"gfql_remote() query must be Chain, List, ASTLet, Dict, or str. Got {type(chain)}")
 
@@ -245,14 +254,12 @@ def chain_remote_generic(
     if is_let:
         warnings.warn(
             "gfql_remote() is sending a Let/DAG query. Servers that do not support "
-            "the gfql_query field will receive an empty gfql_operations array and "
-            "return the original graph unchanged. Upgrade to a server that reads "
-            "gfql_query for full Let/DAG support.",
+            "gfql_query will reject it. Upgrade to a server that reads "
+            "gfql_query for Let/DAG support.",
             UserWarning,
             stacklevel=2,
         )
         request_body: Dict[str, Any] = {
-            "gfql_operations": [],
             "gfql_query": chain_json,
             "format": format
         }
