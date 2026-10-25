@@ -20,6 +20,10 @@ Test actual behavior with meaningful positive/failure cases; do not mock away th
 
 During active work, send a brief heartbeat every 2–3 minutes by default: plan step, progress/handle, and blocker/change. Substantive updates replace heartbeats. Continue without waiting for ACK; never ACK an ACK.
 
+After each long tool wait, read new planner messages before the next external side effect; do not issue another side-effecting command from inside an uninterruptible shell call.
+
+While awaiting a live planner review, clearance, or CI gate, keep the goal active in a bounded poll loop: check the incoming mailbox and known gate every 2–3 minutes, with no single wait over 60 seconds. Read only deltas, ACK new messages, and continue authorized independent plan work. A timeout or quiet mailbox is not a stopping condition; do not repeat tests or send status essays on unchanged state. If the reviewer or execution is confirmed unavailable and no independent work remains, record the next actor/resume event and follow the platform's blocked-state rules. A file write cannot wake a stopped session.
+
 At a meaningful review boundary, submit changed scope, source identity, actual results, evidence links, limitations, and the decision needed. Batch routine findings; report blockers or consequential contradictions promptly. Keep detailed receipts outside messages.
 
-Declare only the proved outcome: local tests, PR readiness, landing, and deployed acceptance are distinct. Preserve an accurate resume state when execution is unavailable.
+Declare only the proved outcome: local tests, PR readiness, landing, and deployed acceptance are distinct. A submitted PR or review packet is not completion of a goal that includes landing or later queue steps. Preserve an accurate resume state when execution is unavailable.
