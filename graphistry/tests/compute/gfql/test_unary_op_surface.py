@@ -374,6 +374,22 @@ def test_tointeger_generalizes_decimal_digit_scripts(engine):
     ]
 
 
+@pytest.mark.parametrize("storage", ["python", "pyarrow"])
+def test_tointeger_unicode_digits_are_backend_storage_stable(storage):
+    """Pandas string storage backends share one supported Unicode decimal-digit contract."""
+    with pd.option_context("mode.string_storage", storage):
+        nodes = pd.DataFrame({
+            "id": ["a", "b", "c", "d"],
+            "s": pd.Series(["９００７１９９２５４７４０９９３", "  ١  ", "½", None], dtype="string"),
+        })
+        assert _values("pandas", "toInteger(n.s)", nodes=nodes) == [
+            9007199254740993,
+            1,
+            None,
+            None,
+        ]
+
+
 @pytest.mark.parametrize("engine", ENGINES)
 def test_tointeger_native_integer_boundaries_stay_exact(engine):
     """Native integer columns must remain integer-routed: no IEEE 53-bit or float hop."""
