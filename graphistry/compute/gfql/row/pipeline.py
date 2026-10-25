@@ -110,6 +110,7 @@ from graphistry.compute.gfql.temporal.durations import (
     resolve_duration_text_property,
 )
 from graphistry.compute.gfql.row.integer_text import (
+    ASCII_EXACT_INT64_PATTERN,
     ASCII_EXACT_INT64_RE,
     PANDAS_DIGIT_TRANSLATION,
     UNICODE_EXACT_INT64_RE,
@@ -135,6 +136,7 @@ GFQLRuntimeParserBundle = Tuple[GFQLParseExprFn, GFQLValidateExprFn, ModuleType]
 _GFQL_MISSING_BOOL_OPERAND = object()
 _INT64_MIN = -(2**63)
 _INT64_LIMIT_HIGH = 2**63
+_EXACT_INT64_STRING = ASCII_EXACT_INT64_PATTERN
 _EXACT_INT64_STRING_RE = ASCII_EXACT_INT64_RE
 _UNICODE_EXACT_INT64_STRING_RE = UNICODE_EXACT_INT64_RE
 _INT64_MAX_POSITIVE_DIGITS = str(_INT64_LIMIT_HIGH - 1)
@@ -202,7 +204,7 @@ def _pandas_series_to_int64(inner: pd.Series) -> pd.Series:
 
     text = inner.astype("string").str.strip()
     normalized_text = text.str.translate(PANDAS_DIGIT_TRANSLATION)
-    exact_mask = normalized_text.str.fullmatch(_EXACT_INT64_STRING_RE).fillna(False)
+    exact_mask = normalized_text.str.fullmatch(_EXACT_INT64_STRING).fillna(False)
     out = pd.Series(pd.NA, index=index, dtype="Int64")
     if exact_mask.any():
         exact_values = _pandas_ascii_exact_text_to_int64(normalized_text.loc[exact_mask])
