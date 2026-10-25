@@ -156,11 +156,12 @@ def _edge_matches_disjoint(
 
 def _hops_may_share_edges(ops: Sequence[Any]) -> bool:
     """Whether two edge steps of a pattern could bind the same relationship."""
-    edge_matches = [op.edge_match for op in ops[1::2]]
+    edge_steps = [(op.edge_match, op.relationship_scope) for op in ops[1::2]]
     return any(
-        not _edge_matches_disjoint(edge_matches[i], edge_matches[j])
-        for i in range(len(edge_matches))
-        for j in range(i + 1, len(edge_matches))
+        left_scope == right_scope
+        and not _edge_matches_disjoint(left_match, right_match)
+        for i, (left_match, left_scope) in enumerate(edge_steps)
+        for right_match, right_scope in edge_steps[i + 1:]
     )
 
 
