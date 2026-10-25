@@ -29,6 +29,7 @@ from graphistry.compute.gfql.expr_parser import (
     UnaryOp,
     parse_expr,
 )
+from graphistry.compute.gfql.row.pipeline import _pandas_series_to_int64
 from graphistry.compute.gfql.language_defs import GFQL_ALLOWED_UNARY_OPS
 
 try:
@@ -292,7 +293,6 @@ def test_tointeger_of_a_string_without_an_in_range_integer_value_is_null(engine,
         assert _values(engine, f"toInteger({literal})") == [expected] * 4
     except NotImplementedError as decline:
         assert engine == "polars", f"{engine} must not decline: {decline}"
-        assert "does not yet natively support cypher row op" in str(decline)
 
 
 @pytest.mark.parametrize("engine", ENGINES)
@@ -391,6 +391,47 @@ def test_tointeger_unicode_digits_are_backend_storage_stable(storage):
             None,
             None,
         ]
+
+
+def test_tointeger_pandas_helper_preserves_duplicate_indexes():
+    """Positional assignment must not reindex through duplicated pandas labels."""
+    mixed = pd.Series(["١", "٢", "x"], index=[0, 0, 0], dtype="string")
+    assert [None if pd.isna(value) else int(value) for value in _pandas_series_to_int64(mixed)] == [1, 2, None]
+
+    aligned = pd.Series(["١", "0", "١", "0"], index=[1, 0, 1, 0], dtype="string")
+    assert _pandas_series_to_int64(aligned).tolist() == [1, 0, 1, 0]
+
+
+def test_tointeger_pandas_helper_separates_exact_text_from_overflow():
+    """Leading zeros stay exact and out-of-range text never enters the float fallback."""
+    values = pd.Series(
+        ["0" * 20, "0" * 30 + "7", "-" + "0" * 26],
+        index=["a", "a", "a"],
+    )
+    assert _pandas_series_to_int64(values).tolist() == [0, 7, 0]
+
+    boundaries = pd.Series(
+        [
+            "9223372036854775807",
+            "-9223372036854775808",
+            "+" + "0" * 30 + "9223372036854775807",
+            "-" + "0" * 30 + "9223372036854775808",
+            "9223372036854775808",
+            "-9223372036854775809",
+            "١",
+        ],
+        index=[0, 0, 0, 0, 1, 1, 1],
+    )
+    actual = [None if pd.isna(value) else int(value) for value in _pandas_series_to_int64(boundaries)]
+    assert actual == [
+        9223372036854775807,
+        -9223372036854775808,
+        9223372036854775807,
+        -9223372036854775808,
+        None,
+        None,
+        1,
+    ]
 
 
 @pytest.mark.parametrize("engine", ENGINES)

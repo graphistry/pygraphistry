@@ -189,10 +189,10 @@ def _pandas_series_to_int64(inner: pd.Series) -> pd.Series:
         return inner.astype("Int64")
     if pd.api.types.is_integer_dtype(inner.dtype):
         if inner.dtype.kind == "u":
-            in_range = inner.lt(_INT64_LIMIT_HIGH)
-            in_range_values = inner.loc[in_range].astype("int64")
             out = pd.Series(pd.NA, index=index, dtype="Int64")
-            out.loc[in_range_values.index] = in_range_values
+            in_range = inner.lt(_INT64_LIMIT_HIGH).to_numpy(dtype=bool)
+            in_range_values = inner.iloc[np.flatnonzero(in_range)].astype("int64")
+            out.iloc[np.flatnonzero(in_range)] = in_range_values.to_numpy()
             return out
         return inner.astype("Int64")
     if pd.api.types.is_float_dtype(inner.dtype):
@@ -202,32 +202,40 @@ def _pandas_series_to_int64(inner: pd.Series) -> pd.Series:
         truncated = np.trunc(values)
         return pd.Series(truncated, index=index).where(in_range, pd.NA).astype("Int64")
 
+    from pyarrow.lib import ArrowInvalid
+
     text = inner.astype("string").str.strip()
-    exact_mask = text.str.fullmatch(_EXACT_INT64_STRING).fillna(False)
+    exact_mask = text.str.fullmatch(_EXACT_INT64_STRING).fillna(False).to_numpy(dtype=bool)
     out = pd.Series(pd.NA, index=index, dtype="Int64")
     if exact_mask.any():
+        exact_positions = np.flatnonzero(exact_mask)
         try:
-            exact_values = text.loc[exact_mask].astype("Int64")
-        except OverflowError:
-            exact_values = _pandas_ascii_exact_text_to_int64(text.loc[exact_mask])
-        out.loc[exact_values.index] = exact_values
+            exact_values = text.iloc[exact_positions].astype("Int64")
+        except (OverflowError, ArrowInvalid):
+            exact_values = _pandas_ascii_exact_text_to_int64(text.iloc[exact_positions])
+        out.iloc[exact_positions] = pd.array(exact_values, dtype="Int64")
 
-    numeric_mask = ~exact_mask
-    if bool(numeric_mask.any()):
-        normalized_remaining = text.loc[numeric_mask].str.translate(PANDAS_DIGIT_TRANSLATION)
-        unicode_exact_mask = normalized_remaining.str.fullmatch(_EXACT_INT64_STRING).fillna(False)
-        if bool(unicode_exact_mask.any()):
+    remaining_mask = ~exact_mask
+    remaining_positions = np.flatnonzero(remaining_mask)
+    if len(remaining_positions):
+        normalized_remaining = text.iloc[remaining_positions].str.translate(PANDAS_DIGIT_TRANSLATION)
+        unicode_exact_mask = normalized_remaining.str.fullmatch(
+            _EXACT_INT64_STRING
+        ).fillna(False).to_numpy(dtype=bool)
+        unicode_exact_positions = remaining_positions[np.flatnonzero(unicode_exact_mask)]
+        if len(unicode_exact_positions):
             unicode_exact_values = _pandas_ascii_exact_text_to_int64(
-                normalized_remaining.loc[unicode_exact_mask]
+                text.iloc[unicode_exact_positions].str.translate(PANDAS_DIGIT_TRANSLATION)
             )
-            out.loc[unicode_exact_values.index] = unicode_exact_values
-            numeric_mask.loc[unicode_exact_mask.index] = ~unicode_exact_mask
+            out.iloc[unicode_exact_positions] = pd.array(unicode_exact_values, dtype="Int64")
 
-    remaining = inner.loc[numeric_mask]
-    if not remaining.empty:
-        numeric = pd.to_numeric(remaining, errors="coerce")
-        if len(numeric):
-            out.loc[remaining.index] = _pandas_series_to_int64(numeric)
+        numeric_positions = remaining_positions[np.flatnonzero(~unicode_exact_mask)]
+        if len(numeric_positions):
+            remaining = inner.iloc[numeric_positions]
+            numeric = pd.to_numeric(remaining, errors="coerce")
+            if len(numeric):
+                numeric_values = _pandas_series_to_int64(numeric)
+                out.iloc[numeric_positions] = pd.array(numeric_values, dtype="Int64")
     return out
 
 
@@ -241,6 +249,8 @@ def _pandas_ascii_exact_text_to_int64(text: pd.Series) -> pd.Series:
     signs = text.str[0]
     negative = signs.eq("-")
     digits = text.str.replace(r"^[+-]", "", regex=True).str.lstrip("0").fillna("")
+    normalized_text = digits.where(digits.ne(""), "0")
+    normalized_text = normalized_text.mask(negative, "-" + normalized_text)
     digit_count = digits.str.len()
     max_count = len(_INT64_MAX_POSITIVE_DIGITS)
     at_max_count = digit_count.eq(max_count)
@@ -249,24 +259,28 @@ def _pandas_ascii_exact_text_to_int64(text: pd.Series) -> pd.Series:
     ) | (
         at_max_count & negative & digits.le(_INT64_MIN_ABSOLUTE_DIGITS)
     )
-    fast_mask = in_range & digit_count.lt(max_count)
-    fast_values = text.loc[fast_mask].astype("Int64")
-    out.loc[fast_values.index] = fast_values
+    in_range = in_range.to_numpy(dtype=bool)
+    at_max_count = at_max_count.to_numpy(dtype=bool)
+    fast_mask = in_range & ~at_max_count
+    fast_positions = np.flatnonzero(fast_mask)
+    if len(fast_positions):
+        fast_values = normalized_text.iloc[fast_positions].astype("Int64")
+        out.iloc[fast_positions] = pd.array(fast_values, dtype="Int64")
 
-    boundary_mask = in_range & at_max_count
-    exact_in_decimal = text.loc[boundary_mask]
-    if exact_in_decimal.empty:
+    boundary_positions = np.flatnonzero(in_range & at_max_count)
+    if not len(boundary_positions):
         return out
 
+    exact_in_decimal = normalized_text.iloc[boundary_positions]
     decimals = pc.cast(pa.array(exact_in_decimal, type=pa.string()), pa.decimal128(38, 0))
     exact_values = pc.cast(decimals, pa.int64())
-    out.loc[exact_in_decimal.index] = pd.Series(
+    out.iloc[boundary_positions] = pd.Series(
         exact_values.to_numpy(zero_copy_only=False), index=exact_in_decimal.index, dtype="Int64"
     )
     return out
 
 
-def _cudf_series_to_int64(inner: Any) -> Any:
+def _cudf_series_to_int64(inner: SeriesT) -> SeriesT:
     """Convert cuDF values with the same exact-text semantics as pandas."""
     import cudf
 
@@ -286,10 +300,11 @@ def _cudf_series_to_int64(inner: Any) -> Any:
         return safe_numeric.astype("Int64")
 
     normalized_text = inner.astype(str).str.strip().str.translate(PANDAS_DIGIT_TRANSLATION)
-    exact_mask = normalized_text.str.contains(_EXACT_INT64_STRING, regex=True).fillna(False)
+    exact_mask = normalized_text.str.fullmatch(_EXACT_INT64_STRING).fillna(False).to_numpy(dtype=bool)
     out = cudf.Series(pd.NA, index=index, dtype="Int64")
-    if bool(exact_mask.any()):
-        candidates = normalized_text.loc[exact_mask]
+    if exact_mask.any():
+        exact_positions = np.flatnonzero(exact_mask)
+        candidates = normalized_text.iloc[exact_positions]
         signs = candidates.str[0]
         negative = signs.eq("-")
         digits = candidates.str.replace(r"^[+-]", "", regex=True).str.lstrip("0").fillna("")
@@ -300,18 +315,19 @@ def _cudf_series_to_int64(inner: Any) -> Any:
         ) | (
             at_max_count & negative & digits.le(_INT64_MIN_ABSOLUTE_DIGITS)
         )
-        exact_mask.loc[candidates.index] = in_range
-        exact_values = normalized_text.loc[exact_mask].astype("int64")
-        out.loc[exact_values.index] = exact_values
+        in_range = in_range.to_numpy(dtype=bool)
+        selected_positions = exact_positions[in_range]
+        exact_values = normalized_text.iloc[selected_positions].astype("int64")
+        out.iloc[selected_positions] = exact_values.to_numpy()
 
-    remaining_mask = ~exact_mask
-    if bool(remaining_mask.any()):
-        remaining = inner.loc[remaining_mask]
+    remaining_positions = np.flatnonzero(~exact_mask)
+    if len(remaining_positions):
+        remaining = inner.iloc[remaining_positions]
         numeric = s_to_numeric(Engine.CUDF)(remaining, errors="coerce")
         finite_mask = numeric.notna() & (numeric.abs() != float("inf"))
         in_range = numeric.ge(_INT64_MIN) & numeric.lt(_INT64_LIMIT_HIGH)
         safe_numeric = numeric.where(finite_mask & in_range)
-        out.loc[remaining.index] = safe_numeric.astype("Int64")
+        out.iloc[remaining_positions] = safe_numeric.astype("Int64").to_numpy()
     return out
 
 
