@@ -201,19 +201,14 @@ def _pandas_series_to_int64(inner: pd.Series) -> pd.Series:
         return pd.Series(truncated, index=index).where(in_range, pd.NA).astype("Int64")
 
     text = inner.astype("string").str.strip()
-    exact_mask = text.str.fullmatch(_EXACT_INT64_STRING_RE).fillna(False)
-    unicode_mask = text.str.fullmatch(_UNICODE_EXACT_INT64_STRING_RE).fillna(False) & ~exact_mask
+    normalized_text = text.str.translate(PANDAS_DIGIT_TRANSLATION)
+    exact_mask = normalized_text.str.fullmatch(_EXACT_INT64_STRING_RE).fillna(False)
     out = pd.Series(pd.NA, index=index, dtype="Int64")
     if exact_mask.any():
-        exact_values = _pandas_ascii_exact_text_to_int64(text.loc[exact_mask])
+        exact_values = _pandas_ascii_exact_text_to_int64(normalized_text.loc[exact_mask])
         out.loc[exact_values.index] = exact_values
 
-    unicode_other = text.loc[unicode_mask]
-    if not unicode_other.empty:
-        normalized = unicode_other.astype("string").str.translate(PANDAS_DIGIT_TRANSLATION)
-        out.loc[unicode_other.index] = _pandas_ascii_exact_text_to_int64(normalized)
-
-    remaining = inner.loc[~exact_mask & ~unicode_mask]
+    remaining = inner.loc[~exact_mask]
     if not remaining.empty:
         numeric = pd.to_numeric(remaining, errors="coerce")
         if len(numeric):
