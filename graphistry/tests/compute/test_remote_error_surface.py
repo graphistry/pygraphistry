@@ -400,6 +400,15 @@ def test_legacy_flat_chain_dict_body_retains_operations():
     assert transport.bodies[0]['gfql_query'] == chain
 
 
+def test_nonempty_legacy_flat_chain_dict_body_retains_operation():
+    chain = {'chain': [{'type': 'Node'}]}
+    transport = Transport(resp(200, json.dumps({'nodes': [], 'edges': []}).encode(), 'application/json'))
+    with transport:
+        gfql(bound_graph(), chain=chain)
+    assert transport.bodies[0]['gfql_operations'] == chain['chain']
+    assert transport.bodies[0]['gfql_query'] == chain
+
+
 def test_unknown_remote_dict_type_declines_as_e205_without_http():
     transport = Transport(resp(200, json.dumps({'nodes': [], 'edges': []}).encode(), 'application/json'))
     with transport:
