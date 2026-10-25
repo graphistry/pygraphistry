@@ -1,4 +1,5 @@
 import ast
+import copy
 import math
 from decimal import Decimal, InvalidOperation
 import numpy as np
@@ -22,7 +23,7 @@ from graphistry.Engine import (
     safe_map_series,
 )
 from graphistry.compute.exceptions import ErrorCode, GFQLTypeError, GFQLValidationError
-from graphistry.compute.dataframe_utils import concat_frames
+from graphistry.compute.dataframe_utils import concat_frames, domain_diff, domain_union, series_values
 from graphistry.compute.gfql.call.support import AggSpec
 from graphistry.compute.gfql.row import frame_ops as row_frame_ops
 from graphistry.compute.gfql.row.prefilter import AliasPrefilters
@@ -4496,15 +4497,27 @@ class RowPipelineMixin:
             current_nodes = base_nodes[base_nodes[node_id_col].isin(state_df[WALK_CURRENT_COL])].copy()
             if len(current_nodes) == 0:
                 return state_df.iloc[0:0], alias_frames
-            edge_result = edge_op.execute(
+            sem = EdgeSemantics.from_edge(edge_op)
+            finite_multihop = sem.is_multihop and not edge_op.to_fixed_point and (
+                edge_op.max_hops is not None
+                or edge_op.hops is not None
+            )
+            candidate_wavefront = base_nodes if sem.is_multihop and not finite_multihop else current_nodes
+            candidate_edge_op = edge_op
+            if sem.is_multihop:
+                candidate_edge_op = copy.copy(edge_op)
+                candidate_edge_op.hops = 1
+                candidate_edge_op.min_hops = 1
+                candidate_edge_op.max_hops = 1
+                candidate_edge_op.to_fixed_point = False
+            edge_result = candidate_edge_op.execute(
                 g=base_graph,
-                prev_node_wavefront=current_nodes,
+                prev_node_wavefront=candidate_wavefront,
                 target_wave_front=None,
                 engine=engine,
             )
             edges_df_step = edge_result._edges
             step_nodes = edge_result._nodes
-            sem = EdgeSemantics.from_edge(edge_op)
             edge_alias = getattr(edge_op, "_name", None)
             if sem.is_multihop and edge_alias is not None:
                 self._gfql_bindings_error(
@@ -4569,10 +4582,57 @@ class RowPipelineMixin:
                     if not shortest_path_mode and ident_col in oriented.columns
                     else []
                 )
+                oriented_parts = [oriented]
+                if finite_multihop:
+                    adjacency_wavefront = step_nodes
+                    seen_edge_ids = (
+                        series_values(edges_df_step[ident_col])
+                        if ident_col in edges_df_step.columns
+                        else None
+                    )
+                    for _ in range(1, sem.max_hops):
+                        if (
+                            adjacency_wavefront is None
+                            or node_id_col not in adjacency_wavefront.columns
+                            or len(adjacency_wavefront) == 0
+                        ):
+                            break
+                        adjacency_result = candidate_edge_op.execute(
+                            g=base_graph,
+                            prev_node_wavefront=adjacency_wavefront,
+                            target_wave_front=None,
+                            engine=engine,
+                        )
+                        adjacency_edges = adjacency_result._edges
+                        if adjacency_edges is None or len(adjacency_edges) == 0:
+                            break
+                        adjacency_oriented = sem.orient_edges(
+                            adjacency_edges,
+                            src_col,
+                            dst_col,
+                            dedupe=False,
+                        ).rename(columns=rename_map)
+                        if seen_edge_ids is not None and ident_col in adjacency_oriented.columns:
+                            new_edge_ids = domain_diff(
+                                series_values(adjacency_oriented[ident_col]),
+                                seen_edge_ids,
+                            )
+                            if len(new_edge_ids) == 0:
+                                break
+                            seen_edge_ids = domain_union(seen_edge_ids, new_edge_ids)
+                        oriented_parts.append(adjacency_oriented[step_cols])
+                        adjacency_wavefront = adjacency_result._nodes
+                if len(oriented_parts) > 1:
+                    concatenated_oriented = concat_frames(oriented_parts)
+                    if concatenated_oriented is not None:
+                        oriented = concatenated_oriented
+                        if not shortest_path_mode and ident_col in step_cols:
+                            oriented = oriented.drop_duplicates(
+                                subset=[WALK_FROM_COL, WALK_TO_COL, ident_col], keep="first"
+                            )
                 step_pairs = oriented[step_cols]
                 if ident_col not in step_cols:
                     step_pairs = step_pairs.drop_duplicates(keep="first")
-                # else: already unique -- the self-loop-twin dedup above ran on exactly step_cols
                 min_hops = edge_op.min_hops if edge_op.min_hops is not None else (
                     edge_op.hops if edge_op.hops is not None else 1
                 )

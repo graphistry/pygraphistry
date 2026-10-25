@@ -7035,6 +7035,133 @@ def test_string_cypher_executes_exact_multihop_relationship_pattern() -> None:
     assert result._nodes.to_dict(orient="records") == [{"id": "c"}]
 
 
+@pytest.mark.parametrize("engine", ["pandas", "cudf"])
+def test_string_cypher_exact_multihop_keeps_self_loop_endpoint_paths(engine: str) -> None:
+    nodes = pd.DataFrame({"id": ["a", "b", "c"]})
+    edges = pd.DataFrame(
+        {
+            "s": ["a", "a", "b"],
+            "d": ["b", "a", "c"],
+            "type": ["R", "R", "R"],
+        }
+    )
+    if engine == "cudf":
+        _require_cudf_runtime()
+        graph = _mk_cudf_graph(nodes, edges)
+    else:
+        graph = _mk_graph(nodes, edges)
+
+    result = graph.gfql(
+        "MATCH (a {id: 'a'})-[:R*2..2]->(b) "
+        "RETURN DISTINCT b.id AS id ORDER BY id",
+        engine=engine,
+    )
+
+    assert _to_pandas_df(result._nodes).to_dict(orient="records") == [{"id": "b"}, {"id": "c"}]
+
+
+@pytest.mark.parametrize("engine", ["pandas", "polars"])
+def test_string_cypher_one_hop_multihop_range_keeps_self_loop(engine: str) -> None:
+    if engine == "polars":
+        pytest.importorskip("polars")
+
+    graph = _mk_graph(
+        pd.DataFrame({"id": ["a", "b"]}),
+        pd.DataFrame({"s": ["a", "a"], "d": ["b", "a"], "type": ["R", "R"]}),
+    )
+
+    result = graph.gfql(
+        "MATCH (a {id: 'a'})-[:R*1..1]->(b) "
+        "RETURN DISTINCT b.id AS id ORDER BY id",
+    )
+
+    records = _to_pandas_df(result._nodes).to_dict(orient="records")
+    assert records == [{"id": "a"}, {"id": "b"}]
+
+
+@pytest.mark.parametrize("engine", ["pandas", "cudf"])
+def test_string_cypher_bounded_multihop_counts_parallel_edges(engine: str) -> None:
+    nodes = pd.DataFrame({"id": ["a", "b", "c"]})
+    edges = pd.DataFrame(
+        {"s": ["a", "a", "b"], "d": ["b", "b", "c"], "type": ["R"] * 3}
+    )
+    if engine == "cudf":
+        _require_cudf_runtime()
+        graph = _mk_cudf_graph(nodes, edges)
+    else:
+        graph = _mk_graph(nodes, edges)
+
+    result = graph.gfql(
+        "MATCH (a {id: 'a'})-[:R*2..2]->(b) RETURN b.id AS id",
+        engine=engine,
+    )
+
+    records = _to_pandas_df(result._nodes).to_dict(orient="records")
+    assert records == [{"id": "c"}, {"id": "c"}]
+
+
+@pytest.mark.parametrize("engine", ["pandas", "cudf"])
+def test_string_cypher_bounded_multihop_counts_self_loop_and_branch(engine: str) -> None:
+    nodes = pd.DataFrame({"id": ["a", "b", "c"]})
+    edges = pd.DataFrame(
+        {"s": ["a", "a", "b"], "d": ["a", "b", "c"], "type": ["R"] * 3}
+    )
+    if engine == "cudf":
+        _require_cudf_runtime()
+        graph = _mk_cudf_graph(nodes, edges)
+    else:
+        graph = _mk_graph(nodes, edges)
+
+    result = graph.gfql(
+        "MATCH (a {id: 'a'})-[:R*2..2]->(b) RETURN b.id AS id ORDER BY id",
+        engine=engine,
+    )
+
+    records = _to_pandas_df(result._nodes).to_dict(orient="records")
+    assert records == [{"id": "b"}, {"id": "c"}]
+
+
+@pytest.mark.parametrize("engine", ["pandas", "cudf"])
+def test_string_cypher_bounded_multihop_counts_edge_simple_cycle_once(engine: str) -> None:
+    nodes = pd.DataFrame({"id": ["a", "b", "c"]})
+    edges = pd.DataFrame(
+        {"s": ["a", "b", "c"], "d": ["b", "c", "a"], "type": ["R"] * 3}
+    )
+    if engine == "cudf":
+        _require_cudf_runtime()
+        graph = _mk_cudf_graph(nodes, edges)
+    else:
+        graph = _mk_graph(nodes, edges)
+
+    result = graph.gfql(
+        "MATCH (a {id: 'a'})-[:R*3..3]->(b) RETURN b.id AS id",
+        engine=engine,
+    )
+
+    assert _to_pandas_df(result._nodes).to_dict(orient="records") == [{"id": "a"}]
+
+
+@pytest.mark.parametrize("engine", ["pandas", "cudf"])
+def test_string_cypher_bounded_multihop_counts_undirected_paths(engine: str) -> None:
+    nodes = pd.DataFrame({"id": ["a", "b", "c"]})
+    edges = pd.DataFrame(
+        {"s": ["a", "b", "c"], "d": ["b", "c", "a"], "type": ["R"] * 3}
+    )
+    if engine == "cudf":
+        _require_cudf_runtime()
+        graph = _mk_cudf_graph(nodes, edges)
+    else:
+        graph = _mk_graph(nodes, edges)
+
+    result = graph.gfql(
+        "MATCH (a {id: 'a'})-[:R*2..2]-(b) RETURN b.id AS id",
+        engine=engine,
+    )
+
+    records = _to_pandas_df(result._nodes).to_dict(orient="records")
+    assert sorted(records, key=lambda row: row["id"]) == [{"id": "b"}, {"id": "c"}]
+
+
 def test_string_cypher_executes_bounded_multihop_relationship_pattern() -> None:
     graph = _mk_graph(
         pd.DataFrame({"id": ["a", "b", "c", "d", "e"]}),
