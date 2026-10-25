@@ -376,6 +376,15 @@ def test_missing_remote_dict_type_declines_empty_dict_as_e105_without_http():
     assert transport.bodies == []
 
 
+def test_legacy_flat_chain_dict_body_retains_operations():
+    chain = {'chain': []}
+    transport = Transport(resp(200, json.dumps({'nodes': [], 'edges': []}).encode(), 'application/json'))
+    with transport:
+        gfql(bound_graph(), chain=chain)
+    assert transport.bodies[0]['gfql_operations'] == []
+    assert transport.bodies[0]['gfql_query'] == chain
+
+
 def test_unknown_remote_dict_type_declines_as_e205_without_http():
     transport = Transport(resp(200, json.dumps({'nodes': [], 'edges': []}).encode(), 'application/json'))
     with transport:
