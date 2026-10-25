@@ -282,7 +282,7 @@ def _pandas_ascii_exact_text_to_int64(text: pd.Series) -> pd.Series:
     return out
 
 
-def _cudf_series_to_int64(inner: SeriesT) -> SeriesT:
+def _cudf_series_to_int64(inner: SeriesT) -> SeriesT:  # pragma: no cover - cuDF-only; exact-text semantics validated on dgx-spark
     """Convert cuDF values with the same exact-text semantics as pandas."""
     import cudf
 
