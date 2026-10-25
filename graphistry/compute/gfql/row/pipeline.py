@@ -1,5 +1,6 @@
 import ast
 import math
+from decimal import Decimal, InvalidOperation
 import numpy as np
 import numbers
 import re
@@ -108,6 +109,13 @@ from graphistry.compute.gfql.temporal.durations import (
     parse_temporal_sort_duration_components,
     resolve_duration_text_property,
 )
+from graphistry.compute.gfql.row.integer_text import (
+    ASCII_EXACT_INT64_PATTERN,
+    ASCII_EXACT_INT64_RE,
+    PANDAS_DIGIT_TRANSLATION,
+    UNICODE_EXACT_INT64_RE,
+    normalize_supported_decimal_digits,
+)
 
 
 #: Cypher's two numeric kinds; a Literal so a typo'd branch is a type error, not a silent miss.
@@ -126,6 +134,203 @@ GFQLParseExprFn = Callable[[str], "ExprNode"]
 GFQLValidateExprFn = Callable[["ExprNode"], List[str]]
 GFQLRuntimeParserBundle = Tuple[GFQLParseExprFn, GFQLValidateExprFn, ModuleType]
 _GFQL_MISSING_BOOL_OPERAND = object()
+_INT64_MIN = -(2**63)
+_INT64_LIMIT_HIGH = 2**63
+_INT64_MIN_AS_FLOAT = float(_INT64_MIN)
+_INT64_LIMIT_HIGH_AS_FLOAT = float(_INT64_LIMIT_HIGH)
+_EXACT_INT64_STRING = ASCII_EXACT_INT64_PATTERN
+_EXACT_INT64_STRING_RE = ASCII_EXACT_INT64_RE
+_UNICODE_EXACT_INT64_STRING_RE = UNICODE_EXACT_INT64_RE
+_INT64_MAX_POSITIVE_DIGITS = str(_INT64_LIMIT_HIGH - 1)
+_INT64_MIN_ABSOLUTE_DIGITS = str(-_INT64_MIN)
+
+
+def _to_cypher_int64_scalar(value: object) -> Optional[int]:
+    """Convert a scalar according to Cypher toInteger, with overflow as null."""
+    if is_null_scalar(value):
+        return None
+    if isinstance(value, str):
+        text = value.strip()
+        if _EXACT_INT64_STRING_RE.fullmatch(text):
+            parsed = int(text)
+        elif _UNICODE_EXACT_INT64_STRING_RE.fullmatch(text):
+            text = normalize_supported_decimal_digits(text)
+            if not _EXACT_INT64_STRING_RE.fullmatch(text):
+                return None
+            parsed = int(text)
+        else:
+            try:
+                parsed_float = float(text)
+            except ValueError:
+                return None
+            if not math.isfinite(parsed_float):
+                return None
+            parsed = math.trunc(parsed_float)
+    elif isinstance(value, bool):
+        parsed = int(value)
+    elif isinstance(value, numbers.Integral):
+        parsed = int(value)
+    elif isinstance(value, numbers.Real):
+        as_float = float(value)
+        if not math.isfinite(as_float):
+            return None
+        parsed = math.trunc(as_float)
+    elif isinstance(value, Decimal):
+        if not value.is_finite():
+            return None
+        parsed = int(value.to_integral_value(rounding="ROUND_DOWN"))
+    else:
+        return None
+    return parsed if _INT64_MIN <= parsed < _INT64_LIMIT_HIGH else None
+
+
+def _pandas_series_to_int64(inner: pd.Series) -> pd.Series:
+    """Convert pandas values to Cypher integer semantics without a native-int float hop."""
+    index = inner.index
+    if pd.api.types.is_bool_dtype(inner.dtype):
+        return inner.astype("Int64")
+    if pd.api.types.is_integer_dtype(inner.dtype):
+        if inner.dtype.kind == "u":
+            out = pd.Series(pd.NA, index=index, dtype="Int64")
+            in_range = inner.lt(_INT64_LIMIT_HIGH).to_numpy(dtype=bool)
+            in_range_values = inner.iloc[np.flatnonzero(in_range)].astype("int64")
+            out.iloc[np.flatnonzero(in_range)] = in_range_values.to_numpy()
+            return out
+        return inner.astype("Int64")
+    if pd.api.types.is_float_dtype(inner.dtype):
+        values = inner.to_numpy(dtype="float64", na_value=np.nan)
+        finite = np.isfinite(values)
+        in_range = finite & (values >= _INT64_MIN) & (values < _INT64_LIMIT_HIGH)
+        truncated = np.trunc(values)
+        return pd.Series(truncated, index=index).where(in_range, pd.NA).astype("Int64")
+
+    from pyarrow.lib import ArrowInvalid
+
+    text = inner.astype("string").str.strip()
+    exact_mask = text.str.match(_EXACT_INT64_STRING).fillna(False).to_numpy(dtype=bool)
+    out = pd.Series(pd.NA, index=index, dtype="Int64")
+    if exact_mask.any():
+        exact_positions = np.flatnonzero(exact_mask)
+        try:
+            exact_values = text.iloc[exact_positions].astype("Int64")
+        except (OverflowError, ArrowInvalid):
+            exact_values = _pandas_ascii_exact_text_to_int64(text.iloc[exact_positions])
+        out.iloc[exact_positions] = pd.array(exact_values, dtype="Int64")
+
+    remaining_mask = ~exact_mask
+    remaining_positions = np.flatnonzero(remaining_mask)
+    if len(remaining_positions):
+        normalized_remaining = text.iloc[remaining_positions].str.translate(PANDAS_DIGIT_TRANSLATION)
+        unicode_exact_mask = normalized_remaining.str.match(
+            _EXACT_INT64_STRING
+        ).fillna(False).to_numpy(dtype=bool)
+        unicode_exact_positions = remaining_positions[np.flatnonzero(unicode_exact_mask)]
+        if len(unicode_exact_positions):
+            unicode_exact_values = _pandas_ascii_exact_text_to_int64(
+                text.iloc[unicode_exact_positions].str.translate(PANDAS_DIGIT_TRANSLATION)
+            )
+            out.iloc[unicode_exact_positions] = pd.array(unicode_exact_values, dtype="Int64")
+
+        numeric_positions = remaining_positions[np.flatnonzero(~unicode_exact_mask)]
+        if len(numeric_positions):
+            remaining = inner.iloc[numeric_positions]
+            numeric = pd.to_numeric(remaining, errors="coerce")
+            if len(numeric):
+                numeric_values = _pandas_series_to_int64(numeric)
+                out.iloc[numeric_positions] = pd.array(numeric_values, dtype="Int64")
+    return out
+
+
+def _pandas_ascii_exact_text_to_int64(text: pd.Series) -> pd.Series:
+    """Parse normalized ASCII integer text through native Arrow decimals."""
+    import pyarrow as pa
+    import pyarrow.compute as pc
+
+    out = pd.Series(pd.NA, index=text.index, dtype="Int64")
+
+    signs = text.str[0]
+    negative = signs.eq("-")
+    digits = text.str.replace(r"^[+-]", "", regex=True).str.lstrip("0").fillna("")
+    normalized_text = digits.where(digits.ne(""), "0")
+    normalized_text = normalized_text.mask(negative, "-" + normalized_text)
+    digit_count = digits.str.len()
+    max_count = len(_INT64_MAX_POSITIVE_DIGITS)
+    at_max_count = digit_count.eq(max_count)
+    in_range = digits.eq("") | digit_count.lt(max_count) | (
+        at_max_count & ~negative & digits.le(_INT64_MAX_POSITIVE_DIGITS)
+    ) | (
+        at_max_count & negative & digits.le(_INT64_MIN_ABSOLUTE_DIGITS)
+    )
+    in_range = in_range.to_numpy(dtype=bool)
+    at_max_count = at_max_count.to_numpy(dtype=bool)
+    fast_mask = in_range & ~at_max_count
+    fast_positions = np.flatnonzero(fast_mask)
+    if len(fast_positions):
+        fast_values = normalized_text.iloc[fast_positions].astype("Int64")
+        out.iloc[fast_positions] = pd.array(fast_values, dtype="Int64")
+
+    boundary_positions = np.flatnonzero(in_range & at_max_count)
+    if not len(boundary_positions):
+        return out
+
+    exact_in_decimal = normalized_text.iloc[boundary_positions]
+    decimals = pc.cast(pa.array(exact_in_decimal, type=pa.string()), pa.decimal128(38, 0))
+    exact_values = pc.cast(decimals, pa.int64())
+    out.iloc[boundary_positions] = pd.Series(
+        exact_values.to_numpy(zero_copy_only=False), index=exact_in_decimal.index, dtype="Int64"
+    )
+    return out
+
+
+def _cudf_series_to_int64(inner: SeriesT) -> SeriesT:  # pragma: no cover - cuDF-only; exact-text semantics validated on dgx-spark
+    """Convert cuDF values with the same exact-text semantics as pandas."""
+    import cudf
+
+    index = inner.index
+    if inner.dtype.kind == "b":
+        return inner.astype("int64")
+    if inner.dtype.kind == "i":
+        return inner.astype("int64")
+    if inner.dtype.kind == "u":
+        in_range = inner.lt(_INT64_LIMIT_HIGH)
+        return inner.where(in_range).astype("int64")
+    if inner.dtype.kind == "f":
+        numeric = s_to_numeric(Engine.CUDF)(inner, errors="coerce")
+        finite_mask = numeric.notna() & (numeric.abs() != float("inf"))
+        in_range = numeric.ge(_INT64_MIN_AS_FLOAT) & numeric.lt(_INT64_LIMIT_HIGH_AS_FLOAT)
+        safe_numeric = numeric.where(finite_mask & in_range)
+        return safe_numeric.astype("Int64")
+
+    normalized_text = inner.astype(str).str.strip().str.translate(PANDAS_DIGIT_TRANSLATION)
+    exact_mask = normalized_text.str.match(_EXACT_INT64_STRING).fillna(False).to_numpy(dtype=bool)
+    out = cudf.Series(pd.NA, index=index, dtype="Int64")
+    if exact_mask.any():
+        exact_positions = np.flatnonzero(exact_mask)
+        candidates = normalized_text.iloc[exact_positions]
+        signs = candidates.str[0]
+        negative = signs.eq("-")
+        digits = candidates.str.replace(r"^[+-]", "", regex=True).str.lstrip("0").fillna("")
+        digit_count = digits.str.len()
+        at_max_count = digit_count.eq(len(_INT64_MAX_POSITIVE_DIGITS))
+        in_range = digits.eq("") | digit_count.lt(len(_INT64_MAX_POSITIVE_DIGITS)) | (
+            at_max_count & ~negative & digits.le(_INT64_MAX_POSITIVE_DIGITS)
+        ) | (
+            at_max_count & negative & digits.le(_INT64_MIN_ABSOLUTE_DIGITS)
+        )
+        in_range = in_range.to_numpy(dtype=bool)
+        selected_positions = exact_positions[in_range]
+        exact_values = normalized_text.iloc[selected_positions].astype("int64")
+        out.iloc[selected_positions] = exact_values
+
+    remaining_positions = np.flatnonzero(~exact_mask)
+    if len(remaining_positions):
+        remaining = inner.iloc[remaining_positions]
+        numeric = s_to_numeric(Engine.CUDF)(remaining, errors="coerce")
+        finite_mask = numeric.notna() & (numeric.abs() != float("inf"))
+        in_range = numeric.ge(_INT64_MIN_AS_FLOAT) & numeric.lt(_INT64_LIMIT_HIGH_AS_FLOAT)
+        safe_numeric = numeric.where(finite_mask & in_range)
+        out.iloc[remaining_positions] = safe_numeric.astype("Int64")
+    return out
 
 
 @lru_cache(maxsize=1)
@@ -1775,17 +1980,24 @@ class RowPipelineMixin:
                 inner = values[0]
                 if hasattr(inner, "astype"):
                     null_mask = self._gfql_null_mask(table_df, inner)
-                    out = inner.astype(float).fillna(0).astype("int64")
+                    engine = resolve_engine(EngineAbstract.AUTO, table_df)
+                    if engine == Engine.PANDAS and isinstance(inner, pd.Series):
+                        out = _pandas_series_to_int64(inner)
+                    elif engine == Engine.CUDF:
+                        out = _cudf_series_to_int64(inner)
+                    else:
+                        numeric = s_to_numeric(engine)(inner, errors="coerce")
+                        finite_mask = numeric.notna() & (numeric.abs() != float("inf"))
+                        in_range = numeric.ge(_INT64_MIN) & numeric.lt(_INT64_LIMIT_HIGH)
+                        safe_numeric = numeric.where(finite_mask & in_range)
+                        out = safe_numeric.astype("Int64")
                     return True, out.where(~null_mask, pd.NA)
                 if is_null_scalar(inner):
                     return True, None
                 if isinstance(inner, str):
                     # A string with no integer value is null; invalid TYPES below still error.
-                    try:
-                        return True, int(float(inner))
-                    except (ValueError, OverflowError):
-                        return True, None
-                return True, int(float(inner))
+                    return True, _to_cypher_int64_scalar(inner)
+                return True, _to_cypher_int64_scalar(inner)
 
             if fn == "substring" and len(values) in {2, 3}:
                 inner = values[0]
@@ -2042,6 +2254,31 @@ class RowPipelineMixin:
             return True, out.reset_index(drop=True)
 
         if isinstance(node, ListComprehension):
+            projection = node.projection
+            projection_consumes_var = False
+
+            def _mark_projection_var(consumed_node: object) -> None:
+                nonlocal projection_consumes_var
+                if isinstance(consumed_node, Identifier) and consumed_node.name == node.var:
+                    projection_consumes_var = True
+
+            if projection is not None:
+                expr_parser_mod.walk_expr_nodes(projection, enter=_mark_projection_var)
+            if (
+                isinstance(projection, FunctionCall)
+                and projection.name.lower() in {"tofloat", "tointeger"}
+                and projection_consumes_var
+                and isinstance(node.source, ListLiteral)
+                and any(
+                    isinstance(item, (ListLiteral, MapLiteral))
+                    or (
+                        isinstance(item, Literal)
+                        and isinstance(item.value, (list, dict))
+                    )
+                    for item in node.source.items
+                )
+            ):
+                return False, None
             source_ok, list_value = self._gfql_eval_expr_ast(table_df, node.source)
             if not source_ok:
                 return False, None
