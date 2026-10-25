@@ -360,6 +360,21 @@ def test_let_wire_body_omits_identity_fallback_operations():
     assert transport.bodies[0]['gfql_query'] == let
 
 
+def test_let_rejected_by_old_server_is_typed_remote_error():
+    let = {'type': 'Let', 'bindings': {'foo': {'type': 'Chain', 'chain': [{'type': 'Node'}]}}}
+    transport = Transport(resp(422, b'{"status":"error","msg":"gfql_query is required"}',
+                               'application/json'))
+    with transport:
+        with pytest.warns(UserWarning, match=r'gfql_query'):
+            with pytest.raises(GFQLRemoteError) as error_info:
+                gfql(bound_graph(), chain=let)
+    assert transport.bodies == [{'gfql_query': let, 'format': 'json', 'engine': 'pandas',
+                                 'strictness': 'warn'}]
+    assert not isinstance(error_info.value, requests.exceptions.RequestException)
+    assert error_info.value.context['status_code'] == 422
+    assert 'gfql_query is required' in str(error_info.value)
+
+
 def test_unrecognized_remote_dict_is_declined_before_the_wire():
     with Transport(resp(200, json.dumps({'nodes': [], 'edges': []}).encode(), 'application/json')):
         with pytest.raises(GFQLValidationError) as error_info:
