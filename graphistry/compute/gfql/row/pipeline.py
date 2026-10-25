@@ -203,14 +203,27 @@ def _pandas_series_to_int64(inner: pd.Series) -> pd.Series:
         return pd.Series(truncated, index=index).where(in_range, pd.NA).astype("Int64")
 
     text = inner.astype("string").str.strip()
-    normalized_text = text.str.translate(PANDAS_DIGIT_TRANSLATION)
-    exact_mask = normalized_text.str.fullmatch(_EXACT_INT64_STRING).fillna(False)
+    exact_mask = text.str.fullmatch(_EXACT_INT64_STRING).fillna(False)
     out = pd.Series(pd.NA, index=index, dtype="Int64")
     if exact_mask.any():
-        exact_values = _pandas_ascii_exact_text_to_int64(normalized_text.loc[exact_mask])
+        try:
+            exact_values = text.loc[exact_mask].astype("Int64")
+        except OverflowError:
+            exact_values = _pandas_ascii_exact_text_to_int64(text.loc[exact_mask])
         out.loc[exact_values.index] = exact_values
 
-    remaining = inner.loc[~exact_mask]
+    numeric_mask = ~exact_mask
+    if bool(numeric_mask.any()):
+        normalized_remaining = text.loc[numeric_mask].str.translate(PANDAS_DIGIT_TRANSLATION)
+        unicode_exact_mask = normalized_remaining.str.fullmatch(_EXACT_INT64_STRING).fillna(False)
+        if bool(unicode_exact_mask.any()):
+            unicode_exact_values = _pandas_ascii_exact_text_to_int64(
+                normalized_remaining.loc[unicode_exact_mask]
+            )
+            out.loc[unicode_exact_values.index] = unicode_exact_values
+            numeric_mask.loc[unicode_exact_mask.index] = ~unicode_exact_mask
+
+    remaining = inner.loc[numeric_mask]
     if not remaining.empty:
         numeric = pd.to_numeric(remaining, errors="coerce")
         if len(numeric):
@@ -224,19 +237,27 @@ def _pandas_ascii_exact_text_to_int64(text: pd.Series) -> pd.Series:
     import pyarrow.compute as pc
 
     out = pd.Series(pd.NA, index=text.index, dtype="Int64")
+
     signs = text.str[0]
     negative = signs.eq("-")
     digits = text.str.replace(r"^[+-]", "", regex=True).str.lstrip("0").fillna("")
     digit_count = digits.str.len()
-    at_max_count = digit_count.eq(len(_INT64_MAX_POSITIVE_DIGITS))
-    in_range = digits.eq("") | digit_count.lt(len(_INT64_MAX_POSITIVE_DIGITS)) | (
+    max_count = len(_INT64_MAX_POSITIVE_DIGITS)
+    at_max_count = digit_count.eq(max_count)
+    in_range = digits.eq("") | digit_count.lt(max_count) | (
         at_max_count & ~negative & digits.le(_INT64_MAX_POSITIVE_DIGITS)
     ) | (
         at_max_count & negative & digits.le(_INT64_MIN_ABSOLUTE_DIGITS)
     )
-    exact_in_decimal = text.loc[in_range]
+    fast_mask = in_range & digit_count.lt(max_count)
+    fast_values = text.loc[fast_mask].astype("Int64")
+    out.loc[fast_values.index] = fast_values
+
+    boundary_mask = in_range & at_max_count
+    exact_in_decimal = text.loc[boundary_mask]
     if exact_in_decimal.empty:
         return out
+
     decimals = pc.cast(pa.array(exact_in_decimal, type=pa.string()), pa.decimal128(38, 0))
     exact_values = pc.cast(decimals, pa.int64())
     out.loc[exact_in_decimal.index] = pd.Series(
@@ -250,7 +271,14 @@ def _cudf_series_to_int64(inner: Any) -> Any:
     import cudf
 
     index = inner.index
-    if inner.dtype.kind in "ibfu":
+    if inner.dtype.kind == "b":
+        return inner.astype("int64")
+    if inner.dtype.kind == "i":
+        return inner.astype("int64")
+    if inner.dtype.kind == "u":
+        in_range = inner.lt(_INT64_LIMIT_HIGH)
+        return inner.where(in_range).astype("int64")
+    if inner.dtype.kind == "f":
         numeric = s_to_numeric(Engine.CUDF)(inner, errors="coerce")
         finite_mask = numeric.notna() & (numeric.abs() != float("inf"))
         in_range = numeric.ge(_INT64_MIN) & numeric.lt(_INT64_LIMIT_HIGH)
@@ -261,6 +289,18 @@ def _cudf_series_to_int64(inner: Any) -> Any:
     exact_mask = normalized_text.str.contains(_EXACT_INT64_STRING, regex=True).fillna(False)
     out = cudf.Series(pd.NA, index=index, dtype="Int64")
     if bool(exact_mask.any()):
+        candidates = normalized_text.loc[exact_mask]
+        signs = candidates.str[0]
+        negative = signs.eq("-")
+        digits = candidates.str.replace(r"^[+-]", "", regex=True).str.lstrip("0").fillna("")
+        digit_count = digits.str.len()
+        at_max_count = digit_count.eq(len(_INT64_MAX_POSITIVE_DIGITS))
+        in_range = digits.eq("") | digit_count.lt(len(_INT64_MAX_POSITIVE_DIGITS)) | (
+            at_max_count & ~negative & digits.le(_INT64_MAX_POSITIVE_DIGITS)
+        ) | (
+            at_max_count & negative & digits.le(_INT64_MIN_ABSOLUTE_DIGITS)
+        )
+        exact_mask.loc[candidates.index] = in_range
         exact_values = normalized_text.loc[exact_mask].astype("int64")
         out.loc[exact_values.index] = exact_values
 
