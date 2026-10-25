@@ -23,7 +23,7 @@ from graphistry.Engine import (
     safe_map_series,
 )
 from graphistry.compute.exceptions import ErrorCode, GFQLTypeError, GFQLValidationError
-from graphistry.compute.dataframe_utils import concat_frames
+from graphistry.compute.dataframe_utils import concat_frames, domain_diff, domain_union, series_values
 from graphistry.compute.gfql.call.support import AggSpec
 from graphistry.compute.gfql.row import frame_ops as row_frame_ops
 from graphistry.compute.gfql.row.prefilter import AliasPrefilters
@@ -4585,6 +4585,11 @@ class RowPipelineMixin:
                 oriented_parts = [oriented]
                 if finite_multihop:
                     adjacency_wavefront = step_nodes
+                    seen_edge_ids = (
+                        series_values(edges_df_step[ident_col])
+                        if ident_col in edges_df_step.columns
+                        else None
+                    )
                     for _ in range(1, sem.max_hops):
                         if (
                             adjacency_wavefront is None
@@ -4607,6 +4612,14 @@ class RowPipelineMixin:
                             dst_col,
                             dedupe=False,
                         ).rename(columns=rename_map)
+                        if seen_edge_ids is not None and ident_col in adjacency_oriented.columns:
+                            new_edge_ids = domain_diff(
+                                series_values(adjacency_oriented[ident_col]),
+                                seen_edge_ids,
+                            )
+                            if len(new_edge_ids) == 0:
+                                break
+                            seen_edge_ids = domain_union(seen_edge_ids, new_edge_ids)
                         oriented_parts.append(adjacency_oriented[step_cols])
                         adjacency_wavefront = adjacency_result._nodes
                 if len(oriented_parts) > 1:

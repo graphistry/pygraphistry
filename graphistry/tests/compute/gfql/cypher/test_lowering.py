@@ -7159,7 +7159,7 @@ def test_string_cypher_bounded_multihop_counts_undirected_paths(engine: str) -> 
     )
 
     records = _to_pandas_df(result._nodes).to_dict(orient="records")
-    assert records == [{"id": "c"}, {"id": "b"}]
+    assert sorted(records, key=lambda row: row["id"]) == [{"id": "b"}, {"id": "c"}]
 
 
 def test_string_cypher_executes_bounded_multihop_relationship_pattern() -> None:
