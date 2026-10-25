@@ -204,9 +204,17 @@ def chain_remote_generic(
         chain_json = chain
         is_let = chain_json.get('type') == 'Let'
         if not is_let and chain_json.get('type') != 'Chain':
-            raise GFQLValidationError(
-                ErrorCode.E105,
-                "Remote query dict must be a serialized Let or Chain",
+            if 'type' not in chain_json:
+                raise GFQLValidationError(
+                    ErrorCode.E105,
+                    "Remote query dict must be a serialized Let or Chain",
+                    field="type",
+                    value=chain_json.get('type'),
+                    suggestion="Use Chain, List[ASTObject], ASTLet, Cypher string, or a dict with type='Chain' or type='Let'",
+                )
+            raise GFQLTypeError(
+                ErrorCode.E205,
+                f"Remote query dict has invalid type: {chain_json.get('type')!r}",
                 field="type",
                 value=chain_json.get('type'),
                 suggestion="Use Chain, List[ASTObject], ASTLet, Cypher string, or a dict with type='Chain' or type='Let'",

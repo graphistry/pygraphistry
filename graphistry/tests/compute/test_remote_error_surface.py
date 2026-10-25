@@ -367,6 +367,24 @@ def test_unrecognized_remote_dict_is_declined_before_the_wire():
     assert error_info.value.code == ErrorCode.E105
 
 
+def test_missing_remote_dict_type_declines_empty_dict_as_e105_without_http():
+    transport = Transport(resp(200, json.dumps({'nodes': [], 'edges': []}).encode(), 'application/json'))
+    with transport:
+        with pytest.raises(GFQLValidationError) as error_info:
+            gfql(bound_graph(), chain={})
+    assert error_info.value.code == ErrorCode.E105
+    assert transport.bodies == []
+
+
+def test_unknown_remote_dict_type_declines_as_e205_without_http():
+    transport = Transport(resp(200, json.dumps({'nodes': [], 'edges': []}).encode(), 'application/json'))
+    with transport:
+        with pytest.raises(GFQLTypeError) as error_info:
+            gfql(bound_graph(), chain={'type': 'UnknownQuery'})
+    assert error_info.value.code == ErrorCode.E205
+    assert transport.bodies == []
+
+
 @pytest.mark.parametrize('fmt,payload_key', [('json', 'json'), ('parquet', 'zip')])
 def test_node_col_subset_dropping_the_bound_id_is_typed(fmt, payload_key):
     if payload_key == 'json':
