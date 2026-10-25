@@ -136,6 +136,8 @@ GFQLRuntimeParserBundle = Tuple[GFQLParseExprFn, GFQLValidateExprFn, ModuleType]
 _GFQL_MISSING_BOOL_OPERAND = object()
 _INT64_MIN = -(2**63)
 _INT64_LIMIT_HIGH = 2**63
+_INT64_MIN_AS_FLOAT = float(_INT64_MIN)
+_INT64_LIMIT_HIGH_AS_FLOAT = float(_INT64_LIMIT_HIGH)
 _EXACT_INT64_STRING = ASCII_EXACT_INT64_PATTERN
 _EXACT_INT64_STRING_RE = ASCII_EXACT_INT64_RE
 _UNICODE_EXACT_INT64_STRING_RE = UNICODE_EXACT_INT64_RE
@@ -295,7 +297,7 @@ def _cudf_series_to_int64(inner: SeriesT) -> SeriesT:
     if inner.dtype.kind == "f":
         numeric = s_to_numeric(Engine.CUDF)(inner, errors="coerce")
         finite_mask = numeric.notna() & (numeric.abs() != float("inf"))
-        in_range = numeric.ge(_INT64_MIN) & numeric.lt(_INT64_LIMIT_HIGH)
+        in_range = numeric.ge(_INT64_MIN_AS_FLOAT) & numeric.lt(_INT64_LIMIT_HIGH_AS_FLOAT)
         safe_numeric = numeric.where(finite_mask & in_range)
         return safe_numeric.astype("Int64")
 
@@ -325,7 +327,7 @@ def _cudf_series_to_int64(inner: SeriesT) -> SeriesT:
         remaining = inner.iloc[remaining_positions]
         numeric = s_to_numeric(Engine.CUDF)(remaining, errors="coerce")
         finite_mask = numeric.notna() & (numeric.abs() != float("inf"))
-        in_range = numeric.ge(_INT64_MIN) & numeric.lt(_INT64_LIMIT_HIGH)
+        in_range = numeric.ge(_INT64_MIN_AS_FLOAT) & numeric.lt(_INT64_LIMIT_HIGH_AS_FLOAT)
         safe_numeric = numeric.where(finite_mask & in_range)
         out.iloc[remaining_positions] = safe_numeric.astype("Int64").to_numpy()
     return out
