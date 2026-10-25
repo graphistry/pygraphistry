@@ -245,6 +245,36 @@ def _pandas_ascii_exact_text_to_int64(text: pd.Series) -> pd.Series:
     return out
 
 
+def _cudf_series_to_int64(inner: Any) -> Any:
+    """Convert cuDF values with the same exact-text semantics as pandas."""
+    import cudf
+
+    index = inner.index
+    if inner.dtype.kind in "ibfu":
+        numeric = s_to_numeric(Engine.CUDF)(inner, errors="coerce")
+        finite_mask = numeric.notna() & (numeric.abs() != float("inf"))
+        in_range = numeric.ge(_INT64_MIN) & numeric.lt(_INT64_LIMIT_HIGH)
+        safe_numeric = numeric.where(finite_mask & in_range)
+        return safe_numeric.astype("Int64")
+
+    normalized_text = inner.astype(str).str.strip().str.translate(PANDAS_DIGIT_TRANSLATION)
+    exact_mask = normalized_text.str.contains(_EXACT_INT64_STRING, regex=True).fillna(False)
+    out = cudf.Series(pd.NA, index=index, dtype="Int64")
+    if bool(exact_mask.any()):
+        exact_values = normalized_text.loc[exact_mask].astype("int64")
+        out.loc[exact_values.index] = exact_values
+
+    remaining_mask = ~exact_mask
+    if bool(remaining_mask.any()):
+        remaining = inner.loc[remaining_mask]
+        numeric = s_to_numeric(Engine.CUDF)(remaining, errors="coerce")
+        finite_mask = numeric.notna() & (numeric.abs() != float("inf"))
+        in_range = numeric.ge(_INT64_MIN) & numeric.lt(_INT64_LIMIT_HIGH)
+        safe_numeric = numeric.where(finite_mask & in_range)
+        out.loc[remaining.index] = safe_numeric.astype("Int64")
+    return out
+
+
 @lru_cache(maxsize=1)
 def _gfql_expr_runtime_parser_bundle() -> Optional[GFQLRuntimeParserBundle]:
     try:
@@ -1895,6 +1925,8 @@ class RowPipelineMixin:
                     engine = resolve_engine(EngineAbstract.AUTO, table_df)
                     if engine == Engine.PANDAS and isinstance(inner, pd.Series):
                         out = _pandas_series_to_int64(inner)
+                    elif engine == Engine.CUDF:
+                        out = _cudf_series_to_int64(inner)
                     else:
                         numeric = s_to_numeric(engine)(inner, errors="coerce")
                         finite_mask = numeric.notna() & (numeric.abs() != float("inf"))

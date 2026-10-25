@@ -83,7 +83,10 @@ def _values(engine, expr, column="v", nodes=None):
     if is_polars_df(out):
         out = out.to_pandas(use_pyarrow_extension_array=True)
     elif engine == "cudf":
-        out = out.to_pandas()
+        return [
+            None if value is None else value
+            for value in out.sort_values("id").to_arrow()[column].to_pylist()
+        ]
     return [
         None if value is None or (not isinstance(value, (list, tuple, dict)) and pd.isna(value)) else value
         for value in out.sort_values("id")[column].tolist()
