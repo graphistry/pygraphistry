@@ -353,6 +353,28 @@ def test_tointeger_wide_unicode_boundaries_stay_exact(engine):
 
 
 @pytest.mark.parametrize("engine", ENGINES)
+def test_tointeger_generalizes_decimal_digit_scripts(engine):
+    """Every Unicode decimal-digit script follows the same exact parser and trim behavior."""
+    nodes = pd.DataFrame({
+        "id": list("abcde"),
+        "s": [
+            "９００７１９９２５４７４０９９３",
+            "९२२३३७२०३६८५४७७५८०७",
+            "  ١  ",
+            "½",
+            None,
+        ],
+    })
+    assert _values(engine, "toInteger(n.s)", nodes=nodes) == [
+        9007199254740993,
+        9223372036854775807,
+        1,
+        None,
+        None,
+    ]
+
+
+@pytest.mark.parametrize("engine", ENGINES)
 def test_tointeger_native_integer_boundaries_stay_exact(engine):
     """Native integer columns must remain integer-routed: no IEEE 53-bit or float hop."""
     nodes = pd.DataFrame({

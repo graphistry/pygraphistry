@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import re
+import sys
+import unicodedata
 
 ASCII_EXACT_INT64_PATTERN = r"^[+-]?[0-9]+$"
 UNICODE_EXACT_INT64_PATTERN = r"^[+-]?\d+$"
@@ -10,22 +12,15 @@ UNICODE_EXACT_INT64_PATTERN = r"^[+-]?\d+$"
 ASCII_EXACT_INT64_RE = re.compile(ASCII_EXACT_INT64_PATTERN)
 UNICODE_EXACT_INT64_RE = re.compile(UNICODE_EXACT_INT64_PATTERN)
 
-_SUPPORTED_DECIMAL_DIGITS = (
-    "٠١٢٣٤٥٦٧٨٩",
-    "০১২৩৪৫৬৭৮৯",
-)
-
-PANDAS_DIGIT_TRANSLATION = str.maketrans({
-    digit: str(offset)
-    for digits in _SUPPORTED_DECIMAL_DIGITS
-    for offset, digit in enumerate(digits)
-})
-
-POLARS_DIGIT_REPLACEMENTS = {
-    digit: str(offset)
-    for digits in _SUPPORTED_DECIMAL_DIGITS
-    for offset, digit in enumerate(digits)
+_DECIMAL_DIGIT_REPLACEMENTS = {
+    character: str(unicodedata.decimal(character))
+    for codepoint in range(sys.maxunicode + 1)
+    if unicodedata.category(character := chr(codepoint)) == "Nd"
 }
+
+PANDAS_DIGIT_TRANSLATION = str.maketrans(_DECIMAL_DIGIT_REPLACEMENTS)
+
+POLARS_DIGIT_REPLACEMENTS = _DECIMAL_DIGIT_REPLACEMENTS
 
 
 def normalize_supported_decimal_digits(text: str) -> str:

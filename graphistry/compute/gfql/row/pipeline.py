@@ -208,7 +208,7 @@ def _pandas_series_to_int64(inner: pd.Series) -> pd.Series:
         exact_values = _pandas_ascii_exact_text_to_int64(text.loc[exact_mask])
         out.loc[exact_values.index] = exact_values
 
-    unicode_other = inner.loc[unicode_mask]
+    unicode_other = text.loc[unicode_mask]
     if not unicode_other.empty:
         normalized = unicode_other.astype("string").str.translate(PANDAS_DIGIT_TRANSLATION)
         out.loc[unicode_other.index] = _pandas_ascii_exact_text_to_int64(normalized)
