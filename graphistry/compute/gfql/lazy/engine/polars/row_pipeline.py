@@ -85,6 +85,10 @@ from graphistry.compute.gfql.identifiers import (
     WALK_TO_COL,
     trail_column_name,
 )
+from graphistry.compute.gfql.row.integer_text import (
+    ASCII_EXACT_INT64_PATTERN,
+    POLARS_DIGIT_REPLACEMENTS,
+)
 
 # Ops needing the NaN guard: polars treats NaN as the LARGEST value (>/>=/== TRUE), but
 # IEEE/Python/pandas/Cypher compare NaN as FALSE (!= TRUE; Neo4j TCK agrees). Float operands
@@ -298,7 +302,7 @@ def _lower_function(node: FunctionCall, columns: Sequence[str]) -> Optional[pl.E
         text = args[0].cast(pl.String, strict=False).str.strip_chars()
         normalized_text = text.str.replace_many(_UNICODE_DECIMAL_DIGIT_REPLACEMENTS)
         return pl.when(
-            normalized_text.str.contains(r"^[+-]?[0-9]+$")
+            normalized_text.str.contains(ASCII_EXACT_INT64_PATTERN)
         ).then(
             normalized_text.cast(pl.Int64, strict=False)
         ).otherwise(decimal)
@@ -336,10 +340,7 @@ def _lower_function(node: FunctionCall, columns: Sequence[str]) -> Optional[pl.E
 
 
 _ISO_DURATION_RE = re.compile(r"^-?P(?=[0-9T])")
-_UNICODE_DECIMAL_DIGIT_REPLACEMENTS = {
-    **{digit: str(offset) for offset, digit in enumerate("٠١٢٣٤٥٦٧٨٩")},
-    **{digit: str(offset) for offset, digit in enumerate("০১২৩৪৫৬৭৮৯")},
-}
+_UNICODE_DECIMAL_DIGIT_REPLACEMENTS = POLARS_DIGIT_REPLACEMENTS
 
 # ISO-8601 date/datetime/time-with-seconds-or-timezone — what cypher date()/time()/datetime()
 # lower to; polars string </> compares these LEXICOGRAPHICALLY (wrong across timezones/precision).

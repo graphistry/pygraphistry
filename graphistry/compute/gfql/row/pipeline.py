@@ -109,6 +109,12 @@ from graphistry.compute.gfql.temporal.durations import (
     parse_temporal_sort_duration_components,
     resolve_duration_text_property,
 )
+from graphistry.compute.gfql.row.integer_text import (
+    ASCII_EXACT_INT64_RE,
+    PANDAS_DIGIT_TRANSLATION,
+    UNICODE_EXACT_INT64_RE,
+    normalize_supported_decimal_digits,
+)
 
 
 #: Cypher's two numeric kinds; a Literal so a typo'd branch is a type error, not a silent miss.
@@ -129,12 +135,8 @@ GFQLRuntimeParserBundle = Tuple[GFQLParseExprFn, GFQLValidateExprFn, ModuleType]
 _GFQL_MISSING_BOOL_OPERAND = object()
 _INT64_MIN = -(2**63)
 _INT64_LIMIT_HIGH = 2**63
-_EXACT_INT64_STRING_RE = re.compile(r"^[+-]?[0-9]+$")
-_UNICODE_EXACT_INT64_STRING_RE = re.compile(r"^[+-]?\d+$")
-_DIGIT_TRANSLATION = str.maketrans({
-    **{digit: str(offset) for offset, digit in enumerate("٠١٢٣٤٥٦٧٨٩")},
-    **{digit: str(offset) for offset, digit in enumerate("০১২৩৪৫৬৭৮৯")},
-})
+_EXACT_INT64_STRING_RE = ASCII_EXACT_INT64_RE
+_UNICODE_EXACT_INT64_STRING_RE = UNICODE_EXACT_INT64_RE
 _INT64_MAX_POSITIVE_DIGITS = str(_INT64_LIMIT_HIGH - 1)
 _INT64_MIN_ABSOLUTE_DIGITS = str(-_INT64_MIN)
 
@@ -148,10 +150,10 @@ def _to_cypher_int64_scalar(value: object) -> Optional[int]:
         if _EXACT_INT64_STRING_RE.fullmatch(text):
             parsed = int(text)
         elif _UNICODE_EXACT_INT64_STRING_RE.fullmatch(text):
-            try:
-                parsed = int(Decimal(text.translate(_DIGIT_TRANSLATION)))
-            except InvalidOperation:
+            text = normalize_supported_decimal_digits(text)
+            if not _EXACT_INT64_STRING_RE.fullmatch(text):
                 return None
+            parsed = int(text)
         else:
             try:
                 parsed_float = float(text)
@@ -203,40 +205,46 @@ def _pandas_series_to_int64(inner: pd.Series) -> pd.Series:
     unicode_mask = text.str.fullmatch(_UNICODE_EXACT_INT64_STRING_RE).fillna(False) & ~exact_mask
     out = pd.Series(pd.NA, index=index, dtype="Int64")
     if exact_mask.any():
-        import pyarrow as pa
-        import pyarrow.compute as pc
-
-        exact = text.loc[exact_mask]
-        signs = exact.str[0]
-        negative = signs.eq("-")
-        digits = exact.str.replace(r"^[+-]", "", regex=True).str.lstrip("0").fillna("")
-        digit_count = digits.str.len()
-        at_max_count = digit_count.eq(len(_INT64_MAX_POSITIVE_DIGITS))
-        in_range = digits.eq("") | digit_count.lt(len(_INT64_MAX_POSITIVE_DIGITS)) | (
-            at_max_count & ~negative & digits.le(_INT64_MAX_POSITIVE_DIGITS)
-        ) | (
-            at_max_count & negative & digits.le(_INT64_MIN_ABSOLUTE_DIGITS)
-        )
-        exact_in_decimal = exact.loc[in_range]
-        if not exact_in_decimal.empty:
-            decimals = pc.cast(pa.array(exact_in_decimal, type=pa.string()), pa.decimal128(38, 0))
-            in_range_index = exact_in_decimal.index
-            exact_values = pc.cast(decimals, pa.int64())
-            out.loc[in_range_index] = pd.Series(
-                exact_values.to_numpy(zero_copy_only=False), index=in_range_index, dtype="Int64"
-            )
+        exact_values = _pandas_ascii_exact_text_to_int64(text.loc[exact_mask])
+        out.loc[exact_values.index] = exact_values
 
     unicode_other = inner.loc[unicode_mask]
     if not unicode_other.empty:
-        normalized = unicode_other.astype("string").str.translate(_DIGIT_TRANSLATION)
-        unicode_values = normalized.map(lambda value: Decimal(value))
-        out.loc[unicode_other.index] = unicode_values.map(_to_cypher_int64_scalar)
+        normalized = unicode_other.astype("string").str.translate(PANDAS_DIGIT_TRANSLATION)
+        out.loc[unicode_other.index] = _pandas_ascii_exact_text_to_int64(normalized)
 
     remaining = inner.loc[~exact_mask & ~unicode_mask]
     if not remaining.empty:
         numeric = pd.to_numeric(remaining, errors="coerce")
         if len(numeric):
             out.loc[remaining.index] = _pandas_series_to_int64(numeric)
+    return out
+
+
+def _pandas_ascii_exact_text_to_int64(text: pd.Series) -> pd.Series:
+    """Parse normalized ASCII integer text through native Arrow decimals."""
+    import pyarrow as pa
+    import pyarrow.compute as pc
+
+    out = pd.Series(pd.NA, index=text.index, dtype="Int64")
+    signs = text.str[0]
+    negative = signs.eq("-")
+    digits = text.str.replace(r"^[+-]", "", regex=True).str.lstrip("0").fillna("")
+    digit_count = digits.str.len()
+    at_max_count = digit_count.eq(len(_INT64_MAX_POSITIVE_DIGITS))
+    in_range = digits.eq("") | digit_count.lt(len(_INT64_MAX_POSITIVE_DIGITS)) | (
+        at_max_count & ~negative & digits.le(_INT64_MAX_POSITIVE_DIGITS)
+    ) | (
+        at_max_count & negative & digits.le(_INT64_MIN_ABSOLUTE_DIGITS)
+    )
+    exact_in_decimal = text.loc[in_range]
+    if exact_in_decimal.empty:
+        return out
+    decimals = pc.cast(pa.array(exact_in_decimal, type=pa.string()), pa.decimal128(38, 0))
+    exact_values = pc.cast(decimals, pa.int64())
+    out.loc[exact_in_decimal.index] = pd.Series(
+        exact_values.to_numpy(zero_copy_only=False), index=exact_in_decimal.index, dtype="Int64"
+    )
     return out
 
 

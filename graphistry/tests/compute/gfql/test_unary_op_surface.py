@@ -331,6 +331,28 @@ def test_tointeger_decimal_digit_rows_remain_independent(engine):
 
 
 @pytest.mark.parametrize("engine", ENGINES)
+def test_tointeger_wide_unicode_boundaries_stay_exact(engine):
+    """Supported Unicode digits reuse exact ASCII parsing, including mixed overflow rows."""
+    nodes = pd.DataFrame({
+        "id": list("abcde"),
+        "s": [
+            "٩٠٠٧١٩٩٢٥٤٧٤٠٩٩٣",
+            "৯২২৩৩৭২০৩৬৮৫৪৭৭৫৮০৭",
+            "٩٢٢٣٣٧٢٠٣٦٨٥٤٧٧٥٨٠٨",
+            "x١",
+            None,
+        ],
+    })
+    assert _values(engine, "toInteger(n.s)", nodes=nodes) == [
+        9007199254740993,
+        9223372036854775807,
+        None,
+        None,
+        None,
+    ]
+
+
+@pytest.mark.parametrize("engine", ENGINES)
 def test_tointeger_native_integer_boundaries_stay_exact(engine):
     """Native integer columns must remain integer-routed: no IEEE 53-bit or float hop."""
     nodes = pd.DataFrame({
