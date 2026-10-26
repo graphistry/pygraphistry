@@ -116,12 +116,12 @@ class TestLetSupport:
         body = _send(ASTLet({"people": ASTNode(filter_dict={"type": "person"})}))
         assert body["gfql_query"]["type"] == "Let"
         assert "people" in body["gfql_query"]["bindings"]
-        assert body["gfql_operations"] == []
+        assert "gfql_operations" not in body
 
     def test_let_dict(self) -> None:
         body = _send({"type": "Let", "bindings": {"people": {"type": "Node", "filter_dict": {"type": "person"}}}})
         assert body["gfql_query"]["type"] == "Let"
-        assert body["gfql_operations"] == []
+        assert "gfql_operations" not in body
 
     def test_let_with_output(self) -> None:
         body = _send(
@@ -149,7 +149,7 @@ class TestCypherStringSupport:
         assert body["gfql_query"]["type"] == "Let"
         assert "g1" in body["gfql_query"]["bindings"]
         assert "__result__" in body["gfql_query"]["bindings"]
-        assert body["gfql_operations"] == []
+        assert "gfql_operations" not in body
 
     def test_graph_constructor_with_call_write(self) -> None:
         body = _send(
@@ -206,7 +206,7 @@ class TestCypherStringSupport:
                 body = _send("MATCH (n) RETURN n")
 
         assert body["gfql_query"]["type"] == "Let"
-        assert body["gfql_operations"] == []
+        assert "gfql_operations" not in body
         binding = body["gfql_query"]["bindings"]["g1"]
         assert binding["type"] == "Call"
         assert binding["function"] == "graphistry.degree.write"

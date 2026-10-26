@@ -12,7 +12,7 @@ from graphistry.compute.predicates.logical import AllOf
 from graphistry.compute.predicates.comparison import GT, LT, GE, LE, EQ, NE, Between, IsNA, NotNA
 from graphistry.compute.predicates.str import (
     Contains, Startswith, Endswith, Match, Fullmatch, IsNumeric, IsAlpha, IsDecimal, IsDigit, IsLower, IsUpper,
-    IsSpace, IsAlnum, IsTitle, IsNull, NotNull
+    IsSpace, IsAlnum, IsTitle, IsNull, NotNull, NeverMatch
 )
 from graphistry.compute.predicates.temporal import (
     IsMonthStart, IsMonthEnd, IsQuarterStart, IsQuarterEnd,
@@ -27,7 +27,7 @@ predicates : List[Type[ASTPredicate]] = [
     AllOf,
     GT, LT, GE, LE, EQ, NE, Between, IsNA, NotNA,
     Contains, Startswith, Endswith, Match, Fullmatch, IsNumeric, IsAlpha, IsDecimal, IsDigit, IsLower, IsUpper,
-    IsSpace, IsAlnum, IsTitle, IsNull, NotNull,
+    IsSpace, IsAlnum, IsTitle, IsNull, NotNull, NeverMatch,
     IsMonthStart, IsMonthEnd, IsQuarterStart, IsQuarterEnd,
     IsYearStart, IsYearEnd, IsLeapYear
 ]

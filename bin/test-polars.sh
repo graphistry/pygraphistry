@@ -23,6 +23,7 @@ python -m pytest --version
 POLARS_TEST_FILES=(
     graphistry/tests/compute/gfql/index/test_sorted_csr_build_ownership.py
     graphistry/tests/compute/gfql/test_searchany_wysiwyg_datetime.py
+    graphistry/tests/compute/gfql/test_temporal_membership_1949.py
     graphistry/tests/test_plotterbase_optional_deps.py
     graphistry/tests/compute/test_polars.py
     # cache-coverage lock: its static scans run everywhere, but the functional pin for the
@@ -50,6 +51,7 @@ POLARS_TEST_FILES=(
     graphistry/tests/compute/gfql/test_size_nonlist_decline_1985.py
     graphistry/tests/compute/gfql/test_polars_string_predicate_nonstring.py
     graphistry/tests/compute/gfql/cypher/test_order_by_null_placement.py
+    graphistry/tests/compute/gfql/cypher/test_null_equality_conjunction.py
     # quoted map keys/MATCH aliases are engine-parametrized; pandas runs in core,
     # polars params only run in this lane
     graphistry/tests/compute/gfql/cypher/test_backtick_identifiers.py
@@ -59,6 +61,8 @@ POLARS_TEST_FILES=(
     graphistry/tests/compute/gfql/test_optional_match_semantics.py
     graphistry/tests/compute/gfql/test_optional_match_with_pipeline_boundaries.py
     graphistry/tests/compute/gfql/test_row_multiplicity_semantics.py
+    # #2034 ID-contract pins are engine-parametrized; polars params only run here
+    graphistry/tests/compute/gfql/test_issue_2034_id_contracts.py
     # whole-entity RETURN bag multiplicity: engine-parametrized pandas/polars/cudf, and the
     # polars params (multi-entity binding-row rendering) only ever run here
     graphistry/tests/compute/gfql/test_whole_entity_projection_bag_1994.py
@@ -116,6 +120,7 @@ POLARS_TEST_FILES=(
     # (polars aggregates existing columns only) only run in this lane
     graphistry/tests/compute/gfql/test_entity_projection_kinds.py
     graphistry/tests/compute/gfql/cypher/test_result_postprocess.py
+    graphistry/tests/compute/gfql/cypher/test_scalar_reentry_group_aggregate.py
     graphistry/tests/compute/gfql/test_group_by_agg_source_columns.py
     graphistry/tests/compute/gfql/test_aggregate_expression_shapes.py
     graphistry/tests/compute/gfql/test_polars_rows_entity_groupby.py
@@ -169,6 +174,7 @@ POLARS_TEST_FILES=(
     # polars params (Z-suffix text-temporal compare, IN [datetime(...)], mixed-type UNION
     # decline) only run here
     graphistry/tests/compute/gfql/test_temporal_and_union_semantics_1915.py
+    graphistry/tests/compute/gfql/test_temporal_param_zoned_iso_1949.py
     # #1915 B-5/B-7/B-8/A-4 + #1880 temporal-half pins: the polars cells (literal
     # temporal fold, temporal-vs-string parse-or-E302, union name alignment) only run here
     graphistry/tests/compute/gfql/test_temporal_leak_family_1915.py

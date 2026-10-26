@@ -23,12 +23,6 @@ filter disables narrowing — both sides pinned below so the fix cannot over-nar
 ENGINES: pandas + polars run everywhere this lane runs; cudf skips with a stated reason
 where the GPU stack is absent (never silently green). polars-gpu is exercised out of band
 (see test_rewrite_param_discard's COVERAGE BOUNDARY note).
-
-The grouped property column is ``title``, not ``name``: a node property literally named
-``name`` trips a PRE-EXISTING, unrelated cuDF crash in the fast path's pandas-API lane
-(``grouped.size().reset_index(name=...)`` collides with the column; ValueError at master
-e6625ed28 too) — do not rename it back, or the cudf params test that quirk instead of
-the #1739 narrowing.
 """
 from __future__ import annotations
 
