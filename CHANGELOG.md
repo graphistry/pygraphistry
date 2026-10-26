@@ -10,6 +10,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- **GFQL Cypher conversion operand validation**: statically invalid conversion operands, such as lists, maps, and graph entities, are rejected at compile time before the engine sees them. Dynamic operands, null propagation, and list-comprehension lexical shadowing keep their existing behavior.
+
 - **GFQL remote Let/DAG compatibility**: `gfql_remote` no longer substitutes an empty `gfql_operations` array for a Let/DAG query, so unsupported older servers receive `gfql_query` and reject it explicitly instead of silently running an identity program.
 - **GFQL temporal scalar filters**: an empty timestamp or duration string no longer silently becomes a `NaT` bound; it raises the same typed `GFQLSchemaError` E302 as an unparseable bound. Naive bounds are handled as `Timestamp` values before timezone localization, and optional `pytz` exception discovery is confined to aware-column localization.
 - **GFQL Cypher null-equality conjunctions**: comparisons such as `n.v = null` now preserve three-valued `UNKNOWN` when combined with `AND`, instead of being replaced as if no predicate existed. `NeverMatch` predicates now round-trip through GFQL JSON, and raw JSON `filter_dict` null matching is unchanged.

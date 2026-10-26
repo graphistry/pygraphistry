@@ -97,6 +97,7 @@ from graphistry.compute.gfql.expr_parser import (
     _rebuild_expr_node,
     collect_identifiers,
     parse_expr,
+    iter_expr_children,
     walk_expr_nodes,
     is_expr_node,
 )
@@ -1009,40 +1010,29 @@ def _validate_cypher_boolean_literal_constraints(
         )
 
 
-def _list_item_invalid_for_numeric_conversion(
-    item: ExprNode,
+def _conversion_operand_statically_invalid(
+    function_name: str,
+    operand: ExprNode,
     *,
     alias_targets: Optional[Mapping[str, ASTObject]],
-    allow_boolean: bool,
+    ignored_aliases: AbstractSet[str] = frozenset(),
+    invalid_aliases: AbstractSet[Tuple[str, str]] = frozenset(),
 ) -> bool:
-    if isinstance(item, ExprLiteral):
-        if isinstance(item.value, (list, dict)):
+    name = function_name.lower()
+    if isinstance(operand, (ListLiteral, MapLiteral)):
+        return True
+    if isinstance(operand, ExprLiteral):
+        return isinstance(operand.value, (list, dict)) or (name == "tofloat" and isinstance(operand.value, bool))
+    if isinstance(operand, Identifier):
+        if (operand.name, name) in invalid_aliases:
             return True
-        return isinstance(item.value, bool) and not allow_boolean
-    if isinstance(item, (ListLiteral, MapLiteral)):
-        return True
-    if isinstance(item, Identifier):
-        return alias_targets is not None and item.name in alias_targets
-    if isinstance(item, FunctionCall):
-        return item.name in {"__node_entity__", "__edge_entity__"}
+        return alias_targets is not None and operand.name in alias_targets and operand.name not in ignored_aliases
+    if isinstance(operand, FunctionCall):
+        return operand.name in {"__node_entity__", "__edge_entity__"}
     return False
 
 
-def _list_item_invalid_for_tostring(
-    item: ExprNode,
-    *,
-    alias_targets: Optional[Mapping[str, ASTObject]],
-) -> bool:
-    if isinstance(item, ExprLiteral):
-        return isinstance(item.value, (list, dict))
-    if isinstance(item, (ListLiteral, MapLiteral)):
-        return True
-    if isinstance(item, Identifier):
-        return alias_targets is not None and item.name in alias_targets
-    if isinstance(item, FunctionCall):
-        return item.name in {"__node_entity__", "__edge_entity__"}
-    return False
-
+_CYPHER_CONVERSION_FUNCTIONS = frozenset({"tointeger", "tofloat", "toboolean", "tostring"})
 
 def _contains_aggregate_call(node: ExprNode) -> bool:
     found = False
@@ -1101,34 +1091,44 @@ def _validate_cypher_expr_constraints(
                 _raise("Cypher list comprehensions cannot contain aggregate functions in the local compiler")
             if current.projection is not None and _contains_aggregate_call(current.projection):
                 _raise("Cypher list comprehensions cannot contain aggregate functions in the local compiler")
-            if (
-                isinstance(current.projection, FunctionCall)
-                and len(current.projection.args) == 1
-                and isinstance(current.projection.args[0], Identifier)
-                and current.projection.args[0].name == current.var
-                and isinstance(current.source, ListLiteral)
-            ):
-                if current.projection.name.lower() in {"tofloat", "tointeger"}:
-                    if any(
-                        _list_item_invalid_for_numeric_conversion(
-                            item,
-                            alias_targets=alias_targets,
-                            allow_boolean=current.projection.name.lower() == "tointeger",
-                        )
-                        for item in current.source.items
-                    ):
-                        _raise(
-                            "Cypher toFloat()/toInteger() cannot consume the current "
-                            "list-comprehension item types in the local compiler"
-                        )
-                if current.projection.name == "tostring":
-                    if any(
-                        _list_item_invalid_for_tostring(item, alias_targets=alias_targets)
-                        for item in current.source.items
-                    ):
-                        _raise("Cypher toString() cannot consume the current list-comprehension item types in the local compiler")
-
     walk_expr_nodes(node, enter=_enter)
+
+    def _validate_conversion_scope(current: ExprNode, bound_aliases: AbstractSet[str], invalid_aliases: AbstractSet[Tuple[str, str]]) -> None:
+        if (
+            isinstance(current, FunctionCall)
+            and current.name.lower() in _CYPHER_CONVERSION_FUNCTIONS
+            and len(current.args) == 1
+            and _conversion_operand_statically_invalid(
+                current.name,
+                current.args[0],
+                alias_targets=alias_targets,
+                ignored_aliases=bound_aliases,
+                invalid_aliases=invalid_aliases,
+            )
+        ):
+            _raise(f"Cypher {current.name}() cannot consume the statically invalid operand type")
+        if isinstance(current, (ListComprehension, QuantifierExpr)):
+            _validate_conversion_scope(current.source, bound_aliases, invalid_aliases)
+            nested_aliases = bound_aliases | {current.var}
+            nested_invalid_aliases = {(alias, function) for alias, function in invalid_aliases if alias != current.var}
+            if isinstance(current, ListComprehension) and isinstance(current.source, ListLiteral):
+                nested_invalid_aliases |= {
+                    (current.var, function_name)
+                    for function_name in _CYPHER_CONVERSION_FUNCTIONS
+                    if any(
+                        _conversion_operand_statically_invalid(
+                            function_name, item, alias_targets=alias_targets, ignored_aliases=bound_aliases
+                        )
+                        for item in current.source.items
+                    )
+                }
+            for child in (current.predicate,) if isinstance(current, QuantifierExpr) else cast(Tuple[ExprNode, ...], tuple(filter(None, (current.predicate, current.projection)))):
+                _validate_conversion_scope(child, nested_aliases, nested_invalid_aliases)
+        else:
+            for child in iter_expr_children(current):
+                _validate_conversion_scope(child, bound_aliases, invalid_aliases)
+
+    _validate_conversion_scope(node, frozenset(), frozenset())
 
 
 def _validate_with_projection_aliasing(stage: ProjectionStage) -> None:

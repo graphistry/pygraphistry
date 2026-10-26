@@ -564,3 +564,118 @@ def test_numeric_comprehension_invalid_consumed_items_still_raise(engine):
         with pytest.raises(GFQLValidationError) as error:
             _graph(engine).gfql(f"MATCH (n) RETURN {expression} AS v", engine=engine)
         assert error.value.code == ErrorCode.E108
+
+
+@pytest.mark.parametrize("expression", [
+    "toInteger([])",
+    "toInteger({a: 1})",
+    "toFloat([])",
+    "toFloat({a: 1})",
+    "toFloat(true)",
+    "toBoolean([])",
+    "toBoolean({a: 1})",
+    "toString([])",
+    "toString({a: 1})",
+])
+def test_conversion_rejects_statically_invalid_direct_literals(expression):
+    """Validation happens before an engine sees a provably unsupported conversion."""
+    with pytest.raises(GFQLValidationError) as error:
+        graphistry.nodes(pd.DataFrame({"id": ["a"]})).gfql(
+            f"MATCH (n) RETURN {expression} AS v", language="cypher"
+        )
+    assert error.value.code == ErrorCode.E108
+
+
+@pytest.mark.parametrize("function", ["toInteger", "toFloat", "toBoolean", "toString"])
+def test_conversion_rejects_statically_invalid_bound_parameters(function):
+    """Compile-time parameter folding participates in the same static type check."""
+    with pytest.raises(GFQLValidationError) as error:
+        graphistry.nodes(pd.DataFrame({"id": ["a"]})).gfql(
+            f"MATCH (n) RETURN {function}($value) AS v",
+            params={"value": []},
+            language="cypher",
+        )
+    assert error.value.code == ErrorCode.E108
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+@pytest.mark.parametrize("expression,expected", [
+    ("toInteger('41')", 41),
+    ("toFloat(2)", 2.0),
+    ("toBoolean(true)", True),
+    ("toString(2)", "2"),
+])
+def test_conversion_valid_literal_executes_across_engines(engine, expression, expected):
+    """Each conversion keeps at least one statically valid scalar execution path."""
+    assert _values(engine, expression) == [expected] * 4
+
+
+@pytest.mark.parametrize("engine", ["pandas"])
+def test_conversion_unconsumed_invalid_comprehension_items_compile(engine):
+    """The source item is not an operand when the projection ignores it."""
+    assert _values(engine, "[x IN [1, []] | toString('x')]") == [["x", "x"]] * 4
+
+
+@pytest.mark.parametrize("engine", ["pandas"])
+@pytest.mark.parametrize("expression,expected", [
+    ("[n IN [1] | toInteger(n)]", [[1]]),
+    ("[n IN ['x'] | toString(n)]", [["x"]]),
+    ("[x IN [1, []] | [x IN [1] | toInteger(x)]]", [[[1], [1]]]),
+])
+def test_conversion_respects_comprehension_lexical_binding(engine, expression, expected):
+    """Comprehension variables shadow graph aliases; graph aliases remain rejected."""
+    assert _values(engine, expression) == expected * 4
+    with pytest.raises(GFQLValidationError) as error:
+        _graph(engine).gfql(
+            "MATCH (n) RETURN [x IN [1] | toInteger(n)] AS v", engine=engine
+        )
+    assert error.value.code == ErrorCode.E108
+
+
+@pytest.mark.parametrize("engine", ["pandas"])
+def test_conversion_ignores_shadowed_outer_item_in_nested_argument(engine):
+    """An inner comprehension binding hides the outer item, even in nested arguments."""
+    expression = "[x IN [1, []] | toString([x IN [1] | x])]"
+    assert _values(engine, expression) == [["[1]", "[1]"]] * 4
+
+
+@pytest.mark.parametrize("engine", ["pandas"])
+def test_conversion_uses_outer_scope_for_nested_source(engine):
+    """A nested source is evaluated before its binding shadows the outer item."""
+    for variable in ["x", "y"]:
+        expression = f"[x IN [1, []] | [{variable} IN [toInteger(x)] | {variable}]]"
+        with pytest.raises(GFQLValidationError) as error:
+            _graph(engine).gfql(f"MATCH (n) RETURN {expression} AS v", engine=engine)
+        assert error.value.code == ErrorCode.E108
+
+
+@pytest.mark.parametrize("engine", ["pandas"])
+def test_conversion_uses_outer_scope_for_nested_quantifier_source(engine):
+    """A quantifier source is also evaluated before its binding is introduced."""
+    for variable in ["x", "y"]:
+        expression = f"[x IN [1, []] | any({variable} IN [toInteger(x)] WHERE {variable})]"
+        with pytest.raises(GFQLValidationError) as error:
+            _graph(engine).gfql(f"MATCH (n) RETURN {expression} AS v", engine=engine)
+        assert error.value.code == ErrorCode.E108
+
+
+@pytest.mark.parametrize("engine", ["pandas"])
+@pytest.mark.parametrize("source", ["[1]", "['1']"])
+def test_conversion_shadowed_source_still_runs_valid_body(engine, source):
+    """Binding a valid nested source preserves the shadowed comprehension body."""
+    assert _values(engine, f"[x IN [1, []] | [x IN {source} | toInteger(x)]]") == [[[1], [1]]] * 4
+
+
+@pytest.mark.parametrize("engine", ["pandas"])
+@pytest.mark.parametrize("function,expected", [
+    ("toInteger", 1),
+    ("toFloat", 1.0),
+    ("toBoolean", True),
+    ("toString", "1"),
+])
+def test_conversion_binding_is_lexical_for_nested_variables(engine, function, expected):
+    """A differently named nested binding leaves the outer comprehension item visible."""
+    expression = f"[x IN [1, []] | [y IN ['1'] | {function}(x)]]"
+    with pytest.raises(GFQLValidationError) as error:
+        _graph(engine).gfql(f"MATCH (n) RETURN {expression} AS v", engine=engine)
+    assert error.value.code == ErrorCode.E108
