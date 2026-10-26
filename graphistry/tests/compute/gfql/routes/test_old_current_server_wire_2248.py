@@ -27,7 +27,11 @@ import pytest
 import graphistry
 from graphistry.compute.ast import ASTEdge, ASTLet, ASTNode
 from graphistry.compute.chain import Chain
-from graphistry.compute.exceptions import GFQLRemoteError
+from graphistry.compute.exceptions import (
+    GFQLRemoteError,
+    GFQLTypeError,
+    GFQLValidationError,
+)
 
 
 OLD_SERVER = "054e79c87d74a87dbd68c40d4d43a9a6e23f61c3"
@@ -231,19 +235,31 @@ def test_current_server_accepts_all_query_shapes(route_server: RouteServer, data
     assert sorted(let_result._nodes["id"].tolist()) == [1, 2]
     assert list(zip(let_result._edges["src"], let_result._edges["dst"])) == [(1, 2)]
 
+    serialized_result = _remote(
+        graph,
+        public_let().to_json(),
+        output="path",
+        data_format=data_format,
+    )
+    assert sorted(serialized_result._nodes["id"].tolist()) == [1, 2]
+    assert list(zip(serialized_result._edges["src"], serialized_result._edges["dst"])) == [(1, 2)]
+
     cypher_result = _remote(graph, cypher_let(), data_format=data_format)
     assert sorted(cypher_result._nodes["id"].tolist()) == [1, 2]
+    assert len(cypher_result._edges) == 0
 
     flat_result = _remote(graph, flat_chain(), data_format=data_format)
     assert flat_result._nodes["id"].tolist() == [1]
+    assert len(flat_result._edges) == 0
 
-    assert len(route_server.requests) == 3
+    assert len(route_server.requests) == 4
     request_bodies = [request["body"] for request in route_server.requests]
     assert request_bodies[0]["gfql_query"]["type"] == "Let"
     assert "gfql_operations" not in request_bodies[0]
     assert request_bodies[1]["gfql_query"]["type"] == "Let"
-    assert request_bodies[2]["gfql_query"]["type"] == "Chain"
-    assert request_bodies[2]["gfql_operations"]
+    assert request_bodies[2]["gfql_query"]["type"] == "Let"
+    assert request_bodies[3]["gfql_query"]["type"] == "Chain"
+    assert request_bodies[3]["gfql_operations"]
 
 
 @pytest.mark.parametrize("query,output", [
@@ -276,15 +292,19 @@ def test_old_server_accepts_nonempty_flat_chain(route_server: RouteServer) -> No
     assert route_server.requests[0]["body"]["gfql_operations"]
 
 
-def test_missing_query_type_is_typed_error_without_execution(route_server: RouteServer) -> None:
-    server = route_server
-    handler_body = {"format": "json", "engine": "pandas"}
+def test_public_client_rejects_invalid_query_type_without_request(route_server: RouteServer) -> None:
+    graph = _bound_graph(route_server)
 
-    route = _old_route if server.mode == "old" else _current_route
-    status, payload, content_type = route(handler_body)
-    assert status == 422
-    assert content_type == "application/json"
-    assert "Missing required" in payload.decode("utf-8")
+    with pytest.raises(GFQLValidationError) as missing:
+        _remote(graph, {})
 
-    assert not server.requests
+    assert missing.value.code == "missing-required-field"
+    assert missing.value.context["field"] == "type"
 
+    with pytest.raises(GFQLTypeError) as invalid:
+        _remote(graph, {"type": "bogus"})
+
+    assert invalid.value.code == "invalid-query-type"
+    assert invalid.value.context["field"] == "type"
+    assert invalid.value.context["value"] == "bogus"
+    assert not route_server.requests
