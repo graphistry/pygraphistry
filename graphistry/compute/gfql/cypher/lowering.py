@@ -1022,9 +1022,7 @@ def _conversion_operand_statically_invalid(
     if isinstance(operand, (ListLiteral, MapLiteral)):
         return True
     if isinstance(operand, ExprLiteral):
-        if isinstance(operand.value, (list, dict)):
-            return True
-        return name == "tofloat" and isinstance(operand.value, bool)
+        return isinstance(operand.value, (list, dict)) or (name == "tofloat" and isinstance(operand.value, bool))
     if isinstance(operand, Identifier):
         if (operand.name, name) in invalid_aliases:
             return True
@@ -1035,25 +1033,6 @@ def _conversion_operand_statically_invalid(
 
 
 _CYPHER_CONVERSION_FUNCTIONS = frozenset({"tointeger", "tofloat", "toboolean", "tostring"})
-
-def _expr_references(node: ExprNode, name: str, ignored_aliases: AbstractSet[str] = frozenset()) -> bool:
-    if isinstance(node, Identifier):
-        return node.name == name and node.name not in ignored_aliases
-    if isinstance(node, ListComprehension):
-        if _expr_references(node.source, name, ignored_aliases):
-            return True
-        body_aliases = ignored_aliases | {node.var}
-        body = (node.predicate, node.projection)
-        return any(
-            child is not None and _expr_references(child, name, body_aliases)
-            for child in body
-        )
-    if isinstance(node, QuantifierExpr):
-        if _expr_references(node.source, name, ignored_aliases):
-            return True
-        return _expr_references(node.predicate, name, ignored_aliases | {node.var})
-    return any(_expr_references(child, name, ignored_aliases) for child in iter_expr_children(node))
-
 
 def _contains_aggregate_call(node: ExprNode) -> bool:
     found = False
@@ -1130,23 +1109,18 @@ def _validate_cypher_expr_constraints(
             _raise(f"Cypher {current.name}() cannot consume the statically invalid operand type")
         if isinstance(current, (ListComprehension, QuantifierExpr)):
             nested_aliases = bound_aliases | {current.var}
-            nested_invalid_aliases = {
-                (variable, conversion_function)
-                for variable, conversion_function in invalid_aliases
-                if variable != current.var
-            }
+            nested_invalid_aliases = {(alias, function) for alias, function in invalid_aliases if alias != current.var}
             if isinstance(current, ListComprehension) and isinstance(current.source, ListLiteral):
-                for function_name in _CYPHER_CONVERSION_FUNCTIONS:
+                nested_invalid_aliases |= {
+                    (current.var, function_name)
+                    for function_name in _CYPHER_CONVERSION_FUNCTIONS
                     if any(
                         _conversion_operand_statically_invalid(
-                            function_name,
-                            item,
-                            alias_targets=alias_targets,
-                            ignored_aliases=bound_aliases,
+                            function_name, item, alias_targets=alias_targets, ignored_aliases=bound_aliases
                         )
                         for item in current.source.items
-                    ):
-                        nested_invalid_aliases = nested_invalid_aliases | {(current.var, function_name)}
+                    )
+                }
             for child in iter_expr_children(current):
                 _validate_conversion_scope(child, nested_aliases, nested_invalid_aliases)
         else:
