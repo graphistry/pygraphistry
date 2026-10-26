@@ -640,6 +640,33 @@ def test_conversion_ignores_shadowed_outer_item_in_nested_argument(engine):
 
 
 @pytest.mark.parametrize("engine", ["pandas"])
+def test_conversion_uses_outer_scope_for_nested_source(engine):
+    """A nested source is evaluated before its binding shadows the outer item."""
+    for variable in ["x", "y"]:
+        expression = f"[x IN [1, []] | [{variable} IN [toInteger(x)] | {variable}]]"
+        with pytest.raises(GFQLValidationError) as error:
+            _graph(engine).gfql(f"MATCH (n) RETURN {expression} AS v", engine=engine)
+        assert error.value.code == ErrorCode.E108
+
+
+@pytest.mark.parametrize("engine", ["pandas"])
+def test_conversion_uses_outer_scope_for_nested_quantifier_source(engine):
+    """A quantifier source is also evaluated before its binding is introduced."""
+    for variable in ["x", "y"]:
+        expression = f"[x IN [1, []] | any({variable} IN [toInteger(x)] WHERE {variable})]"
+        with pytest.raises(GFQLValidationError) as error:
+            _graph(engine).gfql(f"MATCH (n) RETURN {expression} AS v", engine=engine)
+        assert error.value.code == ErrorCode.E108
+
+
+@pytest.mark.parametrize("engine", ["pandas"])
+@pytest.mark.parametrize("source", ["[1]", "['1']"])
+def test_conversion_shadowed_source_still_runs_valid_body(engine, source):
+    """Binding a valid nested source preserves the shadowed comprehension body."""
+    assert _values(engine, f"[x IN [1, []] | [x IN {source} | toInteger(x)]]") == [[[1], [1]]] * 4
+
+
+@pytest.mark.parametrize("engine", ["pandas"])
 @pytest.mark.parametrize("function,expected", [
     ("toInteger", 1),
     ("toFloat", 1.0),

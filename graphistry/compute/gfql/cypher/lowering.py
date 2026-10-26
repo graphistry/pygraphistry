@@ -1108,6 +1108,7 @@ def _validate_cypher_expr_constraints(
         ):
             _raise(f"Cypher {current.name}() cannot consume the statically invalid operand type")
         if isinstance(current, (ListComprehension, QuantifierExpr)):
+            _validate_conversion_scope(current.source, bound_aliases, invalid_aliases)
             nested_aliases = bound_aliases | {current.var}
             nested_invalid_aliases = {(alias, function) for alias, function in invalid_aliases if alias != current.var}
             if isinstance(current, ListComprehension) and isinstance(current.source, ListLiteral):
@@ -1121,7 +1122,7 @@ def _validate_cypher_expr_constraints(
                         for item in current.source.items
                     )
                 }
-            for child in iter_expr_children(current):
+            for child in (current.predicate,) if isinstance(current, QuantifierExpr) else cast(Tuple[ExprNode, ...], tuple(filter(None, (current.predicate, current.projection)))):
                 _validate_conversion_scope(child, nested_aliases, nested_invalid_aliases)
         else:
             for child in iter_expr_children(current):
