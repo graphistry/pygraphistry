@@ -10,8 +10,66 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- **GFQL Cypher conversion operand validation**: statically invalid conversion operands, such as lists, maps, and graph entities, are rejected at compile time before the engine sees them. Dynamic operands, null propagation, and list-comprehension lexical shadowing keep their existing behavior.
+
+- **GFQL remote Let/DAG compatibility**: `gfql_remote` no longer substitutes an empty `gfql_operations` array for a Let/DAG query, so unsupported older servers receive `gfql_query` and reject it explicitly instead of silently running an identity program.
+- **GFQL temporal scalar filters**: an empty timestamp or duration string no longer silently becomes a `NaT` bound; it raises the same typed `GFQLSchemaError` E302 as an unparseable bound. Naive bounds are handled as `Timestamp` values before timezone localization, and optional `pytz` exception discovery is confined to aware-column localization.
+- **GFQL Cypher null-equality conjunctions**: comparisons such as `n.v = null` now preserve three-valued `UNKNOWN` when combined with `AND`, instead of being replaced as if no predicate existed. `NeverMatch` predicates now round-trip through GFQL JSON, and raw JSON `filter_dict` null matching is unchanged.
+- **GFQL Cypher grouped aggregates after scalar reentry**: when a multirow scalar `WITH` prefix feeds another `MATCH`, grouping now covers all joined suffix rows together. For example, `WITH s MATCH (b)-[]->(s) RETURN s.type, count(*)` returns one aggregate per group instead of one per carried prefix row (#2235).
+- **GFQL Cypher exact-depth variable-length patterns**: a self-loop can now supply the nonterminal hop of an exact match such as `MATCH (a)-[*2..2]->(b)`, so paths that reuse the graph's shortest-hop frontier remain available to later hops on the connected-bindings row route (#2235).
+- **GFQL temporal membership filters** (#1949): `IN`, `IsIn`, and list filter values on datetime columns parse scalar strings with the same aware/naive temporal contract as equality, instead of silently matching zero rows or raising an opaque engine error. Unparseable values fail with structured `E302`; Polars datetime membership lowers natively. Typed timestamps must match the column's awareness, though offset-equivalent aware values match. Raw-list `NaT` is not a member; predicate `IsIn` `NaT` handling remains engine-specific.
+- **GFQL Cypher compile limit for extreme MATCH chains**: each MATCH sequence or UNION branch with more than 512 MATCH clauses now fails immediately with a typed `GFQLValidationError` naming the clause limit, instead of consuming super-linear planner time and crashing with a `RecursionError` (#2235).
+- **GFQL Cypher `toInteger` on strings**: unparseable, non-finite, overflow, and null strings now return Cypher null instead of raising or leaking an input value. Pandas preserves a nullable integer result (#2235).
+- **GFQL Cypher relationship uniqueness across `MATCH` clauses**: sequential connected `MATCH` clauses can reuse the same relationship with a new relationship variable, as in `MATCH (x)-[e]->(y) MATCH (y)<-[f]-(z)`, while uniqueness remains path-global within each clause (#2235).
+## [0.61.2] - 2026-10-23
+
+### Fixed
+
+- **igraph calls on nodes with a `name` column**: a node attribute named `name`, other than the node ID column, no longer makes `to_igraph`, `compute_igraph`, and `CALL graphistry.igraph.*` fail with `Vertex attribute conflict`. It moves to a generated name for igraph, which reserves `name` for node IDs, and is restored by `from_igraph` (#2217).
+
+- **`from_igraph` on empty graphs**: an empty graph with a node `name` column keeps every node column's original type, and an edge list with no edges gets endpoints of the node ID type instead of `float64`, so such a graph no longer fails with a merge dtype mismatch. On populated graphs with a node `name` column, the node ID, `name`, and edge endpoint columns also keep their original types, such as `int32`, `Int64`, and `category`; on polars, `compute_igraph` still widens a nullable `Int64` node attribute to `Float64`, as before (#2217).
+
+- **GFQL Cypher on graphs without edges**: patterns with only nodes, such as `MATCH (n) RETURN count(*)` now return results on the polars engine like pandas instead of raising `NotImplementedError`, and edge patterns raise the same typed `GFQLSchemaError`. An `OPTIONAL MATCH` edge arm on such a graph returns the base rows with nulls on every engine instead of failing, and `WHERE EXISTS { (n)-->() }` and `WHERE (n)-->()` no longer fail on pandas and cuDF with `'NoneType' object is not subscriptable`: a positive pattern matches no nodes and a negated one matches every node (#1879).
+
+- **GFQL Cypher UNION on cuDF**: a UNION whose branch is served by a pandas fast path no longer fails with `TypeError` under `engine='cudf'`, and branches that disagree on a non numeric value type, such as a boolean or string next to an integer, raise a typed `NotImplementedError` like polars instead of a bare `ValueError` or silently turning `true` into `1`. Categorical columns are compared and combined by their values, as on pandas, so compatible categories return their values and an integer next to a string categorical declines with the same typed error (#2231).
+
+- **GFQL Cypher grouping by a `name` column on cuDF**: aggregates grouped by a property called `name`, such as `RETURN n.name, count(*)` and `MATCH (a)-[:R]->(b) RETURN b.name AS key, count(a)`, no longer fail on cuDF with "The truth value of a Series is ambiguous", in the row pipeline and in the single hop grouped aggregate fast path. The fast path also serves on cuDF when an edge endpoint column is named `name`. pandas and polars run the same code as before (#1946).
+
+- **GFQL Cypher pattern predicates with aggregates**: a pattern predicate in `WHERE`, such as `MATCH (n) WHERE (n)-->() RETURN count(*)` or its `NOT` form, keeps the matched node's properties, so aggregates over the result return the right counts on pandas and no longer fail on cuDF. Absent properties in strict mode raise `GFQLSchemaError` (#2216).
+
+- **GFQL Cypher backslash escapes**: a backslash in a string literal is decoded once in every row expression, so `NOT`, `OR`, and nested predicates match the same rows as a plain `WHERE`; for example `NOT n.ip =~ '10\\..*'` no longer matches every row (#2215).
+
+- **GFQL Cypher whole node results of traversal patterns**: `RETURN DISTINCT x` on a traversal now follows openCypher semantics, matching the property projection of the same query: relationship uniqueness within a `MATCH`, paths of exactly `min_hops..max_hops` relationships, the start node for undirected variable length when a cycle returns to it, and the zero length match for `*0..n`. Whole node results without `DISTINCT` are unchanged (#2221).
+
+- **GFQL Cypher reentry row multiplicity**: a whole row carry through `WITH` that feeds `OPTIONAL MATCH`, and non optional nested reentry, keep duplicate binding and seed rows instead of collapsing them; genuinely ambiguous identities still decline with a typed error (#1935).
+
+- **GFQL native polars scalar carry reentry**: Cypher reentry that carries scalar columns through `WITH` now runs natively on polars instead of raising `NotImplementedError` (#1712).
+
+- **GFQL seeded typed hops with duplicate seed IDs**: when the matched seed node IDs are duplicated, the seeded typed hop fast path declines so the full path keeps row multiplicity, matching pandas, polars, and cuDF (#2034).
+
+- **GFQL Cypher temporal parameters**: a zoned ISO string passed as a Cypher parameter, such as `WHERE n.ts > $since` with `since = '2021-01-01T00:00:00Z'`, is compared like the same literal instead of silently returning no rows (#1949).
+
+- **GFQL temporal string filters**: an equality filter that compares a datetime or duration column with a string parses the string first, so parseable naive timestamps and durations match, and a string that cannot be parsed for the column raises the typed `GFQLSchemaError` E302 instead of silently returning no rows (#1949).
+
+- **GEXF import endpoint attributes**: edge attributes whose title collides with an endpoint binding keep their original names and values on import; only the endpoint fields move to collision safe internal columns (#2212).
+
+- **cuGraph graph returning algorithms and `src`/`dst` bindings**: algorithms that return a graph no longer create duplicate cuDF columns when the endpoint bindings are `src` and `dst`, keep the caller's source and destination bindings, and preserve the original edge attributes on retained rows (#2211).
+
+### Documentation
+
+- **Hybrid planner polling**: the internal `.agents` planner workflow keeps polling an external worker while it is presumed running, instead of ending on mailbox silence (#2223).
+
+## [0.61.1] - 2026-10-21
+
+### Fixed
+
 - **Chained `compute_igraph` calls preserve custom-named edge attributes**: edge attributes named `source` or `target` are restored to their original column names after a round trip when endpoint bindings use other names, so repeated igraph calls no longer accumulate collision renames or fail on duplicate columns. Attributes that collide with the final endpoint bindings are moved to unique generated names rather than merging with endpoint columns (#2204).
 
+- **GFQL Cypher quoted ORDER BY aliases**: quoted aliases containing spaces or escaped backticks can now order values in pandas, Polars, and cuDF lowering, including aggregate outputs. Quoted output names keep their own binding identity when their text matches another aggregate expression, and unresolved quoted aliases retain structured validation errors (#2205).
+
+### Documentation
+
+- **Added planner and worker coordination skills**: these internal `.agents` workflows describe implementation planning, focused evidence, review handoffs, and lightweight heartbeat coordination (#2206).
 
 ## [0.61.0] - 2026-10-18
 

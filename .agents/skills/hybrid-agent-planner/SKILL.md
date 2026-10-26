@@ -20,4 +20,4 @@ For routine progress, reply `ACK <message ID>; continue`. Read only enough of th
 
 When review is due, independently inspect relevant source and evidence, batch findings, and give concrete acceptance for fixes. Preserve required review depth; quiet passes do not resolve open findings. Reuse unchanged evidence with its original scope. Repeated repairs call for revisiting the underlying contract.
 
-Keep genuine approval gates tied to specific actions; do not invent gates for authorized work or require deployed evidence before the merge needed to deploy. Confirm whole-outcome acceptance before completion. If externally blocked, preserve the next actor/resume event and follow platform stopping rules.
+Keep genuine approval gates tied to specific actions; do not invent gates for authorized work or require deployed evidence before the merge needed to deploy. Confirm whole-outcome acceptance before completion. While a worker or gate is live, keep the goal active with the shared bounded poll loop; a quiet mailbox or timed-out poll is not a stopping condition. If execution is confirmed unavailable, preserve the next actor/resume event and follow platform stopping rules.

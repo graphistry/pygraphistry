@@ -410,10 +410,18 @@ def test_polars_binding_rows_decline_branches_direct():
     # is pinned to the seed and every row's 'a' id is 0.
     seeded_rows = seeded_out._nodes
     assert set(seeded_rows["a"].to_list()) == {0}
-    # A DUPLICATE-id seed still declines (semi-join would drop path multiplicity vs pandas).
+    # A duplicate carried id preserves one outgoing binding per seed row. This is not the
+    # ambiguous duplicate-base-row case, which stays declined by the reentry planner.
     dup = graphistry.nodes(pl.from_pandas(NODES), "id").edges(pl.from_pandas(EDGES), "s", "d")
     setattr(dup, "_gfql_start_nodes", pl.DataFrame({"id": [0, 0]}))
-    assert binding_rows_polars(dup, bo) is None
+    duplicate_rows = binding_rows_polars(dup, bo)
+    assert duplicate_rows is not None
+    assert duplicate_rows._nodes.select(["a", "b"]).to_dicts() == [
+        {"a": 0, "b": 1},
+        {"a": 0, "b": 2},
+        {"a": 0, "b": 1},
+        {"a": 0, "b": 2},
+    ]
 
     g = graphistry.nodes(pl.from_pandas(NODES), "id").edges(pl.from_pandas(EDGES), "s", "d")
     # node-only cartesian (#1273) is now natively supported for <=3 named aliases;

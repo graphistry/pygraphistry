@@ -500,12 +500,17 @@ SAFELIST_V1: Dict[str, Dict[str, Any]] = {
     ),
 
     'anti_semi_apply': _safelist_entry(
-        {'binding_ops', 'join_aliases', 'neq'},
+        {'binding_ops', 'join_aliases', 'neq', 'requested_property_columns'},
         required_params={'binding_ops', 'join_aliases'},
         param_validators={
             'binding_ops': is_list_of_dicts,
             'join_aliases': is_non_empty_list_of_strings,
             'neq': is_string_pair,
+            'requested_property_columns': lambda v: isinstance(v, dict) and all(
+                isinstance(alias, str) and isinstance(columns, list)
+                and all(isinstance(column, str) for column in columns)
+                for alias, columns in v.items()
+            ),
         },
         description='Filter active rows by anti-semi joining against correlated binding rows',
     ),
@@ -526,13 +531,18 @@ SAFELIST_V1: Dict[str, Dict[str, Any]] = {
     ),
 
     'semi_apply_mark': _safelist_entry(
-        {'binding_ops', 'join_aliases', 'out_col', 'neq'},
+        {'binding_ops', 'join_aliases', 'out_col', 'neq', 'requested_property_columns'},
         required_params={'binding_ops', 'join_aliases', 'out_col'},
         param_validators={
             'binding_ops': is_list_of_dicts,
             'join_aliases': is_non_empty_list_of_strings,
             'out_col': is_non_empty_string,
             'neq': is_string_pair,
+            'requested_property_columns': lambda v: isinstance(v, dict) and all(
+                isinstance(alias, str) and isinstance(columns, list)
+                and all(isinstance(column, str) for column in columns)
+                for alias, columns in v.items()
+            ),
         },
         description='Annotate active rows with correlated pattern-existence booleans',
         schema_effects=_schema_effects(adds_node_cols=_semi_apply_mark_added_node_cols),
@@ -621,7 +631,8 @@ SAFELIST_V1: Dict[str, Dict[str, Any]] = {
     ),
 
     'distinct': _safelist_entry(
-        set(),
+        {'subset'},
+        param_validators={'subset': is_list_of_strings},
         description='Drop duplicate rows from active row table',
     ),
 

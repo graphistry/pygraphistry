@@ -362,6 +362,17 @@ Each wave writes `wave-report.md` with:
 
 ## Phase 3: Convergence Report
 
+### Requirement-to-evidence closure
+
+Before writing `final-report.md`, build an acceptance map so a green aggregate count cannot hide an unmet requirement:
+
+| Requirement | Status | Evidence / limitation |
+| --- | --- | --- |
+
+Map every review requirement to `SATISFIED`, `LIMITED`, or `UNSATISFIED`; cite tests, engine/platform capability, dependencies, performance evidence, and documentation (including `CHANGELOG.md`) separately. Preserve still-valid evidence, distinguish same-seam from aggregate evidence, and state unsupported-scope limits without inflating coverage. Recheck the final full diff after repairs; a late repair can invalidate earlier evidence.
+
+When acting on a requested planner decision, drain the latest planner answer first. At natural step boundaries, read material mailbox updates without waiting for routine ACKs.
+
 Write `plans/<task>/final-report.md` with:
 - summary (waves run, convergence status)
 - per-wave table (new findings + advance signal)

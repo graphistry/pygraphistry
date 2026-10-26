@@ -3,7 +3,12 @@
 # ruff: noqa: F821
 from __future__ import annotations
 
+from typing import Mapping, Tuple
+
+from graphistry.compute.ast import ASTNode, ASTObject
 from graphistry.compute.gfql.cypher import lowering as _lowering
+from graphistry.compute.gfql.cypher.ast import CypherQuery
+from graphistry.compute.gfql.cypher.lowering import _ProjectionPlan
 from graphistry.compute.gfql.identifiers import render_cypher_identifier
 
 globals().update(vars(_lowering))
@@ -677,6 +682,93 @@ def _optional_projection_row_guard_plan(
         )
         base_chains.append(Chain(lower_match_clause(pattern_clause, params=params)))
     return OptionalProjectionRowGuardPlan(base_chains=tuple(base_chains))
+
+
+def _whole_node_projection_routing(
+    query: CypherQuery,
+    *,
+    plan: _ProjectionPlan,
+    alias_targets: Mapping[str, ASTObject],
+) -> Tuple[int, bool, bool]:
+    merged_match = _lowering._merged_match_clause(query)
+    relationship_count = (
+        _lowering._match_relationship_count(merged_match) if merged_match is not None else 0
+    )
+    final_whole_node_binding_rows = (
+        plan.clause_kind == "return"
+        and not query.with_stages
+        and not query.return_is_reentry_carry
+        and query.return_.distinct
+        and not any(clause.optional for clause in query.matches)
+        and bool(plan.whole_row_output_names)
+        and relationship_count > 0
+        and all(
+            isinstance(alias_targets.get(alias_name), ASTNode)
+            for alias_name in plan.whole_row_sources.values()
+        )
+    )
+    force_multiplicity_bindings = plan.all_source_aliases is None and (
+        _lowering._forces_relationship_multiplicity_projection_bindings(
+            query,
+            alias_targets=alias_targets,
+            relationship_count=relationship_count,
+            items=query.return_.items,
+            order_by=query.order_by,
+                bag_preserving_whole_row_aliases=_bag_preserving_whole_row_aliases(query, plan=plan),
+        )
+    )
+    return (
+        relationship_count,
+        final_whole_node_binding_rows,
+        force_multiplicity_bindings,
+    )
+
+
+def _bag_preserving_whole_row_aliases(
+    query: CypherQuery,
+    *,
+    plan: _ProjectionPlan,
+) -> AbstractSet[str]:
+    """Return whole-row aliases that may use relationship binding rows."""
+    if query.return_.distinct:
+        return frozenset()
+    whole_row_sources = frozenset(plan.whole_row_sources.values())
+    if query.return_is_reentry_carry and (
+        query.order_by is not None
+        or query.skip is not None
+        or query.limit is not None
+        or not query.return_.items
+        or not all(item.expression.text.strip() in whole_row_sources for item in query.return_.items)
+    ):
+        return frozenset()
+    if any(
+        _is_variable_length_relationship_pattern(element)
+        for clause in query.matches
+        for element in _match_pattern_elements(clause)
+        if isinstance(element, RelationshipPattern)
+    ):
+        return frozenset()
+    return frozenset(plan.whole_row_sources.values())
+
+
+def _whole_node_distinct_temporary_items(
+    plan: _ProjectionPlan,
+) -> List[Tuple[str, Any]]:  # hygiene-ok: explicit-any -- plan runtime values are pre-resolved literals or rendered expressions
+    return [
+        (f"__gfql_return_distinct_{index}__", runtime_expr)
+        for index, (_, runtime_expr) in enumerate(plan.projection_items)
+    ]
+
+
+def _whole_node_distinct_temporary_names(plan: _ProjectionPlan) -> List[str]:
+    return [name for name, _ in _whole_node_distinct_temporary_items(plan)]
+
+
+def _whole_node_distinct_keys(plan: _ProjectionPlan) -> List[str]:
+    return (
+        [plan.whole_row_sources[name] for name in plan.whole_row_output_names]
+        + _whole_node_distinct_temporary_names(plan)
+    )
 
 
 def _plan_with_visible_projected_columns(

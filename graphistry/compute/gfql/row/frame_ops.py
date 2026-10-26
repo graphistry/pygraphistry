@@ -400,13 +400,13 @@ def limit(ctx: RowPipelineCtx, value: Any) -> "Plottable":
     return row_table(ctx, table_df.iloc[:limit_count])
 
 
-def distinct(ctx: RowPipelineCtx) -> "Plottable":
+def distinct(ctx: RowPipelineCtx, subset: Optional[List[str]] = None) -> "Plottable":
     table_df = get_active_table(ctx)
     if _is_polars(table_df):
         # maintain_order matches pandas drop_duplicates(keep='first') semantics.
-        return row_table(ctx, table_df.unique(maintain_order=True))
+        return row_table(ctx, table_df.unique(maintain_order=True, subset=subset))
     try:
-        out_df = table_df.drop_duplicates()
+        out_df = table_df.drop_duplicates(subset=subset)
     except Exception:
         # Fallback for unhashable list/map cells: dedupe by string-normalized
         # object-like columns while preserving original row payload.
@@ -416,6 +416,6 @@ def distinct(ctx: RowPipelineCtx) -> "Plottable":
             work_df = table_df.assign(
                 **{col: table_df[col].astype(str) for col in object_cols}
             )
-        mask = ~work_df.duplicated(keep="first")
+        mask = ~work_df.duplicated(subset=subset, keep="first")
         out_df = table_df.loc[mask]
     return row_table(ctx, out_df)

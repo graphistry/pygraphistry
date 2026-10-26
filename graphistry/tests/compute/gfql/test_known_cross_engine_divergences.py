@@ -6,6 +6,8 @@ malformed -- dangling edge endpoints, duplicate node ids. They are pinned
 executable so (a) the release notes can point at exactly what diverges, and
 (b) the fix PR flips a strict xfail instead of rediscovering the shape.
 """
+import os
+
 import pandas as pd
 import pytest
 
@@ -244,7 +246,7 @@ cudf_only = pytest.mark.skipif(
     reason="cudf lane requires a GPU box (--gpus all)")
 
 
-# --- OPTIONAL MATCH grouped aggregates: cuDF cannot serve the shape at all ------------------
+# --- OPTIONAL MATCH grouped aggregates: served on every engine, including cuDF ---------------
 # Hand oracle on nodes alice(id 0, w 5) / bob(id 1, w 7) and the single edge 0->1:
 #   alice matches x=bob  -> count(x)=1, sum(x.w)=7
 #   bob matches nothing  -> count(x)=0, and openCypher's sum over an empty group is 0
@@ -253,22 +255,13 @@ _OM_AGG_ORACLE = [
     ("sum(x.w) AS s", "s", [{"name": "alice", "s": 7}, {"name": "bob", "s": 0}]),
 ]
 
-_OM_AGG_CUDF_XFAIL = pytest.mark.xfail(strict=True, reason=(
-    "PRE-EXISTING (identical at merge-base 526976e91, fully closed graph, so #1888/#1895 did "
-    "not cause it): the row pipeline's group_by cannot run on cuDF -- _build_grouped's "
-    "grouped.size() raises 'truth value of a Series is ambiguous' -- so EVERY grouped aggregate "
-    "after OPTIONAL MATCH dies there. Round 4 saw the softer form of the same gap (an empty "
-    "group's sum coming back NULL instead of 0). Flipping this xfail = cuDF serving the shape."))
-
-
 _needs_cudf = pytest.mark.skipif(
-    __import__("importlib.util", fromlist=["util"]).find_spec("cudf") is None,
-    reason="cudf lane requires a GPU box (--gpus all)")
+    os.environ.get("TEST_CUDF", "0") != "1", reason="cudf tests need TEST_CUDF=1 and a GPU")
 
 
 @pytest.mark.parametrize("engine", [
     "pandas", pytest.param("polars", marks=polars_only),
-    pytest.param("cudf", marks=[_needs_cudf, _OM_AGG_CUDF_XFAIL])])
+    pytest.param("cudf", marks=_needs_cudf)])
 @pytest.mark.parametrize("agg,col,want", _OM_AGG_ORACLE)
 def test_optional_match_grouped_aggregate_is_served_on_every_engine(engine, agg, col, want):
     nodes = pd.DataFrame({"id": [0, 1], "name": ["alice", "bob"], "t": ["P", "P"], "w": [5, 7]})
