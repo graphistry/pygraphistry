@@ -1,9 +1,18 @@
 {
+    "include": ["graphistry"],
     "typeCheckingMode": "basic",
     "ignore": [],
     "reportArgumentType": "none",
     "reportMissingTypeArgument": "none",
     "reportUnknownMemberType": "none",
+    "reportMissingImports": "none",
+    "reportMissingModuleSource": "none",
     "reportIncompatibleMethodOverride": "error",
-    "exclude": []
+    "reportPossiblyUnboundVariable": "warning",
+    "exclude": [
+        "graphistry/tests",
+        "graphistry/_version.py",
+        "versioneer.py",
+        "**/graph_vector_pb2*"
+    ]
 }

@@ -16,6 +16,7 @@ from graphistry.Plottable import Plottable
 from graphistry.compute.endpoint_utils import drop_null_endpoint_edges
 from graphistry.compute.util import generate_safe_column_name
 from .dtypes import endpoint_ids
+from .membership import id_set
 from .predicates import filter_by_dict_polars
 
 if TYPE_CHECKING:
@@ -115,7 +116,7 @@ def _keep_edges_with_both_endpoints_resolvable(
     """Filter both endpoints against the non-null identity universe."""
     import polars as pl
 
-    universe = resolvable_ids.implode()
+    universe = id_set(resolvable_ids)
 
     def _resolvable(endpoint_col: str) -> "pl.Expr":
         return pl.col(endpoint_col).cast(node_dtype).is_in(universe)
@@ -241,6 +242,10 @@ def hop_polars(
     all_nodes = g._nodes
 
     if edge_match is not None:
+        from graphistry.Engine import Engine
+        from graphistry.compute.gfql.index.property_lookup import property_candidate_frame
+
+        edges = property_candidate_frame(g, "edges", edges, edge_match, Engine.POLARS)
         edges = filter_by_dict_polars(edges, edge_match)
 
     # resolved_max_hops comes from the shared resolver above (None == run-to-closure).

@@ -1,9 +1,11 @@
 from functools import lru_cache
+from collections import Counter
 import graphistry, logging, os, pandas as pd, pytest
 from graphistry.tests.common import NoAuthTestCase
 from graphistry.constants import SRC, DST, NODE
 from graphistry.plugins.cugraph import (
     SRC_CUGRAPH, DST_CUGRAPH, NODE_CUGRAPH,
+    _restore_graph_edge_attrs, _restore_graph_return_edge_attrs,
     from_cugraph, to_cugraph,
     compute_cugraph, layout_cugraph,
     compute_algs,
@@ -470,6 +472,141 @@ class Test_curaph_usage(NoAuthTestCase):
 @pytest.mark.skipif(not test_cugraph, reason="Requires TEST_CUGRAPH=1")
 class Test_cugraph_compute(NoAuthTestCase):
 
+    def test_graph_return_endpoint_column_collision(self):
+        import cudf
+
+        for collision_columns in (("src",), ("dst",), ("src", "dst")):
+            with self.subTest(collision_columns=collision_columns):
+                data = {"s": ["a", "b", "c"], "d": ["b", "c", "a"]}
+                for column in collision_columns:
+                    data[column] = [f"{column}_0", f"{column}_1", f"{column}_2"]
+                g = graphistry.edges(cudf.DataFrame(data), "s", "d")
+
+                out1 = g.compute_cugraph("k_core", directed=False, params={"k": 2})
+                out2 = out1.compute_cugraph("k_core", directed=False, params={"k": 2})
+
+                assert out2._source == "s" and out2._destination == "d"
+                result_edges = Counter(
+                    frozenset(edge) for edge in zip(out2._edges["s"].to_pandas(), out2._edges["d"].to_pandas())
+                )
+                expected_edges = Counter(frozenset(edge) for edge in zip(data["s"], data["d"]))
+                assert result_edges == expected_edges
+                for column in collision_columns:
+                    assert sorted(out2._edges[column].to_pandas()) == sorted(data[column])
+
+    def test_graph_return_parallel_edges_declined(self):
+        import cudf
+
+        data = {
+            "s": ["a", "a", "b"],
+            "d": ["b", "b", "c"],
+            "label": ["parallel_0", "parallel_1", "bc"],
+        }
+        g = graphistry.edges(cudf.DataFrame(data), "s", "d")
+
+        with pytest.raises(ValueError, match="unique \\(source, destination\\) edge pairs"):
+            g.compute_cugraph("k_core", directed=False, params={"k": 2})
+
+    def test_graph_return_clean_control(self):
+        import cudf
+
+        data = {
+            "s": ["a", "b", "c"],
+            "d": ["b", "c", "a"],
+            "source": ["source_0", "source_1", "source_2"],
+            "target": ["target_0", "target_1", "target_2"],
+            "__attr_source_2__": ["generated_0", "generated_1", "generated_2"],
+        }
+        g = graphistry.edges(cudf.DataFrame(data), "s", "d")
+
+        out = g.compute_cugraph("k_core", directed=False, params={"k": 2})
+
+        assert out._source == "s" and out._destination == "d"
+        expected_attrs = {
+            frozenset((data["s"][i], data["d"][i])): (
+                data["source"][i], data["target"][i], data["__attr_source_2__"][i]
+            )
+            for i in range(len(data["s"]))
+        }
+        result_edges = {
+            frozenset(edge) for edge in zip(out._edges["s"].to_pandas(), out._edges["d"].to_pandas())
+        }
+        result_rows = list(zip(
+            out._edges["s"].to_pandas(),
+            out._edges["d"].to_pandas(),
+            out._edges["source"].to_pandas(),
+            out._edges["target"].to_pandas(),
+            out._edges["__attr_source_2__"].to_pandas(),
+        ))
+        result_attrs = {
+            frozenset((source, destination)): (source_value, target_value, generated_value)
+            for source, destination, source_value, target_value, generated_value in result_rows
+        }
+        assert result_attrs == {
+            edge: expected_attrs[edge] for edge in expected_attrs
+            if edge in result_edges
+        }
+
+    def test_graph_return_directed_ego_preserves_antiparallel_attrs(self):
+        import cudf
+
+        data = {
+            "s": ["a", "b", "b", "c"],
+            "d": ["b", "a", "c", "b"],
+            "label": ["ab", "ba", "bc", "cb"],
+        }
+        g = graphistry.edges(cudf.DataFrame(data), "s", "d")
+
+        out = g.compute_cugraph(
+            "ego_graph", directed=True, params={"n": cudf.Series(["a"]), "radius": 1}
+        )
+
+        assert out._source == "s" and out._destination == "d"
+        result_rows = list(zip(
+            out._edges["s"].to_pandas(),
+            out._edges["d"].to_pandas(),
+            out._edges["label"].to_pandas(),
+        ))
+        assert len(result_rows) == 2
+        assert set(result_rows) == {("a", "b", "ab"), ("b", "a", "ba")}
+
+    def test_graph_return_filters_topology_and_preserves_retained_attrs(self):
+        import cudf
+
+        data = {
+            "s": ["a", "b", "c", "a"],
+            "d": ["b", "c", "a", "tail"],
+            "label": ["triangle_ab", "triangle_bc", "triangle_ca", "tail_at"],
+        }
+        g = graphistry.edges(cudf.DataFrame(data), "s", "d")
+
+        out1 = g.compute_cugraph("k_core", directed=False, params={"k": 2})
+        out2 = out1.compute_cugraph("k_core", directed=False, params={"k": 2})
+
+        assert out2._source == "s" and out2._destination == "d"
+        assert len(out1._edges) == 3
+        assert len(out2._edges) == 3
+        expected_labels = {
+            frozenset((data["s"][i], data["d"][i])): data["label"][i]
+            for i in range(len(data["s"]))
+        }
+        result_edges = {
+            frozenset(edge) for edge in zip(out2._edges["s"].to_pandas(), out2._edges["d"].to_pandas())
+        }
+        result_rows = list(zip(
+            out2._edges["s"].to_pandas(),
+            out2._edges["d"].to_pandas(),
+            out2._edges["label"].to_pandas(),
+        ))
+        assert {
+            frozenset((source, destination)): label
+            for source, destination, label in result_rows
+        } == {
+            edge: expected_labels[edge] for edge in expected_labels
+            if edge in result_edges
+        }
+
+
     def test_all_calls(self):
 
         import cudf, cugraph
@@ -624,6 +761,7 @@ class Test_cugraph_compute(NoAuthTestCase):
                     assert len(out._nodes.columns) == len(g._nodes.columns) + len(out_cols)
                     assert out._edges.shape == g._edges.shape
 
+
     def test_chain(self):
 
         import cudf, cugraph
@@ -653,6 +791,158 @@ class Test_cugraph_compute(NoAuthTestCase):
                     #assert alg in out._nodes
                     assert len(out._nodes.columns) == len(g._nodes.columns) + len(out_cols)
                     assert out._edges.shape == g._edges.shape
+
+
+class Test_restore_graph_edge_attrs:
+    def test_preserves_rows_and_attrs_across_directions(self):
+        returned = pd.DataFrame({"s": ["a", "b"], "d": ["b", "a"]})
+        original = pd.DataFrame({
+            "s": ["a"], "d": ["b"], "label": ["ab"], "weight": [2.0]
+        })
+
+        restored = _restore_graph_edge_attrs(returned, original, "s", "d")
+
+        assert restored.to_dict("records") == [
+            {"s": "a", "d": "b", "label": "ab", "weight": 2.0},
+            {"s": "b", "d": "a", "label": "ab", "weight": 2.0},
+        ]
+
+    def test_selects_orientation_for_opposite_edges(self):
+        returned = pd.DataFrame({"s": ["a", "b"], "d": ["b", "a"]})
+        original = pd.DataFrame({
+            "s": ["a", "b"], "d": ["b", "a"], "label": ["ab", "ba"]
+        })
+
+        restored = _restore_graph_edge_attrs(returned, original, "s", "d")
+
+        assert list(zip(restored["s"], restored["d"], restored["label"])) == [
+            ("a", "b", "ab"), ("b", "a", "ba")
+        ]
+
+    def test_preserves_null_attrs(self):
+        returned = pd.DataFrame({"s": ["a"], "d": ["b"]})
+        original = pd.DataFrame({"s": ["a"], "d": ["b"], "label": [None]})
+
+        restored = _restore_graph_edge_attrs(returned, original, "s", "d")
+
+        assert restored["label"].tolist() == [None]
+
+    def test_declines_parallel_edges(self):
+        returned = pd.DataFrame({"s": ["a"], "d": ["b"]})
+        original = pd.DataFrame({
+            "s": ["a", "a"], "d": ["b", "b"], "label": ["one", "two"]
+        })
+
+        with pytest.raises(ValueError, match="unique \\(source, destination\\) edge pairs"):
+            _restore_graph_edge_attrs(returned, original, "s", "d")
+
+    def test_declines_antiparallel_attribute_conflicts(self):
+        returned = pd.DataFrame({"s": ["a"], "d": ["b"]})
+        original = pd.DataFrame({
+            "s": ["a", "b"], "d": ["b", "a"], "label": ["ab", "ba"],
+        })
+
+        with pytest.raises(ValueError, match="antiparallel original edges"):
+            _restore_graph_edge_attrs(returned, original, "s", "d")
+
+    def test_allows_antiparallel_identical_attributes(self):
+        returned = pd.DataFrame({"s": ["a"], "d": ["b"]})
+        original = pd.DataFrame({
+            "s": ["a", "b"], "d": ["b", "a"], "label": ["same", "same"],
+        })
+
+        restored = _restore_graph_edge_attrs(returned, original, "s", "d")
+
+        assert restored.shape == (1, 3)
+        assert restored["label"].tolist() == ["same"]
+
+    def test_returns_edges_without_attributes(self):
+        returned = pd.DataFrame({"s": ["a"], "d": ["b"]})
+        original = pd.DataFrame({"s": ["a"], "d": ["b"]})
+
+        restored = _restore_graph_edge_attrs(returned, original, "s", "d")
+
+        assert restored.to_dict("records") == [{"s": "a", "d": "b"}]
+
+    def test_declines_returned_attribute_collision(self):
+        returned = pd.DataFrame({"s": ["a"], "d": ["b"], "label": ["new"]})
+        original = pd.DataFrame({"s": ["a"], "d": ["b"], "label": ["old"]})
+
+        with pytest.raises(ValueError, match="overlap original attributes"):
+            _restore_graph_edge_attrs(returned, original, "s", "d")
+
+    def test_avoids_reserved_row_identifiers(self):
+        returned = pd.DataFrame({
+            "__cugraph_returned_edge_id__": ["x"], "s": ["a"], "d": ["b"],
+        })
+        original = pd.DataFrame({
+            "__cugraph_original_edge_id__": ["y"], "s": ["a"], "d": ["b"], "label": ["ab"],
+        })
+
+        restored = _restore_graph_edge_attrs(returned, original, "s", "d")
+
+        assert restored["label"].tolist() == ["ab"]
+
+    def test_avoids_cross_frame_returned_identifier(self):
+        returned = pd.DataFrame({"s": ["a"], "d": ["b"]})
+        original = pd.DataFrame({
+            "s": ["a"], "d": ["b"],
+            "__cugraph_returned_edge_id__": ["user"], "label": ["ab"],
+        })
+
+        restored = _restore_graph_edge_attrs(returned, original, "s", "d")
+
+        assert restored.shape == (1, 4)
+        assert restored[["s", "d"]].to_dict("records") == [{"s": "a", "d": "b"}]
+        assert restored["__cugraph_returned_edge_id__"].tolist() == ["user"]
+        assert restored["label"].tolist() == ["ab"]
+
+    def test_avoids_cross_frame_original_identifier(self):
+        returned = pd.DataFrame({
+            "s": ["a"], "d": ["b"], "__cugraph_original_edge_id__": ["returned"],
+        })
+        original = pd.DataFrame({
+            "s": ["a"], "d": ["b"],
+            "__cugraph_returned_edge_id__": ["original"], "label": ["ab"],
+        })
+
+        restored = _restore_graph_edge_attrs(returned, original, "s", "d")
+
+        assert restored.shape == (1, 5)
+        assert restored[["s", "d"]].to_dict("records") == [{"s": "a", "d": "b"}]
+        assert restored["__cugraph_original_edge_id__"].tolist() == ["returned"]
+        assert restored["__cugraph_returned_edge_id__"].tolist() == ["original"]
+        assert restored["label"].tolist() == ["ab"]
+
+    def test_restores_graph_return_attrs(self):
+        graph = graphistry.edges(pd.DataFrame({"s": ["a", "b"], "d": ["b", "a"]}), "s", "d")
+        original = pd.DataFrame({"s": ["a"], "d": ["b"], "label": ["ab"]})
+
+        restored = _restore_graph_return_edge_attrs(graph, original, "s", "d")
+
+        assert restored._source == "s" and restored._destination == "d"
+        assert restored._edges.sort_values("s")["label"].tolist() == ["ab", "ab"]
+
+    def test_keeps_graph_return_without_attrs(self):
+        graph = graphistry.edges(pd.DataFrame({"s": ["a"], "d": ["b"]}), "s", "d")
+
+        restored = _restore_graph_return_edge_attrs(graph, None, "s", "d")
+
+        assert restored is graph
+
+    def test_restores_cross_frame_reserved_return_attrs(self):
+        graph = graphistry.edges(pd.DataFrame({"s": ["a"], "d": ["b"]}), "s", "d")
+        original = pd.DataFrame({
+            "s": ["a"], "d": ["b"],
+            "__cugraph_returned_edge_id__": ["user"], "label": ["ab"],
+        })
+
+        restored = _restore_graph_return_edge_attrs(graph, original, "s", "d")
+
+        assert restored._source == "s" and restored._destination == "d"
+        assert restored._edges.shape == (1, 4)
+        assert restored._edges["__cugraph_returned_edge_id__"].tolist() == ["user"]
+        assert restored._edges["label"].tolist() == ["ab"]
 
 
 @pytest.mark.skipif(not test_cugraph, reason="Requires TEST_CUGRAPH=1")

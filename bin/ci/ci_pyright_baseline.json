@@ -1,0 +1,35 @@
+{
+  "_comment": "Per-file ratchet for bin/ci/ci_pyright_guard.py, built with pyright 1.1.414. Counts may shrink, never grow; a file absent here must have zero findings. Only the rules listed are gated -- the rest move with the installed dependencies. Regenerate with `./bin/ci/ci_pyright_guard.py --update-baseline` and explain the delta in the PR description. files_analyzed records the scope this was built over; a run that sees materially less is a collapsed gate, not an improvement.",
+  "pyright_version": "1.1.414",
+  "files_analyzed": 353,
+  "rules": {
+    "reportPossiblyUnboundVariable": {
+      "graphistry/arrow_uploader.py": 2,
+      "graphistry/compute/chain_fast_paths.py": 4,
+      "graphistry/compute/gfql/cypher/lowering.py": 1,
+      "graphistry/compute/gfql/cypher/reentry/compiletime.py": 1,
+      "graphistry/compute/gfql/lazy/engine/polars/row_pipeline.py": 3,
+      "graphistry/compute/hop.py": 1,
+      "graphistry/embed_utils.py": 1,
+      "graphistry/feature_utils.py": 8,
+      "graphistry/plugins/cugraph.py": 5,
+      "graphistry/pygraphistry.py": 1,
+      "graphistry/tigeristry.py": 1
+    },
+    "reportSelfClsParameterName": {
+      "graphistry/text_utils.py": 1
+    },
+    "reportUndefinedVariable": {
+      "graphistry/compute/gfql/cypher/projection_planning.py": 195
+    },
+    "reportUnsupportedDunderAll": {
+      "graphistry/compute/gfql/temporal_text.py": 1
+    },
+    "reportUnusedExpression": {
+      "graphistry/gremlin.py": 1,
+      "graphistry/layouts.py": 1,
+      "graphistry/plugins/cugraph.py": 3
+    },
+    "<unparseable>": {}
+  }
+}

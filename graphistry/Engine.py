@@ -14,6 +14,10 @@ if TYPE_CHECKING:
     # and referenced via string annotations below so Engine.py — imported very early — never
     # triggers ``graphistry.compute`` package init at runtime (would be circular).
     from graphistry.compute.typing import DataFrameT, PolarsFrame, PolarsSeriesT, SeriesT
+    from graphistry.Plottable import Plottable
+    import cudf
+    import cupy
+    import polars as pl
     # TypeGuard, NOT TypeIs (PEP 742). TypeIs additionally narrows the negative branch, and to
     # do that soundly it REQUIRES the narrowed type to be consistent with the declared input
     # type. ``is_polars_df`` is called on values declared ``DataFrameT``/``SeriesT`` (i.e.
@@ -121,13 +125,6 @@ def resolve_engine(
         if isinstance(g_or_df, pa.Table):
             return Engine.PANDAS
 
-        try:
-            from pyspark.sql import DataFrame as SparkDataFrame
-            if isinstance(g_or_df, SparkDataFrame):
-                return Engine.PANDAS
-        except ImportError:
-            pass
-
         if 'polars' in str(type(g_or_df).__module__):
             try:
                 import polars as pl
@@ -137,6 +134,13 @@ def resolve_engine(
                     return Engine.POLARS
             except ImportError:
                 pass
+
+        try:
+            from pyspark.sql import DataFrame as SparkDataFrame
+            if isinstance(g_or_df, SparkDataFrame):
+                return Engine.PANDAS
+        except ImportError:
+            pass
 
         type_module = type(g_or_df).__module__
         if 'dask' in type_module and 'cudf' not in type_module:
@@ -247,11 +251,56 @@ def is_polars_df(df: object) -> "TypeGuard[PolarsFrame]":
     return df is not None and "polars" in type(df).__module__
 
 
+def is_cudf_series(series: object) -> "TypeGuard[cudf.Series]":
+    """True if ``series`` is a cuDF ``Series``.
+
+    The module check avoids importing the optional cuDF dependency for other engines;
+    the exact ``isinstance`` check prevents look-alike classes from taking the cuDF path.
+    """
+    if series is None or "cudf" not in type(series).__module__:
+        return False
+    import cudf
+
+    return isinstance(series, cudf.Series)
+
+
+def is_cupy_array(array: object) -> "TypeGuard[cupy.ndarray]":
+    """True if ``array`` is a CuPy array.
+
+    The module check avoids importing the optional GPU dependency for other
+    engines; the exact ``isinstance`` check rejects look-alikes.
+    """
+    if array is None or "cupy" not in type(array).__module__:
+        return False
+    import cupy
+
+    return isinstance(array, cupy.ndarray)
+
+
 def active_frames_are_polars(g: Any) -> bool:
     """True if ``g``'s active table (nodes, else edges) is a polars frame."""
     if g._nodes is not None:
         return is_polars_df(g._nodes)
     return is_polars_df(g._edges)
+
+
+def _polars_to_pandas_exact(df: "pl.DataFrame") -> pd.DataFrame:
+    """Avoid float64 rounding of nullable 64-bit integers during Polars conversion."""
+    import polars as pl
+
+    out = df.to_pandas()
+    repairs = {}
+    for name, dtype in df.schema.items():
+        if dtype not in (pl.Int64, pl.UInt64):
+            continue
+        col = df.get_column(name)
+        if not col.null_count():
+            continue
+        low, high = col.min(), col.max()
+        if (low is not None and low < -(2**53)) or (high is not None and high > 2**53):
+            target_dtype = object if dtype == pl.Int64 else "UInt64"
+            repairs[name] = pd.Series(col.to_list(), index=out.index, dtype=target_dtype)
+    return out.assign(**repairs) if repairs else out
 
 
 def df_to_engine(df, engine: Engine, *, validate: Optional[ValidationParam] = None, warn: bool = True):
@@ -291,9 +340,9 @@ def df_to_engine(df, engine: Engine, *, validate: Optional[ValidationParam] = No
         if 'polars' in type_module:
             import polars as pl
             if isinstance(df, pl.LazyFrame):
-                return df.collect().to_pandas()
+                return _polars_to_pandas_exact(df.collect())
             if isinstance(df, pl.DataFrame):
-                return df.to_pandas()
+                return _polars_to_pandas_exact(df)
         raise ValueError(f'Cannot convert type {type(df)} to pandas')
     elif engine == Engine.CUDF:
         import cudf
@@ -359,6 +408,16 @@ def df_to_engine(df, engine: Engine, *, validate: Optional[ValidationParam] = No
         # dask/spark and anything else: route through pandas
         return _pl_from_pandas(df_to_engine(df, Engine.PANDAS), validate=pl_validate, warn=warn)
     raise ValueError(f'Only engines pandas/cudf/dask/polars supported, got: {engine}')
+
+
+def graph_frames_to_engine(g: "Plottable", engine: Engine) -> "Plottable":
+    """Return ``g`` with its node and edge frames converted to ``engine``, keeping bindings."""
+    out = g
+    if g._nodes is not None:
+        out = out.nodes(df_to_engine(g._nodes, engine), g._node)
+    if g._edges is not None:
+        out = out.edges(df_to_engine(g._edges, engine), g._source, g._destination, edge=g._edge)
+    return out
 
 
 def _mixed_type_object_columns(df) -> List[str]:

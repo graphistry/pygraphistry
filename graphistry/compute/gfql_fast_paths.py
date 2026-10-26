@@ -2589,11 +2589,17 @@ def _execute_single_hop_grouped_aggregate_fast_path(
         if joined_end is None:
             return None
         work = joined_end
+        # cuDF DataFrameGroupBy.size() fails when any column is named 'name'; count a fresh column there
+        size_col = None
+        if type(work).__module__.startswith("cudf") and "name" in work.columns:
+            size_col = generate_safe_column_name("group_size", work, prefix="__gfql_", suffix="__")
+            work = work.assign(**{size_col: 1})
         try:
             grouped = work.groupby(group_keys, sort=False, dropna=False)
         except TypeError:
             grouped = work.groupby(group_keys, sort=False)
-        out_df = grouped.size().reset_index(name="__gfql_group_size__")[group_keys]
+        sized = grouped[size_col] if size_col is not None else grouped
+        out_df = sized.size().reset_index(name="__gfql_group_size__")[group_keys]
         for alias, func, expr_alias in aggregations:
             # Twin of the polars branch above: one Cypher sum()/avg() type contract, enforced on
             # whichever engine runs the fast path (see gfql/agg_types.py).
@@ -2608,7 +2614,7 @@ def _execute_single_hop_grouped_aggregate_fast_path(
                     if dtype_label is not None:
                         raise_non_numeric_aggregation(func, expr_alias, dtype_label, alias)
             if func == "count" and (expr_alias is None or with_items[expr_alias][1] is None):
-                agg_df = grouped.size().reset_index(name=alias)
+                agg_df = sized.size().reset_index(name=alias)
             elif func == "count" and expr_alias is not None:
                 agg_df = grouped[expr_alias].count().reset_index(name=alias)
             elif func == "avg" and expr_alias is not None:
@@ -3327,6 +3333,13 @@ def _seeded_typed_hop_bag_rows(
     return joined.drop(columns=[_SEEDED_BAG_KEY]).reset_index(drop=True)  # type: ignore[no-any-return]
 
 
+def _seed_rows_have_duplicate_id(seed_rows: DataFrameT, node: str, *, is_polars: bool) -> bool:
+    """Whether the matched seed rows retain more than one binding row per ID."""
+    if is_polars:
+        return bool(seed_rows.get_column(node).is_duplicated().any())  # type: ignore[union-attr]
+    return bool(seed_rows[node].duplicated().any())
+
+
 def _pandas_frame_has_extension_dtype(frame: DataFrameT) -> bool:
     """A pandas frame carrying a non-numpy dtype other than the string dtype (categorical,
     nullable): the full path's frame ops widen its neighbours, which the lean paths do not."""
@@ -3445,7 +3458,11 @@ def _node_lookup_scan_reason(
     indexed = [c for c in registry.node_prop_cols() if c in n0f]
     if not indexed:
         return "index_missing"
-    return "cost_gate" if any(registry.get_node_prop_valid(c, base_graph._nodes, _frame_engine_of(base_graph._nodes)) is not None for c in indexed) else "index_stale"
+    from graphistry.compute.gfql.index.property_keys import valid_property_index
+    nodes = base_graph._nodes
+    assert nodes is not None
+    frame_engine = _frame_engine_of(nodes)
+    return "cost_gate" if any(valid_property_index(registry, "nodes", nodes, c, frame_engine) is not None for c in indexed) else "index_stale"
 
 
 def _frame_engine_of(frame: DataFrameT) -> Engine:
@@ -3552,16 +3569,19 @@ def _execute_seeded_node_lookup_fast_path(
             if "." in prop or prop not in nodes_frame_cols:
                 return None
             select_items.append((out_name, prop))
-    from graphistry.compute.gfql.index.api import _record_indexed_traversal
+    from graphistry.compute.gfql.index.api import _record_indexed_traversal, _trace_active
     nid_ctx = _resident_node_id_index(base_graph, nodes_frame, node)
     rows, how = _seed_node_rows(base_graph, nodes_frame, n0f, node, nid_ctx, n0.filter_dict)
     _record_indexed_traversal(
         seam="node_lookup",
         engine=requested_engine,
         served=how != "scan",
-        reason="served" if how != "scan" else _node_lookup_scan_reason(base_graph, node, n0f, nid_ctx),
+        reason="served" if how != "scan" else (
+            _node_lookup_scan_reason(base_graph, node, n0f, nid_ctx) if _trace_active() else "not_traced"
+        ),
         hop_count=0,
         public_seed_scan=node not in n0f,
+        seed_graph=base_graph, seed_filter=n0.filter_dict,
     )
     if select_items is not None:
         if is_polars:
@@ -3789,6 +3809,19 @@ def _execute_seeded_typed_hop_fast_path(
             served=False,
             reason="unsupported_shape",
             hop_count=1,
+            public_seed_scan=node not in n0.filter_dict,
+        )
+        return None
+    p_rows, _edges, seed_rows, kernel_admits = dst_res
+    if _seed_rows_have_duplicate_id(seed_rows, node, is_polars=is_polars):
+        # The property bag expansion keys on endpoint IDs, so duplicate seed IDs
+        # would lose seed-row multiplicity. The full positional pipeline serves it.
+        _record_indexed_traversal(
+            seam="destination_return",
+            engine=requested_engine,
+            served=False,
+            reason="duplicate_seed_id",
+            hop_count=1,
             public_seed_scan=node not in cast(Dict[str, Any], n0.filter_dict),
         )
         return None
@@ -3801,7 +3834,6 @@ def _execute_seeded_typed_hop_fast_path(
         public_seed_scan=node not in cast(Dict[str, Any], n0.filter_dict),
         hop_details=[{"hop": 1}] if index_ctx is not None else None,
     )
-    p_rows, _edges, seed_rows, kernel_admits = dst_res
     canonical_keeps_source_dtypes = True  # the general chain path keeps source dtypes on every route
     if wants_multi_alias:
         assert select_items is not None

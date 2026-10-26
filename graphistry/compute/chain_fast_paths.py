@@ -4,18 +4,17 @@ lanes in ``gfql_fast_paths.py``. This module imports only leaf modules (no back-
 ``chain.py`` or the specialization packages)."""
 # ruff: noqa: E501
 
-from typing import Any, Dict, Literal, Optional, Sequence, Tuple, TYPE_CHECKING, Union, cast
+from typing import Any, Dict, Literal, Mapping, Optional, Sequence, Tuple, TYPE_CHECKING, Union, cast
 
 import pandas as pd
 
 from graphistry.Plottable import Plottable
-from graphistry.Engine import is_polars_series
+from graphistry.Engine import Engine, is_polars_series
 from .ast import Direction
-from .typing import ArrayLike, ArrayNamespace, DataFrameT, FilterDict, ScalarFilterDict, SeriesT
+from .typing import ArrayLike, ArrayNamespace, DataFrameT, FilterDict, ScalarFilterDict, SeedFilterDict, SeedFilterValue, SeriesT
 
 if TYPE_CHECKING:
-    from graphistry.Engine import Engine
-    from graphistry.compute.gfql.index.registry import AdjacencyIndex, NodeIdIndex
+    from graphistry.compute.gfql.index.registry import AdjacencyIndex, GfqlIndexRegistry, NodeIdIndex
 
 
 def _tag_fast_path_aliases(
@@ -117,6 +116,23 @@ def _tag_fast_path_aliases_eager(
     return nodes, edges
 
 
+def _seeded_seed_filters(fd: Optional[FilterDict], df: DataFrameT, node_id: str) -> Optional[SeedFilterDict]:
+    """The scalar gate below, plus membership sets of ids as sorted tuples: on the node-id key the node-id index serves them, on any other column a resident property index does."""
+    from graphistry.compute.gfql.index.bindings import _membership_seed_ids
+    if not fd:
+        return {}
+    members = {k: ids for k, v in fd.items() if (ids := _membership_seed_ids(v)) is not None}
+    scalars = _seeded_scalar_filters({k: v for k, v in fd.items() if k not in members}, df)
+    if scalars is None:
+        return None
+    cols = set(df.columns)
+    if any(k not in cols for k in members):
+        return None
+    out: SeedFilterDict = dict(scalars)
+    out.update({k: tuple(ids) for k, ids in members.items()})
+    return out
+
+
 def _seeded_scalar_filters(fd: Optional[FilterDict], df: DataFrameT) -> Optional[ScalarFilterDict]:
     """Resolve a filter dict to plain scalar column==value pairs, or None to bail
     to the general path. Mirrors filter_by_dict.resolve_filter_column exactly for
@@ -191,8 +207,9 @@ def _ids_to_key_array(
     dropna semantics). None when the cast is not value-safe (mismatched families
     like str-vs-int decline to the scan path rather than risk false matches)."""
     try:
-        if 'cudf' in str(type(vals).__module__):
-            vals = vals.dropna()  # type: ignore[union-attr]  # cudf Series by module check
+        cudf_series = 'cudf' in str(type(vals).__module__)
+        if cudf_series:
+            vals = vals.dropna() if vals.null_count else vals  # type: ignore[union-attr]  # cudf Series by module check
             raw = vals.values  # type: ignore[union-attr]  # device array; to_numpy() raises on nulls + round-trips host
         elif is_polars_series(vals):
             # Nullable integers become floats in NumPy unless nulls are removed first.
@@ -217,7 +234,10 @@ def _ids_to_key_array(
                 # >= 2^53 into false matches; the scan path compares exactly -> decline.
                 return None
             arr = arr.astype(common)
-        return xp.unique(arr)
+        if cudf_series and int(arr.shape[0]) <= 1:
+            return arr.copy()
+        from graphistry.compute.gfql.index.engine_arrays import sorted_unique
+        return sorted_unique(xp, arr)
     except (TypeError, ValueError):
         return None
 
@@ -230,12 +250,12 @@ def _index_node_rows(
     """Node rows whose id is in ``ids`` via the resident node-id index (positional
     gather; row order is id-sorted, covered by the value-identical contract)."""
     from graphistry.compute.gfql.index.lookup import lookup_node_rows
-    from graphistry.compute.gfql.index.engine_arrays import take_rows
+    from graphistry.compute.gfql.index.engine_arrays import _take_index_rows
     arr = _ids_to_key_array(ids, nid.keys_sorted, xp)
     if arr is None:
         return None
     positions = lookup_node_rows(nid, arr, xp)
-    return take_rows(nodes_df, xp.sort(positions) if preserve_input_order else positions, engine)
+    return _take_index_rows(nodes_df, xp.sort(positions) if preserve_input_order else positions, engine, nid)
 
 
 def _frame_engine(df: DataFrameT) -> Optional["Engine"]:
@@ -277,8 +297,23 @@ def _resident_node_id_index(
     return None
 
 
+def _take_cudf_property_seed_rows(
+    registry: "GfqlIndexRegistry", nodes_df: DataFrameT,
+    n0f: Mapping[str, SeedFilterValue], rows: ArrayLike, engine: "Engine",
+) -> DataFrameT:
+    """Use the trusted gather only when every covering index owns this frame."""
+    from graphistry.compute.gfql.index.engine_arrays import _take_index_rows, take_rows
+
+    relevant = [index for column, index in registry.property_indexes("nodes").items() if column in n0f]
+    n_rows = len(nodes_df)
+    if relevant and all(index.source_ref is nodes_df and index.fingerprint[0] == n_rows for index in relevant):
+        return _take_index_rows(nodes_df, rows, engine, relevant[0])
+    return take_rows(nodes_df, rows, engine)
+
+
 def _seed_rows_via_prop_index_frame(
-    g: Plottable, nodes_df: DataFrameT, n0f: ScalarFilterDict, engine: "Engine",
+    g: Plottable, nodes_df: DataFrameT, n0f: Mapping[str, SeedFilterValue], engine: "Engine",
+    *, record_property_decision: bool = False,
 ) -> Optional[DataFrameT]:
     """Candidate seed rows through a resident node PROPERTY index covering one of the
     scalar predicates, else None (the caller re-applies the whole filter either way)."""
@@ -294,9 +329,11 @@ def _seed_rows_via_prop_index_frame(
     if registry.is_empty() or not registry.node_prop_cols():
         return None
     xp, _ = array_namespace(engine)
-    rows = _prop_rows(registry, nodes_df, n0f, engine, xp, policy=policy)
+    rows = _prop_rows(registry, nodes_df, n0f, engine, xp, policy=policy, record_decision=record_property_decision)
     if rows is None:
         return None
+    if engine == Engine.CUDF and int(rows.shape[0]) > 1:
+        return _take_cudf_property_seed_rows(registry, nodes_df, n0f, rows, engine)
     return take_rows(nodes_df, rows, engine)
 
 
@@ -305,28 +342,51 @@ SeededReturn = Tuple[DataFrameT, DataFrameT, DataFrameT, bool]
 
 
 def _seed_node_rows(
-    g: Plottable, nodes_df: DataFrameT, n0f: ScalarFilterDict, node: str,
+    g: Plottable, nodes_df: DataFrameT, n0f: Mapping[str, SeedFilterValue], node: str,
     nid_ctx: Optional[Tuple["NodeIdIndex", ArrayNamespace, "Engine"]],
     filter_dict: Optional[FilterDict] = None,
+    *, record_property_decision: bool = False,
 ) -> Tuple[DataFrameT, SeedRowsHow]:
     """Rows matching the scalar seed filter: node-id index when the predicate is on the
     binding column, else a resident property index, else a scan. The canonical filter
     (``filter_dict`` as written, or the resolved scalars) is re-applied to the candidates,
     so every branch keeps the full path's typed-error and comparison semantics."""
     from graphistry.compute.gfql.index.bindings import _filter_frame
-    indexed = _seed_node_rows_from_index(g, nodes_df, n0f, node, nid_ctx, filter_dict)
+    indexed = _seed_node_rows_from_index(
+        g, nodes_df, n0f, node, nid_ctx, filter_dict, record_property_decision=record_property_decision,
+    )
     if indexed is not None:
         return indexed
     engine = _frame_engine(nodes_df)
     if engine is None:
         raise TypeError(f"unsupported node frame type {type(nodes_df).__name__}")
-    return _filter_frame(nodes_df, filter_dict if filter_dict is not None else n0f, engine), "scan"
+    return _filter_frame(nodes_df, filter_dict if filter_dict is not None else dict(n0f), engine), "scan"
+
+
+def _index_answered_cudf_integral_membership(
+    seed: DataFrameT, effective: FilterDict, n0f: Mapping[str, SeedFilterValue],
+) -> bool:
+    """Check the bounded integral membership shortcut without filtering rows."""
+    from graphistry.compute.predicates.is_in import IsIn
+    import numpy as np
+
+    (column, value), = effective.items()
+    if column in n0f and column in seed.columns and isinstance(n0f[column], tuple):
+        dtype = seed[column].dtype
+        if isinstance(dtype, np.dtype) and dtype.kind in "iu":
+            members = value.options if type(value) is IsIn else value if type(value) in (list, tuple) else None
+            if members is not None and 1 <= len(members) <= 1024:
+                bounds = np.iinfo(dtype)
+                return (all(type(member) is int and bounds.min <= member <= bounds.max for member in members)
+                        and tuple(sorted(set(members))) == n0f[column])
+    return False
 
 
 def _seed_node_rows_from_index(
-    g: Plottable, nodes_df: DataFrameT, n0f: ScalarFilterDict, node: str,
+    g: Plottable, nodes_df: DataFrameT, n0f: Mapping[str, SeedFilterValue], node: str,
     nid_ctx: Optional[Tuple["NodeIdIndex", ArrayNamespace, "Engine"]],
     filter_dict: Optional[FilterDict] = None,
+    *, record_property_decision: bool = False,
 ) -> Optional[Tuple[DataFrameT, SeedRowsHow]]:
     from graphistry.compute.gfql.index.bindings import _filter_frame
     engine = _frame_engine(nodes_df)
@@ -336,17 +396,23 @@ def _seed_node_rows_from_index(
     how: SeedRowsHow = "scan"
     if nid_ctx is not None and node in n0f:
         nid, xp, idx_engine = nid_ctx
-        seed = _index_node_rows(nid, [n0f[node]], xp, idx_engine, nodes_df)
+        seed_val = n0f[node]
+        seed = _index_node_rows(nid, list(seed_val) if isinstance(seed_val, tuple) else [seed_val], xp, idx_engine, nodes_df)
         if seed is not None:
             how = "node_id_index"
     if seed is None:
-        seed = _seed_rows_via_prop_index_frame(g, nodes_df, n0f, engine)
+        seed = _seed_rows_via_prop_index_frame(
+            g, nodes_df, n0f, engine, record_property_decision=record_property_decision,
+        )
         if seed is not None:
             how = "property_index"
     if seed is None:
         return None
-    effective = filter_dict if filter_dict is not None else n0f
+    effective: FilterDict = filter_dict if filter_dict is not None else dict(n0f)
     if _index_answered_whole_filter(effective, n0f):
+        return seed, how
+    if (engine == Engine.CUDF and len(effective) == 1 and len(n0f) == 1
+            and _index_answered_cudf_integral_membership(seed, effective, n0f)):
         return seed, how
     verified = _verify_scalar_filters_on_hit(seed, n0f, engine)
     if verified is not None:
@@ -355,7 +421,7 @@ def _seed_node_rows_from_index(
 
 
 def _verify_scalar_filters_on_hit(
-    seed: DataFrameT, n0f: ScalarFilterDict, engine: "Engine",
+    seed: DataFrameT, n0f: Mapping[str, SeedFilterValue], engine: "Engine",
 ) -> Optional[DataFrameT]:
     """Check residual equalities on index hits, preserving typed filter errors."""
     from graphistry.Engine import Engine
@@ -404,7 +470,7 @@ def _verify_scalar_filters_on_hit(
     return seed[mask]
 
 
-def _index_answered_whole_filter(effective: FilterDict, n0f: ScalarFilterDict) -> bool:
+def _index_answered_whole_filter(effective: FilterDict, n0f: Mapping[str, SeedFilterValue]) -> bool:
     """Whether one unrewritten equality was fully answered by the index."""
     if len(effective) != 1 or len(n0f) != 1:
         return False
@@ -414,16 +480,32 @@ def _index_answered_whole_filter(effective: FilterDict, n0f: ScalarFilterDict) -
 
 def _record_native_seed_lane(
     nodes_df: DataFrameT, *, seam: str, reason: str, hop_count: int, public_seed_scan: bool,
+    served: bool = True, seed_graph: Optional[Plottable] = None,
+    seed_filter: Optional[Mapping[str, object]] = None,
 ) -> None:
-    """gfql_explain step for a native op-list lane that a resident index served."""
+    """gfql_explain step for a native op-list lane: served from a resident index, or declined to the scan."""
     from graphistry.compute.gfql.index.api import _record_indexed_traversal
     engine = _frame_engine(nodes_df)
     if engine is None:
         return
     _record_indexed_traversal(
-        seam=seam, engine=engine, served=True, reason=reason, hop_count=hop_count,
+        seam=seam, engine=engine, served=served, reason=reason, hop_count=hop_count,
         public_seed_scan=public_seed_scan,
-        hop_details=[{"hop": 1}] if hop_count else None)
+        hop_details=[{"hop": 1}] if hop_count else None,
+        seed_graph=seed_graph, seed_filter=seed_filter)
+
+
+def _index_edge_positions(
+    adj: "AdjacencyIndex", ids: Union["SeriesT", Sequence[Any]],
+    xp: ArrayNamespace, preserve_input_order: bool = False,
+) -> Optional[ArrayLike]:
+    """Edge ROW POSITIONS incident to ``ids``, before any frame is built."""
+    from graphistry.compute.gfql.index.lookup import lookup_edge_rows
+    arr = _ids_to_key_array(ids, adj.keys_sorted, xp)
+    if arr is None:
+        return None
+    rows, _ = lookup_edge_rows(adj, arr, xp)
+    return xp.sort(rows) if preserve_input_order else rows
 
 
 def _index_edge_rows(
@@ -433,10 +515,8 @@ def _index_edge_rows(
 ) -> Optional[DataFrameT]:
     """Edge rows incident to ``ids`` on the indexed side via the CSR adjacency
     (searchsorted gather; replaces the O(E) isin scan)."""
-    from graphistry.compute.gfql.index.lookup import lookup_edge_rows
-    from graphistry.compute.gfql.index.engine_arrays import take_rows
-    arr = _ids_to_key_array(ids, adj.keys_sorted, xp)
-    if arr is None:
+    from graphistry.compute.gfql.index.engine_arrays import _take_index_rows
+    positions = _index_edge_positions(adj, ids, xp, preserve_input_order)
+    if positions is None:
         return None
-    rows, _ = lookup_edge_rows(adj, arr, xp)
-    return take_rows(edges_df, xp.sort(rows) if preserve_input_order else rows, engine)
+    return _take_index_rows(edges_df, positions, engine, adj)

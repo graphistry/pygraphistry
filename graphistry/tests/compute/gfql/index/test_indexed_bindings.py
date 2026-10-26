@@ -588,17 +588,29 @@ def _prop_graph(engine: str, columns: Sequence[str] = ("public",)) -> Any:
 def _seed_filter_widths(
     g: Any, query: Any, engine: str, monkeypatch: pytest.MonkeyPatch
 ) -> Tuple[Any, List[Dict[str, Any]], List[int]]:
-    """Run traced, recording how many rows each helper filter had to look at."""
+    """Run traced, recording how many rows each helper filter had to look at.
+
+    Both filter seams are recorded: the frame filter, and the array path's positional
+    filter which answers the same predicate from index codes. A probe that watched only
+    one of them would report "no filtering happened" when the other one did it.
+    """
+    import graphistry.compute.gfql.index.array_bindings as array_bindings
     import graphistry.compute.gfql.index.bindings as indexed_bindings
 
     widths: List[int] = []
     original = indexed_bindings._filter_frame
+    original_positions = array_bindings._filtered_positions
 
     def record(frame: Any, *args: Any, **kwargs: Any) -> Any:
         widths.append(int(frame.shape[0]))
         return original(frame, *args, **kwargs)
 
+    def record_positions(frame: Any, positions: Any, *args: Any, **kwargs: Any) -> Any:
+        widths.append(int(positions.shape[0]))
+        return original_positions(frame, positions, *args, **kwargs)
+
     monkeypatch.setattr(indexed_bindings, "_filter_frame", record)
+    monkeypatch.setattr(array_bindings, "_filtered_positions", record_positions)
     actual, steps = _trace_run(g, query, engine)
     return actual, steps, widths
 
@@ -688,7 +700,8 @@ def test_node_property_index_declines_unindexable_columns() -> None:
     )
 
     g = _prop_graph("pandas", columns=())
-    for column in ("kind", "maybe"):  # object dtype, float-with-null
+    g = g.nodes(g._nodes.assign(active=[[1]] * len(g._nodes)), "id")
+    for column in ("active",):
         with pytest.raises(GfqlIndexUnsupportedError):
             create_index(g, NODE_PROP, column=column)
     # caller mistakes are NOT the skippable kind
@@ -698,8 +711,8 @@ def test_node_property_index_declines_unindexable_columns() -> None:
         assert not isinstance(excinfo.value, GfqlIndexUnsupportedError)
 
     # the convenience wrapper skips the unindexable dtypes and indexes what it can
-    g2 = g.gfql_index_node_props(["kind", "maybe", "public"])
-    assert get_registry(g2).node_prop_cols() == ("public",)
+    g2 = g.gfql_index_node_props(["kind", "maybe", "public", "active"])
+    assert get_registry(g2).node_prop_cols() == ("kind", "maybe", "public")
     # ...but does NOT swallow a real failure
     with pytest.raises(ValueError):
         g.gfql_index_node_props(["nosuch"])
@@ -1207,3 +1220,36 @@ def test_explicit_polars_gpu_declines_indexed_helper_and_falls_back(
         seam="connected_bindings",
         expect_served=False,
     )
+
+
+@pytest.mark.route_engaged("indexed-kernel")
+def test_connected_bindings_trace_reports_per_hop_thresholds():
+    """Trace exposes the connected-binding seam gates, not the engine-wide frac."""
+    from graphistry.compute.gfql.index import cost_gate_frac, index_trace, with_index_policy
+    import graphistry.compute.gfql.index.bindings as indexed_bindings
+
+    ops = [
+        n({"public": 100}, name="source"),
+        e_forward({"type": "A"}, name="first"),
+        n(name="middle"),
+        e_forward({"type": "B"}, name="second"),
+        n(name="destination"),
+    ]
+    g = _graph("polars")
+    with index_trace() as trace:
+        state = indexed_bindings.try_indexed_connected_bindings_state(
+            with_index_policy(g, "force"), ops, engine=Engine.POLARS,
+        )
+        assert state is not None
+    served = [
+        step for step in trace
+        if step.get("operation") == "indexed_traversal" and step.get("served")
+    ]
+    assert len(served) == 1 and len(served[0]["hop_details"]) == 2
+    for hop_number, detail in enumerate(served[0]["hop_details"], start=1):
+        assert detail["hop"] == hop_number
+        assert detail["key_threshold_frac"] == 0.04
+        assert detail["gather_threshold_frac"] == 0.06
+        assert detail["key_threshold"] == 0.04 * detail["n_keys"]
+        assert detail["gather_threshold"] == 0.06 * detail["n_edges"]
+    assert cost_gate_frac(Engine.POLARS) == 0.02

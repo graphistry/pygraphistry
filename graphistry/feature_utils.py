@@ -870,6 +870,7 @@ def get_numeric_transformers(ndf, y=None):
     label_encoder = False
     data_encoder = False
     y_ = y
+    ndf_ = ndf  # pragma: no cover - needs scikit-learn; no lane feeding the changed-line gate installs it
     if y is not None and not y.empty:
         y_ = y.select_dtypes(include=[np.number])
         label_encoder = FunctionTransformer(
@@ -1712,6 +1713,7 @@ def transform(
         if list(ydf.columns) != list(target_names_in):
             ydf = ydf[target_names_in]  # sort
 
+    X = pd.DataFrame([])
     y = pd.DataFrame([])
     T = pd.DataFrame([])
     # encode nodes

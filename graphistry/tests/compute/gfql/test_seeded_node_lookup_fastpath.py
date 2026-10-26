@@ -64,6 +64,13 @@ def _canon(res):
     nodes = res._nodes
     df = nodes.to_pandas() if hasattr(nodes, "to_pandas") else pd.DataFrame(nodes)
     df.columns = [str(c) for c in df.columns]
+    for c in df.columns:
+        if isinstance(df[c].dtype, pd.CategoricalDtype):
+            # The category SET is not part of the row contract: polars trims a categorical's
+            # arrow dictionary to the used values on some ops and not others, and which ops
+            # differ by version (1.21 keeps the full rev-map through filter/join, 1.35 trims
+            # it; #2082). Values and categorical-ness still compare exactly.
+            df[c] = df[c].cat.remove_unused_categories()
     cols = sorted(df.columns)
     return df.sort_values(cols).reset_index(drop=True)[cols] if cols else df
 

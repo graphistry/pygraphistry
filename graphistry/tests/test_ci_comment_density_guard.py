@@ -1,4 +1,4 @@
-"""Pins for bin/ci_comment_density_guard.py: what it must catch, and what it must not."""
+"""Pins for bin/ci/ci_comment_density_guard.py: what it must catch, and what it must not."""
 
 import importlib.util
 import io
@@ -9,7 +9,7 @@ from typing import List, Sequence
 import pytest
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-GUARD_PATH = os.path.join(REPO_ROOT, "bin", "ci_comment_density_guard.py")
+GUARD_PATH = os.path.join(REPO_ROOT, "bin", "ci", "ci_comment_density_guard.py")
 
 
 pytestmark = pytest.mark.skipif(
@@ -166,7 +166,7 @@ def test_every_guard_baseline_triggers_the_python_ci_lane():
 
     baselines = sorted(
         os.path.relpath(p, root).replace(os.sep, "/")
-        for p in glob.glob(os.path.join(root, "bin", "ci_*baseline*.json"))
+        for p in glob.glob(os.path.join(root, "bin", "ci", "ci_*baseline*.json"))
     )
     assert baselines, "no guard baselines found -- the glob or the layout changed"
     unwatched = [b for b in baselines if not any(p.search(b) for p in patterns)]

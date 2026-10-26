@@ -59,6 +59,10 @@ FilterDict = Dict[str, FilterValue]
 ScalarFilterValue = Union[int, float, str, bool]
 ScalarFilterDict = Dict[str, ScalarFilterValue]
 
+# Seed filter for the native lanes: scalars plus a membership tuple of ids on the node-id key.
+SeedFilterValue = Union[ScalarFilterValue, Tuple[int, ...]]
+SeedFilterDict = Dict[str, SeedFilterValue]
+
 # Type variable for return type preservation in predicates
 T = TypeVar('T')
 
@@ -108,6 +112,12 @@ class ArrayLike(Protocol):
     def __radd__(self, other: Any) -> "ArrayLike":
         ...
 
+    def __mul__(self, other: Any) -> "ArrayLike":  # hygiene-ok: explicit-any -- ufunc accepts array|scalar operands (numpy/cupy)
+        ...
+
+    def __mod__(self, other: Any) -> "ArrayLike":  # hygiene-ok: explicit-any -- ufunc accepts array|scalar operands (numpy/cupy)
+        ...
+
     def __sub__(self, other: Any) -> "ArrayLike":
         ...
 
@@ -115,6 +125,15 @@ class ArrayLike(Protocol):
         ...
 
     def astype(self, dtype: Any) -> "ArrayLike":
+        ...
+
+    def all(self) -> Any:  # hygiene-ok: explicit-any -- numpy returns np.bool_, cupy a 0-d device array
+        ...
+
+    def any(self) -> Any:  # hygiene-ok: explicit-any -- numpy returns np.bool_, cupy a 0-d device array
+        ...
+
+    def copy(self) -> "ArrayLike":
         ...
 
     def sum(self) -> Any:
@@ -125,6 +144,24 @@ class ArrayNamespace(Protocol):
     """Small numpy/cupy namespace surface used by compute kernels."""
 
     int64: Any
+
+    int16: Any  # hygiene-ok: explicit-any -- numpy/cupy dtype objects, same shape as int64 above
+    int8: Any  # hygiene-ok: explicit-any -- numpy/cupy dtype objects, same shape as int64 above
+
+    def equal(self, a: Any, b: Any, out: "Optional[ArrayLike]" = None) -> ArrayLike:  # hygiene-ok: explicit-any -- ufunc accepts array|scalar operands (numpy/cupy)
+        ...
+
+    def logical_or(self, a: ArrayLike, b: ArrayLike,
+                   out: "Optional[ArrayLike]" = None) -> ArrayLike:
+        ...
+
+    def logical_and(self, a: ArrayLike, b: ArrayLike,
+                    out: "Optional[ArrayLike]" = None) -> ArrayLike:
+        ...
+
+    def take(self, a: ArrayLike, indices: ArrayLike,
+             out: "Optional[ArrayLike]" = None) -> ArrayLike:
+        ...
 
     def dot(self, a: ArrayLike, b: ArrayLike) -> SupportsInt:
         ...
@@ -165,7 +202,16 @@ class ArrayNamespace(Protocol):
     def arange(self, *args: Any, **kwargs: Any) -> ArrayLike:
         ...
 
-    def searchsorted(self, a: ArrayLike, v: ArrayLike) -> ArrayLike:
+    def searchsorted(self, a: ArrayLike, v: ArrayLike, side: str = ...) -> ArrayLike:
+        ...
+
+    def minimum(self, a: Any, b: Any) -> ArrayLike:  # hygiene-ok: explicit-any -- ufunc accepts array|scalar operands (numpy/cupy)
+        ...
+
+    def repeat(self, a: ArrayLike, repeats: Any) -> ArrayLike:  # hygiene-ok: explicit-any -- int or int array repeats (numpy/cupy)
+        ...
+
+    def lexsort(self, keys: Any) -> ArrayLike:  # hygiene-ok: explicit-any -- sequence of key arrays (numpy/cupy)
         ...
 
     def where(self, condition: ArrayLike, x: Any, y: Any) -> ArrayLike:

@@ -27,6 +27,8 @@ ISO string, and a tz-AWARE column) are pinned alongside as the regression fence.
 """
 from __future__ import annotations
 
+import os
+
 import pandas as pd
 import pytest
 
@@ -466,10 +468,39 @@ def test_a4_union_null_next_to_boolean_keeps_both():
     assert len(out) == 2
 
 
-def test_a4_cudf_union_parity_or_named_divergence():
-    """cuDF (dataframe ops only): same-type UNION dedups; the bool-vs-int collapse is
-    pinned as a KNOWN cross-engine divergence (pandas keeps both, cuDF upcasts like
-    pre-fix pandas). Flip this when the widening is ported."""
+@pytest.mark.parametrize(
+    "branches,declines",
+    [
+        ([[1, 2], [3.5]], False),
+        ([["7"], ["8"]], False),
+        ([[1, 2], [None, None]], False),
+        ([[True], [1]], True),
+        ([["7"], [7]], True),
+    ],
+    ids=["int_float", "string_string", "all_null_branch", "bool_int", "string_int"],
+)
+def test_a4_cudf_union_type_check_declines_only_non_numeric_disagreement(branches, declines):
+    """The cuDF UNION check reads only dtypes, so it runs on CPU frames of the same dtypes
+    (cuDF strings are object columns, like these)."""
+    from graphistry.compute.gfql_unified import _reject_unrepresentable_cudf_union
+
+    frames = [pd.DataFrame({"x": values}) for values in branches]
+    if declines:
+        with pytest.raises(NotImplementedError, match="different value types for column 'x'"):
+            _reject_unrepresentable_cudf_union(frames)
+    else:
+        _reject_unrepresentable_cudf_union(frames)
+
+
+_requires_test_cudf = pytest.mark.skipif(
+    os.environ.get("TEST_CUDF", "0") != "1", reason="cudf tests need TEST_CUDF=1 and a GPU")
+
+
+@_requires_test_cudf
+def test_a4_cudf_union_parity_or_typed_decline():
+    """cuDF: a UNION over one column type dedups and numeric widening is served. A cuDF column cannot
+    keep a bool or string branch distinct from an int branch, so like polars those decline
+    typed instead of collapsing ``true`` into ``1`` or raising a bare ValueError."""
     cudf = pytest.importorskip("cudf")
     g = graphistry.nodes(cudf.from_pandas(UNION_NODES), "id").edges(
         cudf.from_pandas(UNION_EDGES), "src", "dst"
@@ -477,5 +508,87 @@ def test_a4_cudf_union_parity_or_named_divergence():
     same = g.gfql("MATCH (n) RETURN n.i AS x UNION MATCH (n) RETURN n.i AS x",
                   engine="cudf")._nodes
     assert len(same.to_pandas()) == 3
-    mixed = g.gfql("RETURN true AS x UNION RETURN 1 AS x", engine="cudf")._nodes
-    assert len(mixed.to_pandas()) == 1  # KNOWN divergence: openCypher (and pandas) keep 2
+    widened = g.gfql("MATCH (n) RETURN n.v AS x UNION MATCH (n) RETURN n.fnan AS x", engine="cudf")
+    assert [v for v in _values(widened) if v == v] == [1, 2, 3, 1.5]
+    for query in [
+        "RETURN true AS x UNION RETURN 1 AS x",
+        "MATCH (n) RETURN n.flag AS x UNION MATCH (n) RETURN n.v AS x",
+        "MATCH (n) RETURN n.txt AS x UNION MATCH (n) RETURN n.i AS x",
+    ]:
+        with pytest.raises(NotImplementedError, match="different value types"):
+            g.gfql(query, engine="cudf")
+
+
+@pytest.mark.parametrize(
+    "a,b,declines",
+    [
+        (pd.Categorical([1]), pd.Categorical(["1"]), True),
+        (pd.Categorical(["x"]), pd.Series(["y"]), False),
+        (pd.Categorical([1]), pd.Series([2]), False),
+        (pd.Categorical(["x"]), pd.Categorical(["y"]), False),
+    ],
+    ids=["int_cat_vs_str_cat", "str_cat_vs_str", "int_cat_vs_int", "str_cat_vs_str_cat"],
+)
+def test_a4_cudf_union_compares_categorical_values_not_the_category_label(a, b, declines):
+    """Every categorical dtype prints as ``category``; the check must compare the values."""
+    from graphistry.compute.gfql_unified import _decategorize_cudf_union, _reject_unrepresentable_cudf_union
+
+    frames = _decategorize_cudf_union([pd.DataFrame({"x": a}), pd.DataFrame({"x": b})])
+    if declines:
+        with pytest.raises(NotImplementedError, match="different value types for column 'x'"):
+            _reject_unrepresentable_cudf_union(frames)
+    else:
+        _reject_unrepresentable_cudf_union(frames)
+        assert all(str(frame["x"].dtype) != "category" for frame in frames)
+
+
+def test_a4_cudf_union_keeps_identical_categoricals():
+    from graphistry.compute.gfql_unified import _decategorize_cudf_union
+
+    frames = [pd.DataFrame({"x": pd.Categorical(["x"])}), pd.DataFrame({"x": pd.Categorical(["x"])})]
+    assert _decategorize_cudf_union(frames) is frames
+
+
+CATEGORICAL_UNION_CASES = [
+    ("str_cats", {"a": pd.Categorical(["x"]), "b": pd.Categorical(["y"])}, "UNION", ["x", "y"]),
+    ("str_cats_all", {"a": pd.Categorical(["x"]), "b": pd.Categorical(["y"])}, "UNION ALL", ["x", "y"]),
+    ("str_cat_and_str", {"a": pd.Categorical(["x"]), "b": ["y"]}, "UNION", ["x", "y"]),
+    ("int_cat_and_int", {"a": pd.Categorical([1]), "b": [2]}, "UNION", [1, 2]),
+    ("overlapping_int_cats", {"a": pd.Categorical([1, 2]), "b": pd.Categorical([2, 3])}, "UNION", [1, 2, 3]),
+    ("overlapping_int_cats_all", {"a": pd.Categorical([1, 2]), "b": pd.Categorical([2, 3])}, "UNION ALL",
+     [1, 2, 2, 3]),
+]
+
+
+@_requires_test_cudf
+@pytest.mark.parametrize("_case,cols,kind,expected", CATEGORICAL_UNION_CASES, ids=[c[0] for c in CATEGORICAL_UNION_CASES])
+def test_a4_cudf_union_of_categorical_columns_keeps_the_values(_case, cols, kind, expected):
+    cudf = pytest.importorskip("cudf")
+    n = max(len(v) for v in cols.values())
+    nodes = cudf.from_pandas(pd.DataFrame({"id": list(range(n)), **cols}))
+    g = graphistry.nodes(nodes, "id").edges(cudf.DataFrame({"s": [0], "d": [0]}), "s", "d")
+    result = g.gfql(f"MATCH (n) RETURN n.a AS x {kind} MATCH (n) RETURN n.b AS x", engine="cudf")
+    assert sorted(_values(result)) == expected
+
+
+@_requires_test_cudf
+@pytest.mark.parametrize("kind", ["UNION", "UNION ALL"])
+def test_a4_cudf_union_of_int_and_string_categoricals_declines_typed(kind):
+    cudf = pytest.importorskip("cudf")
+    nodes = cudf.from_pandas(pd.DataFrame({"id": [0], "a": pd.Categorical([1]), "b": pd.Categorical(["1"])}))
+    g = graphistry.nodes(nodes, "id").edges(cudf.DataFrame({"s": [0], "d": [0]}), "s", "d")
+    with pytest.raises(NotImplementedError, match="different value types for column 'x'"):
+        g.gfql(f"MATCH (n) RETURN n.a AS x {kind} MATCH (n) RETURN n.b AS x", engine="cudf")
+
+
+@_requires_test_cudf
+def test_a4_cudf_union_of_a_pandas_bound_graph_returns_cudf_rows():
+    """A branch served by a pandas fast path came back pandas under engine='cudf', and the
+    cuDF concat raised TypeError on the mixed frames."""
+    pytest.importorskip("cudf")
+    result = union_graph().gfql(
+        "MATCH (n) WHERE n.txt = '7' RETURN n.id AS x UNION MATCH (n) WHERE n.v > 2 RETURN n.id AS x",
+        engine="cudf",
+    )
+    assert type(result._nodes).__module__.startswith("cudf")
+    assert sorted(_values(result)) == ["a", "c"]

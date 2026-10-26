@@ -16,6 +16,7 @@ from graphistry.validate.validate_react_encodings import parse_apply_encodings_o
 from graphistry.plugins_types.hypergraph import HypergraphResult
 from graphistry.render.resolve_render_mode import resolve_render_mode
 from graphistry.Engine import Engine, EngineAbstractType, df_to_engine
+from graphistry.graph_bridge import bridge_polars_graph
 import copy, hashlib, numpy as np, pandas as pd, pyarrow as pa, sys, uuid, warnings
 from functools import lru_cache, partialmethod
 from weakref import WeakValueDictionary
@@ -153,7 +154,7 @@ def maybe_cudf():
         import cudf
         return cudf
     except ImportError:
-        1
+        pass
     except RuntimeError:
         logger.warning('Runtime error import cudf: Available but failed to initialize', exc_info=True)
     return None
@@ -164,7 +165,7 @@ def maybe_dask_cudf():
         import dask_cudf
         return dask_cudf
     except ImportError:
-        1
+        pass
     except RuntimeError:
         logger.warning('Runtime error import dask_cudf: Available but failed to initialize', exc_info=True)
     return None
@@ -175,7 +176,7 @@ def maybe_dask_dataframe():
         import dask.dataframe as dd
         return dd
     except ImportError:
-        1
+        pass
     except RuntimeError:
         logger.warning('Runtime error import dask.dataframe: Available but failed to initialize', exc_info=True)
     return None
@@ -186,7 +187,7 @@ def maybe_spark():
         import pyspark
         return pyspark
     except ImportError:
-        1
+        pass
     except RuntimeError:
         logger.warning('Runtime error import pyspark: Available but failed to initialize', exc_info=True)
     return None
@@ -197,7 +198,7 @@ def maybe_polars():
         import polars
         return polars
     except ImportError:
-        1
+        pass
     except RuntimeError:
         logger.warning('Runtime error importing polars', exc_info=True)
     return None
@@ -227,6 +228,7 @@ class PlotterBase(Plottable):
     _gfql_indexed_bindings_handoff: Optional["IndexedBindingsHandoff"] = None
     _gfql_rows_base_graph: Optional["Plottable"] = None
     _gfql_start_nodes: Optional["DataFrameT"] = None
+    _gfql_preserve_start_node_multiplicity: bool = False
     _gfql_rows_edge_aliases: Optional[Iterable[str]] = None
     _gfql_shortest_path_backend: str = "auto"
     _g: Optional["Plottable"] = None  # set only on row-pipeline adapters
@@ -257,6 +259,10 @@ class PlotterBase(Plottable):
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         # NOTE: See plotter initialization for session bindings & concurrency notes.
         super().__init__(*args, **kwargs)
+
+        self._cypher_entity_projection_kinds = None
+        self._cypher_entity_projection_presence = {}
+        self._cypher_entity_projection_meta = {}
 
         # Bindings
         self._edges : Any = None
@@ -2560,8 +2566,8 @@ class PlotterBase(Plottable):
     from_gexf = from_gexf
     to_gexf = to_gexf
     to_igraph = to_igraph
-    compute_igraph = compute_igraph
-    layout_igraph = layout_igraph
+    compute_igraph = bridge_polars_graph(Engine.PANDAS)(compute_igraph)
+    layout_igraph = bridge_polars_graph(Engine.PANDAS)(layout_igraph)
 
 
     def pandas2igraph(self, edges: pd.DataFrame, directed: bool = True) -> Any:
@@ -2769,8 +2775,8 @@ class PlotterBase(Plottable):
 
     from_cugraph = from_cugraph
     to_cugraph = to_cugraph
-    compute_cugraph = compute_cugraph
-    layout_cugraph = layout_cugraph
+    compute_cugraph = bridge_polars_graph(Engine.CUDF)(compute_cugraph)
+    layout_cugraph = bridge_polars_graph(Engine.CUDF)(layout_cugraph)
 
     layout_graphviz = layout_graphviz
     render_graphviz = render_graphviz
@@ -3014,7 +3020,7 @@ class PlotterBase(Plottable):
             try:
                 g = cast(PlotterBase, self.infer_labels())
             except:
-                1
+                pass
 
         def make_arrow_upload(edges: Any, upload_nodes: Any) -> ArrowUploader:
             edges_arr = g._table_to_arrow(
@@ -3408,7 +3414,6 @@ class PlotterBase(Plottable):
                         logger.debug('pd->arrow memoization miss for id (of %s): %s', len(PlotterBase._pd_hash_to_arrow), hashed)
                 except:
                     logger.debug('Failed to hash pdf', exc_info=True)
-                    1
 
             try:
                 out = pa.Table.from_pandas(table, preserve_index=False).replace_schema_metadata({})
@@ -3451,7 +3456,6 @@ class PlotterBase(Plottable):
                         logger.debug('cudf->arrow memoization miss for id (of %s): %s', len(PlotterBase._cudf_hash_to_arrow), hashed)
                 except:
                     logger.debug('Failed to hash cudf', exc_info=True)
-                    1
 
             try:
                 out = table.to_arrow()
@@ -3654,7 +3658,7 @@ class PlotterBase(Plottable):
             if edges is not None and len(edges) == 0:
                 warn('Graph has no edges, may have rendering issues')
         except:
-            1
+            pass
 
         au : ArrowUploader = ArrowUploader(
             client_session=self.session,

@@ -321,13 +321,22 @@ def test_no_execution_frame_inherits_a_context_it_did_not_set(
     real_attach = exec_context.attach_row_exec_context
 
     def recording_attach(
-        g: Plottable, *, start_nodes: Any = None, rows_base_graph: Any = None
+        g: Plottable,
+        *,
+        start_nodes: Any = None,
+        rows_base_graph: Any = None,
+        preserve_start_node_multiplicity: bool = False,
     ) -> Plottable:
         if start_nodes is None and g._gfql_start_nodes is not None:
             inherited.append("start_nodes")
         if rows_base_graph is None and g._gfql_rows_base_graph is not None:
             inherited.append("rows_base_graph")
-        return real_attach(g, start_nodes=start_nodes, rows_base_graph=rows_base_graph)
+        return real_attach(
+            g,
+            start_nodes=start_nodes,
+            rows_base_graph=rows_base_graph,
+            preserve_start_node_multiplicity=preserve_start_node_multiplicity,
+        )
 
     # Both bindings: the two chain surfaces import it inside the function (module attribute),
     # gfql_unified imports it by name at module scope.

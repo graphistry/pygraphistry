@@ -38,9 +38,12 @@ NODES = pd.DataFrame({
     "id": np.arange(1, 13, dtype=np.int64),
     "kind": ["seed", "mid", "mid", "end", "end", "tail",
              "tail", "reverse", "seed", "noise", "noise", "noise"],
-    # float column: the polars searchAny lowering declines float stringification
-    # (repr diverges from pandas in the exponent regime), giving the typed-NIE pin below.
+    # float column: searchAny now RENDERS floats WYSIWYG on every engine (#1695), so a
+    # float prefilter LOWERS natively rather than declining.
     "score": np.linspace(0.0, 1.1, 12),
+    # temporal column: searchAny now RENDERS datetimes WYSIWYG on polars too, so a temporal
+    # prefilter LOWERS natively; the typed-NIE pin below uses a regex polars cannot compile.
+    "t": pd.to_datetime(["2024-01-%02d" % (i + 1) for i in range(12)]),
 })
 EDGES = pd.DataFrame({
     "src": [1, 1, 1, 2, 2, 3, 4, 5, 6, 8, 4, 5],
@@ -155,12 +158,14 @@ def test_single_entity_prefilter_narrows_and_keeps_the_layout(engine: str) -> No
 def test_polars_unlowerable_prefilter_declines_typed_naming_the_feature() -> None:
     """A spec polars cannot lower raises a typed NIE NAMING alias_prefilters.
 
-    searchAny over an explicit FLOAT column is the deterministic decline (float
-    stringification diverges from the pandas kernel, same gate as the post-join
-    ``search_any`` op). The error must name the feature and the alias — never a
-    silent drop, never a raw polars exception.
+    A lookahead is the deterministic decline: Rust's regex engine has none, so the
+    lowering refuses rather than hand polars a pattern it would reject. (Float sat here
+    until #1695 and temporal until datetimes were rendered WYSIWYG; both LOWER now. The
+    slot needs a construct that stays unlowerable.) The error must name the feature and
+    the alias — never a silent drop, never a raw polars exception.
     """
     _require("polars")
-    pref = {"a": [{"kind": "search_any", "term": "1", "columns": ["score"]}]}
+    pref = {"a": [{"kind": "search_any", "term": "(?=seed)", "columns": ["kind"],
+                   "regex": True}]}
     with pytest.raises(NotImplementedError, match=r"alias_prefilters.*'a'"):
         _run("polars", [rows(binding_ops=BOPS, alias_prefilters=pref)])

@@ -1,5 +1,8 @@
 import ast
+import copy
 import math
+from decimal import Decimal, InvalidOperation
+import numpy as np
 import numbers
 import re
 import warnings
@@ -9,16 +12,18 @@ from typing import TYPE_CHECKING, Any, Callable, Dict, Iterable, List, Literal, 
 
 import pandas as pd
 from graphistry.Engine import (
+    is_polars_df,
+    df_to_engine,
     Engine,
     EngineAbstract,
-    df_to_engine,
+    is_series_like,
     resolve_engine,
-    safe_map_series,
     s_cons,
     s_to_numeric,
+    safe_map_series,
 )
 from graphistry.compute.exceptions import ErrorCode, GFQLTypeError, GFQLValidationError
-from graphistry.compute.dataframe_utils import concat_frames
+from graphistry.compute.dataframe_utils import concat_frames, domain_diff, domain_union, series_values
 from graphistry.compute.gfql.call.support import AggSpec
 from graphistry.compute.gfql.row import frame_ops as row_frame_ops
 from graphistry.compute.gfql.row.prefilter import AliasPrefilters
@@ -105,6 +110,13 @@ from graphistry.compute.gfql.temporal.durations import (
     parse_temporal_sort_duration_components,
     resolve_duration_text_property,
 )
+from graphistry.compute.gfql.row.integer_text import (
+    ASCII_EXACT_INT64_PATTERN,
+    ASCII_EXACT_INT64_RE,
+    PANDAS_DIGIT_TRANSLATION,
+    UNICODE_EXACT_INT64_RE,
+    normalize_supported_decimal_digits,
+)
 
 
 #: Cypher's two numeric kinds; a Literal so a typo'd branch is a type error, not a silent miss.
@@ -123,6 +135,203 @@ GFQLParseExprFn = Callable[[str], "ExprNode"]
 GFQLValidateExprFn = Callable[["ExprNode"], List[str]]
 GFQLRuntimeParserBundle = Tuple[GFQLParseExprFn, GFQLValidateExprFn, ModuleType]
 _GFQL_MISSING_BOOL_OPERAND = object()
+_INT64_MIN = -(2**63)
+_INT64_LIMIT_HIGH = 2**63
+_INT64_MIN_AS_FLOAT = float(_INT64_MIN)
+_INT64_LIMIT_HIGH_AS_FLOAT = float(_INT64_LIMIT_HIGH)
+_EXACT_INT64_STRING = ASCII_EXACT_INT64_PATTERN
+_EXACT_INT64_STRING_RE = ASCII_EXACT_INT64_RE
+_UNICODE_EXACT_INT64_STRING_RE = UNICODE_EXACT_INT64_RE
+_INT64_MAX_POSITIVE_DIGITS = str(_INT64_LIMIT_HIGH - 1)
+_INT64_MIN_ABSOLUTE_DIGITS = str(-_INT64_MIN)
+
+
+def _to_cypher_int64_scalar(value: object) -> Optional[int]:
+    """Convert a scalar according to Cypher toInteger, with overflow as null."""
+    if is_null_scalar(value):
+        return None
+    if isinstance(value, str):
+        text = value.strip()
+        if _EXACT_INT64_STRING_RE.fullmatch(text):
+            parsed = int(text)
+        elif _UNICODE_EXACT_INT64_STRING_RE.fullmatch(text):
+            text = normalize_supported_decimal_digits(text)
+            if not _EXACT_INT64_STRING_RE.fullmatch(text):
+                return None
+            parsed = int(text)
+        else:
+            try:
+                parsed_float = float(text)
+            except ValueError:
+                return None
+            if not math.isfinite(parsed_float):
+                return None
+            parsed = math.trunc(parsed_float)
+    elif isinstance(value, bool):
+        parsed = int(value)
+    elif isinstance(value, numbers.Integral):
+        parsed = int(value)
+    elif isinstance(value, numbers.Real):
+        as_float = float(value)
+        if not math.isfinite(as_float):
+            return None
+        parsed = math.trunc(as_float)
+    elif isinstance(value, Decimal):
+        if not value.is_finite():
+            return None
+        parsed = int(value.to_integral_value(rounding="ROUND_DOWN"))
+    else:
+        return None
+    return parsed if _INT64_MIN <= parsed < _INT64_LIMIT_HIGH else None
+
+
+def _pandas_series_to_int64(inner: pd.Series) -> pd.Series:
+    """Convert pandas values to Cypher integer semantics without a native-int float hop."""
+    index = inner.index
+    if pd.api.types.is_bool_dtype(inner.dtype):
+        return inner.astype("Int64")
+    if pd.api.types.is_integer_dtype(inner.dtype):
+        if inner.dtype.kind == "u":
+            out = pd.Series(pd.NA, index=index, dtype="Int64")
+            in_range = inner.lt(_INT64_LIMIT_HIGH).to_numpy(dtype=bool)
+            in_range_values = inner.iloc[np.flatnonzero(in_range)].astype("int64")
+            out.iloc[np.flatnonzero(in_range)] = in_range_values.to_numpy()
+            return out
+        return inner.astype("Int64")
+    if pd.api.types.is_float_dtype(inner.dtype):
+        values = inner.to_numpy(dtype="float64", na_value=np.nan)
+        finite = np.isfinite(values)
+        in_range = finite & (values >= _INT64_MIN) & (values < _INT64_LIMIT_HIGH)
+        truncated = np.trunc(values)
+        return pd.Series(truncated, index=index).where(in_range, pd.NA).astype("Int64")
+
+    from pyarrow.lib import ArrowInvalid
+
+    text = inner.astype("string").str.strip()
+    exact_mask = text.str.match(_EXACT_INT64_STRING).fillna(False).to_numpy(dtype=bool)
+    out = pd.Series(pd.NA, index=index, dtype="Int64")
+    if exact_mask.any():
+        exact_positions = np.flatnonzero(exact_mask)
+        try:
+            exact_values = text.iloc[exact_positions].astype("Int64")
+        except (OverflowError, ArrowInvalid):
+            exact_values = _pandas_ascii_exact_text_to_int64(text.iloc[exact_positions])
+        out.iloc[exact_positions] = pd.array(exact_values, dtype="Int64")
+
+    remaining_mask = ~exact_mask
+    remaining_positions = np.flatnonzero(remaining_mask)
+    if len(remaining_positions):
+        normalized_remaining = text.iloc[remaining_positions].str.translate(PANDAS_DIGIT_TRANSLATION)
+        unicode_exact_mask = normalized_remaining.str.match(
+            _EXACT_INT64_STRING
+        ).fillna(False).to_numpy(dtype=bool)
+        unicode_exact_positions = remaining_positions[np.flatnonzero(unicode_exact_mask)]
+        if len(unicode_exact_positions):
+            unicode_exact_values = _pandas_ascii_exact_text_to_int64(
+                text.iloc[unicode_exact_positions].str.translate(PANDAS_DIGIT_TRANSLATION)
+            )
+            out.iloc[unicode_exact_positions] = pd.array(unicode_exact_values, dtype="Int64")
+
+        numeric_positions = remaining_positions[np.flatnonzero(~unicode_exact_mask)]
+        if len(numeric_positions):
+            remaining = inner.iloc[numeric_positions]
+            numeric = pd.to_numeric(remaining, errors="coerce")
+            if len(numeric):
+                numeric_values = _pandas_series_to_int64(numeric)
+                out.iloc[numeric_positions] = pd.array(numeric_values, dtype="Int64")
+    return out
+
+
+def _pandas_ascii_exact_text_to_int64(text: pd.Series) -> pd.Series:
+    """Parse normalized ASCII integer text through native Arrow decimals."""
+    import pyarrow as pa
+    import pyarrow.compute as pc
+
+    out = pd.Series(pd.NA, index=text.index, dtype="Int64")
+
+    signs = text.str[0]
+    negative = signs.eq("-")
+    digits = text.str.replace(r"^[+-]", "", regex=True).str.lstrip("0").fillna("")
+    normalized_text = digits.where(digits.ne(""), "0")
+    normalized_text = normalized_text.mask(negative, "-" + normalized_text)
+    digit_count = digits.str.len()
+    max_count = len(_INT64_MAX_POSITIVE_DIGITS)
+    at_max_count = digit_count.eq(max_count)
+    in_range = digits.eq("") | digit_count.lt(max_count) | (
+        at_max_count & ~negative & digits.le(_INT64_MAX_POSITIVE_DIGITS)
+    ) | (
+        at_max_count & negative & digits.le(_INT64_MIN_ABSOLUTE_DIGITS)
+    )
+    in_range = in_range.to_numpy(dtype=bool)
+    at_max_count = at_max_count.to_numpy(dtype=bool)
+    fast_mask = in_range & ~at_max_count
+    fast_positions = np.flatnonzero(fast_mask)
+    if len(fast_positions):
+        fast_values = normalized_text.iloc[fast_positions].astype("Int64")
+        out.iloc[fast_positions] = pd.array(fast_values, dtype="Int64")
+
+    boundary_positions = np.flatnonzero(in_range & at_max_count)
+    if not len(boundary_positions):
+        return out
+
+    exact_in_decimal = normalized_text.iloc[boundary_positions]
+    decimals = pc.cast(pa.array(exact_in_decimal, type=pa.string()), pa.decimal128(38, 0))
+    exact_values = pc.cast(decimals, pa.int64())
+    out.iloc[boundary_positions] = pd.Series(
+        exact_values.to_numpy(zero_copy_only=False), index=exact_in_decimal.index, dtype="Int64"
+    )
+    return out
+
+
+def _cudf_series_to_int64(inner: SeriesT) -> SeriesT:  # pragma: no cover - cuDF-only; exact-text semantics validated on dgx-spark
+    """Convert cuDF values with the same exact-text semantics as pandas."""
+    import cudf
+
+    index = inner.index
+    if inner.dtype.kind == "b":
+        return inner.astype("int64")
+    if inner.dtype.kind == "i":
+        return inner.astype("int64")
+    if inner.dtype.kind == "u":
+        in_range = inner.lt(_INT64_LIMIT_HIGH)
+        return inner.where(in_range).astype("int64")
+    if inner.dtype.kind == "f":
+        numeric = s_to_numeric(Engine.CUDF)(inner, errors="coerce")
+        finite_mask = numeric.notna() & (numeric.abs() != float("inf"))
+        in_range = numeric.ge(_INT64_MIN_AS_FLOAT) & numeric.lt(_INT64_LIMIT_HIGH_AS_FLOAT)
+        safe_numeric = numeric.where(finite_mask & in_range)
+        return safe_numeric.astype("Int64")
+
+    normalized_text = inner.astype(str).str.strip().str.translate(PANDAS_DIGIT_TRANSLATION)
+    exact_mask = normalized_text.str.match(_EXACT_INT64_STRING).fillna(False).to_numpy(dtype=bool)
+    out = cudf.Series(pd.NA, index=index, dtype="Int64")
+    if exact_mask.any():
+        exact_positions = np.flatnonzero(exact_mask)
+        candidates = normalized_text.iloc[exact_positions]
+        signs = candidates.str[0]
+        negative = signs.eq("-")
+        digits = candidates.str.replace(r"^[+-]", "", regex=True).str.lstrip("0").fillna("")
+        digit_count = digits.str.len()
+        at_max_count = digit_count.eq(len(_INT64_MAX_POSITIVE_DIGITS))
+        in_range = digits.eq("") | digit_count.lt(len(_INT64_MAX_POSITIVE_DIGITS)) | (
+            at_max_count & ~negative & digits.le(_INT64_MAX_POSITIVE_DIGITS)
+        ) | (
+            at_max_count & negative & digits.le(_INT64_MIN_ABSOLUTE_DIGITS)
+        )
+        in_range = in_range.to_numpy(dtype=bool)
+        selected_positions = exact_positions[in_range]
+        exact_values = normalized_text.iloc[selected_positions].astype("int64")
+        out.iloc[selected_positions] = exact_values
+
+    remaining_positions = np.flatnonzero(~exact_mask)
+    if len(remaining_positions):
+        remaining = inner.iloc[remaining_positions]
+        numeric = s_to_numeric(Engine.CUDF)(remaining, errors="coerce")
+        finite_mask = numeric.notna() & (numeric.abs() != float("inf"))
+        in_range = numeric.ge(_INT64_MIN_AS_FLOAT) & numeric.lt(_INT64_LIMIT_HIGH_AS_FLOAT)
+        safe_numeric = numeric.where(finite_mask & in_range)
+        out.iloc[remaining_positions] = safe_numeric.astype("Int64")
+    return out
 
 
 @lru_cache(maxsize=1)
@@ -440,6 +649,8 @@ class RowPipelineMixin:
         structural_cmp = self._gfql_eval_structural_comparison_op(table_df, left, right, op)
         if structural_cmp is not None:
             return structural_cmp
+        if RowPipelineMixin._gfql_is_empty_series(left) or RowPipelineMixin._gfql_is_empty_series(right):
+            return self._gfql_broadcast_scalar(table_df, False).astype(bool)
 
         left_is_list = (
             isinstance(left, (list, tuple))
@@ -769,7 +980,7 @@ class RowPipelineMixin:
         left_col = RowPipelineMixin._gfql_fresh_col_name(table_df.columns, "__gfql_cmp_left_temporal__")
         right_col = RowPipelineMixin._gfql_fresh_col_name(table_df.columns, "__gfql_cmp_right_temporal__")
         work_df = table_df.reset_index(drop=True).copy()
-        work_df = work_df.assign(**{left_col: left_series, right_col: right_series})
+        work_df = RowPipelineMixin._gfql_assign_positional(work_df, **{left_col: left_series, right_col: right_series})
 
         work_df, left_keys = build_temporal_sort_columns(
             work_df,
@@ -849,7 +1060,7 @@ class RowPipelineMixin:
                 else:
                     out_values.append(is_equal)
             out_col = RowPipelineMixin._gfql_fresh_col_name(table_df.columns, "__gfql_list_cmp_eq__")
-            return table_df.reset_index(drop=True).assign(**{out_col: out_values})[out_col]
+            return RowPipelineMixin._gfql_tri_valued_series(table_df, out_values, out_col)
 
         if op in GFQL_ORDERED_COMPARISON_BINARY_OPS:
             left_values = self._gfql_series_to_pylist(left_series)
@@ -871,7 +1082,7 @@ class RowPipelineMixin:
                 except Exception:
                     ordered_out_values.append(None)
             out_col = RowPipelineMixin._gfql_fresh_col_name(table_df.columns, "__gfql_list_cmp_py__")
-            return table_df.reset_index(drop=True).assign(**{out_col: ordered_out_values})[out_col]
+            return RowPipelineMixin._gfql_tri_valued_series(table_df, ordered_out_values, out_col)
 
         row_col = RowPipelineMixin._gfql_fresh_col_name(table_df.columns, "__gfql_list_cmp_row__")
         lhs_col = RowPipelineMixin._gfql_fresh_col_name(table_df.columns, "__gfql_list_cmp_lhs__")
@@ -982,7 +1193,16 @@ class RowPipelineMixin:
             suggestion='Pass strict="warn" (default) to resolve absent properties to null',
         )
 
-    def _gfql_eval_expr_ast(self, table_df: Any, node: Any) -> Tuple[bool, Any]:
+    def _gfql_eval_expr_ast(self, table_df: DataFrameT, node: Any) -> Tuple[bool, Any]:  # hygiene-ok: explicit-any -- parser AST node union
+        """Evaluate an expression AST. Every series result leaves here on the table's own
+        index, so label-aligned builders (NOT, AND/OR) and positionally built operands agree
+        whatever frame the index path handed in."""
+        ok, value = self._gfql_eval_expr_ast_values(table_df, node)
+        if ok and is_series_like(value):
+            value = RowPipelineMixin._gfql_on_table_index(table_df, value)
+        return ok, value
+
+    def _gfql_eval_expr_ast_values(self, table_df: Any, node: Any) -> Tuple[bool, Any]:
         parser_bundle = _gfql_expr_runtime_parser_bundle()
         if parser_bundle is None:
             return False, None
@@ -1119,7 +1339,9 @@ class RowPipelineMixin:
                     if restore_col in table_df.columns:
                         # the alias marker overwrote this same-named user column; rows() re-keyed it
                         return True, table_df[restore_col]
-                if "." not in alias_name and RowPipelineMixin._gfql_has_bindings_alias_prefix(table_df, alias_name):
+                # Quoted aliases are raw user identifiers; punctuation in their spelling
+                # is not qualified-column syntax.
+                if (node.value.quoted or "." not in alias_name) and RowPipelineMixin._gfql_has_bindings_alias_prefix(table_df, alias_name):
                     if node.property == NODE_IDENTITY_COLUMN:
                         node_id = self._gfql_node_id_column()
                         identity_col = f"{alias_name}.{node_id}" if node_id else None
@@ -1137,7 +1359,7 @@ class RowPipelineMixin:
                     or RowPipelineMixin._gfql_table_has_graph_shape(table_df)
                 )
                 if (
-                    "." not in alias_name
+                    (node.value.quoted or "." not in alias_name)
                     and alias_name in table_df.columns
                     and has_bound_graph_table
                     and RowPipelineMixin._gfql_series_bool_like(table_df[alias_name])
@@ -1759,17 +1981,24 @@ class RowPipelineMixin:
                 inner = values[0]
                 if hasattr(inner, "astype"):
                     null_mask = self._gfql_null_mask(table_df, inner)
-                    out = inner.astype(float).fillna(0).astype("int64")
+                    engine = resolve_engine(EngineAbstract.AUTO, table_df)
+                    if engine == Engine.PANDAS and isinstance(inner, pd.Series):
+                        out = _pandas_series_to_int64(inner)
+                    elif engine == Engine.CUDF:
+                        out = _cudf_series_to_int64(inner)
+                    else:
+                        numeric = s_to_numeric(engine)(inner, errors="coerce")
+                        finite_mask = numeric.notna() & (numeric.abs() != float("inf"))
+                        in_range = numeric.ge(_INT64_MIN) & numeric.lt(_INT64_LIMIT_HIGH)
+                        safe_numeric = numeric.where(finite_mask & in_range)
+                        out = safe_numeric.astype("Int64")
                     return True, out.where(~null_mask, pd.NA)
                 if is_null_scalar(inner):
                     return True, None
                 if isinstance(inner, str):
                     # A string with no integer value is null; invalid TYPES below still error.
-                    try:
-                        return True, int(float(inner))
-                    except (ValueError, OverflowError):
-                        return True, None
-                return True, int(float(inner))
+                    return True, _to_cypher_int64_scalar(inner)
+                return True, _to_cypher_int64_scalar(inner)
 
             if fn == "substring" and len(values) in {2, 3}:
                 inner = values[0]
@@ -1951,7 +2180,7 @@ class RowPipelineMixin:
             total_col = RowPipelineMixin._gfql_fresh_col_name(table_df.columns, "__gfql_q_total_ast__")
 
             base = table_df.reset_index(drop=True).copy()
-            base = base.assign(**{row_col: range(len(base)), list_col: list_series})
+            base = RowPipelineMixin._gfql_assign_positional(base, **{row_col: range(len(base)), list_col: list_series})
             list_null_mask = self._gfql_null_mask(base, base[list_col])
             try:
                 total_series = series_sequence_len(base[list_col])
@@ -2026,6 +2255,31 @@ class RowPipelineMixin:
             return True, out.reset_index(drop=True)
 
         if isinstance(node, ListComprehension):
+            projection = node.projection
+            projection_consumes_var = False
+
+            def _mark_projection_var(consumed_node: object) -> None:
+                nonlocal projection_consumes_var
+                if isinstance(consumed_node, Identifier) and consumed_node.name == node.var:
+                    projection_consumes_var = True
+
+            if projection is not None:
+                expr_parser_mod.walk_expr_nodes(projection, enter=_mark_projection_var)
+            if (
+                isinstance(projection, FunctionCall)
+                and projection.name.lower() in {"tofloat", "tointeger"}
+                and projection_consumes_var
+                and isinstance(node.source, ListLiteral)
+                and any(
+                    isinstance(item, (ListLiteral, MapLiteral))
+                    or (
+                        isinstance(item, Literal)
+                        and isinstance(item.value, (list, dict))
+                    )
+                    for item in node.source.items
+                )
+            ):
+                return False, None
             source_ok, list_value = self._gfql_eval_expr_ast(table_df, node.source)
             if not source_ok:
                 return False, None
@@ -2039,7 +2293,7 @@ class RowPipelineMixin:
             out_col = RowPipelineMixin._gfql_fresh_col_name(table_df.columns, "__gfql_lc_out_ast__")
 
             base = table_df.reset_index(drop=True).copy()
-            base = base.assign(**{row_col: range(len(base)), list_col: list_series})
+            base = RowPipelineMixin._gfql_assign_positional(base, **{row_col: range(len(base)), list_col: list_series})
             null_mask = self._gfql_null_mask(base, base[list_col])
             try:
                 lengths = series_sequence_len(base[list_col])
@@ -2284,7 +2538,7 @@ class RowPipelineMixin:
             fill_col = getattr(out, "name", None)
             if not isinstance(fill_col, str) or fill_col in table_df.columns:
                 fill_col = RowPipelineMixin._gfql_fresh_col_name(table_df.columns, "__gfql_seq_fill__")
-            return table_df.reset_index(drop=True).assign(**{fill_col: filled_values})[fill_col]
+            return RowPipelineMixin._gfql_on_table_index(table_df, table_df.reset_index(drop=True).assign(**{fill_col: filled_values})[fill_col])
 
     @staticmethod
     def _gfql_restore_row_order(table_df: Any, row_col: str) -> Any:
@@ -2478,6 +2732,10 @@ class RowPipelineMixin:
         sample_values = [value for value in RowPipelineMixin._gfql_series_to_pylist(sample) if not is_null_scalar(value)]
         if sample_values and all(isinstance(value, (list, tuple)) for value in sample_values):
             return True
+        if any(isinstance(value, str) for value in sample_values):
+            return False  # an actual string row is forced False below; the all() cannot hold
+        if not RowPipelineMixin._gfql_sample_renders_as(sample, r"^(?:\[.*\]|\(.*\))$"):
+            return False
         text = series.astype(str)
         if not hasattr(text, "str"):
             return False
@@ -2487,6 +2745,17 @@ class RowPipelineMixin:
             actual_string = non_null & False
         list_like = series_str_match(text.str.strip(), r"^(?:\[.*\]|\(.*\))$", na=False)
         return bool(list_like.where(~null_mask, True).where(~actual_string, False).all())
+
+    @staticmethod
+    def _gfql_sample_renders_as(sample: Any, pattern: str) -> bool:  # hygiene-ok: explicit-any -- backend series sample, evaluator-wide idiom
+        """Whether every sampled value renders to text matching ``pattern``. The column rule is an
+        all-rows conjunction, so a sample that fails it rules the column out before rendering it."""
+        if not hasattr(sample, "astype"):
+            return True
+        text = sample.astype(str)
+        if not hasattr(text, "str"):
+            return True
+        return bool(series_str_match(text.str.strip(), pattern, na=False).all())
 
     @staticmethod
     def _gfql_series_is_mapping_like(series: Any) -> bool:
@@ -2506,6 +2775,10 @@ class RowPipelineMixin:
         sample_values = [value for value in sample_values if not is_null_scalar(value)]
         if sample_values and all(isinstance(value, Mapping) for value in sample_values):
             return True
+        if any(isinstance(value, str) for value in sample_values):
+            return False  # an actual string row is forced False below; the all() cannot hold
+        if not RowPipelineMixin._gfql_sample_renders_as(sample_source.head(16) if hasattr(sample_source, "head") else sample_source, r"^\{.*\}$"):
+            return False
         try:
             text = series.astype(str)
         except Exception:
@@ -2733,11 +3006,36 @@ class RowPipelineMixin:
                     pass
             return pd.Series(values, dtype="object")
 
-        if hasattr(out, "reset_index"):
-            try:
-                out = out.reset_index(drop=True)
-            except Exception:
-                pass
+        return RowPipelineMixin._gfql_on_table_index(table_df, out)
+
+    @staticmethod
+    def _gfql_tri_valued_series(table_df: Any, values: List[Any], col: str) -> Any:  # hygiene-ok: explicit-any -- backend frame + tri-valued Python values, evaluator-wide idiom
+        """A tri-valued (True/False/None) result list as a column on the table's index; an empty list is still boolean."""
+        out = table_df.reset_index(drop=True).assign(**{col: values})[col]
+        if len(values) == 0:
+            out = out.astype(bool)
+        return RowPipelineMixin._gfql_on_table_index(table_df, out)
+
+    @staticmethod
+    def _gfql_is_empty_series(value: object) -> bool:
+        return is_series_like(value) and len(value) == 0  # type: ignore[arg-type]
+
+    @staticmethod
+    def _gfql_assign_positional(frame: DataFrameT, **columns: object) -> DataFrameT:
+        """``assign`` by position, not label: evaluator series may carry the table's own (gappy) labels."""
+        aligned = {
+            name: RowPipelineMixin._gfql_on_table_index(frame, value) if is_series_like(value) else value  # type: ignore[arg-type]
+            for name, value in columns.items()
+        }
+        return frame.assign(**aligned)
+
+    @staticmethod
+    def _gfql_on_table_index(table_df: DataFrameT, series: SeriesT) -> SeriesT:
+        """Give a positionally built series the table's own index so label-aligned consumers line up."""
+        if len(series) != len(table_df.index):
+            return series
+        out = series.copy(deep=False)
+        out.index = table_df.index
         return out
 
     def _gfql_truth_masks(self, table_df: Any, value: Any) -> Optional[Tuple[Any, Any, Any]]:
@@ -2835,6 +3133,8 @@ class RowPipelineMixin:
     def _gfql_bool_mask(self, table_df: Any, value: Any) -> Any:
         if hasattr(value, "astype"):
             mask = value
+            if len(mask) == 0 or bool(mask.isna().all()):
+                return self._gfql_broadcast_scalar(table_df, False).astype(bool)  # nothing to keep; cuDF rejects where(object, False)
             # Avoid pandas object-dtype fillna() downcast FutureWarning while
             # keeping NA -> False semantics in a vectorized backend-agnostic way.
             if hasattr(mask, "isna") and hasattr(mask, "where"):
@@ -2914,7 +3214,8 @@ class RowPipelineMixin:
         out_col = RowPipelineMixin._gfql_fresh_col_name(table_df.columns, "__gfql_range_out__")
 
         base = table_df.reset_index(drop=True).copy()
-        base = base.assign(
+        base = RowPipelineMixin._gfql_assign_positional(
+            base,
             **{
                 row_col: range(len(base)),
                 start_col: start_series,
@@ -3524,7 +3825,7 @@ class RowPipelineMixin:
                     break
             out_values.append(True if saw_true else (None if saw_unknown else False))
         out_col = RowPipelineMixin._gfql_fresh_col_name(table_df.columns, "__gfql_in_temporal__")
-        return table_df.reset_index(drop=True).assign(**{out_col: out_values})[out_col]
+        return RowPipelineMixin._gfql_tri_valued_series(table_df, out_values, out_col)
 
     def _gfql_eval_in_expr(
         self,
@@ -3540,34 +3841,93 @@ class RowPipelineMixin:
         if temporal_in is not None:
             return temporal_in
 
-        lhs_values = self._gfql_series_to_pylist(left_series)
-        rhs_values = self._gfql_series_to_pylist(right_series)
-        out_values: List[Any] = []
-        for lhs_item, rhs_item in zip(lhs_values, rhs_values):
-            if is_null_scalar(rhs_item):
-                out_values.append(None)
-                continue
-            if not isinstance(rhs_item, (list, tuple)):
-                raise ValueError(f"unsupported row expression: IN rhs must be list-like in {expr!r}")
-            saw_unknown = False
-            saw_true = False
-            for rhs_elem in rhs_item:
-                is_equal = RowPipelineMixin._gfql_cypher_value_equal(lhs_item, rhs_elem)
-                if is_equal is True:
-                    saw_true = True
-                    break
-                if is_equal is None:
-                    saw_unknown = True
-            if saw_true:
-                out_values.append(True)
-            elif saw_unknown:
-                out_values.append(None)
-            else:
-                out_values.append(False)
+        left_is_column = hasattr(left_value, "astype")  # a cell reads null as `=` does; a literal keeps NaN as a value
+        out_values = self._gfql_in_literal_list_values(left_series, right_value, left_is_column=left_is_column)
+        if out_values is None:
+            lhs_values = self._gfql_series_to_pylist(left_series)
+            rhs_values = self._gfql_series_to_pylist(right_series)
+            lhs_null = (self._gfql_series_to_pylist(self._gfql_null_mask(table_df, left_series)) if left_is_column
+                        else [RowPipelineMixin._gfql_is_cypher_null_scalar(v)
+                              for v in self._gfql_series_to_pylist(left_series)])
+            out_values = []
+            for lhs_item, rhs_item, lhs_is_null in zip(lhs_values, rhs_values, lhs_null):
+                if is_null_scalar(rhs_item):
+                    out_values.append(None)
+                    continue
+                if not isinstance(rhs_item, (list, tuple)):
+                    raise ValueError(f"unsupported row expression: IN rhs must be list-like in {expr!r}")
+                if bool(lhs_is_null) and len(rhs_item):
+                    out_values.append(None)  # the row reads null to `=`, so IN is unknown too
+                    continue
+                saw_unknown = False
+                saw_true = False
+                for rhs_elem in rhs_item:
+                    is_equal = RowPipelineMixin._gfql_cypher_value_equal(lhs_item, rhs_elem)
+                    if is_equal is True:
+                        saw_true = True
+                        break
+                    if is_equal is None:
+                        saw_unknown = True
+                if saw_true:
+                    out_values.append(True)
+                elif saw_unknown:
+                    out_values.append(None)
+                else:
+                    out_values.append(False)
         out_col = RowPipelineMixin._gfql_fresh_col_name(table_df.columns, "__gfql_in_tri__")
-        return table_df.reset_index(drop=True).assign(**{out_col: out_values})[out_col]
+        return RowPipelineMixin._gfql_tri_valued_series(table_df, out_values, out_col)
 
-    def _gfql_eval_string_expr(self, table_df: Any, expr: str) -> Any:
+    @staticmethod
+    def _gfql_in_literal_list_values(
+        left_series: Any,  # hygiene-ok: explicit-any -- pandas/cuDF Series, evaluator-wide idiom
+        right_value: Any,  # hygiene-ok: explicit-any -- arbitrary cypher list value, evaluator-wide idiom
+        left_is_column: bool = True,
+    ) -> Optional[List[Any]]:  # hygiene-ok: explicit-any -- tri-state row values, evaluator-wide idiom
+        """``<column> IN [<scalar literals>]`` through ``isin``, or None to leave it to the loop.
+
+        Same truth table as the element loop: a row is TRUE when a non-null element equals
+        it, else NULL when the row is null or the list holds a null, else FALSE; an empty
+        list is FALSE for every row. Only a constant list of plain scalars qualifies:
+        list/map elements need the structural equality the loop implements, and a per-row
+        list is not a constant. A COLUMN cell reads null exactly as the comparison operators
+        read it (``isna``), so ``x IN [...]`` and ``x = ...`` are unknown on the same rows;
+        with ``left_is_column=False`` the left side is a scalar literal, where NaN stays a
+        value that equals nothing, which is also what ``=`` does with it.
+        """
+        if not isinstance(right_value, (list, tuple)) or not hasattr(left_series, "isin"):
+            return None
+        probe: List[Any] = []
+        rhs_has_null = False
+        for element in right_value:
+            if RowPipelineMixin._gfql_is_cypher_null_scalar(element):
+                rhs_has_null = True
+                continue
+            if isinstance(element, (list, tuple, dict)):
+                return None  # structural equality is the loop's job
+            if isinstance(element, float) and math.isnan(element):
+                continue
+            probe.append(element)
+        probe_bools = [isinstance(element, bool) for element in probe]
+        series_is_bool = str(getattr(left_series, "dtype", "")).lower() in ("bool", "boolean")
+        if probe and (any(probe_bools) != all(probe_bools) or any(probe_bools) != series_is_bool):
+            return None  # `True == 1` holds in the loop but not in every engine's isin; the loop decides
+        try:
+            hit = np.asarray(RowPipelineMixin._gfql_series_to_pylist(left_series.isin(probe)), dtype=bool) if probe \
+                else np.zeros(len(left_series), dtype=bool)
+            missing = np.asarray(RowPipelineMixin._gfql_series_to_pylist(left_series.isna()), dtype=bool)
+        except Exception:
+            return None  # e.g. unhashable row values -> the loop's structural equality decides
+        if not left_is_column and missing.any():
+            sparse = RowPipelineMixin._gfql_series_to_pylist(left_series.iloc[np.flatnonzero(missing)])
+            missing[np.flatnonzero(missing)] = np.fromiter(
+                (RowPipelineMixin._gfql_is_cypher_null_scalar(v) for v in sparse), dtype=bool, count=len(sparse))
+        # an empty list has nothing to compare against, so even a null row is FALSE
+        unknown = (missing | rhs_has_null) if len(right_value) else np.zeros_like(missing)
+        return [True if h else (None if u else False) for h, u in zip(hit.tolist(), unknown.tolist())]
+
+    @staticmethod
+    def _gfql_parse_row_expr(expr: str) -> Any:  # hygiene-ok: explicit-any -- parser AST node union
+        """Parse and capability-check a row expression without evaluating it."""
         txt = expr.strip()
         parser_bundle = _gfql_expr_runtime_parser_bundle()
         if parser_bundle is None:
@@ -3586,6 +3946,10 @@ class RowPipelineMixin:
             raise ValueError(
                 f"unsupported row expression: {', '.join(capability_errors)} in {expr!r}"
             )
+        return ast_node
+
+    def _gfql_eval_string_expr(self, table_df: Any, expr: str) -> Any:
+        ast_node = RowPipelineMixin._gfql_parse_row_expr(expr)
 
         try:
             ast_ok, ast_value = self._gfql_eval_expr_ast(table_df, ast_node)
@@ -4081,19 +4445,33 @@ class RowPipelineMixin:
         first_nodes = self._gfql_apply_alias_prefilter(
             first_nodes, first_alias, alias_prefilters
         )
-        state_df = (
-            first_nodes[[node_id_col]]
-            .drop_duplicates(subset=[node_id_col], keep="first")
-            .copy()
-            .rename(columns={node_id_col: WALK_CURRENT_COL})
-        )
+        owner_graph = self._g
+        if owner_graph is None:
+            self._gfql_bindings_error(
+                "Cypher multi-alias row bindings require a bound graph"
+            )
+        preserve_start_multiplicity = owner_graph._gfql_preserve_start_node_multiplicity
+        if preserve_start_multiplicity:
+            state_df = first_nodes[[node_id_col]].copy()
+        else:
+            state_df = (
+                first_nodes[[node_id_col]]
+                .drop_duplicates(subset=[node_id_col], keep="first")
+                .copy()
+            )
+        state_df = state_df.rename(columns={node_id_col: WALK_CURRENT_COL})
         alias_frames: Dict[str, DataFrameT] = {}
         if isinstance(first_alias, str):
             state_df[first_alias] = state_df[WALK_CURRENT_COL]
-            alias_frames[first_alias] = first_nodes
+            alias_frames[first_alias] = (
+                first_nodes.drop_duplicates(subset=[node_id_col], keep="first")
+                if preserve_start_multiplicity
+                else first_nodes
+            )
 
         # Positional, not index-based: per-hop frames reset their index so it cannot identify an edge.
         trail_cols: List[str] = []
+        previous_relationship_scope = 0
         base_edges_frame = base_graph._edges
         ident_col = (
             generate_safe_column_name(ROW_EDGE_IDENTITY_BASE, base_edges_frame)
@@ -4101,9 +4479,14 @@ class RowPipelineMixin:
             else DEFAULT_ROW_EDGE_IDENTITY_COL
         )
         if base_edges_frame is not None:
-            base_graph = base_graph.edges(
-                base_edges_frame.assign(**{ident_col: range(len(base_edges_frame))})
-            )
+            identified_edges = base_edges_frame.copy(deep=False)
+            identified_edges[ident_col] = range(len(base_edges_frame))
+            base_graph = base_graph.edges(identified_edges)
+            # same rows, same order, one column added: the resident adjacency stays valid
+            from graphistry.compute.gfql.index import get_registry, set_registry
+            registry = get_registry(base_graph)
+            if not registry.is_empty():
+                base_graph = set_registry(base_graph, registry.rebind_edges(identified_edges, base_edges_frame))
 
         for edge_idx in range(1, len(ops), 2):
             edge_op = ops[edge_idx]
@@ -4114,15 +4497,27 @@ class RowPipelineMixin:
             current_nodes = base_nodes[base_nodes[node_id_col].isin(state_df[WALK_CURRENT_COL])].copy()
             if len(current_nodes) == 0:
                 return state_df.iloc[0:0], alias_frames
-            edge_result = edge_op.execute(
+            sem = EdgeSemantics.from_edge(edge_op)
+            finite_multihop = sem.is_multihop and not edge_op.to_fixed_point and (
+                edge_op.max_hops is not None
+                or edge_op.hops is not None
+            )
+            candidate_wavefront = base_nodes if sem.is_multihop and not finite_multihop else current_nodes
+            candidate_edge_op = edge_op
+            if sem.is_multihop:
+                candidate_edge_op = copy.copy(edge_op)
+                candidate_edge_op.hops = 1
+                candidate_edge_op.min_hops = 1
+                candidate_edge_op.max_hops = 1
+                candidate_edge_op.to_fixed_point = False
+            edge_result = candidate_edge_op.execute(
                 g=base_graph,
-                prev_node_wavefront=current_nodes,
+                prev_node_wavefront=candidate_wavefront,
                 target_wave_front=None,
                 engine=engine,
             )
             edges_df_step = edge_result._edges
             step_nodes = edge_result._nodes
-            sem = EdgeSemantics.from_edge(edge_op)
             edge_alias = getattr(edge_op, "_name", None)
             if sem.is_multihop and edge_alias is not None:
                 self._gfql_bindings_error(
@@ -4139,6 +4534,12 @@ class RowPipelineMixin:
                 )
             if not sem.is_multihop and (edges_df_step is None or len(edges_df_step) == 0):
                 return state_df.iloc[0:0], alias_frames
+
+            relationship_scope = edge_op.relationship_scope
+            if relationship_scope != previous_relationship_scope:
+                state_df = state_df.drop(columns=trail_cols, errors="ignore")
+                trail_cols = []
+                previous_relationship_scope = relationship_scope
 
             rename_map = {}
             if isinstance(edge_alias, str) and edges_df_step is not None:
@@ -4181,10 +4582,57 @@ class RowPipelineMixin:
                     if not shortest_path_mode and ident_col in oriented.columns
                     else []
                 )
+                oriented_parts = [oriented]
+                if finite_multihop:
+                    adjacency_wavefront = step_nodes
+                    seen_edge_ids = (
+                        series_values(edges_df_step[ident_col])
+                        if ident_col in edges_df_step.columns
+                        else None
+                    )
+                    for _ in range(1, sem.max_hops):
+                        if (
+                            adjacency_wavefront is None
+                            or node_id_col not in adjacency_wavefront.columns
+                            or len(adjacency_wavefront) == 0
+                        ):
+                            break
+                        adjacency_result = candidate_edge_op.execute(
+                            g=base_graph,
+                            prev_node_wavefront=adjacency_wavefront,
+                            target_wave_front=None,
+                            engine=engine,
+                        )
+                        adjacency_edges = adjacency_result._edges
+                        if adjacency_edges is None or len(adjacency_edges) == 0:
+                            break
+                        adjacency_oriented = sem.orient_edges(
+                            adjacency_edges,
+                            src_col,
+                            dst_col,
+                            dedupe=False,
+                        ).rename(columns=rename_map)
+                        if seen_edge_ids is not None and ident_col in adjacency_oriented.columns:
+                            new_edge_ids = domain_diff(
+                                series_values(adjacency_oriented[ident_col]),
+                                seen_edge_ids,
+                            )
+                            if len(new_edge_ids) == 0:
+                                break
+                            seen_edge_ids = domain_union(seen_edge_ids, new_edge_ids)
+                        oriented_parts.append(adjacency_oriented[step_cols])
+                        adjacency_wavefront = adjacency_result._nodes
+                if len(oriented_parts) > 1:
+                    concatenated_oriented = concat_frames(oriented_parts)
+                    if concatenated_oriented is not None:
+                        oriented = concatenated_oriented
+                        if not shortest_path_mode and ident_col in step_cols:
+                            oriented = oriented.drop_duplicates(
+                                subset=[WALK_FROM_COL, WALK_TO_COL, ident_col], keep="first"
+                            )
                 step_pairs = oriented[step_cols]
                 if ident_col not in step_cols:
                     step_pairs = step_pairs.drop_duplicates(keep="first")
-                # else: already unique -- the self-loop-twin dedup above ran on exactly step_cols
                 min_hops = edge_op.min_hops if edge_op.min_hops is not None else (
                     edge_op.hops if edge_op.hops is not None else 1
                 )
@@ -4300,6 +4748,7 @@ class RowPipelineMixin:
         binding_ops: List[Dict[str, JSONVal]],
         alias_prefilters: Optional[AliasPrefilters] = None,
         attach_prop_aliases: Optional[List[str]] = None,
+        attach_prop_columns: Optional[Dict[str, List[str]]] = None,
     ) -> "Plottable":
         from graphistry.compute.ast import ASTEdge, ASTNode, from_json as ast_from_json
 
@@ -4313,6 +4762,7 @@ class RowPipelineMixin:
             ops,
             alias_prefilters=alias_prefilters,
             attach_prop_aliases=attach_prop_aliases,
+            attach_prop_columns=attach_prop_columns,
         )
 
     @staticmethod
@@ -4338,12 +4788,13 @@ class RowPipelineMixin:
         ops: Sequence["ASTObject"],
         alias_prefilters: Optional[AliasPrefilters] = None,
         attach_prop_aliases: Optional[List[str]] = None,
+        attach_prop_columns: Optional[Dict[str, List[str]]] = None,
     ) -> "Plottable":
         from graphistry.compute.ast import ASTEdge
 
         state_df, alias_frames = self._gfql_connected_bindings_state(ops, alias_prefilters=alias_prefilters)
         bindings = self._gfql_connected_bindings_row_frame_from_state(
-            ops, state_df, alias_frames, attach_prop_aliases
+            ops, state_df, alias_frames, attach_prop_aliases, attach_prop_columns
         )
         out = self._gfql_row_table(bindings)
         edge_aliases = {
@@ -4403,6 +4854,7 @@ class RowPipelineMixin:
         state_df: DataFrameT,
         alias_frames: Dict[str, DataFrameT],
         attach_prop_aliases: Optional[List[str]] = None,
+        attach_prop_columns: Optional[Dict[str, List[str]]] = None,
     ) -> DataFrameT:
         from graphistry.compute.ast import ASTNode
 
@@ -4439,6 +4891,17 @@ class RowPipelineMixin:
             lookup_source = self._gfql_unshadow_alias_marker_column(
                 lookup_source, alias, base_nodes, node_id
             )
+            if attach_prop_columns is not None:
+                # projection pushdown: only the property columns the next select reads
+                wanted = set(attach_prop_columns.get(alias) or ())
+                if not wanted:
+                    continue
+                id_col = str(node_id)
+                source_frame = lookup_source
+                if source_frame is not None:
+                    lookup_source = source_frame[
+                        [id_col] + [col for col in source_frame.columns if col != id_col and col in wanted]
+                    ]
             lookup = self._gfql_node_alias_lookup_frame(lookup_source, node_id, alias)
             order_cols = []
             if resolve_engine(EngineAbstract.AUTO, bindings) == Engine.CUDF:
@@ -4712,6 +5175,7 @@ class RowPipelineMixin:
         binding_ops: List[Dict[str, JSONVal]],
         alias_prefilters: Optional[AliasPrefilters] = None,
         attach_prop_aliases: Optional[List[str]] = None,
+        attach_prop_columns: Optional[Dict[str, List[str]]] = None,
     ) -> "Plottable":
         from graphistry.compute.ast import from_json as ast_from_json
 
@@ -4723,6 +5187,7 @@ class RowPipelineMixin:
             binding_ops,
             alias_prefilters=alias_prefilters,
             attach_prop_aliases=attach_prop_aliases,
+            attach_prop_columns=attach_prop_columns,
         )
 
     def _gfql_bindings_row_table(
@@ -4926,6 +5391,50 @@ class RowPipelineMixin:
         return join_cols, missing_aliases
 
     @staticmethod
+    def _gfql_pattern_semi_join_frame(
+        left_df: DataFrameT,
+        right_df: DataFrameT,
+        join_aliases: List[str],
+        node_id_col: str,
+        requested_property_columns: Optional[Mapping[str, Sequence[str]]] = None,
+    ) -> Tuple[DataFrameT, List[str], List[str]]:
+        """Give boolean alias markers an explicit ID key for correlated patterns."""
+        for alias in join_aliases:
+            id_col = f"{alias}.{node_id_col}"
+            if id_col in left_df.columns and id_col in right_df.columns:
+                continue
+            alias_col = alias
+            if (
+                node_id_col == alias
+                or node_id_col not in left_df.columns
+                or id_col not in right_df.columns
+                or alias_col not in left_df.columns
+                or not RowPipelineMixin._gfql_series_bool_like(left_df[alias_col])
+            ):
+                continue
+            assignments = {id_col: left_df[node_id_col]}
+            for prop_col in (requested_property_columns or {}).get(alias, ()):
+                qualified_col = f"{alias}.{prop_col}"
+                if qualified_col in left_df.columns:
+                    continue
+                if prop_col not in left_df.columns:
+                    RowPipelineMixin._gfql_report_absent_property(qualified_col)
+                if prop_col in left_df.columns:
+                    prop_series = left_df[prop_col]
+                elif is_polars_df(left_df):
+                    import polars as pl
+
+                    prop_series = pl.Series(qualified_col, [None] * left_df.height, dtype=pl.Null)
+                else:
+                    prop_series = None
+                assignments[qualified_col] = prop_series
+            left_df = left_df.assign(**assignments)
+        join_cols, missing_aliases = RowPipelineMixin._gfql_shared_join_cols(
+            left_df, right_df, join_aliases, node_id_col
+        )
+        return left_df, join_cols, missing_aliases
+
+    @staticmethod
     def _gfql_raise_missing_join_cols(
         *,
         message: str,
@@ -5022,6 +5531,7 @@ class RowPipelineMixin:
         binding_ops: List[Dict[str, Any]],
         join_aliases: List[str],
         neq: Optional[List[str]] = None,
+        requested_property_columns: Optional[Mapping[str, Sequence[str]]] = None,
     ) -> "Plottable":
         """Row anti-semi-join against rows produced by ``binding_ops``."""
         self._gfql_validate_apply_args("anti_semi_apply", binding_ops, join_aliases)
@@ -5042,7 +5552,13 @@ class RowPipelineMixin:
         if right_df is None or len(right_df) == 0:
             return self._gfql_row_table(left_df.copy())
 
-        join_cols, missing_aliases = self._gfql_shared_join_cols(left_df, right_df, join_aliases, node_id_col)
+        left_df, join_cols, missing_aliases = self._gfql_pattern_semi_join_frame(
+            left_df,
+            right_df,
+            join_aliases,
+            node_id_col,
+            requested_property_columns,
+        )
         if not join_cols:
             self._gfql_raise_missing_join_cols(
                 message="Cypher WHERE NOT (pattern) anti-semi-join lowering could not recover shared alias join columns",
@@ -5066,6 +5582,7 @@ class RowPipelineMixin:
         join_aliases: List[str],
         out_col: str,
         neq: Optional[List[str]] = None,
+        requested_property_columns: Optional[Mapping[str, Sequence[str]]] = None,
     ) -> "Plottable":
         """Annotate each active row with correlated pattern-match existence."""
         self._gfql_validate_apply_args("semi_apply_mark", binding_ops, join_aliases, out_col=out_col)
@@ -5096,7 +5613,13 @@ class RowPipelineMixin:
             out_df[out_col] = False
             return self._gfql_row_table(out_df)
 
-        join_cols, missing_aliases = self._gfql_shared_join_cols(left_df, right_df, join_aliases, node_id_col)
+        left_df, join_cols, missing_aliases = self._gfql_pattern_semi_join_frame(
+            left_df,
+            right_df,
+            join_aliases,
+            node_id_col,
+            requested_property_columns,
+        )
         if not join_cols:
             self._gfql_raise_missing_join_cols(
                 message="Cypher WHERE pattern semi-apply lowering could not recover shared alias join columns",
@@ -5509,6 +6032,15 @@ class RowPipelineMixin:
                     if isinstance(col, str) and col.startswith(prefix) and col not in seen:
                         key_cols.append(col)
                         seen.add(col)
+        # cuDF groupby(...).size() fails on a key column named 'name'; group on a copy and restore it on output
+        name_key = None
+        if type(table_df).__module__.startswith("cudf") and "name" in key_cols:
+            name_key = RowPipelineMixin._gfql_fresh_col_name(
+                [*table_df.columns, *(str(agg[0]) for agg in aggregations if agg)],
+                "__gfql_name_key__",
+            )
+            table_df = table_df.assign(**{name_key: table_df["name"]})
+            key_cols = [name_key if k == "name" else k for k in key_cols]
         from graphistry.compute.gfql.agg_types import validate_aggregation_output
 
         validate_aggregation_output(bool(key_cols), bool(aggregations))
@@ -5709,6 +6241,8 @@ class RowPipelineMixin:
 
         out_df = out_df.sort_values(by=[group_order_col]).reset_index(drop=True)
         out_df = out_df.drop(columns=[group_order_col])
+        if name_key is not None:
+            out_df = out_df.rename(columns={name_key: "name"})
         if global_key is not None:
             out_df = out_df.drop(columns=[global_key])
             if len(out_df) == 0:

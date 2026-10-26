@@ -1,0 +1,410 @@
+---
+name: review
+description: |
+  Structured PR review for pygraphistry. Input: PR number/branch (default current branch PR).
+  Output: findings and convergence artifacts under the local task plans directory.
+  Method: multi-wave, evidence-first review across spec, correctness, tests, security,
+  code quality, DRY, concurrency, performance, architecture, operability, and conventions.
+---
+
+# PR Review (pygraphistry)
+
+## Invocation
+
+```text
+/review [<PR-number-or-branch>] [mode=findings|pr-comments|both] [fixes=deferred|inline]
+```
+
+Defaults:
+- Target: current branch PR (`gh pr view --json number,headRefName,baseRefName,url`)
+- `mode=findings`
+- `fixes=deferred`
+
+`mode`:
+- `findings`: local artifacts only under `plans/<task>/`
+- `pr-comments`: draft locally, post only after explicit user confirmation in the same session
+- `both`: run findings then comment flow
+
+`fixes`:
+- `deferred`: read-only review
+- `inline`: after each converged wave, apply confirmed `BLOCKER`/`IMPORTANT` fixes in separate commits
+
+## Runtime Assumptions
+
+- Run from repo root.
+- `gh` is authenticated (`gh auth status`).
+- Local branch reflects PR head (`origin/<base>...HEAD` matches intended review scope).
+- `plans/` is local working memory and normally gitignored.
+
+## Plan-First Requirement
+
+Always use the plan skill flow:
+
+1. If `plans/<task>/plan.md` exists, reuse it and append a review section.
+2. Else reload `.agents/skills/plan/SKILL.md` and create `plans/<task>/plan.md`.
+3. Record PR metadata, `mode`, `fixes`, and timestamp.
+4. Reload plan before every step; update plan immediately after every step.
+
+`<task>`: prefer `review-pr-<N>` or `<branch>-review`.
+
+## Phase 0: Resolve Scope + Stack Context
+
+1. Resolve PR context (number/title/url/head/base).
+2. Record stack context:
+
+```bash
+gh pr view <PR> --json baseRefName,headRefName,title,body
+gh pr list --base <headRefName>
+```
+
+3. If stacked, explicitly mark out-of-scope upstream/downstream work in `plan.md`.
+4. Set diff range reference: `origin/<base>...HEAD`.
+
+## Phase 1: Research Criteria Before Findings
+
+Create `plans/<task>/research/` with:
+- `context.md`
+- `policies.md`
+- `credentials.md`
+- `canvas-<dimension>.md` (only for dimensions that apply)
+
+### 1a) Collect context + changed files
+
+```bash
+gh pr view <PR> --json number,title,headRefName,baseRefName,url,body
+git fetch origin <baseRefName> <headRefName>
+git diff --name-only origin/<base>...HEAD
+git log --oneline origin/<base>..HEAD
+```
+
+Record linked issue/spec refs from PR body and summarize PR intent.
+
+### 1b) Discover applicable repo rules
+
+Always inspect:
+- `AGENTS.md`, `DEVELOP.md`, `ARCHITECTURE.md`, `CONTRIBUTING.md`, `README.md`, `CHANGELOG.md`
+- `docs/source/**` relevant to changed areas
+- CI/workflow context under `.github/workflows/` when checks/publish behavior are touched
+- Tooling configs (`pyproject.toml`, `mypy.ini`, `pytest.ini`) and helper scripts in `bin/`
+
+Walk up from each changed file to repo root and include nearby `.md` guidance.
+
+### 1c) Credentials gate (always, early)
+
+Run before wave analysis:
+
+```bash
+git diff origin/<base>...HEAD -- '*.env*' 'custom.env*' 'docker-compose*.y*ml' '*.conf' '*.config.*' | \
+  grep -iE '(api_key|secret|token|password|bearer|authorization|aws_|azure_|openai_|anthropic_).{0,4}=' || \
+  echo "[clean] no obvious credential strings"
+
+git diff origin/<base>...HEAD | \
+  grep -oE '(sk-[A-Za-z0-9]{20,}|AKIA[0-9A-Z]{16}|Bearer\s+[A-Za-z0-9._-]{20,})' | head
+```
+
+If any likely secret is found, raise `BLOCKER` and stop until surfaced.
+
+## Phase 2: Multi-Wave Review Loop
+
+Run waves until 2 consecutive waves show no significant advance.
+
+Severity:
+- `BLOCKER`: merge must not proceed
+- `IMPORTANT`: should fix before merge
+- `SUGGESTION`: non-blocking improvement
+
+Suggested folder layout:
+
+```text
+plans/<task>/waves/wave-<N>/
+  <dimension>/findings-<file-slug>.md
+  <dimension>/report.md
+  adversarial/<finding-id>.md
+  adversarial/report.md
+  wave-report.md
+```
+
+### Wave gate (start of each wave)
+
+1. Reload `.agents/skills/plan/SKILL.md`
+2. Reload `plans/<task>/plan.md`
+3. Confirm current diff SHA and wave number
+4. If prior wave had substantive findings, perform both:
+   - targeted amplification pass on prior findings/fixes
+   - clean-slate full pass on current diff
+
+### Dimensions
+
+Apply only relevant dimensions per PR:
+- Spec conformance
+- Correctness
+- Testing
+- Security
+- Code quality
+- DRY / reuse
+- Concurrency / parallelism
+- Performance
+- Architecture
+- Operability
+- Repo conventions
+
+Guidance:
+- Keep dimensions independent (avoid blended "general review" prompts).
+- For file-heavy diffs, parallelize by `(dimension, file)` and aggregate.
+- Runtime comparisons must hold query/data, engine, index policy, and environment constant against the base. A successful `policy="off"` scan does not establish that a `force` failure is new.
+- Pin standalone and remote probe imports to the intended worktree; record the imported source path and revision before accepting results. An installed package or stale mount can otherwise invalidate a baseline comparison.
+- For archived source, verify a fresh reconstructed tree against the intended commit's exported files,
+  including declared `export-subst` output and embedded revision IDs. Verify cached overlays in full;
+  a list of hashes for changed files alone leaves the unchanged cached files unverified.
+- Verify pre-existing patterns are not misreported as regressions:
+
+```bash
+git show origin/<base>:<file>
+```
+
+### Pygraphistry-specific review checks
+
+- Test coverage should mirror changed areas in `graphistry/tests/**`.
+- Prefer behavioral tests over implementation-detail assertions.
+- Treat broad exception catches (`except Exception`, bare `except`) as a bad dynamic/over-defensive typing pattern by default. Require narrowed, documented exception types at local helpers; allow broad catches only at explicit isolation boundaries where the PR explains why programmer errors must be contained.
+### Encoding: names, tests, structure — not prose
+
+Meaning belongs in a **name**, a **test**, or the **structure**; a comment is the last resort.
+Delete from a diff: narration of the next block (extract a helper named for the rule), a
+why-this-fix or issue-number rationale (the pin's test name carries it; an issue ref may stay as a
+trailing tag), any perf/complexity/benchmark claim (measurement belongs in pyg-bench), and
+restatements of the signature. A keep must state a constraint that no name and no test can express
+— *defensible* is not the bar, and a doubtful keep deletes. Guard: `bin/ci/ci_comment_density_guard.py`.
+
+Typing, same rule: `Any` over a known domain gets the real alias; a new `# type: ignore` or
+`hygiene-ok` gets restructured (both are for grandfathered debt only); `cast()` to satisfy the
+checker becomes `isinstance` narrowing. Hygiene-guard "no growth" is not sufficient — a file the PR
+touches should go down.
+
+Run this skill on your own `<base>..HEAD` diff before pushing, and carry these rules in any brief
+you hand a subagent. Re-fetch review comments before calling a thread addressed: anchors are
+per-commit (`commit_id`, `original_line`), and your remediation commit gets reviewed too.
+
+```bash
+git diff <base>..HEAD -- 'graphistry/**/*.py' ':!graphistry/tests/**' \
+  | grep -nE '^\+\s*#|^\+.*(\bAny\b|type: ignore|hygiene-ok|cast\()' | grep -v 'from typing import'
+```
+
+- Control-flow checks (runtime code, tests, and prompt-routing logic) must use structured signals (for example `code`, context keys like `field`/`value`, AST/symbol kinds, and stable symbol-binding metadata/files) and never **hardcoded** message-substring matching.
+- Run focused validation before escalating severity when feasible:
+
+```bash
+python -m pytest -q [targeted_test]
+./bin/ruff.sh [changed_path_or_pkg]
+./bin/typecheck.sh [changed_path_or_pkg]
+```
+
+- For GPU-affecting PRs, require GPU-path validation evidence:
+  - Local GPU path: `cd docker && ./test-gpu-local.sh [targeted_test_or_path]`
+  - No local GPU available: run equivalent GPU validation on `dgx-spark` and record exact command + output artifact path in wave evidence.
+- For optional-engine tests, check the declared CI dependency environment as well as installed-engine
+  integration; skip unavailable dependencies and explicitly exercise supported installed-engine cases.
+- For new, renamed, or moved Polars-gated test modules, verify explicit registration in
+  `bin/test-polars.sh` or a documented exclusion in the completeness guard. Before committing
+  or propagating the fix, run `python -m pytest -q graphistry/tests/compute/gfql/test_polars_lane_completeness.py`.
+- For RAPIDS/cuDF changes, prefer dual-version validation (`RAPIDS_VERSION=25.02` and `26.02`) and include at least one amplified pass beyond early-stop defaults (for example, avoid relying only on `--maxfail=1` harness behavior when triaging regression surface).
+- When shared GPU pressure blocks full-matrix execution, require explicit evidence of the constrained condition (for example `nvidia-smi` + failing stack site), then run targeted amplified subsets and document exactly which tests were excluded and why.
+- If startup/runtime claims are made, verify entrypoints/scripts in `bin/` and workflow behavior.
+- For docs-only PRs, prioritize spec/documentation accuracy and navigability (toctree links, anchors, cross-refs).
+
+### GFQL change boundaries, engines, engagement, perf (compute/**)
+
+- **Both sides of every boundary.** A fix carries a test that fails with the defect reinstated and
+  passes with the fix; the case that must still decline or raise is pinned next to it. A differential
+  with zero rows on both sides, or where another route served the query, tests nothing: assert the
+  expected row count and the serving route.
+- **Sweep the siblings.** A change to one engine, lane or shape is checked on every sibling before it
+  is landable: pandas, cuDF, polars, polars-gpu, and each specialization of the same shape
+  (`chain_specializations/`, `gfql/lazy/engine/polars/chain_specializations/`, the indexed bindings
+  kernel, the row pipeline). Report the siblings that were probed and what each did.
+- **Engagement is a pin, not a timing.** "The index/fast path is used" is proven by a `gfql_explain`
+  assertion (`used_index`, `decision_code`, the seam name) marked `@pytest.mark.route_engaged(...)`
+  so `bin/test-routes-off.sh` can replay the parity half with the route disabled. Parity stays an
+  unmarked result pin. Run `bin/test-routes-off.sh` with `MODES=all-off` and focused
+  test paths in `SUITES` before publication: another specialization can serve an
+  individual route decline and hide mixed result/engagement assertions. A wall-clock
+  assertion in pygraphistry tests is a finding.
+  A new route also updates the hosted replay matrix and runs `graphistry/tests/compute/gfql/routes/test_replay.py`;
+  focused local replay does not check hosted matrix coverage.
+- **Perf claims live in pyg-bench.** A number in a PR body or CHANGELOG needs a pyg-bench measurement
+  with an A/A control beside the A/B, pinned in that repo's thresholds + contract test; pygraphistry
+  carries results and data contracts only. Local-box numbers do not close a perf PR.
+- **Cypher surface.** A change reachable from a Cypher query (parser, DDL, row pipeline, WHERE/RETURN
+  lowering) runs the tck subset that covers it; engine-parametrize the result pin.
+- **Release notes and docs.** Every user-visible change has a CHANGELOG.md entry under
+  `[Development]` -- never inside a released `## [x.y.z - date]` section, which is history. Docs edits
+  are minimal, plain English (ASD-STE100: short sentences, one meaning per word, no internal jargon or
+  issue chatter), and a stale sentence is deleted rather than hedged.
+- **An identity claim is a measurement.** "Same answers", "value-identical", "cost only" needs an A/B
+  of old against new over adversarial shapes -- nulls first, a failing value past any sample, all-null,
+  empty, shorter than the sample, mixed element types, each engine dtype family -- and the claim states
+  how many shapes were compared and how many diverged. A surviving divergence is disclosed as a
+  correction in the CHANGELOG and pinned, never dropped from the count.
+- **Close the class, do not narrow the claim.** When a defect has siblings, prefer one chokepoint that
+  fixes every producer over a per-site patch plus a narrowed sentence. Narrowing is the fallback, and
+  it names the shapes left open.
+- **Never pin behavior that differs by environment.** A pin that passes locally and fails on another
+  Python or dependency set is pinning the environment, not the contract. Pin the invariant both
+  outcomes must satisfy (the error code and field, or the rows), and report the divergence.
+- **A comment run is one line.** `bin/lint.sh` counts a two-line comment as a finding, so say it in one
+  line or put it in a name.
+
+#### Vectorization & engine compatibility (GFQL / row pipeline / compute)
+
+GFQL is vectorization-first and pure-functional. The row pipeline runs on pandas + cuDF; per-row Python loops are a pandas perf cliff and a cuDF break, and in-place mutation creates aliasing surprises. Audit edits in `graphistry/compute/**` (esp. `gfql/**`, `plotter/**`) for the patterns below.
+
+**Engine-polymorphic helpers** (use these instead of pandas-only APIs in compute paths):
+- `graphistry.Engine.df_cons(engine)`, `df_concat(engine)`, `df_to_engine(df, engine)`, `safe_merge`, `resolve_engine(arg, df)`
+- `graphistry.compute.dataframe_utils.template_df_cons(template_df, data)`
+- Type DataFrame params as `DataFrameT` (`graphistry.compute.typing`), not `pd.DataFrame`.
+
+**Vectorization** — flag (BLOCKER on hot rows / IMPORTANT elsewhere unless noted):
+
+| Pattern | Fix |
+|---|---|
+| `df.apply(fn, axis=1)`, `iterrows()`, `itertuples()` | Vectorized ops on Series |
+| `for x in df[col]` building a Series | `Series.map` / numpy / mask |
+| `sum(s)` / `max(s)` / etc. on a Series (SUGGESTION) | `s.sum()` / `s.max()` |
+| `df[col][i]` scalar access in a loop | Same vectorization fix; cuDF rejects this |
+
+**Mutation** — pygraphistry is pure-functional; flag IMPORTANT (BLOCKER if cell-wise in a loop):
+
+| Pattern | Pure alternative |
+|---|---|
+| `df[col] = v` / `df.col = v` | `df.assign(col=v)` |
+| `df.loc[mask, col] = v` | `df.assign(col=df[col].where(~mask, v))` |
+| `df.loc[i,c]=` / `df.iloc[]=` / `df.at[]=` in a loop | Build column vectorized + `df.assign(...)` |
+| `inplace=True` (drop/rename/sort/fillna/...) | Drop kwarg; assign return |
+| `del df[col]` | `df.drop(columns=[col])` |
+| `df.append(...)` (deprecated; not in cuDF) | `df_concat(engine)([df, other])` |
+| Mutating then returning the input df | Return a new df; no observable side effects |
+
+Vectorized mutation (`df.loc[mask, col] = v`) is still mutation — prefer `df.assign(...)`.
+
+**Batch the assign** (SUGGESTION; IMPORTANT on a hot row path): copy-then-mutate
+(`out = df.copy()` followed by one or more `out[col] = ...`) should be a single
+`df.assign(col_a=..., col_b=...)`. It is the functional phrasing the rest of the
+codebase uses, it drops the explicit copy (assign already returns a new frame), and
+one assign builds the result once instead of copying and then writing column by
+column.
+
+| Pattern | Fix |
+|---|---|
+| `out = df.copy()` + `out[c] = v` | `df.assign(c=v)` |
+| `out = df.copy()` + several `out[c] = v` | one `df.assign(c1=v1, c2=v2)` |
+| `df.copy().rename(columns=...)` | `df.rename(columns=...)` — rename already copies |
+| `out = df[mask].copy()` with no later mutation | `df[mask]` — masking already copies |
+
+**cuDF compatibility** — flag IMPORTANT unless noted:
+
+| Pattern | Fix |
+|---|---|
+| `df.apply(fn, axis=1)` (BLOCKER on cuDF lanes) | Vectorize |
+| `.to_pandas()` → pandas op → back | Round-trip = missing vectorization |
+| `is pd.NA` / `== pd.NA` | `s.isna()` |
+| `dtype == "<pandas-name>"` (SUGGESTION) | `pd.api.types.is_*_dtype` or engine-aware helper |
+| Param typed `pd.DataFrame` instead of `DataFrameT` | Use `DataFrameT` |
+
+**Hot row path** = row pipeline executor, edge/node materialization, anything called per-query in `_execute_*` / `_compile_*` / `_lower_*` / row-pipeline ops. **Control plane** = one-shot config builders, error formatters, parser glue (lower bar).
+
+**Index engagement**: for property-index changes, verify an actual candidate gather through representative public queries and specialized execution paths that bypass canonical filters. Row parity alone can pass while every query still scans; explain receipts must describe the gather that really occurred. When adding shared-helper traces, check existing consumer-owned receipt fields and counts; preserve those contracts without hiding new gathers.
+
+**Paired cuDF coverage required** for changes in `compute/gfql/row/`, `compute/gfql/cypher/`, `compute/gfql_unified.py`, `compute/chain.py`, `compute/hop.py`, `compute/materialize_nodes.py`. Sibling pattern: `pytest.importorskip("cudf")` + engine-parametrized fixture. New DataFrame-touching helpers also need cuDF smoke if on a hot path.
+
+**Flag wording**:
+> [BLOCKER] `<file>:<line>` — `<pattern>` on hot row path. Use `<engine-polymorphic alt>`. See `.agents/skills/review/SKILL.md#vectorization--engine-compatibility-gfql--row-pipeline--compute`.
+
+**Don't flag**: `apply(axis=0)` (column-wise = vectorized); `iterrows()` in CLI/test fixtures; mutation of a df the function itself just constructed (no aliasing — SUGGESTION at most); `inplace=True` in throwaway setup code.
+
+**Pre-existing patterns**: verify novelty via `git show origin/<base>:<file>` before raising. Don't re-flag repo debt.
+
+### Per-file findings format
+
+```markdown
+## <file>
+### Findings
+- [BLOCKER] <description> — <file>:<line>
+- [IMPORTANT] <description> — <file>:<line>
+- [SUGGESTION] <description> — <file>:<line>
+
+### Evidence
+- <diff/code/test evidence with file:line references>
+```
+
+### Adversarial pass (required)
+
+For each finding, attempt disproof and write verdict:
+- `CONFIRMED`
+- `DOWNGRADED`
+- `REJECTED`
+
+Only `CONFIRMED` and `DOWNGRADED` findings carry forward.
+
+Each adversarial file should include:
+- original claim
+- disprove attempt
+- verdict
+- concrete proof (`file:line`, diff excerpt, or test output)
+
+### Wave summary
+
+Each wave writes `wave-report.md` with:
+- inputs (diff SHA/range, dimensions, files)
+- post-adversarial counts by severity
+- fixes applied (if `fixes=inline`)
+- finding resolution ledger (`FIXED`, `UNFIXED`, `DEFERRED`)
+- convergence signal
+
+## Phase 3: Convergence Report
+
+### Requirement-to-evidence closure
+
+Before writing `final-report.md`, build an acceptance map so a green aggregate count cannot hide an unmet requirement:
+
+| Requirement | Status | Evidence / limitation |
+| --- | --- | --- |
+
+Map every review requirement to `SATISFIED`, `LIMITED`, or `UNSATISFIED`; cite tests, engine/platform capability, dependencies, performance evidence, and documentation (including `CHANGELOG.md`) separately. Preserve still-valid evidence, distinguish same-seam from aggregate evidence, and state unsupported-scope limits without inflating coverage. Recheck the final full diff after repairs; a late repair can invalidate earlier evidence.
+
+When acting on a requested planner decision, drain the latest planner answer first. At natural step boundaries, read material mailbox updates without waiting for routine ACKs.
+
+Write `plans/<task>/final-report.md` with:
+- summary (waves run, convergence status)
+- per-wave table (new findings + advance signal)
+- resolution matrix (status of non-rejected findings)
+- sections: `Blockers`, `Important`, `Suggestions`, `Rejected/False Positives`, `Methodology`
+
+## Phase 4: Output Behavior
+
+`findings` mode:
+- Keep full artifacts in `plans/<task>/`
+- Provide concise terminal summary with:
+  - target + mode + fixes policy
+  - waves + convergence status
+  - per-wave counts
+  - `FIXED` vs `UNFIXED`/`DEFERRED`
+  - path to `final-report.md`
+
+`pr-comments` mode:
+1. Draft local comments in `plans/<task>/comment-drafts/`
+2. Ask for explicit confirmation
+3. Post inline + top-level comments with `gh`
+
+`both` mode:
+- Complete findings artifacts first, then comment flow.
+
+## Guardrails
+
+- `fixes=deferred`: read-only; do not edit source files.
+- `fixes=inline`: edit only files in PR diff and only for confirmed `BLOCKER`/`IMPORTANT` findings.
+- Never skip lint/tests when applying inline fixes.
+- Never force-push from review flow.
+- Never post PR comments without explicit user confirmation.
+- Always run credentials scan in Phase 1 before waves.
+- Prefer exact file/line evidence over broad statements.
+- If uncertain whether issue is new, compare against `origin/<base>` before filing.

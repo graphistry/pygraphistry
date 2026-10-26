@@ -192,7 +192,7 @@ Best Practices
 --------------
 
 1. **Built-in Validation**: Use GFQL's automatic validation during construction
-2. **Error Codes**: Leverage structured error codes (E1xx, E2xx, E3xx) for programmatic handling
+2. **Error Codes**: Use structured error codes (E1xx, E2xx, E3xx) for programmatic handling
 3. **Collect-All Mode**: Use ``collect_all=True`` for comprehensive error reporting to LLMs
 4. **Schema Context**: Provide available columns and types in LLM prompts
 5. **Pre-execution Validation**: Validate schema before expensive operations

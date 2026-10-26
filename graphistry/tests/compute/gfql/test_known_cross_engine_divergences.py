@@ -6,6 +6,8 @@ malformed -- dangling edge endpoints, duplicate node ids. They are pinned
 executable so (a) the release notes can point at exactly what diverges, and
 (b) the fix PR flips a strict xfail instead of rediscovering the shape.
 """
+import os
+
 import pandas as pd
 import pytest
 
@@ -244,7 +246,7 @@ cudf_only = pytest.mark.skipif(
     reason="cudf lane requires a GPU box (--gpus all)")
 
 
-# --- OPTIONAL MATCH grouped aggregates: cuDF cannot serve the shape at all ------------------
+# --- OPTIONAL MATCH grouped aggregates: served on every engine, including cuDF ---------------
 # Hand oracle on nodes alice(id 0, w 5) / bob(id 1, w 7) and the single edge 0->1:
 #   alice matches x=bob  -> count(x)=1, sum(x.w)=7
 #   bob matches nothing  -> count(x)=0, and openCypher's sum over an empty group is 0
@@ -253,22 +255,13 @@ _OM_AGG_ORACLE = [
     ("sum(x.w) AS s", "s", [{"name": "alice", "s": 7}, {"name": "bob", "s": 0}]),
 ]
 
-_OM_AGG_CUDF_XFAIL = pytest.mark.xfail(strict=True, reason=(
-    "PRE-EXISTING (identical at merge-base 526976e91, fully closed graph, so #1888/#1895 did "
-    "not cause it): the row pipeline's group_by cannot run on cuDF -- _build_grouped's "
-    "grouped.size() raises 'truth value of a Series is ambiguous' -- so EVERY grouped aggregate "
-    "after OPTIONAL MATCH dies there. Round 4 saw the softer form of the same gap (an empty "
-    "group's sum coming back NULL instead of 0). Flipping this xfail = cuDF serving the shape."))
-
-
 _needs_cudf = pytest.mark.skipif(
-    __import__("importlib.util", fromlist=["util"]).find_spec("cudf") is None,
-    reason="cudf lane requires a GPU box (--gpus all)")
+    os.environ.get("TEST_CUDF", "0") != "1", reason="cudf tests need TEST_CUDF=1 and a GPU")
 
 
 @pytest.mark.parametrize("engine", [
     "pandas", pytest.param("polars", marks=polars_only),
-    pytest.param("cudf", marks=[_needs_cudf, _OM_AGG_CUDF_XFAIL])])
+    pytest.param("cudf", marks=_needs_cudf)])
 @pytest.mark.parametrize("agg,col,want", _OM_AGG_ORACLE)
 def test_optional_match_grouped_aggregate_is_served_on_every_engine(engine, agg, col, want):
     nodes = pd.DataFrame({"id": [0, 1], "name": ["alice", "bob"], "t": ["P", "P"], "w": [5, 7]})
@@ -312,3 +305,88 @@ def test_output_hop_window_backfills_the_source_node_row_on_cudf():
     src_cudf, ids_cudf = _hop(cudf.from_pandas, "cudf")
     assert src_pandas <= ids_pandas  # pandas is the correct side
     assert src_cudf <= ids_cudf, "cuDF left an edge source with no node row"
+
+
+def test_1695_searchany_float_half_boundary_renders_differently_per_engine():
+    """searchAny renders floats the way the viz inspector does, and the engines cannot all
+    round identically. Pinned executable so the exact shape is discoverable.
+
+    The inspector uses ``sprintf('%.4f')``, i.e. JS ``toFixed``, which rounds half-AWAY
+    from zero on the exact decimal expansion of the double. Python's formatter reproduces
+    that, so pandas matches the UI. polars and cuDF have no column-wide equivalent, and their
+    ``round`` is half-to-EVEN on the binary value, so a value whose 5th decimal is exactly
+    5 can render one unit lower there. Measured on 26,008 realistic column values against a
+    JS reference: pandas 100%, cuDF 99.996%, polars 99.931% (#1695).
+
+    polars is additionally VERSION-dependent at this boundary -- 1.21 agrees with pandas,
+    1.35 does not -- so the polars arm accepts either and fails only on a malformed render.
+
+    The consequence for a user is narrow and worth stating: typing the string the UI shows
+    finds the row on pandas, and misses it on polars/cuDF, for that value class only.
+    """
+    from graphistry.compute.gfql.wysiwyg import render_float_pandas
+
+    # 0.12345 is the canonical case: the double sits just above the half, so JS/pandas
+    # round up to '0.1235' while an engine round() lands on '0.1234'.
+    assert render_float_pandas(pd.Series([0.12345], dtype="float64")).tolist() == ["0.1235"]
+
+    if _HAS_POLARS:
+        from graphistry.compute.gfql.wysiwyg import float_render_expr_polars
+        got = (pl.DataFrame({"x": pl.Series([0.12345], dtype=pl.Float64)})
+               .select(float_render_expr_polars(pl.col("x"), pl.Float64).alias("o"))
+               .to_series().to_list())
+        # WHICH side polars lands on is polars-VERSION-dependent, discovered by this pin
+        # failing on the RAPIDS 25.02 lane: polars 1.21 agrees with pandas here ('0.1235')
+        # while 1.35 does not ('0.1234'). Both are accepted; anything else is a real
+        # regression in the render (wrong width, dropped padding, exponent leaking in).
+        assert got in (["0.1235"], ["0.1234"]), f"polars float render is malformed: {got}"
+
+
+def test_1695_searchany_float_ordinary_values_agree_across_engines():
+    """The counterpart to the pin above: away from half-boundaries the engines DO agree,
+    so the divergence is genuinely narrow rather than a general float mismatch."""
+    from graphistry.compute.gfql.wysiwyg import render_float_pandas
+
+    vals = [0.5, 7.25, -3.125, 0.0, 42.0, 1234.5678]
+    expected = ["0.5000", "7.2500", "-3.1250", "0", "42", "1234.5678"]
+    assert render_float_pandas(pd.Series(vals, dtype="float64")).tolist() == expected
+
+    if _HAS_POLARS:
+        from graphistry.compute.gfql.wysiwyg import float_render_expr_polars
+        got = (pl.DataFrame({"x": pl.Series(vals, dtype=pl.Float64)})
+               .select(float_render_expr_polars(pl.col("x"), pl.Float64).alias("o"))
+               .to_series().to_list())
+        assert got == expected
+
+
+@polars_only
+def test_datetime_render_follows_each_engines_timezone_database():
+    """polars and pandas can disagree about a zone's FUTURE rules, not about arithmetic.
+
+    The WYSIWYG datetime render reads whichever timezone database its engine ships.
+    ``Africa/Casablanca`` schedules DST around Ramadan and its future transitions are
+    revised often, so chrono's bundled copy and Python's ``tzdata`` disagree on instants
+    years out while agreeing on present ones. Pinned rather than hidden: it is a data
+    disagreement, and the fix is aligning the databases, not the code.
+    """
+    from zoneinfo import ZoneInfo
+    import datetime as dt
+
+    zone = "Africa/Casablanca"
+
+    def wall(stamp):
+        inst = dt.datetime.fromisoformat(stamp).replace(tzinfo=dt.timezone.utc)
+        py = inst.astimezone(ZoneInfo(zone)).strftime("%Y-%m-%d %H:%M:%S")
+        got = (pl.DataFrame({"t": pl.Series([stamp]).str.to_datetime()})
+               .select(pl.col("t").dt.replace_time_zone("UTC").dt.convert_time_zone(zone)
+                       .dt.strftime("%Y-%m-%d %H:%M:%S").alias("o"))["o"][0])
+        return py, got
+
+    present_py, present_pl = wall("2024-01-05T03:04:05")
+    assert present_py == present_pl, "a present-day instant must not diverge"
+
+    future_py, future_pl = wall("2034-10-07T22:13:12")
+    if future_py == future_pl:
+        pytest.fail(
+            "the timezone databases now AGREE on Casablanca in 2034 -- delete this pin "
+            f"and the caveat in wysiwyg.render_datetime_pandas ({future_py})")

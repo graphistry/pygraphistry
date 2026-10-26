@@ -136,7 +136,7 @@ def tangents(P, n):
         t = q / sqrt(q.dot(q))
         Q.append(q)
         T.append(t)
-    T.append(t)
+    T.append(T[-1])  # the last segment's tangent serves the final point too
     return Q, T
 
 

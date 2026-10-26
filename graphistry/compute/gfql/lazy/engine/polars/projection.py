@@ -14,7 +14,7 @@ from __future__ import annotations
 import typing
 from dataclasses import dataclass
 
-from typing_extensions import Literal, TypedDict
+from typing_extensions import Literal
 
 from graphistry.Plottable import Plottable
 from graphistry.compute.gfql.cypher.projection_columns import alias_field_sources
@@ -22,6 +22,7 @@ from graphistry.compute.gfql.cypher.projection_columns import alias_field_source
 if typing.TYPE_CHECKING:
     import polars as pl
     from graphistry.compute.gfql.cypher.lowering import ResultProjectionPlan
+    from graphistry.compute.gfql.cypher.result_postprocess import WholeRowProjectionMeta
 
 
 from graphistry.Engine import is_polars_df as _is_polars_frame
@@ -30,13 +31,6 @@ from graphistry.compute.gfql.row.entity_props import (
     NODE_INTERNAL_COLS,
     label_flag_columns,
 )
-
-
-class _PolarsWholeRowProjectionMeta(TypedDict):
-    table: Literal["nodes", "edges"]
-    alias: str
-    id_column: str
-    ids: pl.Series
 
 
 @dataclass(frozen=True)
@@ -73,9 +67,21 @@ def _columns_have_temporal_constructor_text(
             values = [rows_df.get_column(col).item() for col in columns]
             if all(value is None or isinstance(value, str) and "(" not in value for value in values):
                 return False
+        # A constructor string always contains "(", so a column without one cannot match.
+        candidates = [
+            col for col, hit in zip(
+                columns,
+                rows_df.select([
+                    pl.col(col).str.contains("(", literal=True).any() for col in columns
+                ]).row(0),
+            )
+            if hit
+        ]
+        if not candidates:
+            return False
         return bool(
             rows_df.select(pl.any_horizontal([
-                pl.col(col).str.contains(pattern).any() for col in columns
+                pl.col(col).str.contains(pattern).any() for col in candidates
             ])).item()
         )
     except Exception:
@@ -168,15 +174,14 @@ def _native_node_entity_text_expr(
     return pl.when(_c(alias).is_null()).then(None).otherwise(rendered)
 
 
-def _flat_entity_exprs_polars(
+def _flat_entity_columns_polars(
     view: _AliasView,
     projection: ResultProjectionPlan,
     source_alias: str,
     output_name: str,
     id_column: typing.Optional[str],
-) -> typing.Optional[typing.Sequence[pl.Expr]]:
-    """Flatten one alias view into projected Polars expressions."""
-    import polars as pl
+) -> typing.Optional[typing.Sequence[pl.Series]]:
+    """Flatten one alias view using its existing native columns."""
     from dataclasses import replace
     from graphistry.compute.gfql.cypher.result_postprocess import _flat_entity_field_names
 
@@ -189,12 +194,12 @@ def _flat_entity_exprs_polars(
         src = view.columns.get(field)
         if src is None:
             return None
-        out.append(pl.col(src).alias(f"{output_name}.{field}"))
+        out.append(view.frame.get_column(field).alias(f"{output_name}.{field}"))
     return out
 
 
 def _record_entity_meta(
-    entity_meta: typing.MutableMapping[str, _PolarsWholeRowProjectionMeta],
+    entity_meta: typing.MutableMapping[str, WholeRowProjectionMeta],
     view: _AliasView,
     projection: ResultProjectionPlan,
     source_alias: str,
@@ -224,8 +229,8 @@ def _try_native_projection(
     flat or entity-text whole-entity returns; None → caller raises NIE."""
     import polars as pl
 
-    exprs: typing.List[pl.Expr] = []
-    entity_meta: typing.MutableMapping[str, _PolarsWholeRowProjectionMeta] = {}
+    exprs: typing.List[typing.Union[pl.Expr, pl.Series]] = []
+    entity_meta: typing.Dict[str, WholeRowProjectionMeta] = {}
     id_column = result._node if result._node is not None else source_node_id
     primary = _alias_view_polars(rows_df, projection.alias)
     primary_columns = primary.columns if primary is not None else {}
@@ -238,7 +243,7 @@ def _try_native_projection(
             if view is None:
                 return None
             if structured:
-                flat = _flat_entity_exprs_polars(view, projection, source_alias, column.output_name, id_column)
+                flat = _flat_entity_columns_polars(view, projection, source_alias, column.output_name, id_column)
                 if flat is not None:
                     exprs.extend(flat)
                     _record_entity_meta(entity_meta, view, projection, source_alias, column.output_name, id_column)
@@ -259,16 +264,18 @@ def _try_native_projection(
             return None  # temporal/nested rendering -> defer (NIE)
         if dtype == pl.String and _has_temporal_constructor_text(rows_df, src):
             return None  # temporal-constructor-string property -> defer (NIE)
-        exprs.append(pl.col(src).alias(column.output_name))
+        exprs.append(rows_df.get_column(src).alias(column.output_name))
     # decline (NIE): duplicate output names — pandas tolerates them (RETURN n, n.val emits n.val
     # twice: flattened entity + explicit) but polars .select rejects them; don't diverge or crash.
-    out_names = [e.meta.output_name() for e in exprs]
+    out_names = [e.name if isinstance(e, pl.Series) else e.meta.output_name() for e in exprs]
     if len(out_names) != len(set(out_names)):
         return None
+    from .row_pipeline import _project_eager_columns
+    projected = _project_eager_columns(rows_df, (), exprs)
     out = result.bind()
-    out._nodes = rows_df.select(exprs)
+    out._nodes = rows_df.select(exprs) if projected is None else projected
     if entity_meta:
-        setattr(out, "_cypher_entity_projection_meta", entity_meta)
+        out._cypher_entity_projection_meta = entity_meta
     edges_df = result._edges
     if edges_df is not None:
         out._edges = edges_df.clear() if _is_polars_frame(edges_df) else edges_df[:0]
@@ -300,3 +307,12 @@ def apply_result_projection_polars(
         "use engine='pandas' or engine='cudf' for this query "
         "(no silent fallback; parity-or-error by design)"
     )
+
+
+def _has_temporal_constructor_text_value(value: str) -> bool:
+    """Whether one string is Cypher temporal-constructor text (the scalar form of the scan)."""
+    import re
+
+    from graphistry.compute.gfql.temporal.constructors import TEMPORAL_CALL_EXPR_RE
+
+    return re.match(r"^\s*" + TEMPORAL_CALL_EXPR_RE.pattern, value) is not None

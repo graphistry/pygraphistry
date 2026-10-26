@@ -224,6 +224,17 @@ def parse_stringified_list_series(series: Any) -> Optional[SeriesT]:
     return s_cons(Engine.PANDAS)(parsed, index=out_index, dtype="object")
 
 
+_GFQL_TEMPORAL_SNIFF_SAMPLE = 16
+_GFQL_TEMPORAL_TEXT_MODES: Tuple[Tuple[str, Tuple[str, ...]], ...] = (
+    ("date", (_GFQL_DATE_TEXT_RE.pattern,)),
+    ("datetime", (_GFQL_DATETIME_TEXT_RE.pattern,)),
+    ("time", (_GFQL_TIME_TEXT_RE.pattern,)),
+    ("date_constructor", (DATE_CALL_TEXT_RE.pattern,)),
+    ("datetime_constructor", (LOCALDATETIME_CALL_TEXT_RE.pattern, DATETIME_CALL_TEXT_RE.pattern)),
+    ("time_constructor", (LOCALTIME_CALL_TEXT_RE.pattern, TIME_CALL_TEXT_RE.pattern)),
+)
+
+
 def order_detect_temporal_mode(series: Any) -> Optional[str]:
     if not hasattr(series, "dropna"):
         return None
@@ -234,25 +245,25 @@ def order_detect_temporal_mode(series: Any) -> Optional[str]:
     non_null = series.dropna()
     if len(non_null) == 0 or not hasattr(non_null, "astype"):
         return None
-    text = non_null.astype(str)
-    if not hasattr(text, "str"):
+    # Rendering is the cost, so the sample is rendered on its own: each mode is an all-rows conjunction.
+    sample_rows = non_null.head(_GFQL_TEMPORAL_SNIFF_SAMPLE) if hasattr(non_null, "head") else non_null
+    sample = sample_rows.astype(str)
+    if not hasattr(sample, "str"):
         return None
-    if bool(series_str_fullmatch(text, _GFQL_DATE_TEXT_RE.pattern, na=False).all()):
-        return "date"
-    if bool(series_str_fullmatch(text, _GFQL_DATETIME_TEXT_RE.pattern, na=False).all()):
-        return "datetime"
-    if bool(series_str_fullmatch(text, _GFQL_TIME_TEXT_RE.pattern, na=False).all()):
-        return "time"
-    if bool(series_str_fullmatch(text, DATE_CALL_TEXT_RE.pattern, na=False).all()):
-        return "date_constructor"
-    datetime_local = series_str_fullmatch(text, LOCALDATETIME_CALL_TEXT_RE.pattern, na=False)
-    datetime_tz = series_str_fullmatch(text, DATETIME_CALL_TEXT_RE.pattern, na=False)
-    if bool((datetime_local | datetime_tz).all()):
-        return "datetime_constructor"
-    time_local = series_str_fullmatch(text, LOCALTIME_CALL_TEXT_RE.pattern, na=False)
-    time_tz = series_str_fullmatch(text, TIME_CALL_TEXT_RE.pattern, na=False)
-    if bool((time_local | time_tz).all()):
-        return "time_constructor"
+
+    def _all_match(values: SeriesT, patterns: Tuple[str, ...]) -> bool:
+        hits = series_str_fullmatch(values, patterns[0], na=False)
+        for pattern in patterns[1:]:
+            hits = hits | series_str_fullmatch(values, pattern, na=False)
+        return bool(hits.all())
+
+    candidates = [(mode, patterns) for mode, patterns in _GFQL_TEMPORAL_TEXT_MODES if _all_match(sample, patterns)]
+    if not candidates:
+        return None
+    text = non_null.astype(str)
+    for mode, patterns in candidates:
+        if _all_match(text, patterns):
+            return mode
     return None
 
 

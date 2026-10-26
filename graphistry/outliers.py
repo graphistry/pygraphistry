@@ -1,3 +1,7 @@
+# Annotations reference optional imports (np.ndarray); without this they are evaluated at
+# def time and the try/except fallback below cannot keep the module importable.
+from __future__ import annotations
+
 from typing import Dict, Union, Tuple
 
 import pandas as pd
@@ -13,6 +17,7 @@ try:
     from sklearn.covariance import EllipticEnvelope
     from sklearn.svm import OneClassSVM
 except:
+    matplotlib = None  # type: ignore
     plt = None  # type: ignore
     np = None  # type: ignore
     neighbors = None  # type: ignore

@@ -21,6 +21,7 @@ if TYPE_CHECKING:
     from graphistry.compute.gfql.row.prefilter import AliasPrefilters
 
 from .dtypes import is_lazy
+from .membership import is_in_ids
 from .row_pipeline import _active_table, _rewrap
 
 
@@ -251,6 +252,23 @@ def _semi_apply_join_col(left: "pl.DataFrame", alias: str, node_id: str) -> Opti
     return None
 
 
+def _with_explicit_alias_key(
+    left: "pl.DataFrame", alias: str, node_id: str
+) -> tuple["pl.DataFrame", str]:
+    """Materialize the alias ID key for a boolean marker, as the pandas row lane does."""
+    import polars as pl
+
+    alias_id_col = f"{alias}.{node_id}"
+    if alias_id_col in left.columns:
+        return left, alias_id_col
+    if node_id in left.columns and left.schema.get(alias) == pl.Boolean:
+        return left.with_columns(pl.col(node_id).alias(alias_id_col)), alias_id_col
+    join_col = _semi_apply_join_col(left, alias, node_id)
+    if join_col is None:
+        raise ValueError(f"Pattern alias {alias!r} has no shared join key")
+    return left, join_col
+
+
 def semi_apply_mark_polars(
     g: Plottable, binding_ops: Sequence[Dict[str, JSONVal]], join_aliases: Sequence[str], out_col: str,
     neq: Optional[Sequence[str]] = None,
@@ -278,10 +296,11 @@ def semi_apply_mark_polars(
         # pandas merge matches NaN==NaN join keys; is_in does not — decline the
         # pathological null-id case rather than silently diverge (wave-1 E1).
         return None
+    left, join_col = _with_explicit_alias_key(left, alias, node_id)
     # is_in (not a join): row ORDER preserved trivially; a null LEFT key marks
     # False, same as the pandas merge-no-match path (null -> fill_null(False)).
     marked = left.with_columns(
-        pl.col(join_col).is_in(key_series).fill_null(False).alias(out_col)
+        is_in_ids(pl.col(join_col), key_series).fill_null(False).alias(out_col)
     )
     return _rewrap(g, marked)
 
@@ -310,7 +329,8 @@ def anti_semi_apply_polars(
     import polars as pl
     if key_series.null_count() > 0:
         return None  # see semi_apply_mark_polars: NaN==NaN merge semantics (wave-1 E1)
+    left, join_col = _with_explicit_alias_key(left, alias, node_id)
     # filter (not an anti-join): order preserved; a null LEFT key row SURVIVES like
     # the pandas merge-no-match path (is_in null -> fill_null(False) -> not_ -> True).
-    kept = left.filter(pl.col(join_col).is_in(key_series).fill_null(False).not_())
+    kept = left.filter(is_in_ids(pl.col(join_col), key_series).fill_null(False).not_())
     return _rewrap(g, kept)

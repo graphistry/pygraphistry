@@ -811,14 +811,36 @@ class TestGFQLCypherReentryCarrier:
             ({"property": [1]}, ["a1", "a2"], "metadata row counts disagreed"),
         ],
     )
-    def test_reentry_state_rejects_invalid_carried_scalar_rows(self, rows, ids, match):
+    @pytest.mark.parametrize("engine", ["pandas"])
+    def test_reentry_state_rejects_invalid_carried_scalar_rows(self, rows, ids, match, engine):
         g = _mk_reentry_scalar_graph()
         with pytest.raises(GFQLValidationError, match=match):
             self._run_reentry_state(
                 g,
                 self._compile_reentry_query(),
                 self._bind_reentry_prefix_result(g, rows=rows, ids=ids),
+                engine=engine,
             )
+
+    @pytest.mark.parametrize("engine", ["pandas"])
+    def test_reentry_state_accepts_unique_carried_scalar_rows(self, engine):
+        g = _mk_reentry_scalar_graph()
+        dispatch_graph, start_nodes = self._run_reentry_state(
+            g,
+            self._compile_reentry_query(),
+            self._bind_reentry_prefix_result(
+                g,
+                rows={"property": [1, 2]},
+                ids=["a1", "a2"],
+                engine=engine,
+            ),
+            engine=engine,
+        )
+
+        assert self._carry_by_id(dispatch_graph) == {
+            "a1": self._hidden_updates(property=1),
+            "a2": self._hidden_updates(property=2),
+        }
 
     def test_reentry_state_filters_null_carried_ids_before_aligning_scalar_payload(self):
         g = _mk_reentry_scalar_graph()

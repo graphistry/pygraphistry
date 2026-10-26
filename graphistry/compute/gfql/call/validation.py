@@ -4,6 +4,7 @@ from functools import lru_cache
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Set, Tuple, Union
 
 from graphistry.compute.exceptions import ErrorCode, GFQLSyntaxError, GFQLTypeError
+from graphistry.compute.gfql.identifiers import render_cypher_identifier
 from graphistry.compute.gfql.call.support import (
     EDGE_COLUMN_SCHEMA_EFFECTS,
     NODE_COLUMN_SCHEMA_EFFECTS,
@@ -134,7 +135,11 @@ def _where_rows_expr_required_cols(expr: str) -> List[str]:
     for name in names:
         if not isinstance(name, str) or name == "":
             continue
-        cols.add(name.split(".")[0])
+        # Atomic dotted names are allowed only when their quoted Cypher form survives lowering.
+        if "." in name and render_cypher_identifier(name) in expr:
+            cols.add(name)
+        else:
+            cols.add(name.split(".")[0])
     return sorted(cols)
 
 
@@ -318,6 +323,12 @@ _COLUMN_ENCODING_VALIDATORS: Dict[str, ParamValidator] = {
 }
 
 
+
+def _is_index_kind(v: object) -> bool:
+    from graphistry.compute.gfql.index.registry import ALL_KINDS
+    return isinstance(v, str) and v in ALL_KINDS
+
+
 def is_list_of_dicts(v: object) -> bool:
     return isinstance(v, list) and all(isinstance(item, dict) for item in v)
 
@@ -446,7 +457,7 @@ def _semi_apply_mark_added_node_cols(params: Dict[str, object]) -> Set[str]:
 
 SAFELIST_V1: Dict[str, Dict[str, Any]] = {
     'rows': _safelist_entry(
-        {'table', 'source', 'alias_endpoints', 'binding_ops', 'alias_prefilters', 'attach_prop_aliases'},
+        {'table', 'source', 'alias_endpoints', 'binding_ops', 'alias_prefilters', 'attach_prop_aliases', 'attach_prop_columns'},
         param_validators={
             'table': lambda v: v in ['nodes', 'edges'],
             'source': is_string_or_none,
@@ -454,6 +465,10 @@ SAFELIST_V1: Dict[str, Dict[str, Any]] = {
             'binding_ops': is_list_of_dicts,
             'alias_prefilters': is_alias_prefilters,
             'attach_prop_aliases': lambda v: isinstance(v, list) and all(isinstance(x, str) for x in v),
+            'attach_prop_columns': lambda v: isinstance(v, dict) and all(
+                isinstance(k, str) and isinstance(cols, list) and all(isinstance(c, str) for c in cols)
+                for k, cols in v.items()
+            ),
         },
         description='Set active row table from nodes/edges, optionally filtered by source alias',
         schema_effects=_schema_effects(
@@ -485,12 +500,17 @@ SAFELIST_V1: Dict[str, Dict[str, Any]] = {
     ),
 
     'anti_semi_apply': _safelist_entry(
-        {'binding_ops', 'join_aliases', 'neq'},
+        {'binding_ops', 'join_aliases', 'neq', 'requested_property_columns'},
         required_params={'binding_ops', 'join_aliases'},
         param_validators={
             'binding_ops': is_list_of_dicts,
             'join_aliases': is_non_empty_list_of_strings,
             'neq': is_string_pair,
+            'requested_property_columns': lambda v: isinstance(v, dict) and all(
+                isinstance(alias, str) and isinstance(columns, list)
+                and all(isinstance(column, str) for column in columns)
+                for alias, columns in v.items()
+            ),
         },
         description='Filter active rows by anti-semi joining against correlated binding rows',
     ),
@@ -511,13 +531,18 @@ SAFELIST_V1: Dict[str, Dict[str, Any]] = {
     ),
 
     'semi_apply_mark': _safelist_entry(
-        {'binding_ops', 'join_aliases', 'out_col', 'neq'},
+        {'binding_ops', 'join_aliases', 'out_col', 'neq', 'requested_property_columns'},
         required_params={'binding_ops', 'join_aliases', 'out_col'},
         param_validators={
             'binding_ops': is_list_of_dicts,
             'join_aliases': is_non_empty_list_of_strings,
             'out_col': is_non_empty_string,
             'neq': is_string_pair,
+            'requested_property_columns': lambda v: isinstance(v, dict) and all(
+                isinstance(alias, str) and isinstance(columns, list)
+                and all(isinstance(column, str) for column in columns)
+                for alias, columns in v.items()
+            ),
         },
         description='Annotate active rows with correlated pattern-existence booleans',
         schema_effects=_schema_effects(adds_node_cols=_semi_apply_mark_added_node_cols),
@@ -606,7 +631,8 @@ SAFELIST_V1: Dict[str, Dict[str, Any]] = {
     ),
 
     'distinct': _safelist_entry(
-        set(),
+        {'subset'},
+        param_validators={'subset': is_list_of_strings},
         description='Drop duplicate rows from active row table',
     ),
 
@@ -654,6 +680,27 @@ SAFELIST_V1: Dict[str, Dict[str, Any]] = {
         description='Filter edges by attribute values',
     ),
     
+    'create_index': _safelist_entry(
+        {'kind', 'column', 'name', 'engine'},
+        required_params={'kind'},
+        param_validators={
+            'kind': _is_index_kind,
+            'column': is_string,
+            'name': is_string,
+            'engine': is_string,
+        },
+        description='Build a resident GFQL index (edge_out_adj, edge_in_adj, node_id, node_prop/edge_prop ON column) so the ops after it can use it',
+    ),
+
+    'drop_index': _safelist_entry(
+        {'kind', 'column'},
+        param_validators={
+            'kind': _is_index_kind,
+            'column': is_string,
+        },
+        description='Drop one resident GFQL index by kind (or a property index by column), or all when no kind is given',
+    ),
+
     'materialize_nodes': _safelist_entry(
         {'engine', 'reuse'},
         param_validators={

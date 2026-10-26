@@ -49,6 +49,27 @@ from .chain_lean_combine import (
 )
 
 
+
+def _is_index_op_json(op: object) -> bool:
+    from graphistry.compute.gfql.index.wire import is_index_op_json
+    return is_index_op_json(op)
+
+
+def _index_op_json_as_call(op: Dict[str, JSONVal]) -> ASTCall:
+    from graphistry.compute.gfql.index.wire import index_op_from_json, index_op_to_call
+    return index_op_to_call(index_op_from_json(dict(op)))
+
+
+def _index_ops_as_calls(ops: List[ASTObject]) -> List[ASTObject]:
+    """Index DDL wire ops (CreateIndex/DropIndex) in an op list become their call() form."""
+    if not isinstance(ops, list):
+        return ops  # validate() names the offending type
+    from graphistry.compute.gfql.index.wire import index_op_to_call, is_index_op
+    if not any(is_index_op(op) for op in ops):
+        return ops  # the caller's own list: a later mutation is still seen and re-validated on execute
+    return [index_op_to_call(op) if is_index_op(op) else op for op in ops]
+
+
 class Chain(ASTSerializable):
 
     def __init__(
@@ -57,10 +78,21 @@ class Chain(ASTSerializable):
         where: Optional[Sequence[WhereComparison]] = None,
         validate: bool = True,
     ) -> None:
-        self.chain = chain
+        self.chain = _index_ops_as_calls(chain)
         self.where = normalize_where_entries(where or [])
+        self._constructor_validated: bool = validate
+        self._gfql_validated_in_call: bool = False
         if validate:
             self.validate(collect_all=False)
+
+    def gfql_validated(self) -> "Chain":
+        """Mark a Chain that `gfql` built and is executing in the same call."""
+        self._gfql_validated_in_call = self._constructor_validated
+        return self
+
+    @staticmethod
+    def ops_were_validated_in_this_call(ops: Union[List[ASTObject], "Chain"]) -> bool:
+        return isinstance(ops, Chain) and ops._gfql_validated_in_call
 
     def validate(self, collect_all: bool = False) -> Optional[List['GFQLValidationError']]:
         from graphistry.compute.exceptions import ErrorCode, GFQLTypeError, GFQLValidationError
@@ -143,7 +175,7 @@ class Chain(ASTSerializable):
         
         where = parse_where_json(d.get('where'))
         out = cls(
-            [ASTObject_from_json(op, validate=validate) for op in d['chain']],
+            [_index_op_json_as_call(op) if isinstance(op, dict) and _is_index_op_json(op) else ASTObject_from_json(op, validate=validate) for op in d['chain']],
             where=where,
             validate=validate,
         )
@@ -553,6 +585,56 @@ def combine_steps(
     return out_df
 
 
+
+def select_attach_prop_columns(
+    middle: Sequence[ASTObject],
+    calls: Sequence[ASTObject],
+    node_columns: Sequence[str],
+    node_id: Optional[str],
+) -> Optional[Dict[str, List[str]]]:
+    """Projection pushdown for a bare ``rows()`` immediately followed by ``select``.
+
+    Returns, per node alias of ``middle``, the property columns that select reads,
+    so the bindings builder attaches only those. None keeps attach-all: any item
+    that is not a literal, a bare alias id, an edge-alias column, or a plain
+    ``alias.column`` over an existing node column (absent properties keep their
+    3VL verdict on the full table).
+    """
+    from graphistry.compute.ast import ASTCall, ASTEdge, ASTNode
+
+    if len(calls) < 2 or not isinstance(calls[1], ASTCall) or calls[1].function not in ("select", "return_"):
+        return None
+    items = calls[1].params.get("items")
+    if not isinstance(items, list):
+        return None
+    node_aliases = [op._name for op in middle if isinstance(op, ASTNode) and isinstance(op._name, str)]
+    edge_aliases = {op._name for op in middle if isinstance(op, ASTEdge) and isinstance(op._name, str)}
+    if not node_aliases:
+        return None
+    columns = set(map(str, node_columns))
+    requested: Dict[str, List[str]] = {alias: [] for alias in node_aliases}
+    for item in items:
+        if isinstance(item, str):
+            expr: Any = item
+        elif isinstance(item, (list, tuple)) and len(item) == 2:
+            expr = item[1]
+        else:
+            return None
+        if not isinstance(expr, str):
+            continue  # literal
+        if expr in requested or expr in edge_aliases:
+            continue  # bare id column, always on the state
+        alias, sep, prop = expr.partition(".")
+        if not sep:
+            return None
+        if alias in edge_aliases:
+            continue  # edge payload columns ride on the state
+        if alias not in requested or (prop not in columns and prop != node_id):
+            return None
+        if prop not in requested[alias]:
+            requested[alias].append(prop)
+    return requested
+
 def _get_boundary_calls(ops: List[ASTObject]) -> Tuple[List[ASTObject], List[ASTObject], List[ASTObject]]:
     """Split ops into call-prefix, traversal middle, and call-suffix segments.
 
@@ -636,6 +718,12 @@ def _plan_indexed_middle(
     if engine_concrete not in (Engine.PANDAS, Engine.CUDF):
         return None
 
+    from .gfql.limit_bindings import record_binding_limit, try_limited_bindings_state
+    limited_state = try_limited_bindings_state(g, middle, suffix, engine_concrete)
+    if limited_state is not None:
+        record_binding_limit(engine_concrete)
+        return IndexedBindingsHandoff(binding_ops=plan, state=limited_state)
+
     from .gfql.index.bindings import try_indexed_connected_bindings_state
 
     state = try_indexed_connected_bindings_state(g, middle, engine=engine_concrete)
@@ -701,7 +789,7 @@ def _handle_boundary_calls(
 
     # Function-scope import: `gfql.index` transitively imports this module, so a
     # module-scope import would be a cycle.
-    from .gfql.index.handoff import attach_handoff
+    from .gfql.index.handoff import attach_handoff, clear_handoff, read_handoff
     from .gfql.exec_context import attach_row_exec_context, clear_row_exec_context
 
     g_temp = self
@@ -732,6 +820,9 @@ def _handle_boundary_calls(
     if served:
         assert handoff is not None  # narrowed by `served`
         g_temp = attach_handoff(self, handoff)
+        assert handoff.state is not None
+        if handoff.state.edge_template is not None:
+            g_temp = g_temp.edges(handoff.state.edge_template)
     else:
         if middle:
             logger.debug('Executing middle operations: %s', middle)
@@ -787,10 +878,16 @@ def _handle_boundary_calls(
             # threw them away, so merely naming the middle silently attached every alias's
             # properties. The excluded params above cannot be present here.
             prev_params = suffix[0].params
+            attach_prop_columns = prev_params.get("attach_prop_columns")
+            if attach_prop_columns is None and suffix_base_graph._nodes is not None:
+                attach_prop_columns = select_attach_prop_columns(
+                    middle, suffix, list(suffix_base_graph._nodes.columns), suffix_base_graph._node,
+                )
             suffix = [rows_fn(
                 binding_ops=serialize_binding_ops(middle),
                 alias_prefilters=prev_params.get("alias_prefilters"),
                 attach_prop_aliases=prev_params.get("attach_prop_aliases"),
+                attach_prop_columns=attach_prop_columns,
             )] + list(suffix[1:])
         g_temp = _chain_impl(
             g_temp,
@@ -804,7 +901,11 @@ def _handle_boundary_calls(
 
     # Each site that attaches the row context also detaches it: the suffix chain has run,
     # so the context is spent, and a caller who queries THIS result must not inherit it.
-    return clear_row_exec_context(g_temp)
+    result = clear_row_exec_context(g_temp)
+    if read_handoff(result) is not None:
+        result = result.bind()
+        clear_handoff(result)
+    return result
 
 
 def _chain_otel_attrs(
@@ -985,7 +1086,8 @@ def _chain_with_strictness(
         # (Dependency guards for polars / cudf_polars are above, pre-coercion.)
         if validate_schema:
             # Construct a fresh validator: the constructor validates children once.
-            Chain(ops if not isinstance(ops, Chain) else ops.chain)
+            if not Chain.ops_were_validated_in_this_call(ops):
+                Chain(ops if not isinstance(ops, Chain) else ops.chain)
             validate_graph_shape(self, ops, collect_all=False)  # pandas gets this via validate_chain_schema (#1889)
         from graphistry.compute.gfql.lazy.engine.polars.chain import chain_polars
         from graphistry.compute.gfql.lazy import target_mode, ExecutionTarget
@@ -1050,10 +1152,11 @@ def _chain_impl(
     if isinstance(engine, str):
         engine = EngineAbstract(engine)
 
+    validated_in_call = Chain.ops_were_validated_in_this_call(ops)
     if isinstance(ops, Chain):
         ops = ops.chain
 
-    if validate_schema:
+    if validate_schema and not validated_in_call:
         # Revalidate mutable operations on every execution, including reused Chains.
         Chain(ops)
 
@@ -1239,7 +1342,13 @@ def _chain_impl(
             g_out = g_stack[-1]
             if added_edge_index:
                 final_edges_df = g_out._edges.drop(columns=[g._edge])
+                called = g_out
                 g_out = self.nodes(g_out._nodes).edges(final_edges_df, edge=original_edge)
+                # A call such as create_index attaches an index registry to ITS result; rebuilding
+                # from `self` would lose it. Migrate it onto the de-indexed edge frame (same rows).
+                from graphistry.compute.gfql.index import get_registry, set_registry
+                _called_registry = get_registry(called)
+                g_out = set_registry(g_out, _called_registry.rebind_edges(final_edges_df, called._edges))
             else:
                 from .gfql.exec_context import clear_row_exec_context
                 g_out = clear_row_exec_context(g_out)

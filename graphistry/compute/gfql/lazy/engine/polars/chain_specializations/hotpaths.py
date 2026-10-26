@@ -11,13 +11,14 @@ from graphistry.compute.ast import ASTObject, ASTNode, ASTEdge, Direction
 from graphistry.compute.chain_specializations.admission import _indexed_kernel_admits
 from graphistry.compute.chain_fast_paths import (
     _ids_to_key_array, _index_edge_rows, _index_node_rows, _record_native_seed_lane,
-    _resident_node_id_index, _resident_seed_indexes, _seed_node_rows, _seeded_scalar_filters,
+    _resident_node_id_index, _resident_seed_indexes, _seed_node_rows, _seeded_scalar_filters, _seeded_seed_filters,
     SeededReturn,
 )
 from graphistry.compute.endpoint_utils import drop_null_endpoint_edges
 from graphistry.compute.typing import ArrayLike, ArrayNamespace, DataFrameT
 from graphistry.compute.gfql.lazy.engine.polars.dtypes import endpoint_ids
 from graphistry.compute.gfql.lazy.engine.polars.hop_eager import ensure_nodes_polars
+from graphistry.compute.gfql.lazy.engine.polars.membership import is_in_ids
 from graphistry.compute.gfql.lazy.engine.polars.predicates import filter_by_dict_polars
 from .admission import polars_seeded_lane_admits
 
@@ -53,8 +54,8 @@ def _plain_seeded_index_hop_polars(g: Plottable, ops: Sequence[ASTObject]) -> Op
     from graphistry.Engine import Engine
     from graphistry.compute.gfql.index import get_index_policy, get_registry, maybe_index_hop
     from graphistry.compute.gfql.lazy import active_target, ExecutionTarget
-    n0, e1 = ops[0], ops[1]
-    assert isinstance(n0, ASTNode) and isinstance(e1, ASTEdge)  # the predicate admitted this shape
+    n0, e1, n2 = ops
+    assert isinstance(n0, ASTNode) and isinstance(e1, ASTEdge) and isinstance(n2, ASTNode)  # the predicate admitted this shape
     policy = get_index_policy(g)
     if get_registry(g).is_empty() and policy not in ("auto", "force"):
         return None
@@ -64,6 +65,7 @@ def _plain_seeded_index_hop_polars(g: Plottable, ops: Sequence[ASTObject]) -> Op
     return maybe_index_hop(
         gf0, engine, nodes=seed0, hops=1, direction=e1.direction,
         return_as_wave_front=False, to_fixed_point=False, policy=policy,
+        destination_node_match=n2.filter_dict or None,
     )
 
 
@@ -118,13 +120,14 @@ def _seeded_typed_return_dst_polars(
     src: str, dst: str, node: str, direction: Direction,
     preserve_input_order: bool = False,
     index_ctx: Optional[Tuple["NodeIdIndex", "AdjacencyIndex", ArrayNamespace, "Engine"]] = None,
+    *, record_property_decision: bool = True,
 ) -> Optional[SeededReturn]:
     """Polars analog of _seeded_typed_return_dst_pandas_cudf: same seed-first
     reduction (seed out-edges -> typed-edge filter -> destination nodes) expressed
-    with polars filters, so a seeded cypher RETURN on polars/polars-gpu also lands
-    sub-ms. Returns ``(dst_node_rows, edges)`` (polars frames) or None to fall back
+    with native Polars filters. Returns ``(dst_node_rows, edges)`` (polars frames) or None to fall back
     to the full lazy pipeline. Value-identical node set to the full path for the
-    covered shape (scalar filters, directed, single hop); row order may differ."""
+    covered shape (scalar or integral-membership seed, scalar residuals, directed,
+    single hop); row order may differ."""
     import polars as pl
     from graphistry.compute.gfql.lazy.engine.polars.predicates import filter_by_dict_polars
     if direction == "undirected":
@@ -134,18 +137,20 @@ def _seeded_typed_return_dst_polars(
     if not isinstance(nodes_df, pl.DataFrame) or not isinstance(edges_df, pl.DataFrame):
         return None
 
-    n0f = _seeded_scalar_filters(n0.filter_dict, nodes_df)
+    n0f = _seeded_seed_filters(n0.filter_dict, nodes_df, node)
     n2f = _seeded_scalar_filters(n2.filter_dict, nodes_df)
     ef = _seeded_scalar_filters(e1.edge_match, edges_df)
     if n0f is None or n2f is None or ef is None or not n0f:
         return None
     from_col, to_col = (src, dst) if direction == "forward" else (dst, src)
 
-    # membership sets are drop_nulls()'d (null ids never link) and passed via implode() (Series-arg is_in is deprecated)
+    # membership sets are drop_nulls()'d (null ids never link)
     ctx = index_ctx if index_ctx is not None else _resident_seed_indexes(
         g, nodes_df, edges_df, node, src, dst, direction)
     nid_ctx = (ctx[0], ctx[2], ctx[3]) if ctx is not None else _resident_node_id_index(g, nodes_df, node)
-    seed_nodes, how = _seed_node_rows(g, nodes_df, n0f, node, nid_ctx, n0.filter_dict)
+    seed_nodes, how = _seed_node_rows(
+        g, nodes_df, n0f, node, nid_ctx, n0.filter_dict, record_property_decision=record_property_decision,
+    )
     edges = dstn = None
     kernel_admits = False
     if ctx is not None:
@@ -162,10 +167,13 @@ def _seeded_typed_return_dst_polars(
         from_ids = seed_nodes.get_column(node).drop_nulls()
         if from_ids.len() == 0:
             return nodes_df.clear(), edges_df.clear(), seed_nodes, kernel_admits
-        edges = edges_df.filter(pl.col(from_col).is_in(from_ids.implode()))
+        from graphistry.Engine import Engine
+        from graphistry.compute.gfql.index.property_lookup import property_candidate_frame
+        candidates = property_candidate_frame(g, "edges", edges_df, e1.edge_match, Engine.POLARS)
+        edges = candidates.filter(is_in_ids(pl.col(from_col), from_ids))
         edges = filter_by_dict_polars(edges, e1.edge_match)
         dst_ids = edges.get_column(to_col).drop_nulls().unique()
-        dstn = nodes_df.filter(pl.col(node).is_in(dst_ids.implode()))
+        dstn = nodes_df.filter(is_in_ids(pl.col(node), dst_ids))
     assert edges is not None and dstn is not None  # both branches above assign
     if direction == "forward":
         from graphistry.compute.gfql.row.pipeline import RowPipelineMixin
@@ -179,7 +187,7 @@ def _seeded_typed_return_dst_polars(
     # A sole destination was selected from the sole surviving edge.
     if not (edges.height == 1 and dstn.height == 1):
         keep_ids = dstn.get_column(node).drop_nulls()
-        edges = edges.filter(pl.col(to_col).is_in(keep_ids.implode()))
+        edges = edges.filter(is_in_ids(pl.col(to_col), keep_ids))
     if dstn.height > 1:
         dstn = dstn.unique(subset=[node], maintain_order=True)
     return dstn, edges, seed_nodes, kernel_admits
@@ -187,7 +195,7 @@ def _seeded_typed_return_dst_polars(
 
 
 def _try_seeded_chain_polars(g: Plottable, ops: Sequence[ASTObject]) -> Optional[Plottable]:
-    """Serve a native directed scalar hop through the resident seed indexes, preserving
+    """Serve a native directed scalar or integral-membership hop through resident indexes, preserving
     Polars table order and aliases; declines (None) without valid resident indexes."""
     import polars as pl
     from graphistry.compute.gfql.index.api import _record_indexed_traversal
@@ -213,7 +221,7 @@ def _try_seeded_chain_polars(g: Plottable, ops: Sequence[ASTObject]) -> Optional
     if ctx is None:
         return None
     reduced = _seeded_typed_return_dst_polars(
-        g, n0, n2, e1, src, dst, node, e1.direction, preserve_input_order=True, index_ctx=ctx)
+        g, n0, n2, e1, src, dst, node, e1.direction, preserve_input_order=True, index_ctx=ctx, record_property_decision=False)
     if reduced is None:
         return None
     _, kept_edges, _, _ = reduced
@@ -229,14 +237,14 @@ def _try_seeded_chain_polars(g: Plottable, ops: Sequence[ASTObject]) -> Optional
         nid, xp, engine = nid_ctx
         result_nodes = _index_node_rows(nid, endpoint_ids, xp, engine, nodes, preserve_input_order=True)
     if result_nodes is None:
-        result_nodes = nodes.filter(pl.col(node).is_in(endpoint_ids.implode()))
+        result_nodes = nodes.filter(is_in_ids(pl.col(node), endpoint_ids))
         if result_nodes.get_column(node).n_unique() != result_nodes.height:
             return None
     if not isinstance(result_nodes, pl.DataFrame):
         return None
     from_col, to_col = (src, dst) if e1.direction == "forward" else (dst, src)
     flags = [
-        pl.col(node).is_in(pl.lit(kept_edges.get_column(endpoint)).implode()).fill_null(False).alias(name)
+        is_in_ids(pl.col(node), kept_edges.get_column(endpoint)).fill_null(False).alias(name)
         for name, endpoint in ((n0._name, from_col), (n2._name, to_col)) if name is not None
     ]
     if flags:

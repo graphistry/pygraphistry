@@ -41,7 +41,9 @@ dev_extras = {
       'sphinx-copybutton==0.5.2',
       'sphinx-book-theme==1.1.3',
     ],
-    'test': ['coverage', 'pytest-cov', 'ruff>=0.8.0', 'hypothesis', 'mock', 'mypy', 'pytest', 'pytest-xdist'] + stubs + test_workarounds,
+    # tzdata: named-zone tests ('US/Eastern') otherwise depend on the host shipping a complete
+    # system tzdata, which slim images and minimal distros do not.
+    'test': ['coverage', 'pytest-cov', 'ruff>=0.8.0', 'hypothesis', 'mock', 'mypy', 'pytest', 'pytest-xdist', 'tzdata'] + stubs + test_workarounds,
     'testai': [
       'numba>=0.57.1'  # https://github.com/numba/numba/issues/8615
     ],

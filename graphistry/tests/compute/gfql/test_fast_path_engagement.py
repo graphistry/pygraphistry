@@ -3,6 +3,8 @@ the query still returns the right result via the fallback and every value test
 passes. These assert ENGAGEMENT -- that the path actually fired -- which is the
 assertion a value test structurally cannot make.
 """
+import os
+
 import pandas as pd
 import pytest
 
@@ -46,9 +48,91 @@ def test_two_hop_count_fast_path_engages(engine: str) -> None:
 
 
 @pytest.mark.parametrize("engine", ENGINES)
+@pytest.mark.route_engaged("cypher-fast")
 def test_grouped_aggregate_fast_path_engages(engine: str) -> None:
     assert_fast_path(_graph(engine), Q_GROUPED, "single_hop_grouped_aggregate",
                      served=True, engine=engine)
+
+
+_requires_test_cudf = pytest.mark.skipif(
+    os.environ.get("TEST_CUDF", "0") != "1", reason="cudf tests need TEST_CUDF=1 and a GPU")
+GPU_GATED_ENGINES = ["pandas", "polars", pytest.param("cudf", marks=_requires_test_cudf)]
+
+# 1 A x 10, 2 B y 20, 3 B x 30, 4 null y 40, 5 C x 50; edges 1->2, 1->3, 1->4, 2->3, 3->4, 5->1
+GROUPED_BY_PROPERTY = [
+    ("seeded", "MATCH (a {id:1})-[:R]->(b) RETURN b.COL AS key, count(a) AS c ORDER BY key",
+     [{"key": "B", "c": 2}, {"key": None, "c": 1}]),
+    ("key_named_after_column", "MATCH (a)-[:R]->(b) RETURN b.COL AS COL, count(*) AS c ORDER BY COL",
+     [{"COL": "A", "c": 1}, {"COL": "B", "c": 3}, {"COL": None, "c": 2}]),
+    ("null_group_and_sum", "MATCH (a)-[:R]->(b) RETURN b.COL AS key, count(b) AS c, sum(b.w) AS s ORDER BY key",
+     [{"key": "A", "c": 1, "s": 10}, {"key": "B", "c": 3, "s": 80}, {"key": None, "c": 2, "s": 80}]),
+]
+
+
+def _rows(df) -> list:
+    df = df.to_pandas() if hasattr(df, "to_pandas") else df
+    rows = [{k: (None if pd.isna(v) else v) for k, v in r.items()} for r in df.to_dict("records")]
+    return sorted(rows, key=lambda r: str(r))
+
+
+def _graph_with_property(engine: str, col: str):
+    nodes = pd.DataFrame({"id": [1, 2, 3, 4, 5], col: ["A", "B", "B", None, "C"],
+                          "kind": ["x", "y", "x", "y", "x"], "w": [10, 20, 30, 40, 50]})
+    edges = pd.DataFrame({"s": [1, 1, 1, 2, 3, 5], "d": [2, 3, 4, 3, 4, 1], "type": ["R"] * 6})
+    if engine == "polars":
+        pl = pytest.importorskip("polars")
+        nodes, edges = pl.from_pandas(nodes), pl.from_pandas(edges)
+    elif engine == "cudf":
+        cudf = pytest.importorskip("cudf")
+        nodes, edges = cudf.from_pandas(nodes), cudf.from_pandas(edges)
+    return graphistry.nodes(nodes, "id").edges(edges, "s", "d")
+
+
+@pytest.mark.route_engaged("cypher-fast")
+@pytest.mark.parametrize("engine", GPU_GATED_ENGINES)
+@pytest.mark.parametrize("col", ["title", "name"])
+@pytest.mark.parametrize("_case,query,expected", GROUPED_BY_PROPERTY, ids=[c[0] for c in GROUPED_BY_PROPERTY])
+def test_grouped_aggregate_fast_path_serves_a_property_named_name(engine, col, _case, query, expected) -> None:
+    """A node property named ``name`` crashed this path on cuDF (#1946); ``title`` is the control."""
+    g = _graph_with_property(engine, col)
+    assert_fast_path(g, query.replace("COL", col), "single_hop_grouped_aggregate", served=True, engine=engine)
+
+
+@pytest.mark.parametrize("engine", GPU_GATED_ENGINES)
+@pytest.mark.parametrize("col", ["title", "name"])
+@pytest.mark.parametrize("_case,query,expected", GROUPED_BY_PROPERTY, ids=[c[0] for c in GROUPED_BY_PROPERTY])
+def test_grouped_aggregate_by_a_property_named_name_matches_the_oracle(engine, col, _case, query, expected) -> None:
+    g = _graph_with_property(engine, col)
+    want = [{(col if k == "COL" else k): v for k, v in row.items()} for row in expected]
+    assert _rows(g.gfql(query.replace("COL", col), engine=engine)._nodes) == sorted(want, key=lambda r: str(r))
+
+
+Q_BY_SOURCE_KIND = "MATCH (a)-[]->(b) RETURN a.kind AS k, count(*) AS c ORDER BY k"
+
+
+def _graph_with_edge_source_named_name(engine: str):
+    nodes = pd.DataFrame({"id": [1, 2, 3, 4, 5], "kind": ["x", "y", "x", "y", "x"]})
+    edges = pd.DataFrame({"name": [1, 1, 1, 2, 3, 5], "d": [2, 3, 4, 3, 4, 1]})
+    if engine == "polars":
+        pl = pytest.importorskip("polars")
+        nodes, edges = pl.from_pandas(nodes), pl.from_pandas(edges)
+    elif engine == "cudf":
+        cudf = pytest.importorskip("cudf")
+        nodes, edges = cudf.from_pandas(nodes), cudf.from_pandas(edges)
+    return graphistry.nodes(nodes, "id").edges(edges, "name", "d")
+
+
+@pytest.mark.route_engaged("cypher-fast")
+@pytest.mark.parametrize("engine", GPU_GATED_ENGINES)
+def test_grouped_aggregate_fast_path_serves_an_edge_source_column_named_name(engine) -> None:
+    assert_fast_path(_graph_with_edge_source_named_name(engine), Q_BY_SOURCE_KIND,
+                     "single_hop_grouped_aggregate", served=True, engine=engine)
+
+
+@pytest.mark.parametrize("engine", GPU_GATED_ENGINES)
+def test_grouped_aggregate_with_an_edge_source_column_named_name_matches_the_oracle(engine) -> None:
+    g = _graph_with_edge_source_named_name(engine)
+    assert _rows(g.gfql(Q_BY_SOURCE_KIND, engine=engine)._nodes) == [{"k": "x", "c": 5}, {"k": "y", "c": 1}]
 
 
 @pytest.mark.parametrize("engine", ENGINES)
@@ -87,6 +171,7 @@ def test_a_shape_neither_path_serves_declines_both(engine: str) -> None:
     assert [int(v) for v in out["x"]] == [0, 0, 0, 1, 2]
 
 
+@pytest.mark.route_engaged("cypher-fast")
 def test_short_circuit_is_distinguishable_from_decline() -> None:
     """When grouped-agg serves, two_hop_count is never CONSULTED -- absent from the
     map rather than present-and-False. Conflating those would let a genuinely dead
@@ -96,6 +181,7 @@ def test_short_circuit_is_distinguishable_from_decline() -> None:
     assert "two_hop_count" not in seen
 
 
+@pytest.mark.route_engaged("cypher-fast")
 def test_assert_fast_path_fails_when_the_path_did_not_fire() -> None:
     """An engagement pin that cannot fail is worse than none."""
     with pytest.raises(AssertionError, match="expected served=True"):

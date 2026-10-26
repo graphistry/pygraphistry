@@ -68,6 +68,8 @@ from graphistry.compute.gfql.cypher.reentry.execution import (
 from graphistry.compute.gfql.cypher.call_procedures import CompiledCypherProcedureCall, execute_cypher_call
 from graphistry.compute.gfql.cypher.result_postprocess import (
     apply_result_projection,
+    entity_projection_presence_for_rows,
+    is_polars_projection_ids,
     entity_projection_meta_entry as _entity_projection_meta_entry,
 )
 from graphistry.compute.gfql.df_executor import (
@@ -120,16 +122,16 @@ def _slice_reentry_prefix_result_row(
         return prefix_result
     out = prefix_result.bind()
     out._nodes = cast(DataFrameT, rows_df.iloc[row_index:row_index + 1].reset_index(drop=True))
-    entity_meta = getattr(prefix_result, "_cypher_entity_projection_meta", None)
-    if isinstance(entity_meta, dict):
-        entry = entity_meta.get(output_name)
-        if isinstance(entry, dict):
-            sliced_entry = dict(entry)
-            ids = sliced_entry.get("ids")
-            if ids is not None and hasattr(ids, "iloc"):
-                ids_obj = cast(Any, ids)
-                sliced_entry["ids"] = cast(Any, ids_obj.iloc[row_index:row_index + 1]).reset_index(drop=True)
-            setattr(out, "_cypher_entity_projection_meta", {output_name: sliced_entry})
+    out._cypher_entity_projection_presence = entity_projection_presence_for_rows(prefix_result, [row_index])
+    entry = prefix_result._cypher_entity_projection_meta.get(output_name)
+    if entry is not None:
+        sliced_entry = entry.copy()
+        ids = entry["ids"]
+        sliced_entry["ids"] = (
+            ids.slice(row_index, 1) if is_polars_projection_ids(ids)
+            else ids.iloc[row_index:row_index + 1].reset_index(drop=True)
+        )
+        out._cypher_entity_projection_meta = {output_name: sliced_entry}
     return out
 
 
@@ -163,12 +165,8 @@ def _projector_recorded_matched_seed_ids(
     alignment_result: Plottable,
     alignment_output_name: str,
 ) -> bool:
-    meta = getattr(alignment_result, "_cypher_entity_projection_meta", None)
-    return (
-        isinstance(meta, dict)
-        and alignment_output_name in meta
-        and "ids" in meta[alignment_output_name]
-    )
+    meta = alignment_result._cypher_entity_projection_meta
+    return alignment_output_name in meta
 
 
 def _apply_optional_null_fill(
@@ -245,6 +243,7 @@ def _apply_optional_null_fill(
     )
     fill_df = df_ctor({col: [null_row.get(col)] for col in fill_columns_spanning_projected_frame})
     segments = []
+    presence_indices: List[Optional[int]] = []
     matched_idx = 0
     for base_id in base_ids:
         group_start = matched_idx
@@ -261,8 +260,10 @@ def _apply_optional_null_fill(
                     language="cypher",
                 )
             segments.append(_slice_rows(rows_df, group_start, matched_idx))
+            presence_indices.extend(range(group_start, matched_idx))
         else:
             segments.append(fill_df)
+            presence_indices.append(None)
     if matched_idx != len(matched_id_list):
         raise GFQLValidationError(
             ErrorCode.E108,
@@ -275,6 +276,7 @@ def _apply_optional_null_fill(
 
     out = result.bind()
     out._nodes = concat(segments, ignore_index=True, sort=False) if segments else df_ctor()
+    out._cypher_entity_projection_presence = entity_projection_presence_for_rows(result, presence_indices)
     edges_df = result._edges
     if edges_df is not None:
         out._edges = edges_df[:0]
@@ -312,9 +314,10 @@ def _semi_join_prune_arm_rows_to_base_keys(
     """Arm rows restricted to join-key values already present in the accumulated result."""
     if is_polars_df(joined):
         import polars as pl
+        from graphistry.compute.gfql.lazy.engine.polars.membership import is_in_ids
         if len(join_cols) == 1:
             # polars-stub gap: ``is_polars_df`` cannot narrow the eager-or-lazy union.
-            return opt_rows_df.filter(pl.col(join_cols[0]).is_in(joined[join_cols[0]]))  # type: ignore[index,arg-type]
+            return opt_rows_df.filter(is_in_ids(pl.col(join_cols[0]), joined[join_cols[0]]))  # type: ignore[index,arg-type]
         return opt_rows_df.join(joined.select(join_cols).unique(), on=join_cols, how="inner")
     if len(join_cols) == 1:
         return opt_rows_df[opt_rows_df[join_cols[0]].isin(joined[join_cols[0]])]
@@ -358,6 +361,8 @@ def _synthesize_bare_alias_from_prefixed_column(
     polars = is_polars_df(joined)
     if polars:
         import polars as pl
+    else:
+        pl = None  # type: ignore[assignment]
     for alias in opt_only_aliases:
         if alias in joined.columns:
             continue
@@ -371,6 +376,24 @@ def _synthesize_bare_alias_from_prefixed_column(
             marker = joined[marker_col]
             joined[alias] = marker.where(marker.notna(), other=None)
     return joined
+
+
+def _bind_empty_edges_like_node_ids(g: Plottable) -> Plottable:
+    """Bind an empty edge frame typed like the node ids, so an OPTIONAL arm on a graph
+    without edges matches nothing instead of failing."""
+    from graphistry.compute.util import generate_safe_column_name
+    node_col = g._node
+    if g._nodes is None or node_col is None:
+        return g
+    src = generate_safe_column_name('src', g._nodes, prefix='__gfql_', suffix='__')
+    dst = generate_safe_column_name('dst', g._nodes, prefix='__gfql_', suffix='__')
+    if is_polars_df(g._nodes):
+        import polars as pl
+        empty = g._nodes.select([pl.col(node_col).alias(src), pl.col(node_col).alias(dst)]).head(0)
+    else:
+        ids = g._nodes[[node_col]].head(0)
+        empty = ids.rename(columns={node_col: src}).assign(**{dst: ids[node_col].values})
+    return g.edges(empty, src, dst)
 
 
 def _apply_connected_optional_match(
@@ -389,6 +412,9 @@ def _apply_connected_optional_match(
     3. Delegate RETURN / ORDER BY / SKIP / LIMIT to the standard row pipeline.
     """
     from graphistry.compute.ast import ASTCall, serialize_binding_ops
+
+    if base_graph._edges is None:
+        base_graph = _bind_empty_edges_like_node_ids(base_graph)
 
     def _split_binding_and_post_ops(ops: Sequence[ASTObject]) -> Tuple[List[ASTObject], List[ASTObject]]:
         """Split ops into contiguous binding path ops and post-row ops."""
@@ -480,7 +506,13 @@ def _apply_connected_optional_match(
         shared_node_aliases: Sequence[str],
         joined_rows: DataFrameT,
     ) -> Optional[DataFrameT]:
-        """Seed optional-arm materialization when the first node is already bound."""
+        """Seed optional-arm materialization when the first node is already bound.
+
+        Both polars arms below are dead while the caller routes polars engines to
+        ``_optional_arm_membership_chain`` -- they are kept because a routing change would
+        otherwise reach the pandas ``.isin`` with polars frames. The no-cover pragma on the
+        second one expires with that split.
+        """
         if not binding_ops:
             return None
         first_op = binding_ops[0]
@@ -516,12 +548,17 @@ def _apply_connected_optional_match(
         else:
             seed_frame = cast(DataFrameT, df_to_engine(
                 seed_src.dropna().drop_duplicates().rename(columns={joined_col: node_col}), concrete_engine))
+        if is_polars_df(base_nodes) and is_polars_df(seed_frame):  # pragma: no cover - unreachable (polars routes elsewhere)
+            import polars as pl
+            from graphistry.compute.gfql.lazy.engine.polars.dtypes import is_lazy
+            from graphistry.compute.gfql.lazy.engine.polars.membership import is_in_ids
+            seed_eager = seed_frame.collect() if is_lazy(seed_frame) else seed_frame
+            return cast(DataFrameT, base_nodes.filter(
+                is_in_ids(pl.col(node_col), seed_eager.get_column(node_col))))
         # Declared, not cast: selecting one column off a frame is a Series on every engine, so
         # the annotation states that directly instead of re-asserting it at the call site.
         seed_ids: SeriesT = seed_frame[node_col]
         node_ids: SeriesT = base_nodes[node_col]
-        if is_polars_df(base_nodes):
-            return cast(DataFrameT, base_nodes.filter(node_ids.is_in(seed_ids)))
         return cast(DataFrameT, base_nodes[node_ids.isin(seed_ids)].copy())
 
     # Run base chain to get binding rows.
@@ -1021,7 +1058,7 @@ def _execute_graph_constructor_compiled(
 ) -> Plottable:
     """Execute a compiled graph constructor (MATCH-based or CALL-based)."""
     if procedure_call is not None:
-        result = execute_cypher_call(base_graph, procedure_call)
+        result = execute_cypher_call(base_graph, procedure_call, engine=engine, policy=policy, context=context)
         requested_engine = resolve_engine(
             engine if isinstance(engine, EngineAbstract) else EngineAbstract(engine),
             base_graph,
@@ -1162,6 +1199,54 @@ def _reject_unrepresentable_polars_union(frames: List[DataFrameT]) -> None:
         )
 
 
+def _decategorize_cudf_union(frames: List[DataFrameT]) -> List[DataFrameT]:
+    """Cast categorical columns to their category value type where branch dtypes differ.
+
+    Every cuDF categorical dtype prints as ``category``, so an int and a string categorical
+    looked alike to the type check and reached the concat. Cypher reads a categorical as its
+    values, as pandas does, so compare and concat the values instead.
+    """
+    cast: Dict[int, Dict[str, object]] = {}
+    for name in frames[0].columns:
+        dtypes = [frame[name].dtype for frame in frames if name in frame.columns]
+        if all(dtype == dtypes[0] for dtype in dtypes):
+            continue
+        for i, frame in enumerate(frames):
+            if name in frame.columns and str(frame[name].dtype) == "category":
+                cast.setdefault(i, {})[name] = frame[name].dtype.categories.dtype
+    if not cast:
+        return frames
+    return [frame.astype(cast[i]) if i in cast else frame for i, frame in enumerate(frames)]
+
+
+def _reject_unrepresentable_cudf_union(frames: List[DataFrameT]) -> None:
+    """Decline a UNION whose branches disagree on a non numeric column type.
+
+    A cuDF column holds one type: a string branch next to an int branch raises a bare
+    ValueError, and a boolean branch next to an int branch turns ``true`` into ``1``
+    before the DISTINCT. Same contract as the polars decline; numeric widening stays served.
+    """
+    for name in frames[0].columns:
+        columns = [frame[name] for frame in frames if name in frame.columns]
+        if all(column.dtype == columns[0].dtype for column in columns):
+            continue
+        dtypes: List[object] = []
+        for column in columns:
+            if bool(column.isna().all()):
+                continue
+            if column.dtype not in dtypes:
+                dtypes.append(column.dtype)
+        if len(dtypes) <= 1:
+            continue
+        if all(pd.api.types.is_numeric_dtype(d) and not pd.api.types.is_bool_dtype(d) for d in dtypes):
+            continue
+        raise NotImplementedError(
+            "cudf engine does not yet natively support UNION over branches with "
+            f"different value types for column {name!r} ({', '.join(str(d) for d in dtypes)}); "
+            "use engine='pandas' for this query"
+        )
+
+
 def _pandas_union_widen_boolean_columns(frames: List[DataFrameT]) -> List[DataFrameT]:
     """Keep BOOLEAN branch values distinguishable from numeric ones.
 
@@ -1206,6 +1291,10 @@ def _concat_union_branch_rows(
         return frames[0]
     if concrete_engine in POLARS_ENGINES:
         _reject_unrepresentable_polars_union(frames)
+    elif concrete_engine == Engine.CUDF:
+        # a branch served by a pandas fast path comes back pandas under engine='cudf'
+        frames = _decategorize_cudf_union([df_to_engine(frame, Engine.CUDF) for frame in frames])
+        _reject_unrepresentable_cudf_union(frames)
     elif concrete_engine == Engine.PANDAS:
         frames = _pandas_union_widen_boolean_columns(frames)
     return concat(frames, ignore_index=True, sort=False)
@@ -1509,9 +1598,18 @@ def _execute_compiled_query_via_physical_plan(
                 engine=engine, policy=policy, context=context, start_nodes=start_nodes))
         if fast_lookup is not None:
             return fast_lookup
+        from graphistry.compute.gfql.index.or_bindings import prepare_indexed_or_bindings
+        indexed_dispatch = None
+        if policy is None and start_nodes is None and compiled_query.empty_result_row is None:
+            indexed_dispatch, _ = _run_fast_path_on_requested_target(
+                engine, lambda: prepare_indexed_or_bindings(
+                    base_graph, compiled_query.chain, resolve_engine(
+                        EngineAbstract(engine) if isinstance(engine, str) else engine, base_graph)),
+            )
         return _execute_compiled_query_chain_non_union(
             base_graph,
             compiled_query=compiled_query,
+            dispatch_graph=indexed_dispatch,
             engine=engine,
             policy=policy,
             context=context,
@@ -1528,7 +1626,9 @@ def _execute_compiled_query_via_physical_plan(
                 suggestion="Compile CALL queries with procedure metadata before physical dispatch.",
                 language="cypher",
             )
-        dispatch_graph = execute_cypher_call(base_graph, compiled_query.procedure_call)
+        dispatch_graph = execute_cypher_call(
+            base_graph, compiled_query.procedure_call, engine=engine, policy=policy, context=context,
+        )
         return _execute_compiled_query_chain_non_union(
             base_graph,
             compiled_query=compiled_query,
@@ -1613,7 +1713,11 @@ def _execute_compiled_query_chain_non_union(
         ):
             # #1786: on the no-seed-rows path `_seeded_dispatch_graph` hands back
             # `base_graph` ITSELF (the caller's object), so this must land on a copy.
-            dispatch_graph = attach_row_exec_context(dispatch_graph, start_nodes=start_nodes)
+            dispatch_graph = attach_row_exec_context(
+                dispatch_graph,
+                start_nodes=start_nodes,
+                preserve_start_node_multiplicity=not compiled_query.optional_reentry,
+            )
 
     result = _chain_dispatch(dispatch_graph, compiled_query.chain, engine, policy, context, start_nodes=start_nodes)
     # Attach/detach pair (#1786): the chain has run, so the seed is spent and must not
@@ -1696,6 +1800,23 @@ def _execute_compiled_query_with_reentry(
             base_graph, compiled_query=compiled_query, engine=engine, policy=policy, context=context)
 
 
+def _split_deferred_group_suffix(
+    chain_ops: Sequence[ASTObject],
+) -> Optional[Tuple[List[ASTObject], List[ASTObject]]]:
+    """Split before a suffix-level group so scalar reentry partitions stay unaggregated."""
+    group_index = next(
+        (
+            index
+            for index, operation in enumerate(chain_ops)
+            if isinstance(operation, ASTCall) and operation.function == "group_by"
+        ),
+        None,
+    )
+    if group_index is None:
+        return None
+    return list(chain_ops[:group_index]), list(chain_ops[group_index:])
+
+
 def _execute_compiled_query_with_reentry_impl(
     base_graph: Plottable,
     *,
@@ -1744,6 +1865,7 @@ def _execute_compiled_query_with_reentry_impl(
                         field="optional_reentry",
                     )
                 row_results = []
+                deferred_group = _split_deferred_group_suffix(compiled_query.chain.chain)
                 for i in range(prefix_row_count):
                     row_graph, row_start = _compiled_query_scalar_reentry_state(
                         base_graph,
@@ -1751,9 +1873,18 @@ def _execute_compiled_query_with_reentry_impl(
                         carried_columns=plan.scalar_columns,
                         row_index=i,
                     )
+                    row_compiled = (
+                        replace(
+                            compiled_query,
+                            chain=Chain(deferred_group[0]),
+                            post_processing=None,
+                        )
+                        if deferred_group is not None
+                        else compiled_query
+                    )
                     row_result = _execute_compiled_query(
                         row_graph,
-                        compiled_query=compiled_query,
+                        compiled_query=row_compiled,
                         engine=engine,
                         policy=policy,
                         context=context,
@@ -1761,6 +1892,18 @@ def _execute_compiled_query_with_reentry_impl(
                     )
                     row_results.append(row_result)
                 result = _union_scalar_reentry_results(row_results, base_graph=base_graph, engine=engine)
+                if deferred_group is not None:
+                    suffix_compiled = replace(
+                        compiled_query,
+                        chain=Chain(deferred_group[1]),
+                    )
+                    result = _execute_compiled_query(
+                        result,
+                        compiled_query=suffix_compiled,
+                        engine=engine,
+                        policy=policy,
+                        context=context,
+                    )
                 return result
             else:
                 compiled_base_graph, start_nodes = _compiled_query_scalar_reentry_state(
@@ -1802,6 +1945,19 @@ def _execute_compiled_query_with_reentry_impl(
                         suggestion=_REENTRY_WHOLE_ROW_SUGGESTION,
                     )
                 row_results = []
+                chain_ops = list(compiled_query.chain.chain)
+                first_call_index = next(
+                    (index for index, op in enumerate(chain_ops) if isinstance(op, ASTCall)),
+                    None,
+                )
+                if first_call_index is None:
+                    raise _reentry_validation_error(
+                        "Cypher MATCH after WITH multi-row free-form re-entry requires a trailing MATCH operation",
+                        value=None,
+                        suggestion=_REENTRY_WHOLE_ROW_SUGGESTION,
+                    )
+                match_ops = chain_ops[:first_call_index + 1]
+                suffix_ops = chain_ops[first_call_index + 1:]
                 for i in range(prefix_row_count_freeform):
                     row_graph = _freeform_broadcast_row_to_nodes(
                         base_graph,
@@ -1810,18 +1966,41 @@ def _execute_compiled_query_with_reentry_impl(
                         plan,
                         row_index=i,
                     )
-                    row_result = _execute_compiled_query(
+                    row_result = _chain_dispatch(
                         row_graph,
-                        compiled_query=compiled_query,
-                        engine=engine,
-                        policy=policy,
-                        context=context,
-                        start_nodes=None,
+                        Chain(match_ops),
+                        engine,
+                        policy,
+                        context,
                     )
                     row_results.append(row_result)
-                return _union_scalar_reentry_results(
+                combined_result = _union_scalar_reentry_results(
                     row_results, base_graph=base_graph, engine=engine
                 )
+                if suffix_ops:
+                    combined_result = _chain_dispatch(
+                        combined_result,
+                        Chain(suffix_ops),
+                        engine,
+                        policy,
+                        context,
+                    )
+                if compiled_query.result_projection is not None:
+                    combined_result = apply_result_projection(
+                        combined_result,
+                        compiled_query.result_projection,
+                        structured=(
+                            compiled_query.optional_projection_row_guard is None
+                        ),
+                        source_node_id=base_graph._node,
+                    )
+                if compiled_query.empty_result_row is not None:
+                    combined_result = _apply_empty_result_row(
+                        combined_result,
+                        engine=engine,
+                        empty_result_row=compiled_query.empty_result_row,
+                    )
+                return combined_result
             compiled_base_graph, start_nodes = _compiled_query_freeform_reentry_state(
                 base_graph,
                 prefix_result,
@@ -2854,5 +3033,5 @@ def _chain_dispatch(
             inputs.include_paths,
         )
     # Validation state applies only to the fresh list-input Chain; execution revalidates mutable operations.
-    chain_input = chain_obj if _ast_validated else chain_obj.chain
+    chain_input = chain_obj.gfql_validated() if _ast_validated else chain_obj.chain
     return chain_impl(g, chain_input, engine, policy=policy, context=context, start_nodes=start_nodes)

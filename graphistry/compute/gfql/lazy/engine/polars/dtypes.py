@@ -44,6 +44,11 @@ def is_float(dt: "Optional[PolarsDType]") -> bool:
     return dt in (pl.Float32, pl.Float64)
 
 
+def is_unsigned(dt: "Optional[PolarsDType]") -> bool:
+    import polars as pl
+    return dt in (pl.UInt8, pl.UInt16, pl.UInt32, pl.UInt64)
+
+
 def is_numeric(dt: "Optional[PolarsDType]") -> bool:
     """Integer or float — the operand types polars arithmetic/comparison accepts."""
     return is_int(dt) or is_float(dt)

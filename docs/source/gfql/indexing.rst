@@ -1,56 +1,89 @@
 .. _gfql-indexing:
 
-Pay-As-You-Go Resident Indexing
-===============================
+Indexing Guide
+==============
 
-GFQL runs without any indexes: every query is a vectorized scan over your dataframes.
-When your workload is **seeded** — "expand from these 50 accounts", "look up this id and
-hop out" — you can opt into **resident indexes**: build them once with one call, and
-seeded queries reuse them automatically after that. This page is the user guide to that
-lifecycle: what the indexes are, what engages them, when they go stale, and what they cost.
-For the planner policy knobs and competitive benchmarks, see
-:doc:`Seeded Traversal Indexes <index_adjacency>`.
+GFQL does not need indexes. Without them, every query scans your dataframes. Queries that
+start from known nodes, such as "the neighbors of these 50 accounts", can run faster with
+indexes. You build an index once, and later queries on the same graph use it
+automatically. Results are the same with or without an index.
 
 .. doc-test: skip
 
 .. code-block:: python
 
-   g = g.gfql_index_all()   # pay once ...
-   g.gfql(...)              # ... every later seeded lookup on g rides the index
+   g = g.gfql("CREATE GFQL INDEX FOR edge_out_adj")   # build once
+   g = g.gfql("CREATE GFQL INDEX FOR node_id")
+   g.gfql("MATCH (m {id: 0})-[e]->(p) RETURN p")      # later queries from known nodes use it
 
-What a resident index is
-------------------------
+You can also create the indexes in the same call as the query that uses them:
 
-``gfql_index_all()`` builds up to three sidecar structures and returns a new ``g``
-carrying them:
+.. code-block:: python
+
+   g.gfql("CREATE GFQL INDEX FOR edge_out_adj; CREATE GFQL INDEX FOR node_id; "
+          "MATCH (m {id: 'a'})-[e]->(p) RETURN p")
+
+Index kinds
+-----------
+
+There are five kinds. ``gfql_index_all()`` builds the first three.
 
 .. list-table::
    :header-rows: 1
    :widths: 22 78
 
    * - Index
-     - What it accelerates
+     - What it is and what it speeds up
    * - ``edge_out_adj``
-     - CSR adjacency over outgoing edges: a forward hop becomes an ``O(degree)``
-       positional gather instead of an ``O(E)`` scan over every edge.
-   * - ``edge_in_adj``
-     - The same for incoming edges (reverse hops; undirected needs both).
-   * - ``node_id``
-     - Sorted node-id lookup: seed-row and endpoint materialization become positional
-       gathers instead of ``O(N)`` scans. Requires unique node ids —
-       ``gfql_index_all()`` silently skips it otherwise (adjacency is still built).
-   * - ``node_prop``
-     - Sorted lookup on a node **property** column (a secondary index): a seed
-       predicate like ``MATCH (m {id: 42})`` on a column that is not the node-id
-       binding becomes a positional gather instead of an ``O(N)`` scan. Duplicate
-       values are fine (all matching rows are gathered). Integer columns without
-       nulls only — anything else declines to the scan. Opt-in per column.
+     - Analogous to a foreign key index on the edge table's source column. A forward hop
+       reads only the edges of its start nodes, instead of every edge.
 
-They are **sidecars over row positions**: your ``.edges`` / ``.nodes`` frames are never
-reordered or copied, and the resident footprint is visible per index via
-``g.show_indexes()`` (the ``nbytes`` column). The model is **pay-as-you-go**: one
-``O(E log E)`` build, amortized over every seeded query afterward. Nothing is built
-unless you ask.
+       | Cypher: ``CREATE GFQL INDEX FOR edge_out_adj``
+       | Python: ``g.create_index("edge_out_adj")``
+       | JSON: ``{"type": "CreateIndex", "kind": "edge_out_adj"}``
+   * - ``edge_in_adj``
+     - Analogous to a foreign key index on the edge table's destination column. The same,
+       for reverse hops. Undirected hops need both.
+
+       | Cypher: ``CREATE GFQL INDEX FOR edge_in_adj``
+       | Python: ``g.create_index("edge_in_adj")``
+       | JSON: ``{"type": "CreateIndex", "kind": "edge_in_adj"}``
+   * - ``node_id``
+     - Analogous to a primary key index on the node table. Finds start nodes and result
+       nodes by id without reading the whole node table. It needs unique node ids;
+       ``gfql_index_all()`` skips it when the ids repeat.
+
+       | Cypher: ``CREATE GFQL INDEX FOR node_id``
+       | Python: ``g.create_index("node_id")``
+       | JSON: ``{"type": "CreateIndex", "kind": "node_id"}``
+   * - ``node_prop``
+     - Analogous to an ordinary column index on the node table. Finds start nodes by a
+       column other than the node id, such as an account number. You choose the columns.
+       String, integer, categorical, timestamp, Float32/Float64, and Boolean columns can be indexed. Nullable
+       columns are supported. Null property rows and float NaNs are excluded;
+       queries on unsupported column types scan.
+
+       | Cypher: ``CREATE GFQL INDEX FOR node_prop ON (account_number)``
+       | Python: ``g.create_index("node_prop", column="account_number")``
+       | JSON: ``{"type": "CreateIndex", "kind": "node_prop", "column": "account_number"}``
+
+   * - ``edge_prop``
+     - Analogous to a column index on the edge table. Finds edges by a property such as
+       a transaction id. String, integer, categorical, timestamp, Float32/Float64, and Boolean
+       lookups retain duplicate rows. Null property rows and float NaNs are excluded.
+
+       | Cypher: ``CREATE GFQL INDEX FOR edge_prop ON (txn_id)``
+       | Python: ``g.create_index("edge_prop", column="txn_id")``
+       | JSON: ``{"type": "CreateIndex", "kind": "edge_prop", "column": "txn_id"}``
+
+Indexes do not change or copy your dataframes. ``g.show_indexes()`` lists each index and
+its memory use (the ``nbytes`` column). GFQL builds an index only when you ask for one,
+or when you set ``index_policy`` to ``'auto'`` or ``'force'`` (see `Controlling the planner`_). Index kinds and
+column types that are not supported yet raise ``NotImplementedError``, with a link to the
+issue that tracks them.
+
+Run the :doc:`executable indexing notebook <indexing_examples>` for a complete
+account-and-transfer graph with examples of every index kind.
 
 Quick start
 -----------
@@ -61,7 +94,6 @@ A complete, runnable example:
 
    import pandas as pd
    import graphistry
-   from graphistry import n, e_forward, is_in
 
    # A small synthetic graph: 6 accounts, 8 transfers
    edges_df = pd.DataFrame({
@@ -75,103 +107,309 @@ A complete, runnable example:
    })
    g = graphistry.edges(edges_df, "src", "dst").nodes(nodes_df, "id")
 
-   # Pay once: build out+in adjacency + node-id indexes (resident on the returned g)
-   g_indexed = g.gfql_index_all()
-   print(g_indexed.show_indexes()[["name", "kind", "key_col", "n_keys", "valid"]])
+   # Build once: adjacency over outgoing edges, plus the node-id lookup
+   g_indexed = g.gfql("CREATE GFQL INDEX FOR edge_out_adj").gfql("CREATE GFQL INDEX FOR node_id")
+   print(g_indexed.gfql("SHOW GFQL INDEXES")[["name", "kind", "key_col", "n_keys", "valid"]])
 
-   # Seeded 1-hop: who did accounts 0 and 3 transfer to?
-   out = g_indexed.gfql([n({"id": is_in([0, 3])}), e_forward(), n()])
-   print(sorted(out._nodes["id"].tolist()))          # [0, 1, 2, 3, 4]
+   # 1-hop from a known node: who did account 0 transfer to?
+   out = g_indexed.gfql("MATCH (m {id: 0})-[e]->(p) RETURN p")
+   print(sorted(out._nodes["p.id"].tolist()))        # [1, 2]
 
-   # Decline safety: the same query without any index gives the SAME answer
-   out_scan = g.gfql([n({"id": is_in([0, 3])}), e_forward(), n()])
-   assert sorted(out._nodes["id"].tolist()) == sorted(out_scan._nodes["id"].tolist())
+   # 2-hop from the same node
+   out2 = g_indexed.gfql("MATCH (m {id: 0})-[e]->()-[f]->(p) RETURN p")
+   print(sorted(out2._nodes["p.id"].tolist()))       # [2, 3, 4]
 
-   # Direct hop() uses the index too
+   # Same lookups as a graph pipeline: GRAPH { ... } keeps nodes AND edges, so the
+   # result is a subgraph you can plot or keep querying, not a table of rows
+   sub1 = g_indexed.gfql("GRAPH { MATCH (m {id: 0})-[e]->(p) }")
+   print(sorted(sub1._nodes["id"].tolist()), len(sub1._edges))   # [0, 1, 2] 2
+   sub2 = g_indexed.gfql("GRAPH { MATCH (m {id: 0})-[e]->()-[f]->(p) }")
+   print(sorted(sub2._nodes["id"].tolist()), len(sub2._edges))   # [0, 1, 2, 3, 4] 5
+
+   # With indexes switched off, the answer is the same
+   out_scan = g_indexed.gfql("MATCH (m {id: 0})-[e]->(p) RETURN p", index_policy="off")
+   assert sorted(out._nodes["p.id"].tolist()) == sorted(out_scan._nodes["p.id"].tolist())
+
+   # Was the index used? gfql_explain says so
+   assert g_indexed.gfql_explain("MATCH (m {id: 0})-[e]->(p) RETURN p")["used_index"]
+
+   # A seed LIST takes the index too, in both forms
+   out_many = g_indexed.gfql("MATCH (m)-[e]->(p) WHERE m.id IN [0, 3] RETURN p")
+   print(sorted(out_many._nodes["p.id"].tolist()))   # [1, 2, 4]
+   sub_many = g_indexed.gfql("GRAPH { MATCH (m)-[e]->(p) WHERE m.id IN [0, 3] }")
+   print(sorted(sub_many._nodes["id"].tolist()), len(sub_many._edges))   # [0, 1, 2, 3, 4] 3
+   assert g_indexed.gfql_explain("GRAPH { MATCH (m)-[e]->(p) WHERE m.id IN [0, 3] }")["used_index"]
+
+Both forms use the index for a query from one known node, as ``gfql_explain`` reports.
+A list of start nodes, written ``WHERE m.id IN [0, 3]``, uses the index too: in the
+row-returning form, in the ``GRAPH { }`` form, and in the native ``is_in`` chain below.
+A list that contains ``null``, or an ``IN`` inside ``OR`` or ``NOT``, is applied as a
+filter after the match instead. The same hop as a native chain, and as a direct
+``hop()`` call:
+
+.. code-block:: python
+
+   from graphistry import n, e_forward, is_in
+
+   out_chain = g_indexed.gfql([n({"id": is_in([0])}), e_forward(), n()])
    hop_out = g_indexed.hop(nodes=pd.DataFrame({"id": [0]}), hops=2, direction="forward")
    print(sorted(hop_out._nodes["id"].tolist()))      # [0, 1, 2, 3, 4]
 
-The lifecycle calls, all returning a new ``g`` (functional style, like the rest of the
-API):
+The lifecycle calls. Each returns a new ``g``, like the rest of the API:
 
 .. code-block:: python
 
-   g = g.gfql_index_all()               # out+in adjacency + node_id (the one-liner)
-   g = g.gfql_index_edges("forward")    # or just one direction: 'forward'|'reverse'|'both'
+   g = g.gfql_index_all()               # out+in adjacency + node_id
+   g = g.gfql_index_edges("forward")    # or one direction: 'forward'|'reverse'|'both'
    g = g.create_index("edge_out_adj")   # or one kind: 'edge_out_adj'|'edge_in_adj'|'node_id'
-   g = g.gfql_index_node_props(["id"])  # secondary indexes on node property columns
+   g = g.gfql_index_node_props(["id"])  # property indexes on node columns
+   g = g.create_index("edge_prop", column="amount")  # property indexes on edge columns
    g.show_indexes()                     # pandas DataFrame: kind, engine, ..., valid, usable, reason
    g = g.drop_index()                   # drop all (or drop_index("edge_out_adj"))
 
-Unlike ``gfql_index_all()``, an explicit ``create_index("node_id")`` **raises** on
-non-unique node ids rather than skipping.
+``gfql_index_all()`` skips the ``node_id`` index when node ids repeat. An explicit
+``create_index("node_id")`` raises an error instead.
 
-Seeding on a property (secondary index)
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Index selected relationship types
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-The ``node_id`` index covers the column bound as the node id. A query that seeds on
-a *different* column — a business key such as ``MATCH (m {id: 42})`` when the graph
-is keyed by something else — otherwise scans the whole node table to find its seed.
-``node_prop`` indexes that column instead:
+For repeated hops that filter a heterogeneous edge table by relationship type,
+build adjacency sidecars only for the scalar values those queries need:
 
 .. code-block:: python
 
-   g = g.gfql_index_all().gfql_index_node_props(["id"])   # skips unindexable columns
+   typed_edges = pd.DataFrame({
+       "src": [0, 1], "dst": [1, 2], "type": ["KNOWS", "HAS_CREATOR"],
+   })
+   typed_g = graphistry.edges(typed_edges, "src", "dst").nodes(
+       pd.DataFrame({"id": [0, 1, 2]}), "id"
+   )
+   typed_g = typed_g.gfql_index_all().gfql_index_edges(
+       "both", type_column="type", type_values=["KNOWS", "HAS_CREATOR"]
+   )
+   typed_g.show_indexes()[["name", "nbytes", "valid", "usable"]]
+
+``gfql_index_edges(direction, type_column=..., type_values=...)`` builds
+sidecars only for the requested direction(s) and scalar values. Typed selection
+options are keyword-only; ``direction`` and ``engine`` keep their positional
+slots. Type sidecars are an explicit load-time cost; ``gfql_index_all()`` alone does not build them. Queries
+with a matching live sidecar can inspect fewer edge rows, while other queries use
+ordinary adjacency indexes and retain the same results. GFQL still applies the
+complete edge predicate after lookup.
+The ``typed:`` rows in ``show_indexes()`` report incremental CSR bytes; they
+share the ordinary adjacency's neighbor arrays. Build for the engine used by
+the query, and rebuild after binding a new edge frame or changing edges in place.
+
+Select node types or labels
+~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+For repeated hops that filter nodes by type or label, build row-position sidecars
+the same way as for relationship types (see the previous section):
+``gfql_index_node_types(type_column=..., type_values=...)`` is the node-frame dual
+of ``gfql_index_edges``. A scalar column partitions rows; a Boolean
+``label__<Label>`` column records membership, so one node can appear in several
+segments. Like edge sidecars, these are an explicit load-time cost
+(``gfql_index_all()`` does not build them), queries fall back to the ordinary
+paths and retain the same results, and GFQL still applies the complete node
+predicate after lookup. Rebuild after binding a new node frame or changing nodes
+in place; ``show_indexes()`` reports them as ``node_type_segment`` rows. Drop all
+with ``drop_index("node_type_segment")``, one column with ``column=...``, or one
+segment with both ``column=...`` and ``value=...``.
+
+.. code-block:: python
+
+   labeled_g = graphistry.nodes(pd.DataFrame({
+       "id": [0, 1, 2], "type": ["PERSON", "ROBOT", "PERSON"]}), "id")
+   labeled_g = labeled_g.gfql_index_node_types(
+       type_column="type", type_values=["PERSON"]
+   )
+
+Start from a property column
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The ``node_id`` index covers the column bound as the node id. To start queries from a
+different column, such as a business key, index that column with ``node_prop``:
+
+.. code-block:: python
+
+   g = g.gfql_index_all().gfql_index_node_props(["id"])   # skips columns it cannot index
    g = g.create_index("node_prop", column="id")           # or one column, raising if it cannot
 
-   # equivalently over the Cypher DDL / JSON surfaces
+   # the same with Cypher DDL
    g.gfql('CREATE GFQL INDEX FOR node_prop ON id')
    g = g.drop_index("node_prop", column="id")             # or drop_index("node_prop") for all
 
-When several indexed columns appear in one seed predicate, the planner gathers on the
-**most selective** one (estimated for free from the index's own offsets) and applies
-the remaining predicates to those candidates, so results never depend on which index
-happens to be resident. As with every kind, a missing, stale, or cost-gated-out index
-simply falls back to the scan.
+String, integer, categorical, timestamp, Float32/Float64, and Boolean columns can be indexed. When one query filters on
+several indexed columns, GFQL starts from the most selective one and applies the other
+filters to its matches, so results do not depend on which indexes exist.
 
-What uses the index today
--------------------------
+Nullable integer keys
+~~~~~~~~~~~~~~~~~~~~~
 
-On 0.58.0, a resident index is consumed automatically by:
+Integer property indexes exclude null rows and preserve the original row
+positions of every non-null value. Nullable signed and unsigned integer storage
+is supported without a floating-point conversion; an all-null integer column
+builds an empty index. Null lookup predicates retain canonical filter semantics.
 
-- **Seeded typed-hop fast paths** (native chain or Cypher): a seeded typed 1-hop —
-  ``[n({"id": is_in([...])}), e_forward(), n(...)]`` or
-  ``MATCH (m {id: $x})-[:T]->(p) RETURN p`` — including the single-alias **property
-  RETURN** form (``RETURN p.a AS x, p.b``). The seed lookup, frontier expansion, and
-  endpoint materialization all become positional index gathers, so the lookup stops
-  paying graph-size costs.
-- **Property-seeded lookups**: the seed filter may hit a *property* column (e.g.
-  ``MATCH (m {id: $x})`` when the graph is bound on a different key column). The seed
-  row falls back to a property scan, but the adjacency and endpoint gathers still
-  engage — the common pattern of a synthetic key binding plus an ``id`` property
-  filter is covered.
-- **Direct** ``g.hop(nodes=..., hops=..., direction=...)`` — the ``O(degree)``
-  gather path.
+Floating-point keys
+~~~~~~~~~~~~~~~~~~~
 
-**Not yet covered**: the general Polars chain traversal — multi-hop and multi-alias
-queries executed by the Polars chain engine take their scan/join path even with an
-index resident. Coverage is decline-gated: anything the index path does not handle
-falls back to the scan, so the worst case is the speed you already had.
+Float32 and Float64 columns, including supported nullable and Arrow storage,
+index non-null, non-NaN rows. Signed zeros share a lookup key; infinities remain
+valid keys. Query values form candidate keys in the column's native precision,
+and the canonical predicate determines the exact result. There is no tolerance
+or approximate equality. Scalar and membership coercion can differ by engine;
+indexed filtering preserves those differences. NaN/null and ambiguous query
+encodings use canonical filtering, including its existing errors and AST null
+semantics. Empty and all-null columns build empty indexes.
 
-Staleness and safety
---------------------
+Categorical and timestamp keys
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-The validity contract is simple: **an index serves only while the frames it was built
-over are unchanged** (checked by object identity plus a structural fingerprint at use
-time). Consequences:
+Categorical columns keep their labels and ordering. Native category codes locate
+all rows for a label; unused labels produce no rows. Ambiguous mixed-type query
+lists use the canonical scan so inference and errors remain unchanged. Polars
+categorical and enum columns use native text dictionaries.
 
-- Rebinding ``.edges(...)`` invalidates the edge adjacency indexes; rebinding
-  ``.nodes(...)`` invalidates the node-id index. A stale index is treated as *absent* —
-  skipped, never consulted.
-- ``g.show_indexes()`` reports liveness in the ``valid`` column, so you can see at a
-  glance whether a rebind knocked an index out.
-- ``valid`` alone is not "this index will serve your query": indexes are also
-  **engine-specific**. The ``usable`` column is True only when the index is fresh AND
-  built for the resolved query engine (shown in ``query_engine``); otherwise ``reason``
-  explains the decline — e.g. a polars-built index on a graph whose default queries
-  resolve to pandas shows ``usable=False`` with an engine-mismatch reason. Pass
-  ``show_indexes(engine=...)`` to preview an explicit engine choice.
-- Rebuild by calling ``gfql_index_all()`` again on the rebound ``g``.
+Timestamp columns retain their dtype, unit, and timezone in the result. Non-null
+physical timestamp keys locate candidates, and the original predicate determines
+exact matches. Polars nanosecond storage uses microsecond candidate buckets to
+cover its canonical Python datetime/string comparison casts; NumPy nanosecond
+queries still receive the exact residual comparison. Temporal predicates without
+a proven native key encoding use the scan, including Polars temporal membership.
+Existing engine errors for incompatible timezones remain authoritative.
+
+String business keys
+~~~~~~~~~~~~~~~~~~~~
+
+Emails, usernames, and external IDs can be indexed without changing the graph's
+node-id binding. Text uses native string dictionaries and integer row-position
+arrays; comparisons preserve exact text, including Unicode and empty strings.
+Null text rows match no non-null key. Duplicate keys gather every matching row,
+and the remaining query predicates are still applied.
+
+.. code-block:: python
+
+   accounts = pd.DataFrame({
+       "id": range(400),
+       "email": ["alice@example.test", "bob@example.test"]
+           + [f"account-{i}@example.test" for i in range(398)],
+   })
+   g_accounts = graphistry.nodes(accounts, "id").create_index("node_prop", column="email")
+   g_accounts.gfql("MATCH (p {email: 'alice@example.test'}) RETURN p")
+   query = "MATCH (p) WHERE p.email IN ['alice@example.test', 'bob@example.test'] RETURN p"
+   assert g_accounts.gfql_explain(query)["used_index"]
+
+An edge property can seed a query in the same way:
+
+.. code-block:: python
+
+   transfers = pd.DataFrame({
+       "src": range(400), "dst": range(1, 401), "txn_id": range(400),
+   })
+   g_transfers = graphistry.edges(transfers, "src", "dst").materialize_nodes()
+   g_transfers = g_transfers.create_index("edge_prop", column="txn_id")
+   query = "MATCH (a)-[e {txn_id: 7}]->(b) RETURN a, b"
+   report = g_transfers.gfql_explain(query)
+   assert report["used_index"] and report["decision_code"] == "index_selected"
+
+   # DDL and per-column lifecycle are also available
+   g_transfers = g_transfers.gfql("CREATE GFQL INDEX FOR edge_prop ON (txn_id)")
+   g_transfers = g_transfers.drop_index("edge_prop", column="txn_id")
+
+Equality and ``is_in`` edge filters use a live edge-property index on native
+chains and Cypher queries. The most selective indexed column supplies candidate
+rows; the full filter still applies, preserving row order and duplicate edges.
+A dense lookup can be costed out; inspect ``gfql_explain`` for the actual decision.
+
+What uses an index
+------------------
+
+These queries use a resident index automatically:
+
+- **Cypher queries that start from known nodes**: ``MATCH (m {id: $x})-[e]->(p)``,
+  ``WHERE m.id = $x``, and ``WHERE m.id IN [...]``, over one or more hops, returning
+  nodes, properties, or several aliases.
+- **The same queries in** ``GRAPH { }`` **form.**
+- **Native chains that start from known ids**, such as
+  ``[n({"id": is_in([...])}), e_forward(), n()]``.
+- **Start nodes found by a property column** that has a ``node_prop`` index.
+- **Edges found by a property column** that has an ``edge_prop`` index.
+- **A direct** ``g.hop(nodes=..., hops=..., direction=...)``.
+
+Queries that do not start from known nodes, such as a filter over every node, scan. To
+check a specific query, use ``g.gfql_explain(query)`` (see `Controlling the planner`_).
+When an index cannot serve a query, the scan answers it, so the slowest case is the
+speed you had without the index.
+
+Indexing an intermediate graph
+------------------------------
+
+Narrowing a graph produces new tables, so indexes on the input cannot serve those
+tables. Build an index after narrowing when later stages need seeded lookups:
+
+.. code-block:: python
+
+   g_pipeline = graphistry.nodes(pd.DataFrame({
+       "id": [7, 9, 10], "region": [3, 3, 3],
+   }), "id").edges(pd.DataFrame({"s": [7, 9], "d": [9, 10]}), "s", "d")
+   query = """
+   GRAPH sub = GRAPH { MATCH (a {region: 3})-[e]->(b {region: 3}) }
+   GRAPH adjacency = GRAPH {
+       USE sub CALL graphistry.create_index.write({kind: 'edge_out_adj'})
+   }
+   GRAPH indexed = GRAPH {
+       USE adjacency CALL graphistry.create_index.write({kind: 'node_id'})
+   }
+   USE indexed MATCH (u)-[e]->(v) WHERE u.id IN [7, 9] RETURN v
+   """
+   out_pipeline = g_pipeline.gfql(query, index_policy="use")
+   assert sorted(out_pipeline._nodes["v.id"].tolist()) == [9, 10]
+
+The native equivalent accepts ``CreateIndex`` and kind-based ``DropIndex`` inside
+``ref()`` chains, with the same supported forms as top-level chains:
+
+.. code-block:: python
+
+   from graphistry import n, e_forward, is_in, let, ref
+   from graphistry.compute.gfql.index.wire import CreateIndex
+
+   q = let({
+       "sub": [n({"region": 3}), e_forward(), n({"region": 3})],
+       "indexed": ref("sub", [CreateIndex("edge_out_adj"), CreateIndex("node_id")]),
+       "out": ref("indexed", [n({"id": is_in([7, 9])}), e_forward(), n()]),
+   })
+   out_native = g_pipeline.gfql(q, index_policy="use")
+   assert sorted(out_native._nodes["id"].tolist()) == [7, 9, 10]
+
+``CALL graphistry.drop_index.write({kind: 'edge_out_adj'})`` removes the resident
+index from a new graph; an empty options map drops all indexes. These procedures
+preserve graph tables and schema and do not return rows through ``YIELD``. Property
+indexes accept ``column``; creation also accepts ``name`` and ``engine``. Index
+operations leave their input graphs unchanged on pandas, cuDF, and Polars.
+
+Each pipeline invocation rebuilds its intermediate indexes. There is no automatic
+cache across invocations. Several later references can reuse the same indexed
+binding during one invocation, but build cost may exceed the benefit of a single
+hop. Measure the full multi-stage pipeline before making a speed claim.
+
+In a pipeline, ``used_index`` is ``True`` when any stage used an index. Read the
+``steps`` list from ``gfql_explain`` to see which stages used one.
+
+When indexes go stale
+---------------------
+
+An index serves a graph only while that graph has the tables the index was built from:
+
+- If you bind new edges with ``.edges(...)``, the edge indexes become invalid. If you
+  bind new nodes with ``.nodes(...)``, the node indexes become invalid. GFQL ignores an
+  invalid index.
+- If you change a bound table in place, rebuild its indexes. GFQL may not detect
+  in-place edits.
+- ``g.show_indexes()`` shows this in the ``valid`` column. The ``usable`` column also
+  checks that the index was built for the engine the query will run on; when it is
+  ``False``, ``reason`` says why. ``show_indexes(engine=...)`` checks a specific engine.
+- To rebuild, call ``gfql_index_all()`` again on the new graph.
 
 .. doc-test: skip
 
@@ -179,52 +417,185 @@ time). Consequences:
 
    new_edges_df = edges_df.assign(amount=edges_df["amount"] + 1)
    g2 = g_indexed.edges(new_edges_df, "src", "dst")
-   g2.show_indexes()          # edge_out_adj / edge_in_adj now valid=False; node_id still True
-   g2 = g2.gfql_index_all()   # pay again for the new frame; all valid=True
+   g2.show_indexes()          # edge_out_adj now valid=False; node_id still True
+   g2 = g2.gfql_index_all()   # build again for the new edges; all valid=True
 
-**Declines are always safe.** Whether an index is missing, stale, or the query shape is
-uncovered, results are identical either way — indexes only ever change speed, never
-answers (index-vs-scan parity is differentially tested across engines).
+Results are the same with or without an index, whether it is missing, invalid, or does
+not cover the query. An index changes speed only.
 
 .. note::
-   **Stability.** The index kinds, sidecar layout, and ``show_indexes()`` columns describe
-   the current implementation and may evolve between releases; the stable contract is the
-   lifecycle and decline-safety guarantees on this page — pay once, automatic reuse,
-   staleness on rebind, and identical results with or without an index.
+   Index kinds and ``show_indexes()`` columns may change between releases. These rules
+   stay: you build an index once, queries reuse it automatically, binding new tables
+   makes it invalid, and results do not depend on it.
 
 Engines
 -------
 
-- **pandas and cuDF**: build with the default ``gfql_index_all()`` (AUTO resolves to
-  the frames' engine — numpy sidecars for pandas, on-device cupy for cuDF).
-- **Polars**: on 0.58.0, pass the engine explicitly — ``gfql_index_all(engine='polars')``.
-  With AUTO, an index build on Polars frames swaps them to pandas (the same AUTO
-  behavior described in :doc:`engines`; a fix is tracked in PR
-  `#1767 <https://github.com/graphistry/pygraphistry/pull/1767>`_).
-- **Polars-GPU**: rides the Polars-tagged index — an index built with
-  ``engine='polars'`` (or ``'polars-gpu'``) serves both.
+``gfql_index_all()`` builds indexes for the engine of your dataframes: pandas, cuDF on the
+GPU, or Polars. An index built for Polars also serves Polars-GPU queries. Pass
+``engine=...`` to build for a different engine.
 
-What it costs, what it buys
----------------------------
+.. _gfql-adjacency-index:
 
-**Build (the "pay" side)**: one-time and ``O(E log E)`` — a sort over the edge frame,
-amortized across every subsequent seeded query. ``index_policy='auto'`` only pays it when
-the planner predicts a selective query will earn it back.
+When indexes help
+-----------------
 
-**Seeded lookup (the "go" side)**: on a covered shape, the seeded lookup drops from the
-general path to the fast path, and again with the index resident, on both CPU engines.
+Building an index takes time and memory once, and the time grows with the number of
+edges. After that, a query from known nodes reads only the edges of those nodes, so its
+cost depends mainly on their neighborhood, not on the size of the graph.
 
-**Flat in graph size**: a direct seeded ``g.hop()`` with the index resident turns the
-``O(E)`` scan into an ``O(degree)`` gather, so its cost tracks the seeds' neighborhood
-rather than the graph.
+Indexes help most when you:
 
-Measured figures are published on :doc:`performance` and :doc:`index_adjacency` only, and
-only when they trace to a committed benchmark artifact.
+- **start from specific nodes**, such as a watchlist, a session, or the known members of a
+  fraud ring, and hop out one to three steps;
+- **run many such queries** against the same graph, so one build serves all of them;
+- **need interactive latency** for neighbor expansion.
+
+Queries over the whole graph, such as a filter on every node or PageRank, do not get
+faster. For those, choose an engine instead; see :doc:`engines`.
+
+Index DDL
+~~~~~~~~~
+
+The DDL forms are ``CREATE GFQL INDEX [name] [IF NOT EXISTS] FOR <kind> [ON (col)]``,
+``DROP GFQL INDEX name [IF EXISTS]`` (or ``DROP GFQL INDEX [IF EXISTS] FOR <kind> [ON (col)]``),
+and ``SHOW GFQL INDEXES``. The ``GFQL`` token separates them from standard Cypher
+``CREATE INDEX``. The optional parts use the Cypher spelling; the older GFQL spellings
+(``ON col`` without parentheses, ``IF EXISTS`` before the name) still work. The JSON wire
+protocol carries the same ops (``{"type": "CreateIndex", ...}``) and ``index_policy``, so a
+``gfql_remote`` call can include them.
+
+In the native Python API, index ops can lead a chain or form a ``let()`` binding:
+
+.. code-block:: python
+
+   from graphistry import n, e_forward, is_in, call, let, ref
+   from graphistry.compute.gfql.index.wire import CreateIndex
+   g.gfql([CreateIndex("edge_out_adj"), CreateIndex("node_id"), n({"id": is_in([0, 3])}), e_forward(), n()])
+   g.gfql([call("create_index", {"kind": "edge_out_adj"}), n({"id": 0}), e_forward(), n()])
+   g.gfql(let({"indexed": [CreateIndex("edge_out_adj")], "out": ref("indexed", [n({"id": 0}), e_forward(), n()])}))
+
+Controlling the planner
+~~~~~~~~~~~~~~~~~~~~~~~
+
+``gfql(..., index_policy=...)`` decides whether a resident index is used:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 18 82
+
+   * - ``index_policy``
+     - Behavior
+   * - ``'use'`` *(default)*
+     - Use a resident index when one covers the query. Never build one. No cost when no
+       index exists.
+   * - ``'auto'``
+     - Build an index during the query when the planner predicts it pays off (a selective
+       set of start nodes).
+   * - ``'force'``
+     - Require the index path (useful to check that it is used).
+   * - ``'off'``
+     - Ignore indexes and scan.
+
+``g.gfql_explain(query, index_policy=...)`` shows whether the index path was taken. It
+returns ``used_index`` (bool), ``resident_indexes``, a per-step ``steps`` trace, the
+planner's ``decision_reason`` (text), and a stable ``decision_code`` for programs and
+tests:
+
+- ``index_selected`` -- the index served the query.
+- ``policy_off`` -- ``index_policy='off'``.
+- ``no_resident_index`` -- nothing is resident and ``index_policy='use'`` never builds.
+- ``index_path_unavailable`` -- the index path could not serve this query as planned, so
+  the scan answered; ``decision_reason`` says what was missing (e.g. ``index_missing``).
+- ``not_index_coverable`` -- the shape or predicate has no supported index encoding;
+  it scans. This includes unsupported column storage, such as binary, even when
+  no index is resident. Property decisions identify the column and index kind
+  being assessed; supported missing/stale indexes retain their separate reasons.
+- ``missing_graph_columns`` -- the graph lacks a bound column the index needs.
+- ``index_build_declined`` -- ``index_policy='auto'`` / ``'force'`` ended with no usable
+  index (the build was declined or did not cover the hop).
+- ``scan_cost`` -- an applicable resident index was actually costed and the gate
+  chose the scan; ``index_kind`` identifies that index (a seed set
+  covering most of the graph, for example).
+- ``engine_mismatch`` -- the resident index was built for another engine.
+- ``col_stats_absent`` / ``col_stats_stale`` / ``col_stats_insufficient`` /
+  ``col_stats_served`` -- the column statistics (below) are missing, out of date, not
+  enough for this query, or used to answer it.
+
+Column statistics
+~~~~~~~~~~~~~~~~~
+
+``gfql_index_col_stats()`` records the minimum, maximum, and null count of the node id
+and edge endpoint columns. Only integer columns are recorded today. Some counting
+queries use these numbers to skip work. They never change answers: when they are
+missing or out of date, the query does the full work. They become invalid under the same
+rules as indexes, and ``gfql_index_all()`` builds them. Pass ``node_columns=`` or
+``edge_columns=`` to record other integer columns. A column you name that cannot be
+recorded raises an error; the default columns are skipped without one.
+
+Native membership hops
+~~~~~~~~~~~~~~~~~~~~~~
+
+A directed native single hop on eager Polars frames can use the native seeded
+lane with an integral membership seed and scalar edge/destination filters. Both
+binding-id seeds and indexed integer property seeds are supported. For example:
+
+.. code-block:: python
+
+   membership_query = [n({"id": is_in([0, 3])}, name="start"),
+                       e_forward(name="transfer"), n(name="end")]
+   membership_out = g_indexed.gfql(membership_query, engine="pandas")
+   assert sorted(membership_out._nodes["id"].tolist()) == [0, 1, 2, 3, 4]
+
+The same query runs with ``engine="polars"`` on a graph with eager Polars frames
+and resident node-id and outgoing adjacency indexes. String memberships and
+unsupported shapes keep the general path. Missing or stale indexes and
+``index_policy="off"`` also keep the general path; results and canonical errors
+remain unchanged. Native lane selection alone does not establish a speed gain.
+
+Cross-alias OR
+~~~~~~~~~~~~~~
+
+A directed single-hop Cypher query can gather candidates for both sides of an
+``OR`` before building its binding table. Each branch must name an indexed node
+equality or membership predicate. Unique integral binding ids and resident
+node-id and both adjacency indexes are required; property branches also need
+their property indexes. For example, using the quick-start graph:
+
+.. code-block:: python
+
+   or_indexed = g_indexed.create_index("edge_in_adj")
+   or_out = or_indexed.gfql(
+       "MATCH (a)-[e]->(b) WHERE a.id IN [0] OR b.id = 5 "
+       "RETURN a.id AS src, b.id AS dst")
+   assert len(or_out._nodes) == 3
+
+The canonical row predicate still evaluates the complete ``OR``. Overlapping
+branches retain each original edge once, while different parallel edges remain
+different matches. Unsupported shapes, missing or stale indexes, dense
+candidates, and ``index_policy='off'`` keep the general execution path.
+
+Unseeded LIMIT
+~~~~~~~~~~~~~~
+
+For an unfiltered directed single-hop pattern on pandas or cuDF, ``LIMIT`` can
+bound node and edge property materialization. For example, on the quick-start
+graph without indexes:
+
+.. code-block:: python
+
+   limited = g.gfql("MATCH (a)-[e]->(b) RETURN b.id AS id LIMIT 3")
+   assert limited._nodes["id"].tolist() == [1, 2, 2]
+
+The existing binding order and parallel matches are preserved. Endpoint columns
+are still scanned; ``gfql_explain()`` records this optimization as
+``op='binding_limit'`` with ``path='scan'``. Filters, ordering, ``DISTINCT``,
+aggregation, arbitrary projection expressions, and unsupported graph shapes
+retain their existing execution path. Polars and Polars GPU also retain their
+existing paths. Measured latency depends on the workload.
 
 See also
 --------
 
-- :doc:`Seeded Traversal Indexes <index_adjacency>` — the planner (``index_policy``),
-  Cypher DDL / wire protocol forms, and the index cost model.
 - :doc:`engines` — choosing pandas / Polars / cuDF / Polars-GPU.
-- :doc:`performance` — the vectorization + GPU design behind GFQL.
+- :doc:`performance` — GFQL measured against graph databases.

@@ -33,6 +33,7 @@ class GraphBase(object):
                 e.detach()
             return
 
+        s = None  # the single component every vertex must end up in; None when there are no edges
         for e in edges:
             x = self.verticesPoset.get(e.v[0])
             y = self.verticesPoset.get(e.v[1])
