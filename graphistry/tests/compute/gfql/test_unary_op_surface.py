@@ -614,3 +614,19 @@ def test_conversion_valid_literal_executes_across_engines(engine, expression, ex
 def test_conversion_unconsumed_invalid_comprehension_items_compile(engine):
     """The source item is not an operand when the projection ignores it."""
     assert _values(engine, "[x IN [1, []] | toString('x')]") == [["x", "x"]] * 4
+
+
+@pytest.mark.parametrize("engine", ["pandas"])
+@pytest.mark.parametrize("expression,expected", [
+    ("[n IN [1] | toInteger(n)]", [[1]]),
+    ("[n IN ['x'] | toString(n)]", [["x"]]),
+    ("[x IN [1, []] | [x IN [1] | toInteger(x)]]", [[[1], [1]]]),
+])
+def test_conversion_respects_comprehension_lexical_binding(engine, expression, expected):
+    """Comprehension variables shadow graph aliases; graph aliases remain rejected."""
+    assert _values(engine, expression) == expected * 4
+    with pytest.raises(GFQLValidationError) as error:
+        _graph(engine).gfql(
+            "MATCH (n) RETURN [x IN [1] | toInteger(n)] AS v", engine=engine
+        )
+    assert error.value.code == ErrorCode.E108

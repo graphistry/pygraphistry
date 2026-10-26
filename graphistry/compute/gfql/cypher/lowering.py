@@ -97,6 +97,7 @@ from graphistry.compute.gfql.expr_parser import (
     _rebuild_expr_node,
     collect_identifiers,
     parse_expr,
+    iter_expr_children,
     walk_expr_nodes,
     is_expr_node,
 )
@@ -1014,6 +1015,7 @@ def _conversion_operand_statically_invalid(
     operand: ExprNode,
     *,
     alias_targets: Optional[Mapping[str, ASTObject]],
+    ignored_aliases: AbstractSet[str] = frozenset(),
 ) -> bool:
     name = function_name.lower()
     if isinstance(operand, (ListLiteral, MapLiteral)):
@@ -1023,13 +1025,16 @@ def _conversion_operand_statically_invalid(
             return True
         return name == "tofloat" and isinstance(operand.value, bool)
     if isinstance(operand, Identifier):
-        return alias_targets is not None and operand.name in alias_targets
+        return alias_targets is not None and operand.name in alias_targets and operand.name not in ignored_aliases
     if isinstance(operand, FunctionCall):
         return operand.name in {"__node_entity__", "__edge_entity__"}
     return False
 
 
 _CYPHER_CONVERSION_FUNCTIONS = frozenset({"tointeger", "tofloat", "toboolean", "tostring"})
+
+def _expr_references(node: ExprNode, name: str) -> bool:
+    return isinstance(node, Identifier) and node.name == name or any(_expr_references(child, name) for child in iter_expr_children(node))
 
 
 def _contains_aggregate_call(node: ExprNode) -> bool:
@@ -1084,6 +1089,14 @@ def _validate_cypher_expr_constraints(
                 _raise("Cypher list indexing requires integer keys in the local compiler")
         if isinstance(current, MapLiteral) and _contains_aggregate_call(current):
             _raise("Cypher aggregate expressions inside map literals are not supported in the local compiler yet")
+        if isinstance(current, ListComprehension):
+            if current.predicate is not None and _contains_aggregate_call(current.predicate):
+                _raise("Cypher list comprehensions cannot contain aggregate functions in the local compiler")
+            if current.projection is not None and _contains_aggregate_call(current.projection):
+                _raise("Cypher list comprehensions cannot contain aggregate functions in the local compiler")
+    walk_expr_nodes(node, enter=_enter)
+
+    def _validate_conversion_scope(current: ExprNode, bound_aliases: AbstractSet[str]) -> None:
         if (
             isinstance(current, FunctionCall)
             and current.name.lower() in _CYPHER_CONVERSION_FUNCTIONS
@@ -1092,43 +1105,30 @@ def _validate_cypher_expr_constraints(
                 current.name,
                 current.args[0],
                 alias_targets=alias_targets,
+                ignored_aliases=bound_aliases,
             )
         ):
             _raise(f"Cypher {current.name}() cannot consume the statically invalid operand type")
-        if isinstance(current, ListComprehension):
-            if current.predicate is not None and _contains_aggregate_call(current.predicate):
-                _raise("Cypher list comprehensions cannot contain aggregate functions in the local compiler")
-            if current.projection is not None and _contains_aggregate_call(current.projection):
-                _raise("Cypher list comprehensions cannot contain aggregate functions in the local compiler")
-            if current.projection is not None and isinstance(current.source, ListLiteral):
-                projection_nodes: List[ExprNode] = []
-                walk_expr_nodes(current.projection, enter=projection_nodes.append)
-                for projection_call in projection_nodes:
-                    if not isinstance(projection_call, FunctionCall) or projection_call.name.lower() not in _CYPHER_CONVERSION_FUNCTIONS:
-                        continue
-                    for conversion_arg in projection_call.args:
-                        arg_consumes_var = False
+        if isinstance(current, (ListComprehension, QuantifierExpr)):
+            nested_aliases = bound_aliases | {current.var}
+            if isinstance(current, ListComprehension) and isinstance(current.source, ListLiteral):
+                projection = current.projection
+                projection_call = projection if isinstance(projection, FunctionCall) else None
+                if (
+                    projection_call is not None
+                    and projection_call.name.lower() in _CYPHER_CONVERSION_FUNCTIONS
+                    and len(projection_call.args) == 1
+                    and _expr_references(projection_call.args[0], current.var)
+                    and any(_conversion_operand_statically_invalid(projection_call.name, item, alias_targets=alias_targets) for item in current.source.items)
+                ):
+                    _raise(f"Cypher {projection_call.name}() cannot consume the current list-comprehension item type")
+            for child in iter_expr_children(current):
+                _validate_conversion_scope(child, nested_aliases)
+        else:
+            for child in iter_expr_children(current):
+                _validate_conversion_scope(child, bound_aliases)
 
-                        def _mark_arg_consumption(arg_node: ExprNode) -> None:
-                            nonlocal arg_consumes_var
-                            if isinstance(arg_node, Identifier) and arg_node.name == current.var:
-                                arg_consumes_var = True
-
-                        walk_expr_nodes(conversion_arg, enter=_mark_arg_consumption)
-                        if arg_consumes_var and any(
-                            _conversion_operand_statically_invalid(
-                                projection_call.name,
-                                item,
-                                alias_targets=alias_targets,
-                            )
-                            for item in current.source.items
-                        ):
-                            _raise(
-                                f"Cypher {projection_call.name}() cannot consume the current "
-                                "list-comprehension item type in the local compiler"
-                            )
-
-    walk_expr_nodes(node, enter=_enter)
+    _validate_conversion_scope(node, frozenset())
 
 
 def _validate_with_projection_aliasing(stage: ProjectionStage) -> None:
