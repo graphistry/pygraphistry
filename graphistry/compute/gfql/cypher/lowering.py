@@ -1009,39 +1009,29 @@ def _validate_cypher_boolean_literal_constraints(
         )
 
 
-def _list_item_invalid_for_numeric_conversion(
-    item: ExprNode,
+def _conversion_operand_statically_invalid(
+    function_name: str,
+    operand: ExprNode,
     *,
     alias_targets: Optional[Mapping[str, ASTObject]],
-    allow_boolean: bool,
 ) -> bool:
-    if isinstance(item, ExprLiteral):
-        if isinstance(item.value, (list, dict)):
+    name = function_name.lower()
+    if isinstance(operand, (ListLiteral, MapLiteral)):
+        return True
+    if isinstance(operand, ExprLiteral):
+        if isinstance(operand.value, (list, dict)):
             return True
-        return isinstance(item.value, bool) and not allow_boolean
-    if isinstance(item, (ListLiteral, MapLiteral)):
-        return True
-    if isinstance(item, Identifier):
-        return alias_targets is not None and item.name in alias_targets
-    if isinstance(item, FunctionCall):
-        return item.name in {"__node_entity__", "__edge_entity__"}
+        return name == "tofloat" and isinstance(operand.value, bool)
+    if isinstance(operand, Identifier):
+        return alias_targets is not None and operand.name in alias_targets
+    if isinstance(operand, FunctionCall):
+        return operand.name in {"__node_entity__", "__edge_entity__"}
     return False
 
 
-def _list_item_invalid_for_tostring(
-    item: ExprNode,
-    *,
-    alias_targets: Optional[Mapping[str, ASTObject]],
-) -> bool:
-    if isinstance(item, ExprLiteral):
-        return isinstance(item.value, (list, dict))
-    if isinstance(item, (ListLiteral, MapLiteral)):
-        return True
-    if isinstance(item, Identifier):
-        return alias_targets is not None and item.name in alias_targets
-    if isinstance(item, FunctionCall):
-        return item.name in {"__node_entity__", "__edge_entity__"}
-    return False
+_CYPHER_CONVERSION_FUNCTIONS = frozenset(
+    {"tointeger", "tofloat", "toboolean", "tostring"}
+)
 
 
 def _contains_aggregate_call(node: ExprNode) -> bool:
@@ -1096,37 +1086,51 @@ def _validate_cypher_expr_constraints(
                 _raise("Cypher list indexing requires integer keys in the local compiler")
         if isinstance(current, MapLiteral) and _contains_aggregate_call(current):
             _raise("Cypher aggregate expressions inside map literals are not supported in the local compiler yet")
+        if (
+            isinstance(current, FunctionCall)
+            and current.name.lower() in _CYPHER_CONVERSION_FUNCTIONS
+            and len(current.args) == 1
+            and _conversion_operand_statically_invalid(
+                current.name,
+                current.args[0],
+                alias_targets=alias_targets,
+            )
+        ):
+            _raise(
+                f"Cypher {current.name}() cannot consume the statically invalid operand type"
+            )
         if isinstance(current, ListComprehension):
             if current.predicate is not None and _contains_aggregate_call(current.predicate):
                 _raise("Cypher list comprehensions cannot contain aggregate functions in the local compiler")
             if current.projection is not None and _contains_aggregate_call(current.projection):
                 _raise("Cypher list comprehensions cannot contain aggregate functions in the local compiler")
-            if (
-                isinstance(current.projection, FunctionCall)
-                and len(current.projection.args) == 1
-                and isinstance(current.projection.args[0], Identifier)
-                and current.projection.args[0].name == current.var
-                and isinstance(current.source, ListLiteral)
-            ):
-                if current.projection.name.lower() in {"tofloat", "tointeger"}:
-                    if any(
-                        _list_item_invalid_for_numeric_conversion(
-                            item,
-                            alias_targets=alias_targets,
-                            allow_boolean=current.projection.name.lower() == "tointeger",
-                        )
-                        for item in current.source.items
-                    ):
-                        _raise(
-                            "Cypher toFloat()/toInteger() cannot consume the current "
-                            "list-comprehension item types in the local compiler"
-                        )
-                if current.projection.name == "tostring":
-                    if any(
-                        _list_item_invalid_for_tostring(item, alias_targets=alias_targets)
-                        for item in current.source.items
-                    ):
-                        _raise("Cypher toString() cannot consume the current list-comprehension item types in the local compiler")
+            if current.projection is not None and isinstance(current.source, ListLiteral):
+                projection_nodes: List[ExprNode] = []
+                walk_expr_nodes(current.projection, enter=projection_nodes.append)
+                for projection_call in projection_nodes:
+                    if not isinstance(projection_call, FunctionCall) or projection_call.name.lower() not in _CYPHER_CONVERSION_FUNCTIONS:
+                        continue
+                    for conversion_arg in projection_call.args:
+                        arg_consumes_var = False
+
+                        def _mark_arg_consumption(arg_node: ExprNode) -> None:
+                            nonlocal arg_consumes_var
+                            if isinstance(arg_node, Identifier) and arg_node.name == current.var:
+                                arg_consumes_var = True
+
+                        walk_expr_nodes(conversion_arg, enter=_mark_arg_consumption)
+                        if arg_consumes_var and any(
+                            _conversion_operand_statically_invalid(
+                                projection_call.name,
+                                item,
+                                alias_targets=alias_targets,
+                            )
+                            for item in current.source.items
+                        ):
+                            _raise(
+                                f"Cypher {projection_call.name}() cannot consume the current "
+                                "list-comprehension item type in the local compiler"
+                            )
 
     walk_expr_nodes(node, enter=_enter)
 

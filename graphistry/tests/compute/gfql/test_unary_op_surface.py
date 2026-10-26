@@ -564,3 +564,53 @@ def test_numeric_comprehension_invalid_consumed_items_still_raise(engine):
         with pytest.raises(GFQLValidationError) as error:
             _graph(engine).gfql(f"MATCH (n) RETURN {expression} AS v", engine=engine)
         assert error.value.code == ErrorCode.E108
+
+
+@pytest.mark.parametrize("expression", [
+    "toInteger([])",
+    "toInteger({a: 1})",
+    "toFloat([])",
+    "toFloat({a: 1})",
+    "toFloat(true)",
+    "toBoolean([])",
+    "toBoolean({a: 1})",
+    "toString([])",
+    "toString({a: 1})",
+])
+def test_conversion_rejects_statically_invalid_direct_literals(expression):
+    """Validation happens before an engine sees a provably unsupported conversion."""
+    with pytest.raises(GFQLValidationError) as error:
+        graphistry.nodes(pd.DataFrame({"id": ["a"]})).gfql(
+            f"MATCH (n) RETURN {expression} AS v", language="cypher"
+        )
+    assert error.value.code == ErrorCode.E108
+
+
+@pytest.mark.parametrize("function", ["toInteger", "toFloat", "toBoolean", "toString"])
+def test_conversion_rejects_statically_invalid_bound_parameters(function):
+    """Compile-time parameter folding participates in the same static type check."""
+    with pytest.raises(GFQLValidationError) as error:
+        graphistry.nodes(pd.DataFrame({"id": ["a"]})).gfql(
+            f"MATCH (n) RETURN {function}($value) AS v",
+            params={"value": []},
+            language="cypher",
+        )
+    assert error.value.code == ErrorCode.E108
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+@pytest.mark.parametrize("expression,expected", [
+    ("toInteger('41')", 41),
+    ("toFloat(2)", 2.0),
+    ("toBoolean(true)", True),
+    ("toString(2)", "2"),
+])
+def test_conversion_valid_literal_executes_across_engines(engine, expression, expected):
+    """Each conversion keeps at least one statically valid scalar execution path."""
+    assert _values(engine, expression) == [expected] * 4
+
+
+@pytest.mark.parametrize("engine", ["pandas"])
+def test_conversion_unconsumed_invalid_comprehension_items_compile(engine):
+    """The source item is not an operand when the projection ignores it."""
+    assert _values(engine, "[x IN [1, []] | toString('x')]") == [["x", "x"]] * 4
