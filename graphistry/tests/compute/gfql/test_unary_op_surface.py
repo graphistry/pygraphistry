@@ -630,3 +630,25 @@ def test_conversion_respects_comprehension_lexical_binding(engine, expression, e
             "MATCH (n) RETURN [x IN [1] | toInteger(n)] AS v", engine=engine
         )
     assert error.value.code == ErrorCode.E108
+
+
+@pytest.mark.parametrize("engine", ["pandas"])
+def test_conversion_ignores_shadowed_outer_item_in_nested_argument(engine):
+    """An inner comprehension binding hides the outer item, even in nested arguments."""
+    expression = "[x IN [1, []] | toString([x IN [1] | x])]"
+    assert _values(engine, expression) == [["[1]", "[1]"]] * 4
+
+
+@pytest.mark.parametrize("engine", ["pandas"])
+@pytest.mark.parametrize("function,expected", [
+    ("toInteger", 1),
+    ("toFloat", 1.0),
+    ("toBoolean", True),
+    ("toString", "1"),
+])
+def test_conversion_binding_is_lexical_for_nested_variables(engine, function, expected):
+    """A differently named nested binding leaves the outer comprehension item visible."""
+    expression = f"[x IN [1, []] | [y IN ['1'] | {function}(x)]]"
+    with pytest.raises(GFQLValidationError) as error:
+        _graph(engine).gfql(f"MATCH (n) RETURN {expression} AS v", engine=engine)
+    assert error.value.code == ErrorCode.E108
