@@ -1029,9 +1029,7 @@ def _conversion_operand_statically_invalid(
     return False
 
 
-_CYPHER_CONVERSION_FUNCTIONS = frozenset(
-    {"tointeger", "tofloat", "toboolean", "tostring"}
-)
+_CYPHER_CONVERSION_FUNCTIONS = frozenset({"tointeger", "tofloat", "toboolean", "tostring"})
 
 
 def _contains_aggregate_call(node: ExprNode) -> bool:
@@ -1096,9 +1094,7 @@ def _validate_cypher_expr_constraints(
                 alias_targets=alias_targets,
             )
         ):
-            _raise(
-                f"Cypher {current.name}() cannot consume the statically invalid operand type"
-            )
+            _raise(f"Cypher {current.name}() cannot consume the statically invalid operand type")
         if isinstance(current, ListComprehension):
             if current.predicate is not None and _contains_aggregate_call(current.predicate):
                 _raise("Cypher list comprehensions cannot contain aggregate functions in the local compiler")
