@@ -1565,6 +1565,9 @@ def _chain_impl(
 
             if g_out._edges is not None and len(g_out._edges) > 0:
                 concat_fn = df_concat(engine_concrete)
+                from graphistry.compute.gfql.cypher.reentry.naming import (
+                    REENTRY_HIDDEN_COLUMN_PREFIX,
+                )
                 endpoints = concat_fn(
                     [
                         g_out._edges[[g_out._source]].rename(columns={g_out._source: g_out._node}),
@@ -1578,7 +1581,15 @@ def _chain_impl(
                 nodes_out = g_out._nodes
                 if len(missing) > 0:  # only a dangling endpoint is backfilled; a present id would widen the attribute dtypes
                     nodes_out = safe_row_concat([nodes_out, missing], ignore_index=True, sort=False)
-                g_out = g_out.nodes(nodes_out.drop_duplicates(subset=[g_out._node]))
+                node_dedup_cols = [g_out._node] + [
+                    column for column in nodes_out.columns
+                    if column.startswith(REENTRY_HIDDEN_COLUMN_PREFIX)
+                ]
+                try:
+                    nodes_out = nodes_out.drop_duplicates(subset=node_dedup_cols)
+                except TypeError:
+                    nodes_out = nodes_out.drop_duplicates(subset=[g_out._node])
+                g_out = g_out.nodes(nodes_out)
 
             success = True
 
