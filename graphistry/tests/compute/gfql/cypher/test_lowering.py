@@ -280,8 +280,9 @@ def _mk_connected_reentry_carried_scalar_data() -> Tuple[pd.DataFrame, pd.DataFr
         pd.DataFrame(
             {
                 "s": ["a1", "a2", "b1", "b2"],
-                "d": ["b1", "b2", "c1", "c2"],
+                "d": ["b1", "b2", "c1", "c1"],
                 "type": ["R", "R", "S", "S"],
+                "weight": [None, None, 10, 20],
             }
         ),
     )
@@ -12716,7 +12717,7 @@ def test_string_cypher_executes_with_match_reentry_where_xor_on_carried_and_trai
     )
 
     result = _mk_connected_reentry_carried_scalar_graph().gfql(query)
-    assert result._nodes.to_dict(orient="records") == []
+    assert result._nodes.to_dict(orient="records") == [{"aid": "a2", "cid": "c1"}]
 
 
 def test_string_cypher_executes_with_match_reentry_preserves_orderby_single_column_limit_prefix() -> None:
@@ -22973,6 +22974,31 @@ def test_issue_2252_connected_scalar_prefix_survives_match_on_pandas_and_polars(
         {"property": 20.0, "messageCount": 1},
     ]
 
+
+@pytest.mark.parametrize("engine", ["pandas", "polars"])
+def test_issue_2252_convergent_destination_suffix_filters_stay_path_scoped(engine: str) -> None:
+    nodes_df, edges_df = _mk_connected_reentry_carried_scalar_data()
+    graph = _mk_polars_graph(nodes_df, edges_df) if engine == "polars" else _mk_graph(nodes_df, edges_df)
+
+    partial = graph.gfql(
+        "MATCH (a:A)-[:R]->(b:B) WITH b, b.score AS property "
+        "MATCH (b)-[:S {weight: 10}]->(c:C) "
+        "RETURN property, count(DISTINCT c.id) AS messageCount ORDER BY property",
+        engine=engine,
+        language="cypher",
+    )
+    assert _to_pandas_df(partial._nodes).to_dict(orient="records") == [
+        {"property": 10.0, "messageCount": 1}
+    ]
+
+    empty = graph.gfql(
+        "MATCH (a:A)-[:R]->(b:B) WITH b, b.score AS property "
+        "MATCH (b)-[:S {weight: 99}]->(c:C) "
+        "RETURN property, count(DISTINCT c.id) AS messageCount",
+        engine=engine,
+        language="cypher",
+    )
+    assert _to_pandas_df(empty._nodes).to_dict(orient="records") == []
 
 @pytest.mark.parametrize("engine", ["pandas", "polars"])
 def test_issue_2252_multi_edge_prefix_keeps_path_scalar_on_pandas_and_polars(engine: str) -> None:
