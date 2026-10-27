@@ -15,6 +15,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ### Fixed
 
 - **GFQL Cypher missing relationship properties**: `RETURN r.r` now resolves to null when `r` is the relationship alias and the edge table has no `r` property, matching `WHERE r.r IS NULL`. The internal alias marker no longer leaks as the property value on pandas or Polars (#2262).
+- **GFQL Cypher scalar carries after `WITH`**: a scalar carried through `WITH` remains available when a later `MATCH` reconnects the earlier alias, including whole-node-plus-scalar and connected-scalar prefixes. Grouping now keeps each carried scalar's multiplicity on pandas and Polars instead of returning null groups or dropping a connected result group (#2252).
 - **GFQL Cypher conversion operand validation**: statically invalid conversion operands, such as lists, maps, and graph entities, are rejected at compile time before the engine sees them. Dynamic operands, null propagation, and list-comprehension lexical shadowing keep their existing behavior.
 
 - **GFQL remote Let/DAG compatibility**: `gfql_remote` no longer substitutes an empty `gfql_operations` array for a Let/DAG query, so unsupported older servers receive `gfql_query` and reject it explicitly instead of silently running an identity program.
