@@ -1207,10 +1207,14 @@ def _chain_traversal_polars(self: Plottable, ops, start_nodes: Optional[Any] = N
     if seed_carry_cols:
         carry_map = start_nodes.select([node_col, *seed_carry_cols])
         for edge_op, edge_step in edge_steps:
-            if not isinstance(edge_op, ASTEdge) or edge_step._edges is None:
+            if (
+                not isinstance(edge_op, ASTEdge)
+                or edge_step._edges is None
+                or edge_step._source is None
+                or edge_step._destination is None
+            ):
                 continue
             edge_src, edge_dst = edge_step._source, edge_step._destination
-            assert edge_src is not None and edge_dst is not None
             edge_parts = []
             if edge_op.direction != "reverse":
                 edge_parts.append((edge_src, edge_dst))
