@@ -1200,4 +1200,29 @@ def _chain_traversal_polars(self: Plottable, ops, start_nodes: Optional[Any] = N
     # error, and silencing it would cost the lazy/eager distinction the shim exists to keep.
     final_edges_eager, final_nodes_eager = collect_all([final_edges, final_nodes])
     final_edges_eager = _restore_edge_dtypes(final_edges_eager, src, dst, _endpoint_restore)
+    seed_carry_cols = [
+        col for col in (start_nodes.columns if start_nodes is not None else [])
+        if isinstance(col, str) and col.startswith("__cypher_reentry_")
+    ]
+    if seed_carry_cols:
+        edge_ops = [op for op in ops if isinstance(op, ASTEdge)]
+        edge_parts = []
+        if len(edge_ops) == 1:
+            if edge_ops[0].direction != "reverse":
+                edge_parts.append((src, dst))
+            if edge_ops[0].direction != "forward":
+                edge_parts.append((dst, src))
+        carry_maps = []
+        for from_col, to_col in edge_parts:
+            carry_maps.append(
+                final_edges_eager.select([from_col, to_col])
+                .join(start_nodes.select([node_col, *seed_carry_cols]),
+                      left_on=from_col, right_on=node_col, how="inner")
+                .drop(from_col)
+                .rename({to_col: node_col})
+            )
+        carry_map = pl.concat(carry_maps, how="vertical") if len(carry_maps) > 1 else carry_maps[0]
+        final_nodes_eager = final_nodes_eager.drop(seed_carry_cols).join(
+            carry_map, on=node_col, how="left"
+        )
     return self.nodes(final_nodes_eager, node_col).edges(final_edges_eager, src, dst)
