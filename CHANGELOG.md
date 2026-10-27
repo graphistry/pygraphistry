@@ -10,7 +10,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
-- **GFQL Cypher scalar carries after `WITH`**: a scalar carried through `WITH` remains available when a later `MATCH` reconnects the earlier alias, including whole-node-plus-scalar and connected-scalar prefixes. Grouping now keeps each carried scalar's multiplicity on pandas and Polars instead of returning null groups or dropping a connected result group (#2252).
+- **GFQL Cypher scalar carries after `WITH`**: a scalar carried through `WITH` remains available when a later `MATCH` reconnects the earlier alias, including whole-node-plus-scalar, connected-scalar, and multi-edge path prefixes. Grouping now keeps each carried scalar's multiplicity on pandas and Polars instead of returning null groups or dropping a connected result group (#2252).
 
 - **GFQL Cypher conversion operand validation**: statically invalid conversion operands, such as lists, maps, and graph entities, are rejected at compile time before the engine sees them. Dynamic operands, null propagation, and list-comprehension lexical shadowing keep their existing behavior.
 
