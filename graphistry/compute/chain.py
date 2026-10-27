@@ -356,7 +356,10 @@ def combine_steps(
                         ).drop(columns=[from_col, id]).rename(columns={to_col: id})
                     )
                 carry_map = df_concat(engine)(carry_maps)
-                carry_map = carry_map.drop_duplicates(subset=[id] + prev_carry_cols)
+                try:
+                    carry_map = carry_map.drop_duplicates(subset=[id] + prev_carry_cols)
+                except TypeError:
+                    carry_map = carry_map.drop_duplicates(subset=[id])
                 step_df = step_df.drop(columns=[c for c in prev_carry_cols if c in step_df.columns])
                 step_df = safe_merge(step_df, carry_map, on=id, how='left', engine=engine)
 
@@ -386,7 +389,11 @@ def combine_steps(
 
     concat = df_concat(engine)
     dedup_cols = [id] + list(dict.fromkeys(carry_cols))
-    out_df = concat(dfs_to_concat).drop_duplicates(subset=dedup_cols)
+    combined_df = concat(dfs_to_concat)
+    try:
+        out_df = combined_df.drop_duplicates(subset=dedup_cols)
+    except TypeError:
+        out_df = combined_df.drop_duplicates(subset=[id])
 
     label_cols = set()
     for step_df in extra_step_dfs:
