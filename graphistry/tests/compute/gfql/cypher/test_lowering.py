@@ -23000,6 +23000,38 @@ def test_issue_2252_convergent_destination_suffix_filters_stay_path_scoped(engin
     )
     assert _to_pandas_df(empty._nodes).to_dict(orient="records") == []
 
+
+def test_issue_2252_convergent_destination_keeps_carry_on_cudf() -> None:
+    """cuDF parity for path-scoped carries entering the same destination (#2252)."""
+    pytest.importorskip("cudf")
+    _require_cudf_runtime()
+    graph = _mk_connected_reentry_carried_scalar_graph_cudf()
+
+    positive = graph.gfql(
+        "MATCH (a:A)-[:R]->(b:B) WITH b, b.score AS property "
+        "MATCH (b)-[:S]->(c:C) "
+        "RETURN property, count(DISTINCT c.id) AS messageCount ORDER BY property",
+        engine="cudf",
+        language="cypher",
+    )
+    assert type(positive._nodes).__module__.startswith("cudf")
+    assert _to_pandas_df(positive._nodes).to_dict(orient="records") == [
+        {"property": 10.0, "messageCount": 1},
+        {"property": 20.0, "messageCount": 1},
+    ]
+
+    partial = graph.gfql(
+        "MATCH (a:A)-[:R]->(b:B) WITH b, b.score AS property "
+        "MATCH (b)-[:S {weight: 10}]->(c:C) "
+        "RETURN property, count(DISTINCT c.id) AS messageCount ORDER BY property",
+        engine="cudf",
+        language="cypher",
+    )
+    assert type(partial._nodes).__module__.startswith("cudf")
+    assert _to_pandas_df(partial._nodes).to_dict(orient="records") == [
+        {"property": 10.0, "messageCount": 1}
+    ]
+
 @pytest.mark.parametrize("engine", ["pandas", "polars"])
 def test_issue_2252_multi_edge_prefix_keeps_path_scalar_on_pandas_and_polars(engine: str) -> None:
     nodes_df = pd.DataFrame(
