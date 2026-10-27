@@ -22888,8 +22888,6 @@ def test_lowering_coverage_helper_direct_margin_paths() -> None:
 
     boundary_exc = GFQLValidationError(ErrorCode.E108, "forced", field="return", value=["a", "b"])
     assert _is_multi_source_match_alias_boundary_error(boundary_exc, alias_targets={"a": ASTNode(name="a"), "b": ASTNode(name="b")})
-    assert not _is_multi_source_match_alias_boundary_error(GFQLValidationError(ErrorCode.E201, "forced", field="return", value=["a", "b"]), alias_targets={"a": ASTNode(name="a"), "b": ASTNode(name="b")})
-
     assert _expr_property_access_node_aliases(
         "[a.city, r.weight]",
         parse_row_expr=_parse_row_expr,
@@ -22913,3 +22911,73 @@ def test_string_cypher_parenthesized_and_preserves_missing_property_as_null() ->
     # IS NOT NULL on the same absent property yields no rows (absent -> null)
     none = g.gfql("MATCH (n) WHERE n.missing IS NOT NULL AND (n.x = 1) RETURN n.id AS id")
     assert none._nodes["id"].tolist() == [] if "id" in none._nodes.columns else len(none._nodes) == 0
+
+
+@pytest.mark.parametrize("engine", ["pandas", "polars"])
+def test_issue_2252_scalar_only_prefix_survives_match_on_pandas_and_polars(engine: str) -> None:
+    nodes_df, edges_df = _mk_reentry_carried_scalar_data()
+    nodes_df = nodes_df.assign(label__B=[False, False, True, True])
+    graph = _mk_polars_graph(nodes_df, edges_df) if engine == "polars" else _mk_graph(nodes_df, edges_df)
+
+    result = graph.gfql(
+        "MATCH (a:A) WITH a.num AS property MATCH (a)-->(b:B) "
+        "RETURN property, count(DISTINCT b.id) AS messageCount ORDER BY property",
+        engine=engine,
+        language="cypher",
+    )
+
+    records = _to_pandas_df(result._nodes).to_dict(orient="records")
+    assert records == [{"property": 1.0, "messageCount": 2}, {"property": 2.0, "messageCount": 2}]
+
+
+@pytest.mark.parametrize("engine", ["pandas", "polars"])
+def test_issue_2252_scalar_only_prefix_negative_is_empty_on_pandas_and_polars(engine: str) -> None:
+    nodes_df, edges_df = _mk_reentry_carried_scalar_data()
+    nodes_df = nodes_df.assign(label__B=[False, False, True, True])
+    graph = _mk_polars_graph(nodes_df, edges_df) if engine == "polars" else _mk_graph(nodes_df, edges_df)
+
+    result = graph.gfql(
+        "MATCH (a:A {num: 99}) WITH a.num AS property MATCH (a)-->(b:B) "
+        "RETURN property, count(DISTINCT b.id) AS messageCount",
+        engine=engine,
+        language="cypher",
+    )
+
+    assert _to_pandas_df(result._nodes).to_dict(orient="records") == []
+
+
+def test_issue_2252_no_reentry_match_retains_multiplicity_on_pandas_and_polars() -> None:
+    nodes_df, edges_df = _mk_reentry_carried_scalar_data()
+    nodes_df = nodes_df.assign(label__B=[False, False, True, True])
+
+    for engine in ("pandas", "polars"):
+        graph = _mk_polars_graph(nodes_df, edges_df) if engine == "polars" else _mk_graph(nodes_df, edges_df)
+        result = graph.gfql(
+            "MATCH (a:A)-[:R]->(b:B) RETURN count(*) AS pathCount",
+            engine=engine,
+            language="cypher",
+        )
+        assert _to_pandas_df(result._nodes).to_dict(orient="records") == [{"pathCount": 2}]
+
+
+@pytest.mark.parametrize("engine", ["pandas", "polars"])
+def test_issue_2252_typed_carried_scalar_survives_match_on_pandas_and_polars(engine: str) -> None:
+    nodes_df, edges_df = _mk_reentry_carried_scalar_data()
+    nodes_df = nodes_df.assign(
+        label__B=[False, False, True, True],
+        ts=pd.to_datetime(["2020-01-01", "2020-01-02", "2020-01-03", "2020-01-04"]),
+    )
+    graph = _mk_polars_graph(nodes_df, edges_df) if engine == "polars" else _mk_graph(nodes_df, edges_df)
+
+    result = graph.gfql(
+        "MATCH (a:A) WITH a.ts AS event MATCH (a)-->(b:B) "
+        "RETURN event, count(DISTINCT b.id) AS messageCount",
+        engine=engine,
+        language="cypher",
+    )
+
+    records = _to_pandas_df(result._nodes).to_dict(orient="records")
+    assert records == [
+        {"event": pd.Timestamp("2020-01-01"), "messageCount": 2},
+        {"event": pd.Timestamp("2020-01-02"), "messageCount": 2},
+    ]

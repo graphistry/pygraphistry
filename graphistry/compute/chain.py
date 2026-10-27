@@ -279,6 +279,7 @@ def combine_steps(
             steps = new_steps
 
     logger.debug('-----------[ combine %s ---------------]', kind)
+    from graphistry.compute.gfql.cypher.reentry.naming import REENTRY_HIDDEN_COLUMN_PREFIX
 
     if label_steps is None:
         label_steps = steps
@@ -307,6 +308,7 @@ def combine_steps(
     dfs_to_concat = []
     extra_step_dfs = []
     base_cols = set((g._nodes if kind == "nodes" else g._edges).columns)
+    carry_cols: List[str] = []
     for idx, (op, g_step) in enumerate(steps):
         op_label = label_steps[idx][0] if idx < len(label_steps) else op
         step_df = apply_output_slice(op, op_label, (g_step._nodes if kind == "nodes" else g_step._edges))
@@ -315,13 +317,63 @@ def combine_steps(
             raise ValueError(f"Column '{id}' not found in {kind} step DataFrame. "
                            f"Step has id='{step_id}', available columns: {list(step_df.columns)}. "
                            f"Operation: {op}")
-        dfs_to_concat.append(step_df[[id]])
+
+        if (
+            kind == 'nodes'
+            and idx > 0
+            and isinstance(op, ASTNode)
+            and isinstance(label_steps[idx - 1][0], ASTEdge)
+        ):
+            prev_nodes = label_steps[idx - 2][1]._nodes
+            prev_edges = label_steps[idx - 1][1]._edges
+            edge_op = label_steps[idx - 1][0]
+            prev_carry_cols = (
+                [c for c in prev_nodes.columns if c.startswith(REENTRY_HIDDEN_COLUMN_PREFIX)]
+                if prev_nodes is not None else []
+            )
+            if (
+                prev_nodes is not None
+                and prev_edges is not None
+                and prev_carry_cols
+                and len(step_df)
+                and len(prev_edges)
+            ):
+                edge_parts = []
+                if edge_op.direction != 'reverse':
+                    edge_parts.append((g._source, g._destination))
+                if edge_op.direction != 'forward':
+                    edge_parts.append((g._destination, g._source))
+
+                carry_maps = []
+                for from_col, to_col in edge_parts:
+                    carry_maps.append(
+                        prev_edges[[from_col, to_col]].merge(
+                            prev_nodes[[id] + prev_carry_cols],
+                            left_on=from_col,
+                            right_on=id,
+                            how='inner',
+                        ).drop(columns=[from_col, id]).rename(columns={to_col: id})
+                    )
+                carry_map = df_concat(engine)(carry_maps)
+                carry_map = carry_map.drop_duplicates(subset=[id] + prev_carry_cols)
+                step_df = step_df.drop(columns=[c for c in prev_carry_cols if c in step_df.columns])
+                step_df = safe_merge(step_df, carry_map, on=id, how='left', engine=engine)
+
+        step_carry_cols = [
+            column for column in step_df.columns
+            if column.startswith(REENTRY_HIDDEN_COLUMN_PREFIX)
+        ]
+        carry_cols.extend(step_carry_cols)
+        dfs_to_concat.append(step_df[[id] + step_carry_cols])
 
     for _, (_, g_step) in enumerate(label_steps):
         step_df = (g_step._nodes if kind == "nodes" else g_step._edges)
         if id not in step_df.columns:
             continue
-        extra_cols = [c for c in step_df.columns if c != id and c not in base_cols and 'hop' in c]
+        extra_cols = [
+            c for c in step_df.columns
+            if c != id and c not in base_cols and 'hop' in c
+        ]
         if extra_cols:
             extra_step_dfs.append(step_df[[id] + extra_cols])
 
@@ -332,7 +384,8 @@ def combine_steps(
             dfs_to_concat = [df_to_engine(df, engine) for df in dfs_to_concat]
 
     concat = df_concat(engine)
-    out_df = concat(dfs_to_concat).drop_duplicates(subset=[id])
+    dedup_cols = [id] + list(dict.fromkeys(carry_cols))
+    out_df = concat(dfs_to_concat).drop_duplicates(subset=dedup_cols)
 
     label_cols = set()
     for step_df in extra_step_dfs:
@@ -676,7 +729,6 @@ def _plan_indexed_middle(
     comparable instead of two inline condition chains that drift.
     """
     from .gfql.index.handoff import IndexedBindingsHandoff
-
     if not (middle and suffix) or prefix or start_nodes is not None or policy:
         return None
     call = suffix[0]
