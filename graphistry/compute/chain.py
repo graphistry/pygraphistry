@@ -326,7 +326,7 @@ def combine_steps(
         ):
             prev_nodes = label_steps[idx - 2][1]._nodes
             prev_edges = label_steps[idx - 1][1]._edges
-            edge_op = label_steps[idx - 1][0]
+            edge_op = cast(ASTEdge, label_steps[idx - 1][0])
             prev_carry_cols = (
                 [c for c in prev_nodes.columns if c.startswith(REENTRY_HIDDEN_COLUMN_PREFIX)]
                 if prev_nodes is not None else []
