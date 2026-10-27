@@ -2015,7 +2015,20 @@ def _execute_compiled_query_with_reentry_impl(
             prefix_row_count_for_whole_row = (
                 len(prefix_rows_for_whole_row) if prefix_rows_for_whole_row is not None else 0
             )
-            if plan.scalar_columns and prefix_row_count_for_whole_row > 1:
+            try:
+                compiled_base_graph, start_nodes = _compiled_query_reentry_state(
+                    base_graph,
+                    plan,
+                    prefix_result,
+                    engine=engine,
+                )
+            except GFQLValidationError as exc:
+                if not (
+                    plan.scalar_columns
+                    and prefix_row_count_for_whole_row > 1
+                    and _is_duplicate_carried_rows_reentry_error(exc)
+                ):
+                    raise
                 if compiled_query.optional_reentry:
                     raise _reentry_validation_error(
                         "Cypher OPTIONAL MATCH after a multi-row whole-row WITH prefix is not yet supported"
@@ -2023,7 +2036,7 @@ def _execute_compiled_query_with_reentry_impl(
                         value=prefix_row_count_for_whole_row,
                         suggestion="Use MATCH instead of OPTIONAL MATCH, or reduce the WITH prefix to a single row",
                         field="optional_reentry",
-                    )
+                    ) from exc
                 row_results = []
                 for i in range(prefix_row_count_for_whole_row):
                     row_prefix_result = _slice_reentry_prefix_result_row(
@@ -2049,12 +2062,6 @@ def _execute_compiled_query_with_reentry_impl(
                 return _union_scalar_reentry_results(
                     row_results, base_graph=base_graph, engine=engine
                 )
-            compiled_base_graph, start_nodes = _compiled_query_reentry_state(
-                base_graph,
-                plan,
-                prefix_result,
-                engine=engine,
-            )
     result = _execute_compiled_query(
         compiled_base_graph,
         compiled_query=compiled_query,

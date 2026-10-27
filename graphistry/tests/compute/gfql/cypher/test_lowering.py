@@ -22975,6 +22975,71 @@ def test_issue_2252_connected_scalar_prefix_survives_match_on_pandas_and_polars(
 
 
 @pytest.mark.parametrize("engine", ["pandas", "polars"])
+def test_issue_2252_multi_edge_prefix_keeps_path_scalar_on_pandas_and_polars(engine: str) -> None:
+    nodes_df = pd.DataFrame(
+        {
+            "id": ["a1", "a2", "b1", "b2", "c1", "c2"],
+            "label__A": [True, True, False, False, False, False],
+            "label__B": [False, False, True, True, False, False],
+            "label__C": [False, False, False, False, True, True],
+            "num": [1, 2, None, None, None, None],
+        }
+    )
+    edges_df = pd.DataFrame(
+        {
+            "s": ["a1", "a2", "b1", "b2"],
+            "d": ["b1", "b2", "c1", "c2"],
+            "type": ["R", "R", "S", "S"],
+        }
+    )
+    graph = _mk_polars_graph(nodes_df, edges_df) if engine == "polars" else _mk_graph(nodes_df, edges_df)
+
+    result = graph.gfql(
+        "MATCH (a:A) WITH a, a.num AS p "
+        "MATCH (a)-[:R]->(b:B)-[:S]->(c:C) "
+        "RETURN p, c.id AS cid ORDER BY p",
+        engine=engine,
+        language="cypher",
+    )
+
+    assert _to_pandas_df(result._nodes).to_dict(orient="records") == [
+        {"p": 1.0, "cid": "c1"},
+        {"p": 2.0, "cid": "c2"},
+    ]
+
+
+@pytest.mark.parametrize("engine", ["pandas", "polars"])
+def test_issue_2252_multi_edge_prefix_negative_is_empty_on_pandas_and_polars(engine: str) -> None:
+    nodes_df = pd.DataFrame(
+        {
+            "id": ["a1", "a2", "b1", "b2", "c1", "c2"],
+            "label__A": [True, True, False, False, False, False],
+            "label__B": [False, False, True, True, False, False],
+            "label__C": [False, False, False, False, True, True],
+            "num": [1, 2, None, None, None, None],
+        }
+    )
+    edges_df = pd.DataFrame(
+        {
+            "s": ["a1", "a2", "b1", "b2"],
+            "d": ["b1", "b2", "c1", "c2"],
+            "type": ["R", "R", "S", "S"],
+        }
+    )
+    graph = _mk_polars_graph(nodes_df, edges_df) if engine == "polars" else _mk_graph(nodes_df, edges_df)
+
+    result = graph.gfql(
+        "MATCH (a:A {num: 99}) WITH a, a.num AS p "
+        "MATCH (a)-[:R]->(b:B)-[:S]->(c:C) "
+        "RETURN p, c.id AS cid",
+        engine=engine,
+        language="cypher",
+    )
+
+    assert _to_pandas_df(result._nodes).to_dict(orient="records") == []
+
+
+@pytest.mark.parametrize("engine", ["pandas", "polars"])
 def test_issue_2252_scalar_only_prefix_negative_is_empty_on_pandas_and_polars(engine: str) -> None:
     nodes_df, edges_df = _mk_reentry_carried_scalar_data()
     nodes_df = nodes_df.assign(label__B=[False, False, True, True])

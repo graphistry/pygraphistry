@@ -1205,23 +1205,30 @@ def _chain_traversal_polars(self: Plottable, ops, start_nodes: Optional[Any] = N
         if isinstance(col, str) and col.startswith("__cypher_reentry_")
     ]
     if seed_carry_cols:
-        edge_ops = [op for op in ops if isinstance(op, ASTEdge)]
-        edge_parts = []
-        if len(edge_ops) == 1:
-            if edge_ops[0].direction != "reverse":
-                edge_parts.append((src, dst))
-            if edge_ops[0].direction != "forward":
-                edge_parts.append((dst, src))
-        carry_maps = []
-        for from_col, to_col in edge_parts:
-            carry_maps.append(
-                final_edges_eager.select([from_col, to_col])
-                .join(start_nodes.select([node_col, *seed_carry_cols]),
-                      left_on=from_col, right_on=node_col, how="inner")
-                .drop(from_col)
-                .rename({to_col: node_col})
+        carry_map = start_nodes.select([node_col, *seed_carry_cols])
+        for edge_op, edge_step in edge_steps:
+            if not isinstance(edge_op, ASTEdge) or edge_step._edges is None:
+                continue
+            edge_src, edge_dst = edge_step._source, edge_step._destination
+            assert edge_src is not None and edge_dst is not None
+            edge_parts = []
+            if edge_op.direction != "reverse":
+                edge_parts.append((edge_src, edge_dst))
+            if edge_op.direction != "forward":
+                edge_parts.append((edge_dst, edge_src))
+            next_carry_frames = []
+            for from_col, to_col in edge_parts:
+                next_carry_frames.append(
+                    carry_map.join(
+                        edge_step._edges.select([from_col, to_col]),
+                        left_on=node_col, right_on=from_col, how="inner")
+                    .drop(node_col)
+                    .rename({to_col: node_col})
+                )
+            carry_map = (
+                pl.concat(next_carry_frames, how="vertical")
+                if len(next_carry_frames) > 1 else next_carry_frames[0]
             )
-        carry_map = pl.concat(carry_maps, how="vertical") if len(carry_maps) > 1 else carry_maps[0]
         final_nodes_eager = final_nodes_eager.drop(seed_carry_cols).join(
             carry_map, on=node_col, how="left"
         )
