@@ -25,6 +25,7 @@ def attach_row_exec_context(
     *,
     start_nodes: Optional["DataFrameT"] = None,
     rows_base_graph: Optional["Plottable"] = None,
+    preserve_start_node_multiplicity: bool = False,
 ) -> "Plottable":
     """Return an internal copy of ``g`` carrying this execution's row context.
 
@@ -35,6 +36,7 @@ def attach_row_exec_context(
     out = g.bind()
     if start_nodes is not None:
         out._gfql_start_nodes = start_nodes
+        out._gfql_preserve_start_node_multiplicity = preserve_start_node_multiplicity
     if rows_base_graph is not None:
         out._gfql_rows_base_graph = rows_base_graph
     return out
@@ -77,4 +79,5 @@ def clear_row_exec_context(g: "Plottable") -> "Plottable":
     out = g.bind()
     out._gfql_start_nodes = None
     out._gfql_rows_base_graph = None
+    out._gfql_preserve_start_node_multiplicity = False
     return out

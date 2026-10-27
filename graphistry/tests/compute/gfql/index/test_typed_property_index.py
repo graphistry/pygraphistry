@@ -7,6 +7,7 @@ import pytest
 
 import graphistry
 from graphistry.Engine import Engine, df_to_engine
+from graphistry.compute.ast import n, rows
 from graphistry.compute.gfql.index import get_registry, index_trace, with_index_policy
 from graphistry.tests.compute.gfql.index.test_edge_property_index import frame_records
 
@@ -361,3 +362,73 @@ def test_polars_gpu_dense_temporal_decline_keeps_canonical_filter(registered_eng
         actual = selector.property_candidate_frame(indexed, role, frame, {"value": "2025-01-01T01:00:00"}, Engine.POLARS_GPU)
     assert actual is frame
     assert_frame_equal(frame, original)
+
+
+@pytest.mark.route_engaged("native-fast", "polars-single-node")
+@pytest.mark.parametrize("nullable", [False, True])
+def test_boolean_property_index_engages_and_preserves_rows(engine, nullable):
+    values = [True, False, True, None] if nullable else [False, True, False, True]
+    if engine.startswith("polars"):
+        pl = pytest.importorskip("polars")
+        nodes = pl.DataFrame({
+            "id": [0, 1, 2, 3],
+            "value": pl.Series(values, dtype=pl.Boolean),
+            "keep": [1, 1, 0, 0],
+        })
+    else:
+        nodes = pd.DataFrame({
+            "id": [0, 1, 2, 3],
+            "value": pd.Series(values, dtype="boolean" if nullable else "bool"),
+            "keep": [1, 1, 0, 0],
+        })
+    nodes.index = [3, 2, 1, 0]
+    edges = pd.DataFrame({"s": [0, 1, 2, 3], "d": [1, 2, 3, 0]})
+    base = graphistry.nodes(df_to_engine(nodes, Engine(engine)), "id").edges(
+        df_to_engine(edges, Engine(engine)), "s", "d"
+    )
+    indexed = base.create_index("node_prop", column="value", engine=engine)
+    shown = indexed.show_indexes(engine=engine)
+    assert shown["valid"].all() and shown["usable"].all()
+
+    for predicate in [True, False, [True, False]]:
+        expected = base.filter_nodes_by_dict({"value": predicate}, engine=engine)._nodes
+        expected_ids = sorted(record["id"] for record in frame_records(expected))
+        with index_trace() as steps:
+            actual = with_index_policy(indexed, "force").filter_nodes_by_dict(
+                {"value": predicate}, engine=engine
+            )._nodes
+        actual_ids = sorted(record["id"] for record in frame_records(actual))
+        assert actual_ids == expected_ids
+        lookups = [step for step in steps if step.get("op") == "property_lookup"]
+        assert lookups and all(step.get("path") == "index" for step in lookups)
+
+    query = [n({"value": True}, name="a"), rows()]
+    expected = base.gfql(query, engine=engine, index_policy="off")._nodes
+    with index_trace() as steps:
+        actual = indexed.gfql(query, engine=engine, index_policy="force")._nodes
+    assert actual is not None and expected is not None
+    assert frame_records(actual) == frame_records(expected)
+    seeds = [step for step in steps if step.get("seam") == "native_seed_lookup"]
+    assert seeds and seeds[0].get("reason") == "property_index"
+    assert seeds[0].get("path") == "index"
+
+
+def test_cudf_boolean_node_props_builds_backend_native_keys():
+    """Explicitly pin the convenience builder on cuDF Boolean node storage."""
+    cudf = pytest.importorskip("cudf")
+    nodes = cudf.DataFrame({
+        "id": [0, 1, 2, 3],
+        "value": [False, True, False, True],
+        "keep": [1, 1, 0, 0],
+    })
+    edges = cudf.DataFrame({"s": [0, 1, 2, 3], "d": [1, 2, 3, 0]})
+    base = graphistry.nodes(nodes, "id").edges(edges, "s", "d")
+    indexed = base.gfql_index_node_props(["value"], engine="cudf")
+    registry = get_registry(indexed)
+    assert "value" in registry.node_props
+    prop = registry.node_props["value"]
+    assert prop.engine is Engine.CUDF
+    assert prop.keys_sorted.dtype.kind == "b"
+    assert prop.keys_sorted.tolist() == [False, True]
+    shown = indexed.show_indexes(engine="cudf")
+    assert shown.loc[shown["key_col"] == "value", "valid"].all()

@@ -10,6 +10,7 @@ import pandas as pd
 import pytest
 import graphistry
 from graphistry.compute.ast import n, e_forward, e_reverse, e_undirected, call, let, rows, with_, return_
+from graphistry.compute.predicates.is_in import IsIn
 
 # No polars wheel (e.g. cp314) -> skip module cleanly, not per-case non-NIE ImportError "fails".
 pytest.importorskip("polars")
@@ -65,6 +66,7 @@ def _predicate_queries():
     from graphistry.compute.predicates.is_in import IsIn
     from graphistry.compute.predicates.str import (
         Contains, Startswith, Endswith, Match, Fullmatch, IsNull, NotNull,
+        NeverMatch,
     )
     from graphistry.compute.predicates.numeric import IsNA, NotNA
     out = []
@@ -86,6 +88,7 @@ def _predicate_queries():
         (Fullmatch, "name", {"pat": r"node\.\d"}),   # full match 'node.X'
         (IsNA, "name", {}), (NotNA, "name", {}),
         (IsNull, "name", {}), (NotNull, "name", {}),   # str-module null predicates (distinct from numeric IsNA/NotNA)
+        (NeverMatch, "name", {}),                      # Cypher null-equality UNKNOWN sentinel
     ]:
         out.append((f"pred:{P.__name__}({col},{kw})", [n({col: P(**kw)})]))
     return out
@@ -261,6 +264,8 @@ _NATIVE_OK_CYPHER = [
      "truncate toward zero, NaN/null -> null"),
     ("tointeger_int", "MATCH (n) RETURN n.id AS id, toInteger(n.num) AS i",
      "identity cast"),
+        ("tointeger_string", "MATCH (n) RETURN n.id AS id, toInteger(n.name) AS i",
+         "float parse then int cast: invalid/non-finite strings -> null"),
     ("toboolean_bool", "MATCH (n) RETURN n.id AS id, toBoolean(n.flag) AS b",
      "identity, nulls preserved"),
     ("tostring_bool", "MATCH (n) RETURN n.id AS id, toString(n.flag) AS s",
@@ -272,8 +277,6 @@ _NATIVE_OK_CYPHER = [
 _HONEST_NIE_CYPHER = [
     # (id, cypher over _graph(4), pandas_expect 'ok'|'raises', why-polars-declines)
     ("tofloat_string", "MATCH (n) RETURN n.id AS id, toFloat(n.name) AS f", "raises",
-     "pandas astype(float) RAISES on non-numeric strings; strict=False nulls would fabricate data"),
-    ("tointeger_string", "MATCH (n) RETURN n.id AS id, toInteger(n.name) AS i", "raises",
      "pandas astype(float) RAISES on non-numeric strings; strict=False nulls would fabricate data"),
     ("size_numeric", "MATCH (n) RETURN n.id AS id, size(n.num) AS sz", "raises",
      "size(non-string/non-list) has no defined answer: polars declines, pandas/cuDF raise"),
@@ -1211,6 +1214,17 @@ def _native_ok_query_cases():
         ("temporal-gt-datevalue", _temporal_graph,
          [n({"ts": GT(val=datetime.date(2020, 1, 15))})],
          "naive Datetime column + DateValue = the proven SAFE temporal shape"),
+        ("temporal-between-tzaware-datetimevalue", _temporal_graph,
+         [n({"ts": Between(lower=datetime.datetime(2020, 1, 15, 0, 0),
+                           upper=datetime.datetime(2020, 3, 1, 0, 0))})],
+         "both bounds are tz-tagged DateTimeValues; each endpoint lowers via the exact "
+         "naive-UTC DateTimeValue compare (integer epoch bound, no pydatetime loss)"),
+        ("temporal-gt-tzaware-datetimevalue", _temporal_graph,
+         [n({"ts": GT(val=datetime.datetime(2020, 1, 15, 12, 0))})],
+         "tz-tagged DateTimeValue lowers via the exact naive-UTC DateTimeValue compare"),
+        ("temporal-isin-date", _temporal_graph,
+         [n({"ts": IsIn(options=[datetime.date(2020, 1, 15), datetime.date(2020, 2, 1)])})],
+         "pandas and Polars agree that a date member is the exact midnight instant, not calendar-day membership"),
         ("leapyear-naive", _leapyear_graph, [n({"ts": is_leap_year()})],
          "provable Gregorian leap-year derivation on a naive Datetime column"),
         ("in-membership-row-expr", lambda: _graph(1),
@@ -1228,16 +1242,6 @@ def _polars_nie_query_cases():
     from graphistry.compute.predicates.is_in import IsIn
     import graphistry.compute.predicates.temporal as T
     return [
-        ("temporal-between-tzaware-bounds", _temporal_graph,
-         [n({"ts": Between(lower=datetime.datetime(2020, 1, 15, 0, 0),
-                           upper=datetime.datetime(2020, 3, 1, 0, 0))})], None,
-         "datetime bounds normalize to tz-tagged DateTimeValue -> an endpoint declines -> the composed Between declines"),
-        ("temporal-isin", _temporal_graph,
-         [n({"ts": IsIn(options=[datetime.date(2020, 1, 15), datetime.date(2020, 2, 1)])})], None,
-         "pandas is EXACT-instant membership (not date-truncated); cross-precision is_in unproven"),
-        ("temporal-gt-tzaware-datetimevalue", _temporal_graph,
-         [n({"ts": GT(val=datetime.datetime(2020, 1, 15, 12, 0))})], None,
-         "python datetime -> tz-tagged DateTimeValue (default UTC): silent tz-mishandling risk"),
         ("leapyear-nontemporal-col", _leapyear_graph, [n({"v": T.is_leap_year()})], None,
          "IsLeapYear on an int column has no proven parity"),
         ("leapyear-tzaware", _tzaware_graph, [n({"ts": T.is_leap_year()})], None,

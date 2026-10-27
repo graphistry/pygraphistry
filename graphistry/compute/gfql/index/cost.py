@@ -67,20 +67,27 @@ def _env_cost_gate_frac(engine: Engine) -> Optional[float]:
     return None
 
 
-def cost_gate_frac(engine: Engine, *, kind: Optional[IndexKind] = None) -> float:
+def cost_gate_frac(
+    engine: Engine, *, kind: Optional[IndexKind] = None, default: Optional[float] = None,
+) -> float:
     """Return the index-vs-scan crossover fraction for an engine.
 
     Precedence: code override via ``set_cost_gate_frac`` > engine/global env var
-    > baked default. Env vars are ``GFQL_INDEX_COST_GATE_FRAC`` and per-engine
+    > per-call fallback > baked default. Env vars are
+    ``GFQL_INDEX_COST_GATE_FRAC`` and per-engine
     ``GFQL_INDEX_COST_GATE_FRAC_PANDAS`` / ``..._POLARS_GPU`` style names.
-    Encoded property kinds use the conservative crossover; native string keys
-    retain the general crossover because native text scans cost more.
+    ``default`` lets an individual index seam use a measured fallback without
+    overriding explicit process or environment tuning. Encoded property kinds
+    otherwise use the conservative crossover; native string keys retain the
+    general crossover because native text scans cost more.
     """
     if engine in _COST_GATE_FRAC_OVERRIDES:
         return _COST_GATE_FRAC_OVERRIDES[engine]
     env = _env_cost_gate_frac(engine)
     if env is not None:
         return env
+    if default is not None:
+        return _validate_cost_gate_frac(default)
     if kind in ("node_prop", "edge_prop"):
         # Encoded numeric/category/temporal masks scan more cheaply than adjacency.
         return _COST_GATE_FRAC_DEFAULT

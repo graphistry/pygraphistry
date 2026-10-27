@@ -1,7 +1,7 @@
 import pytest
 from graphistry.compute.predicates.categorical import Duplicated
 from graphistry.compute.predicates.str import (
-    Startswith, Endswith, Match, Fullmatch, Contains
+    Startswith, Endswith, Match, Fullmatch, Contains, NeverMatch
 )
 from graphistry.compute.predicates.from_json import from_json
 from graphistry.compute.exceptions import GFQLValidationError, GFQLTypeError
@@ -234,3 +234,12 @@ def test_string_and_temporal_eq_survive_roundtrip_without_raising():
     from_json(_cmp_eq(_dt.date(2020, 1, 1)).to_json())  # no raise
     assert isinstance(from_json({'type': 'EQ', 'val': 'foo'}), _CmpEQ)
     assert isinstance(from_json({'type': 'GT', 'val': {'type': 'date', 'value': '2020-01-01'}}), _CmpGT)
+
+
+def test_never_match_json_roundtrip():
+    payload = {'type': 'NeverMatch'}
+
+    pred = from_json(payload)
+
+    assert type(pred) is NeverMatch
+    assert from_json(pred.to_json()).to_json() == pred.to_json()

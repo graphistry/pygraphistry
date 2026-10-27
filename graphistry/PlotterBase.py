@@ -16,6 +16,7 @@ from graphistry.validate.validate_react_encodings import parse_apply_encodings_o
 from graphistry.plugins_types.hypergraph import HypergraphResult
 from graphistry.render.resolve_render_mode import resolve_render_mode
 from graphistry.Engine import Engine, EngineAbstractType, df_to_engine
+from graphistry.graph_bridge import bridge_polars_graph
 import copy, hashlib, numpy as np, pandas as pd, pyarrow as pa, sys, uuid, warnings
 from functools import lru_cache, partialmethod
 from weakref import WeakValueDictionary
@@ -227,6 +228,7 @@ class PlotterBase(Plottable):
     _gfql_indexed_bindings_handoff: Optional["IndexedBindingsHandoff"] = None
     _gfql_rows_base_graph: Optional["Plottable"] = None
     _gfql_start_nodes: Optional["DataFrameT"] = None
+    _gfql_preserve_start_node_multiplicity: bool = False
     _gfql_rows_edge_aliases: Optional[Iterable[str]] = None
     _gfql_shortest_path_backend: str = "auto"
     _g: Optional["Plottable"] = None  # set only on row-pipeline adapters
@@ -2564,8 +2566,8 @@ class PlotterBase(Plottable):
     from_gexf = from_gexf
     to_gexf = to_gexf
     to_igraph = to_igraph
-    compute_igraph = compute_igraph
-    layout_igraph = layout_igraph
+    compute_igraph = bridge_polars_graph(Engine.PANDAS)(compute_igraph)
+    layout_igraph = bridge_polars_graph(Engine.PANDAS)(layout_igraph)
 
 
     def pandas2igraph(self, edges: pd.DataFrame, directed: bool = True) -> Any:
@@ -2773,8 +2775,8 @@ class PlotterBase(Plottable):
 
     from_cugraph = from_cugraph
     to_cugraph = to_cugraph
-    compute_cugraph = compute_cugraph
-    layout_cugraph = layout_cugraph
+    compute_cugraph = bridge_polars_graph(Engine.CUDF)(compute_cugraph)
+    layout_cugraph = bridge_polars_graph(Engine.CUDF)(layout_cugraph)
 
     layout_graphviz = layout_graphviz
     render_graphviz = render_graphviz

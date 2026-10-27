@@ -131,12 +131,21 @@ def test_whole_row_grouped_sole_min_declines_typed_on_polars():
 
 
 @pytest.mark.parametrize("engine", ENGINES)
-def test_mixed_aggregate_compound_item_keeps_the_fail_fast(engine):
-    """The conservative one-source boundary survives the new gate: an item that
-    COMBINES two aggregates in one expression still refuses to lower."""
+def test_combined_aggregates_in_one_item_serve_per_group(engine):
+    """``min(p.age) + max(p.age)`` has one value per group, so it runs on binding rows."""
+    out = _run(_graph_a(engine),
+               MATCH_A + "RETURN c.city AS city, min(p.age) + max(p.age) AS mm ORDER BY city",
+               engine)
+    assert _records(out) == [{"city": "LA", "mm": 80.0}, {"city": "NYC", "mm": 50.0}]
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_aggregate_mixed_with_an_ungrouped_alias_keeps_the_fail_fast(engine):
+    """``p.age + min(p.age)`` combines a non-grouped alias with an aggregate: no single
+    value per group, so it still refuses to lower."""
     with pytest.raises(GFQLValidationError, match="one MATCH source alias at a time"):
         _run(_graph_a(engine),
-             MATCH_A + "RETURN c.city AS city, min(p.age) + max(p.age) AS mm ORDER BY city",
+             MATCH_A + "RETURN c.city AS city, p.age + min(p.age) AS mm ORDER BY city",
              engine)
 
 

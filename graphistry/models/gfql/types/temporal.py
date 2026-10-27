@@ -27,10 +27,17 @@ NativeTemporal = Union[NativeDateTime, NativeDate, NativeTime]
 # Tagged dictionaries for JSON serialization/deserialization
 
 class DateTimeWire(TypedDict, total=False):
-    """Wire format for datetime with timezone"""
+    """Wire format for datetime.
+
+    Exactly two variants:
+    - ISO: string ``value`` (ISO 8601), optional ``timezone`` (default UTC), no ``unit``;
+    - epoch: integer-valued ``value`` (UTC epoch count) with required ``unit``
+      ("s"|"ms") and no ``timezone`` (epoch counts are UTC instants).
+    """
     type: Literal["datetime"]
-    value: str  # ISO 8601 datetime string
-    timezone: str  # Optional IANA timezone (default: UTC)
+    value: Union[str, int]  # ISO 8601 datetime string, or integer UTC epoch count
+    timezone: str  # ISO variant only (default: UTC)
+    unit: Literal["s", "ms"]  # epoch variant only (required then)
 
 
 class DateWire(TypedDict):

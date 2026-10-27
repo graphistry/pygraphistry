@@ -69,6 +69,7 @@ class Plottable(Protocol):
     _gfql_indexed_bindings_handoff: Optional["IndexedBindingsHandoff"]
     _gfql_rows_base_graph: Optional["Plottable"]
     _gfql_start_nodes: Optional["DataFrameT"]
+    _gfql_preserve_start_node_multiplicity: bool
     _gfql_rows_edge_aliases: Optional[Iterable[str]]
     _gfql_shortest_path_backend: str
     _cypher_entity_projection_kinds: Optional[Dict[str, GraphEntityKind]]

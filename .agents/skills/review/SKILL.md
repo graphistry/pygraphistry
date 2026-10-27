@@ -317,7 +317,7 @@ column.
 **Paired cuDF coverage required** for changes in `compute/gfql/row/`, `compute/gfql/cypher/`, `compute/gfql_unified.py`, `compute/chain.py`, `compute/hop.py`, `compute/materialize_nodes.py`. Sibling pattern: `pytest.importorskip("cudf")` + engine-parametrized fixture. New DataFrame-touching helpers also need cuDF smoke if on a hot path.
 
 **Flag wording**:
-> [BLOCKER] `<file>:<line>` — `<pattern>` on hot row path. Use `<engine-polymorphic alt>`. See `agents/skills/review/SKILL.md#vectorization--engine-compatibility-gfql--row-pipeline--compute`.
+> [BLOCKER] `<file>:<line>` — `<pattern>` on hot row path. Use `<engine-polymorphic alt>`. See `.agents/skills/review/SKILL.md#vectorization--engine-compatibility-gfql--row-pipeline--compute`.
 
 **Don't flag**: `apply(axis=0)` (column-wise = vectorized); `iterrows()` in CLI/test fixtures; mutation of a df the function itself just constructed (no aliasing — SUGGESTION at most); `inplace=True` in throwaway setup code.
 
@@ -361,6 +361,17 @@ Each wave writes `wave-report.md` with:
 - convergence signal
 
 ## Phase 3: Convergence Report
+
+### Requirement-to-evidence closure
+
+Before writing `final-report.md`, build an acceptance map so a green aggregate count cannot hide an unmet requirement:
+
+| Requirement | Status | Evidence / limitation |
+| --- | --- | --- |
+
+Map every review requirement to `SATISFIED`, `LIMITED`, or `UNSATISFIED`; cite tests, engine/platform capability, dependencies, performance evidence, and documentation (including `CHANGELOG.md`) separately. Preserve still-valid evidence, distinguish same-seam from aggregate evidence, and state unsupported-scope limits without inflating coverage. Recheck the final full diff after repairs; a late repair can invalidate earlier evidence.
+
+When acting on a requested planner decision, drain the latest planner answer first. At natural step boundaries, read material mailbox updates without waiting for routine ACKs.
 
 Write `plans/<task>/final-report.md` with:
 - summary (waves run, convergence status)
