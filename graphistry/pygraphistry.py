@@ -1,7 +1,7 @@
 from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple, Union, cast, overload
 from typing_extensions import Literal
 from graphistry.privacy import Mode, ModeAction
-from graphistry.utils.requests import log_requests_error
+from graphistry.utils.requests import log_requests_error, switch_org_request
 from graphistry.plugins_types.hypergraph import HypergraphResult
 from graphistry.plugins_types.gexf_types import GexfEdgeViz, GexfNodeViz, GexfParseEngine
 from graphistry.client_session import (
@@ -33,7 +33,7 @@ from . import util
 from . import bolt_util
 from .plotter import Plotter
 from .util import in_databricks, setup_logger, in_ipython
-from .exceptions import SsoRetrieveTokenTimeoutException, TokenExpireException, SsoStateInvalidException
+from .exceptions import SsoRetrieveTokenTimeoutException, TokenExpireException, SsoStateInvalidException, SsoPendingException
 
 from .messages import (
     MSG_REGISTER_MISSING_PASSWORD,
@@ -50,6 +50,10 @@ logger = setup_logger(__name__)
 ###############################################################################
 
 SSO_GET_TOKEN_ELAPSE_SECONDS = 50
+
+# Consecutive network-level failures tolerated while polling for the SSO token
+# before giving up; a sustained outage should not wait out the whole sso_timeout.
+SSO_POLL_MAX_CONSECUTIVE_ERRORS = 3
 
 _client_mode_enabled = False
 _is_client_mode_warned = False
@@ -233,11 +237,15 @@ class GraphistryClient(AuthManagerProtocol):
             )
 
         self.session._is_authenticated = False
+        # Track which org this SSO flow was initiated for, distinct from
+        # self.session.org_name (the still-previous org until this switch
+        # is confirmed) -- see _sso_get_token().
+        self.session.sso_requested_org_name = org_name
         arrow_uploader = ArrowUploader(
             client_session=self.session,
             server_base_path=self.protocol()
-            + "://"                   
-            + self.server(),  
+            + "://"
+            + self.server(),
             certificate_validation=self.certificate_validation(),
         ).sso_login(org_name, idp_name)
         try:
@@ -247,7 +255,11 @@ class GraphistryClient(AuthManagerProtocol):
                 raise ValueError("ArrowUploader.sso_login returned no token")
             self.api_token(token)
             self.session._is_authenticated = True
-            self._maybe_switch_org(org_name or self.session.org_name)
+            resolved_org = org_name or self.session.org_name
+            if resolved_org:
+                # Record verification now: a token just SSO-minted for resolved_org must never re-challenge on the switch_org_request() below.
+                self.session.mark_org_verified(token, resolved_org)
+            self._maybe_switch_org(resolved_org)
             arrow_uploader.token = None  # type: ignore[assignment]
             return token
 
@@ -302,9 +314,32 @@ class GraphistryClient(AuthManagerProtocol):
             time.sleep(1)
             elapsed_time = 1
             token = None
+            consecutive_poll_errors = 0
 
             while True:
-                token, org_name = self._sso_get_token()
+                try:
+                    token, org_name = self._sso_get_token()
+                    consecutive_poll_errors = 0
+                except SsoStateInvalidException:
+                    raise
+                except SsoPendingException as exc:
+                    # Browser login still in flight; keep waiting until sso_timeout.
+                    logger.debug("SSO token not ready yet: %s", exc)
+                    token = None
+                    org_name = None
+                except (requests.exceptions.RequestException, ValueError) as exc:
+                    # ValueError covers both json and simplejson decode errors.
+                    # Retry network/parse blips; permanent errors (org mismatch) propagate.
+                    consecutive_poll_errors += 1
+                    if consecutive_poll_errors > SSO_POLL_MAX_CONSECUTIVE_ERRORS:
+                        logger.error(
+                            "Repeated network errors polling SSO token (%s consecutive): %s",
+                            consecutive_poll_errors, exc
+                        )
+                        raise
+                    logger.debug("Transient error polling SSO token, will retry: %s", exc)
+                    token = None
+                    org_name = None
                 try:
                     if not token:
                         if elapsed_time % 10 == 1:
@@ -329,25 +364,18 @@ class GraphistryClient(AuthManagerProtocol):
                 self.session.org_name = org_name
                 # finish, set back to None
                 self.session.sso_state = None
+                self.session.sso_requested_org_name = None
                 print("Successfully logged in")
+                current_token = self.api_token()
+                if org_name and current_token:
+                    # Same reasoning as the direct-token branch above: don't re-challenge a token just minted for org_name via SSO.
+                    self.session.mark_org_verified(current_token, org_name)
                 self._maybe_switch_org(org_name)
                 return self.api_token()
             else:
                 print("Please run graphistry.sso_get_token() to complete the authentication after you have authenticated via SSO")
                 return None
         else:
-            # print("Start getting token ...")
-            # token = None
-            # for i in range(10):
-            #     token, org_name = self._sso_get_token()
-            #     if token:
-            #         # set org_name to sso org
-            #         self._config['org_name'] = org_name
-            #         print("Successfully logged in")
-            #         return self.api_token()
-            #     print("Keep trying to get token ...")
-            #     time.sleep(5)
-
             print("Please run graphistry.sso_get_token() to complete the authentication")
             return None
 
@@ -367,12 +395,14 @@ class GraphistryClient(AuthManagerProtocol):
             raise SsoStateInvalidException("[SSO] Invalid SSO state: NoneType encountered")
 
         # print("_sso_get_token : {}".format(state))
+        # Pass the SSO-requested org explicitly: self.session.org_name still holds the previous org mid-switch.
         arrow_uploader = ArrowUploader(
             client_session=self.session,
             server_base_path=self.protocol()
-            + "://"                   
-            + self.server(),  
+            + "://"
+            + self.server(),
             certificate_validation=self.certificate_validation(),
+            org_name=self.session.sso_requested_org_name,
         ).sso_get_token(state)
 
         try:
@@ -415,7 +445,11 @@ class GraphistryClient(AuthManagerProtocol):
             )
             self.api_token(token)
             self.session._is_authenticated = True
-            self._maybe_switch_org(self.session.org_name)
+            refreshed_org = self.session.org_name
+            if token and refreshed_org and self.session.get_verified_token(refreshed_org):
+                # Refresh reissues under the same org context; carry the grant to the new token.
+                self.session.mark_org_verified(token, refreshed_org)
+            self._maybe_switch_org(refreshed_org)
             return self.api_token()
         except Exception as e:
 
@@ -518,18 +552,6 @@ class GraphistryClient(AuthManagerProtocol):
             self.session.api_token = value.strip()
             self.session._is_authenticated = False
         return value
-
-    # @staticmethod
-    # def api_token_refresh_ms(value=None):
-    #     """Set or get the API token refresh interval in milliseconds.
-    #     None and 0 interpreted as no refreshing."""
-
-    #     if value is None:
-    #         return PyGraphistry._config["api_token_refresh_ms"]
-
-    #     # setter
-    #     if value is not PyGraphistry._config["api_token_refresh_ms"]:
-    #         PyGraphistry._config["api_token_refresh_ms"] = int(value)
 
     def protocol(self, value: Optional[str] = None) -> str:
         """Set or get the protocol ('http' or 'https').
@@ -788,8 +810,7 @@ class GraphistryClient(AuthManagerProtocol):
         if not org_name:
             return
         token = self.api_token()
-        last = self.session._last_switched_org_token
-        if token and last == (org_name, token):
+        if self.session.is_org_verified(token, org_name):
             return
         try:
             self.switch_org(org_name)
@@ -2549,10 +2570,8 @@ class GraphistryClient(AuthManagerProtocol):
             extra,
         )
 
-    def _switch_org_url(self, org_name):
-        hostname = self.session.hostname
-        protocol = self.session.protocol
-        return "{}://{}/api/v2/o/{}/switch/".format(protocol, hostname, org_name)
+    def _base_url(self) -> str:
+        return "{}://{}".format(self.session.protocol, self.session.hostname)
 
 
     def layout_settings(self, 
@@ -2697,21 +2716,31 @@ class GraphistryClient(AuthManagerProtocol):
         self.session.personal_key_secret = value.strip()
 
     def switch_org(self, value: str):
-        # print(self._switch_org_url(value))
-        response = requests.post(
-            self._switch_org_url(value),
-            data={'slug': value},
-            headers=inject_trace_headers({'Authorization': f'Bearer {self.api_token()}'}),
-            verify=self.session.certificate_validation,
-        )
-        log_requests_error(response)
-        result = self._handle_api_response(response)
+        org_name = value.strip()
+        token = self.api_token()
 
-        if result is True:
-            self.session.org_name = value.strip()
-            logger.info("Switched to organization: {}".format(value.strip()))
-        else:  # print the error message
-            raise Exception(result)
+        # Fast path 1: org_name already verified under the current token (a plain switch doesn't reissue the token) -- skip the round trip.
+        if self.session.is_org_verified(token, org_name):
+            self.session.org_name = org_name
+            logger.debug("Already switched to organization %s with current token; skipping request.", org_name)
+            return
+
+        # Fast path 2: an earlier, still-unexpired token already verified org_name (now superseded as active by a later SSO login elsewhere) -- swap it back in.
+        cached_token = self.session.get_verified_token(org_name)
+        if cached_token:
+            # Direct assign: api_token()'s setter would clear _is_authenticated and force a needless refresh().
+            self.session.api_token = cached_token
+            self.session.org_name = org_name
+            logger.debug("Reusing previously-verified token for organization %s; skipping request.", org_name)
+            return
+
+        switch_org_request(
+            self._base_url(), org_name, token, self.session.certificate_validation  # type: ignore[arg-type]
+        )
+
+        self.session.org_name = org_name
+        self.session.mark_org_verified(token, org_name)
+        logger.info("Switched to organization: {}".format(org_name))
 
     def _handle_api_response(self, response):
         try:
