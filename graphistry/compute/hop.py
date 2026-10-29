@@ -419,9 +419,6 @@ def hop(self: Plottable,
         and _pandas_nullable_integer_isin_requires_null_filter()
         and ids_an_endpoint_may_resolve_to.hasnans
     ):
-        # Null endpoints are already removed from the edge table. Excluding null node IDs avoids
-        # pandas nullable-Series.isin false negatives for exact large integers. Clean the shared
-        # endpoint pool before either bounded-edge pruning or seeded one-hop closure uses it.
         ids_an_endpoint_may_resolve_to = ids_an_endpoint_may_resolve_to.dropna()
     if node_table_bound and not closure_rides_traversal:
         edges_indexed = edges_indexed[
