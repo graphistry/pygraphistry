@@ -10,6 +10,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- **GFQL multi-hop relationship aliases**: Cypher property reads and direct GFQL edge markers now include only edges that belong to a complete matched path, including ordinary and payload-shadowing aliases (#1911).
+
 - **GFQL reverse shadowed relationship properties**: pandas scalar projections now restore the matched edge payload after reverse traversal reorders rows (#2256).
 
 - **GFQL Cypher conversion operand validation**: statically invalid conversion operands, such as lists, maps, and graph entities, are rejected at compile time before the engine sees them. Dynamic operands, null propagation, and list-comprehension lexical shadowing keep their existing behavior.
