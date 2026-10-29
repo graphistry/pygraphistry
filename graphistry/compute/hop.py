@@ -31,6 +31,7 @@ from graphistry.Plottable import Plottable
 from .dataframe_utils import column_frame, column_values
 from .endpoint_utils import drop_null_endpoint_edges
 from .filter_by_dict import filter_by_dict
+from .gfql.cache_registry import register_process_singleton
 from .gfql.seed_rediscovery import rediscovered_seed_ids
 from .typing import DataFrameT, DomainT, SeriesT
 from .util import generate_safe_column_name
@@ -72,6 +73,12 @@ def _pandas_nullable_integer_isin_requires_null_filter() -> bool:
         if not bool(probe.isin(candidates).iloc[0]):
             return True
     return False
+
+
+register_process_singleton(
+    _pandas_nullable_integer_isin_requires_null_filter,
+    "a behavior probe over the installed pandas version, which cannot change inside this process",
+)
 
 
 def resolve_hop_bounds(
