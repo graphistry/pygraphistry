@@ -359,6 +359,22 @@ def test_multihop_relationship_shadowed_alias_pandas_fixed_polars_multiplicity_r
     assert sorted(r["x"] for r in _run(SHADOW_NODES, SHADOW_EDGES, query, "polars")) == [7, 8]
 
 
+@pytest.mark.parametrize("engine", ENGINES)
+def test_reverse_multihop_shadowed_relationship_property_reads_matching_edge(engine: str) -> None:
+    """Reverse traversal may reorder edge rows before rows(source=alias) restores payloads."""
+    nodes = pd.DataFrame({"id": ["n1", "n2", "n3", "n4"], "label__P": [True] * 4})
+    edges = pd.DataFrame({
+        "s": ["n1", "n2", "n2"],
+        "d": ["n2", "n3", "n4"],
+        "type": ["K", "K", "K"],
+        "w": [7, 8, 10],
+    })
+    positive = "MATCH (a:P)<-[w:K]-(b:P)<-[:K]-(c:P) WHERE a.id='n3' RETURN w.w AS x"
+    empty = "MATCH (a:P)<-[w:K]-(b:P)<-[:K]-(c:P) WHERE a.id='n1' RETURN w.w AS x"
+    assert _run(nodes, edges, positive, engine) == [{"x": 8}]
+    assert _run(nodes, edges, empty, engine) == []
+
+
 def test_empty_result_keeps_a_shadowed_alias_column_on_both_engines() -> None:
     """#1911 defect 4 (was RESIDUAL): an EMPTY match on an alias named after an existing
     node column used to lose that column on pandas (chain empty-frame column drop), so the
