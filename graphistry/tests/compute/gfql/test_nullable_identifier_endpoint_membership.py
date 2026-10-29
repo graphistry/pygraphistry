@@ -96,3 +96,38 @@ def test_shared_endpoint_pool_preserves_exact_ids_for_unseeded_and_multi_hop(nod
     for out in (unseeded, seeded_two_hop):
         assert str(out._edges["s"].dtype) == "Int64"
         assert str(out._edges["d"].dtype) == "Int64"
+
+
+@pytest.mark.parametrize("node_null", [False, True])
+@pytest.mark.parametrize(
+    "direction,seed",
+    [("reverse", 2**53 + 1), ("undirected", 2**53)],
+)
+def test_direct_hop_directions_keep_native_edge_ids_with_nullable_nodes(
+    direction, seed, node_null
+):
+    base = 2**53
+    neighbor = base + 1
+    node_ids = [None, base, neighbor] if node_null else [base, neighbor]
+    nodes = pd.DataFrame({"id": pd.array(node_ids, dtype="Int64")})
+    edges = pd.DataFrame(
+        {
+            "s": pd.Series([base], dtype="int64"),
+            "d": pd.Series([neighbor], dtype="int64"),
+        }
+    )
+    graph = graphistry.nodes(nodes, "id").edges(edges, "s", "d")
+    seed_nodes = pd.DataFrame({"id": pd.array([seed], dtype="Int64")})
+
+    out = graph.hop(
+        nodes=seed_nodes,
+        hops=1,
+        direction=direction,
+        engine="pandas",
+    )
+
+    assert set(zip(out._edges["s"].tolist(), out._edges["d"].tolist())) == {
+        (base, neighbor)
+    }
+    assert str(out._edges["s"].dtype) == "int64"
+    assert str(out._edges["d"].dtype) == "int64"
