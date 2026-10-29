@@ -641,7 +641,7 @@ def compiled_query_scalar_reentry_state(
             return base_graph, None
         return _bind_reentry_graph(
             base_graph,
-            cast(DataFrameT, base_nodes.iloc[0:0]),
+            cast(DataFrameT, base_nodes.head(0) if _is_polars_df(base_nodes) else base_nodes.iloc[0:0]),
             empty_edges=True,
         ), None
     if base_nodes is None:
