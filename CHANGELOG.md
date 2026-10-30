@@ -16,7 +16,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
-- **Hypergraph event IDs with an existing `EventID` column** (#228): `hypergraph()` used any input column named `EventID` as the event key even when `opts['EVENTID']` was not set, so data carrying its own `EventID` (for example Windows event codes) merged distinct rows into one event node. Events are now always numbered by row unless `EVENTID` is passed explicitly. An implicit `EventID` column is left out of the hypergraph and a `UserWarning` names it, pointing at `opts={'EVENTID': ...}` or renaming the column. An explicit `opts={'EVENTID': ...}` behaves as before.
+- **Hypergraph event IDs with an existing `EventID` column** (#228): `hypergraph()` used any input column named `EventID` as the event key even when `opts['EVENTID']` was not set, so data carrying its own `EventID` (for example Windows event codes) merged distinct rows into one event node. Events are now always numbered by row unless `EVENTID` is passed explicitly. An implicit `EventID` column is left out of the hypergraph and a `UserWarning` names it, pointing at `opts={'EVENTID': ...}` or renaming the column. An explicit `opts={'EVENTID': ...}` behaves as before. Native Dask inputs with more than one partition now get distinct row IDs across partitions instead of raising a length mismatch.
 
 - **GFQL Polars indexed connected bindings**: the default planner gate now admits moderately sized key frontiers and edge gathers. Measured on LDBC SF1 IC4; other families showed no regression, and the relaxation is not claimed to generalize. Explicit cost-gate overrides still take precedence; other index paths and engines retain their defaults.
 

@@ -570,6 +570,19 @@ class TestHypergraphPandas(NoAuthTestCase):
                 hypergraph(PyGraphistry.bind(), df, **kwargs)
             pd.testing.assert_frame_equal(df, expected)
 
+    def test_implicit_eventid_warning_points_at_caller(self):
+        df = pd.DataFrame({"EventID": [1, 2], "user": ["a", "b"]})
+
+        for call in [
+            lambda: PyGraphistry.bind().hypergraph(df),
+            lambda: PyGraphistry.hypergraph(df),
+            lambda: hypergraph(PyGraphistry.bind(), df),
+        ]:
+            with pytest.warns(UserWarning, match="ignoring input column 'EventID'") as record:
+                call()
+            eventid_warnings = [w for w in record if "ignoring input column" in str(w.message)]
+            assert [w.filename for w in eventid_warnings] == [__file__]
+
     def test_hyper_evil(self):
         hypergraph(PyGraphistry.bind(), squareEvil)
 
@@ -1491,6 +1504,68 @@ class TestHypergraphDask(NoAuthTestCase):
             hypergraph(PyGraphistry.bind(), df, engine=Engine.DASK, npartitions=1, debug=DEBUG)
 
             pd.testing.assert_frame_equal(df, expected)
+
+    def test_partitioned_dask_input_uses_row_ids(self):
+        import dask
+        import dask.dataframe as dd
+        from dask.distributed import Client
+
+        with Client(processes=True):
+
+            pdf = pd.DataFrame({"EventID": [7, 8, 9], "user": ["a", "b", "c"], "host": ["x", "x", "y"]})
+            row_ids = ["EventID::0", "EventID::1", "EventID::2"]
+
+            for npartitions in [2, 3]:
+                for direct in [False, True]:
+                    for cols in [["EventID", "user", "host"], ["user", "host"]]:
+                        ddf = dd.from_pandas(pdf[cols], npartitions=npartitions)
+                        expected = ddf.compute()
+                        with warnings.catch_warnings(record=True) as caught:
+                            warnings.simplefilter("always", UserWarning)
+                            hg = hypergraph(
+                                PyGraphistry.bind(), ddf, engine=Engine.DASK, direct=direct, debug=DEBUG
+                            )
+                        warned = any("ignoring input column 'EventID'" in str(w.message) for w in caught)
+                        assert warned == ("EventID" in cols)
+
+                        if not direct:
+                            events = hg.events.compute()
+                            assert len(events) == 3
+                            assert sorted(events["EventID"].tolist()) == row_ids
+                        edges = hg.edges.compute()
+                        assert len(edges) == (3 if direct else 6)
+                        assert sorted(edges["EventID"].unique().tolist()) == row_ids
+                        assert list(ddf.columns) == cols
+                        pd.testing.assert_frame_equal(ddf.compute(), expected)
+
+    def test_partitioned_dask_input_explicit_eventid_is_honored(self):
+        import dask
+        import dask.dataframe as dd
+        from dask.distributed import Client
+
+        with Client(processes=True):
+
+            pdf = pd.DataFrame({"EventID": [7, 8, 9], "user": ["a", "b", "c"], "host": ["x", "x", "y"]})
+
+            for npartitions in [2, 3]:
+                for direct in [False, True]:
+                    ddf = dd.from_pandas(pdf, npartitions=npartitions)
+                    expected = ddf.compute()
+                    with warnings.catch_warnings():
+                        warnings.simplefilter("error", UserWarning)
+                        hg = hypergraph(
+                            PyGraphistry.bind(), ddf, engine=Engine.DASK, direct=direct,
+                            opts={"EVENTID": "EventID"}, debug=DEBUG
+                        )
+
+                    if not direct:
+                        events = hg.events.compute()
+                        assert len(events) == 3
+                        assert sorted(events["EventID"].tolist()) == ["EventID::7", "EventID::8", "EventID::9"]
+                    edges = hg.edges.compute()
+                    assert len(edges) == (3 if direct else 6)
+                    assert sorted(edges["EventID"].unique().tolist()) == ["EventID::7", "EventID::8", "EventID::9"]
+                    pd.testing.assert_frame_equal(ddf.compute(), expected)
 
     def test_hyper_evil(self):
         import dask
