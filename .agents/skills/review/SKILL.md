@@ -168,6 +168,7 @@ git show origin/<base>:<file>
 
 - Test coverage should mirror changed areas in `graphistry/tests/**`.
 - Prefer behavioral tests over implementation-detail assertions.
+- Never approve removal or suppression of a published benchmark number without explicit maintainer approval; require staleness to be labeled and linked to a re-measure issue instead.
 - Treat broad exception catches (`except Exception`, bare `except`) as a bad dynamic/over-defensive typing pattern by default. Require narrowed, documented exception types at local helpers; allow broad catches only at explicit isolation boundaries where the PR explains why programmer errors must be contained.
 ### Encoding: names, tests, structure — not prose
 

@@ -8,6 +8,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [Development]
 <!-- Do Not Erase This Section - Used for tracking unreleased changes -->
 
+### Documentation
+
+- **Stale benchmark results stay published**: age or compute-drift staleness is now rendered as a caveat with its measurement date and a linked re-measure issue instead of refusing or withdrawing the number. Removal of a published benchmark result requires explicit maintainer approval upstream.
+
 ### Fixed
 
 - **GFQL Cypher conversion operand validation**: statically invalid conversion operands, such as lists, maps, and graph entities, are rejected at compile time before the engine sees them. Dynamic operands, null propagation, and list-comprehension lexical shadowing keep their existing behavior.

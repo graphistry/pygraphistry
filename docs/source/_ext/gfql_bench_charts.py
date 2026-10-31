@@ -1,9 +1,14 @@
-"""Draw the GraphFrames task charts from the numbers pyg-bench publishes.
+"""Draw the benchmark charts from the numbers pyg-bench publishes.
 
-Every bar length and figure comes from a cell in
-``docs/source/_data/gfql_benchmarks.json``. ``docs/test_bench_numbers.py`` re-renders
-the committed SVGs and fails if they differ. The earlier PageRank timing charts were
-removed when their measurements were withdrawn.
+The charts on ``gfql/benchmark_filter_pagerank.rst`` are static SVGs, but they are not
+hand-drawn: every bar length and every figure printed on them comes from a cell of
+``docs/source/_data/gfql_benchmarks.json``, through the same ``format_cell`` the
+``:bench:`` role uses. ``docs/test_bench_numbers.py`` re-renders them and fails if a
+committed file differs, so a chart cannot go on asserting a number the artifact no longer
+publishes - which is exactly how withdrawn figures survived on this page as glyph paths.
+
+The GraphFrames task charts render the same way from the ``graphframes.*`` cells of the
+same artifact, once pyg-bench publishes the ladder.
 
 Regenerate after vendoring a new artifact::
 
@@ -18,6 +23,7 @@ a ``prefers-color-scheme`` block so the charts read in dark mode too.
 from __future__ import annotations
 
 import argparse
+import datetime
 import os
 from collections import OrderedDict
 from collections.abc import Sequence
@@ -82,7 +88,32 @@ class Chart(NamedTuple):
     foot: str
 
 
-CHARTS: dict[str, Chart] = OrderedDict()
+CHARTS: dict[str, Chart] = OrderedDict((
+    ('twitter_pipeline.svg', Chart(
+        title='Twitter: 81,306 nodes / 2.4M edges',
+        subtitle='Warm pipeline \u2014 search, PageRank, search. Lower is better.',
+        bars=(
+            Bar('Neo4j + GDS', 'neo', 'pagerank.twitter.neo4j_gds'),
+            Bar('GFQL Cypher on CPU (pandas + igraph)', 'cpu',
+                'pagerank.twitter.gfql_cpu'),
+            Bar('GFQL Cypher on GPU (cuDF + cuGraph)', 'gpu',
+                'pagerank.twitter.gfql_gpu', 'pagerank.twitter.gfql_gpu_vs_gfql_cpu',
+                'faster than the GFQL CPU path'),
+        ),
+        foot='Direct timings use different profiles; only the GFQL GPU/CPU ratio is valid.',
+    )),
+    ('gplus_pipeline.svg', Chart(
+        title='GPlus: 107,614 nodes / 30M edges',
+        subtitle='Warm pipeline \u2014 search, PageRank, search. Lower is better.',
+        bars=(
+            Bar('Neo4j + GDS', 'neo', 'pagerank.gplus.neo4j_gds'),
+            Bar('GFQL Cypher on CPU (pandas + igraph)', 'cpu', 'pagerank.gplus.gfql_cpu'),
+            Bar('GFQL Cypher on GPU (cuDF + cuGraph), diagnostic', 'gpu',
+                'pagerank.gplus.gfql_gpu'),
+        ),
+        foot='Direct timings span runs/profiles; the GPU arm selects a different node set.',
+    )),
+))
 
 
 class ChartError(Exception):
@@ -124,7 +155,7 @@ def _bar_path(x: float, y: float, width: float, height: float) -> str:
         b=_num(y + height - radius))
 
 
-def render(name: str, payload: JSONObject) -> str:
+def render(name: str, payload: JSONObject, today: datetime.date | None = None) -> str:
     """Render one chart to SVG text."""
     chart = CHARTS[name]
     lengths = [_seconds(payload, bar.value) for bar in chart.bars if bar.value]
@@ -272,7 +303,9 @@ def _gf_ratio_text(ratio: JSONObject) -> str:
         '{} of GraphFrames’ speed (slower)'.format(text)
 
 
-def render_graphframes(name: str, payload: JSONObject) -> str:
+def render_graphframes(
+    name: str, payload: JSONObject, today: datetime.date | None = None,
+) -> str:
     """Render one GraphFrames task chart from the published ladder cells."""
     chart = GF_CHARTS[name]
     subtitle = ('Median of 5 after 2 warmups; same result size on every system unless '
@@ -383,13 +416,15 @@ def chart_path(name: str) -> str:
     return os.path.join(CHART_DIR, name)
 
 
-def rendered(payload: JSONObject | None = None) -> dict[str, str]:
+def rendered(
+    payload: JSONObject | None = None, today: datetime.date | None = None,
+) -> dict[str, str]:
     """Every chart, keyed by file name, rendered from the vendored artifact."""
     data = payload if payload is not None else load(BENCHMARKS_JSON)
-    charts = OrderedDict((name, render(name, data)) for name in CHARTS)
+    charts = OrderedDict((name, render(name, data, today)) for name in CHARTS)
     if gf_published(data):
         for name in GF_CHARTS:
-            charts[name] = render_graphframes(name, data)
+            charts[name] = render_graphframes(name, data, today)
     return charts
 
 

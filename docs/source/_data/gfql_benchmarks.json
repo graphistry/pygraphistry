@@ -3341,12 +3341,10 @@
       "workload": "GraphFrames tasks at 0.59.0 (diagnostic) LiveJournal hop2"
     },
     "pagerank.gplus.gfql_cpu": {
-      "board_quotable": false,
-      "comparison_allowed": false,
+      "board_quotable": true,
+      "comparison_allowed": true,
       "decimals": 2,
-      "disclosures": [
-        "The GFQL CPU measurement was taken on 2026-09-04 and reaches the 60-day freshness limit on 2026-11-03. No eligible replacement is published; the historical value is retained only in the artifact."
-      ],
+      "disclosures": [],
       "engine": "GFQL CPU (pandas + igraph)",
       "measurement_profile": "filter-pagerank-resident-in-process",
       "run": "filter-pagerank-059-20260904",
@@ -3360,7 +3358,6 @@
       "comparison_allowed": false,
       "decimals": 2,
       "disclosures": [
-        "The GFQL GPU measurement was taken on 2026-09-04 and reaches the 60-day freshness limit on 2026-11-03. No eligible replacement is published; the historical value is retained only in the artifact.",
         "Its selected-node set differs from the GFQL CPU (pandas + igraph) arm's on gplus (Jaccard 0.91065, gate 0.95); this is a direct pipeline time, not a comparison."
       ],
       "engine": "GFQL GPU (cuDF + cuGraph)",
@@ -3372,12 +3369,11 @@
       "workload": "filter -> PageRank -> filter, gplus \u2014 GFQL GPU (cuDF + cuGraph)"
     },
     "pagerank.gplus.neo4j_gds": {
-      "board_quotable": false,
-      "comparison_allowed": false,
+      "board_quotable": true,
+      "comparison_allowed": true,
       "decimals": 2,
       "disclosures": [
-        "The Neo4j arm writes marker properties during both filter stages and rebuilds its GDS projection per timed iteration; the paired GFQL arm retains resident frames and writes nothing. Twelve position-balanced slots (six per arm) produced exact selected-node parity, but the measurement profiles differ, so this is a direct pipeline time and no GFQL-vs-Neo4j ratio is published.",
-        "Withdrawn on 2026-10-31 because this measurement is 62 days old and exceeds the 60-day publication freshness limit; historical value and receipts are retained only in the artifact."
+        "The Neo4j arm writes marker properties during both filter stages and rebuilds its GDS projection per timed iteration; the paired GFQL arm retains resident frames and writes nothing. Twelve position-balanced slots (six per arm) produced exact selected-node parity, but the measurement profiles differ, so this is a direct pipeline time and no GFQL-vs-Neo4j ratio is published."
       ],
       "engine": "Neo4j + GDS",
       "measurement_profile": "filter-pagerank-server-roundtrip-projection-per-iteration",
@@ -3388,12 +3384,10 @@
       "workload": "filter -> PageRank -> filter, gplus \u2014 Neo4j + GDS"
     },
     "pagerank.twitter.gfql_cpu": {
-      "board_quotable": false,
-      "comparison_allowed": false,
+      "board_quotable": true,
+      "comparison_allowed": true,
       "decimals": 2,
-      "disclosures": [
-        "The GFQL CPU measurement was taken on 2026-09-04 and reaches the 60-day freshness limit on 2026-11-03. No eligible replacement is published; the historical value is retained only in the artifact."
-      ],
+      "disclosures": [],
       "engine": "GFQL CPU (pandas + igraph)",
       "measurement_profile": "filter-pagerank-resident-in-process",
       "run": "filter-pagerank-059-20260904",
@@ -3403,12 +3397,10 @@
       "workload": "filter -> PageRank -> filter, twitter \u2014 GFQL CPU (pandas + igraph)"
     },
     "pagerank.twitter.gfql_gpu": {
-      "board_quotable": false,
-      "comparison_allowed": false,
+      "board_quotable": true,
+      "comparison_allowed": true,
       "decimals": 2,
-      "disclosures": [
-        "The GFQL GPU measurement was taken on 2026-09-04 and reaches the 60-day freshness limit on 2026-11-03. No eligible replacement is published; the historical value is retained only in the artifact."
-      ],
+      "disclosures": [],
       "engine": "GFQL GPU (cuDF + cuGraph)",
       "measurement_profile": "filter-pagerank-resident-in-process",
       "run": "filter-pagerank-059-20260904",
@@ -3417,12 +3409,28 @@
       "value": 0.23,
       "workload": "filter -> PageRank -> filter, twitter \u2014 GFQL GPU (cuDF + cuGraph)"
     },
+    "pagerank.twitter.gfql_gpu_vs_gfql_cpu": {
+      "board_quotable": true,
+      "comparison_allowed": true,
+      "decimals": 1,
+      "disclosures": [],
+      "engine": "GFQL GPU (cuDF + cuGraph)",
+      "measurement_profile": "filter-pagerank-resident-in-process",
+      "operands": [
+        "pagerank.twitter.gfql_gpu",
+        "pagerank.twitter.gfql_cpu"
+      ],
+      "run": "filter-pagerank-059-20260904",
+      "status": "ok",
+      "unit": "x",
+      "value": 11.3,
+      "workload": "filter -> PageRank -> filter, twitter \u2014 GFQL GPU (cuDF + cuGraph) vs GFQL CPU (pandas + igraph)"
+    },
     "pagerank.twitter.neo4j_gds": {
-      "board_quotable": false,
-      "comparison_allowed": false,
+      "board_quotable": true,
+      "comparison_allowed": true,
       "decimals": 2,
       "disclosures": [
-        "The Twitter Neo4j + GDS measurement was taken on 2026-07-28 and is already beyond the 60-day freshness limit. No eligible replacement is published; the historical value is retained only in the artifact.",
         "In the Neo4j arm each filter stage writes a marker property onto every matched node and relationship, 32 seeds per batch, and GDS scores an explicitly symmetrised projection; the GDS in-memory projection is rebuilt per timed iteration while the GFQL arms retain their resident frames. The GFQL arms materialise a subgraph and write nothing. The figure is a pipeline time, not an engine-primitive time.",
         "The Twitter Neo4j + GDS arm was measured on 2026-07-28 and is reused unchanged; the GFQL arms were re-measured on 2026-09-04 at PyGraphistry 0.59.0 under the pinned PageRank contract."
       ],
@@ -4367,11 +4375,12 @@
       "workload": "LDBC SNB-derived aligned queries sf1 seed-lookup"
     }
   },
-  "contract_version": 3,
-  "generated_at": "2026-10-31T05:42:35Z",
-  "generated_by": "graphistry/pyg-bench a413d045 scripts/export_docs_numbers.py",
+  "contract_version": 4,
+  "generated_at": "2026-10-04T12:53:58Z",
+  "generated_by": "graphistry/pyg-bench 2f7d574a scripts/export_docs_numbers.py",
   "policy": {
     "accepted_regressions": [],
+    "remeasure_issue": "https://github.com/graphistry/pyg-bench/issues/338",
     "drift_waivers": {
       "filter-pagerank-059-20260904": "Measured at the 0.59.0-era heads (pygraphistry 3fb216dd); the 0.60 stack landed since (#2055 #2056 #2054 #2062) changes chain RESULT contracts (binding-name alias declines, duplicate-id collapse, internal-column scoping) and the route dispatch layout, not the hop/PageRank kernels these rungs time; its perf receipts (sentinel at every head, q1-q9 and SNB re-measured at master 1a4107924 on 2026-09-07) moved within run-to-run spread. The GraphFrames/Spark ladder and the GPlus/Twitter PageRank pipelines are multi-hour dgx campaigns not re-run in this close-out; re-measure scheduled for the 0.60 release board.",
       "filter-pagerank-gplus-locked-20260830": "Competitor-only cells: this run publishes the Neo4j + GDS GPlus pipeline time (pagerank.gplus.neo4j_gds), which does not depend on graphistry/compute; the GFQL GPlus arms are re-measured at 0.59.0 in filter-pagerank-059-20260904. Re-measure Neo4j only when its own version or the pipeline contract changes.",
