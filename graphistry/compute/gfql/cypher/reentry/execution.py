@@ -555,18 +555,12 @@ def compiled_query_reentry_state(
         if _is_polars_df(aligned_prefix_rows):
             import polars as pl
 
-            aligned_prefix_rows = cast(
-                DataFrameT,
-                aligned_prefix_rows.with_columns(
-                    pl.Series(REENTRY_ROW_TOKEN_OUTPUT, np.arange(len(aligned_prefix_rows), dtype=np.int64))
-                ),
-            )
+            aligned_prefix_rows = aligned_prefix_rows.with_columns(
+                pl.Series(REENTRY_ROW_TOKEN_OUTPUT, np.arange(len(aligned_prefix_rows), dtype=np.int64))
+            )  # type: ignore[attr-defined]  # Polars frame in the engine-generic row carrier.
         else:
-            aligned_prefix_rows = cast(
-                DataFrameT,
-                aligned_prefix_rows.assign(
-                    **{REENTRY_ROW_TOKEN_OUTPUT: np.arange(len(aligned_prefix_rows), dtype=np.int64)}
-                ),
+            aligned_prefix_rows = aligned_prefix_rows.assign(
+                **{REENTRY_ROW_TOKEN_OUTPUT: np.arange(len(aligned_prefix_rows), dtype=np.int64)}
             )
         if REENTRY_ROW_TOKEN_OUTPUT not in carried_columns:
             carried_columns = tuple((*carried_columns, REENTRY_ROW_TOKEN_OUTPUT))
@@ -614,11 +608,11 @@ def compiled_query_reentry_state(
                 value=row_token_column,
                 suggestion=REENTRY_WHOLE_ROW_SUGGESTION,
             )
-        start_nodes = frame_filter(node_rows, series_not_null_mask(cast(SeriesT, node_rows[row_token_column])))
+        start_nodes = frame_filter(node_rows, series_not_null_mask(node_rows[row_token_column]))
         if _is_polars_df(start_nodes):
-            start_nodes = cast(DataFrameT, start_nodes.sort(row_token_column))
+            start_nodes = start_nodes.sort(row_token_column)  # type: ignore[attr-defined]  # Polars frame branch.
         else:
-            start_nodes = cast(DataFrameT, start_nodes.sort_values(row_token_column).reset_index(drop=True))
+            start_nodes = start_nodes.sort_values(row_token_column).reset_index(drop=True)
         return dispatch_graph, start_nodes
     return dispatch_graph, ordered_reentry_start_nodes(
         node_rows=node_rows,
