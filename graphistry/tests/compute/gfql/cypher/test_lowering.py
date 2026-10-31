@@ -6942,6 +6942,234 @@ def test_string_cypher_collect_unwind_reentry_negative_paths_return_empty(
     assert _to_pandas_df(result._nodes).to_dict(orient="records") == []
 
 
+def test_string_cypher_preserves_unwind_after_collect_unwind_reentry() -> None:
+    graph = _mk_collect_unwind_reentry_graph()
+    _assert_query_rows(
+        "MATCH (root:S)-[:X]->(b1:B) "
+        "WITH root.id AS id, collect(b1) AS bees "
+        "UNWIND bees AS b2 "
+        "MATCH (b2)-[:Y]->(c:C) "
+        "UNWIND [1, 2] AS k "
+        "RETURN id, c.id AS cid, k "
+        "ORDER BY cid, k",
+        [
+            {"id": "s", "cid": "c1", "k": 1},
+            {"id": "s", "cid": "c1", "k": 2},
+            {"id": "s", "cid": "c2", "k": 1},
+            {"id": "s", "cid": "c2", "k": 2},
+        ],
+        nodes_df=graph._nodes,
+        edges_df=graph._edges,
+    )
+
+
+def _mk_ic6_two_stage_graph() -> _CypherTestGraph:
+    nodes_df = pd.DataFrame(
+        {
+            "id": [1, 2, 10, 11, 12, 13, 101, 102, 103, 104],
+            "name": ["Alpha", "Beta", None, None, None, None, None, None, None, None],
+            "label__Tag": [True, True] + [False] * 8,
+            "label__Person": [False, False, True, True, True, True, False, False, False, False],
+            "label__Post": [False] * 6 + [True] * 4,
+        }
+    )
+    edges_df = pd.DataFrame(
+        [
+            (10, 11, "KNOWS"),
+            (10, 12, "KNOWS"),
+            (101, 11, "HAS_CREATOR"),
+            (102, 11, "HAS_CREATOR"),
+            (103, 12, "HAS_CREATOR"),
+            (104, 13, "HAS_CREATOR"),
+            (101, 1, "HAS_TAG"),
+            (102, 1, "HAS_TAG"),
+            (103, 1, "HAS_TAG"),
+            (104, 1, "HAS_TAG"),
+            (102, 2, "HAS_TAG"),
+        ],
+        columns=["s", "d", "type"],
+    )
+    return _mk_graph(nodes_df, edges_df)
+
+
+@pytest.mark.parametrize("engine", ["pandas", "polars"])
+@pytest.mark.parametrize(
+    ("case", "params", "expected_rows"),
+    [
+        pytest.param(
+            "positive",
+            {"tagName": "Alpha", "personId": 10},
+            [{"knownTagId": 1, "postCount": 3}],
+            id="positive",
+        ),
+        pytest.param(
+            "missing_tag",
+            {"tagName": "Nope", "personId": 10},
+            [],
+            id="missing_tag",
+        ),
+        pytest.param(
+            "absent_person",
+            {"tagName": "Alpha", "personId": 999},
+            [],
+            id="absent_person",
+        ),
+        pytest.param(
+            "isolated_person",
+            {"tagName": "Alpha", "personId": 13},
+            [],
+            id="isolated_person",
+        ),
+    ],
+)
+def test_string_cypher_two_stage_collect_reentry_empty_prefix_returns_native_empty(
+    engine: str,
+    case: str,
+    params: dict[str, object],
+    expected_rows: list[dict[str, object]],
+) -> None:
+    del case
+    graph = _mk_ic6_two_stage_graph()
+    if engine == "polars":
+        pl = pytest.importorskip("polars")
+        graph = cast(
+            _CypherTestGraph,
+            _CypherTestGraph()
+            .nodes(pl.from_pandas(cast(pd.DataFrame, graph._nodes)), "id")
+            .edges(pl.from_pandas(cast(pd.DataFrame, graph._edges)), "s", "d"),
+        )
+
+    query = (
+        "MATCH (knownTag:Tag { name: $tagName }) "
+        "WITH knownTag.id AS knownTagId "
+        "MATCH (person:Person { id: $personId })-[:KNOWS]-(friend) "
+        "WITH knownTagId, collect(distinct friend) AS friends "
+        "UNWIND friends AS f "
+        "MATCH (f)<-[:HAS_CREATOR]-(post:Post), "
+        "(post)-[:HAS_TAG]->(tag:Tag { id: knownTagId }) "
+        "RETURN knownTagId, count(post) AS postCount "
+        "ORDER BY postCount"
+    )
+    result = graph.gfql(query, params=params, engine=engine)
+    output = _to_pandas_df(result._nodes)
+    assert list(output.columns) == ["knownTagId", "postCount"]
+    if expected_rows:
+        known_tag_id_dtype = output["knownTagId"].dtype
+        if engine == "pandas":
+            assert str(known_tag_id_dtype) == "Int64"
+        else:
+            assert pd.api.types.is_integer_dtype(known_tag_id_dtype)
+    assert output.to_dict(orient="records") == expected_rows
+
+
+def _mk_ic6_p0959_graph() -> _CypherTestGraph:
+    nodes_df = pd.DataFrame(
+        {
+            "id": [1, 2, 3, 4, 5, 99, 10, 11, 12, 13, 14, 15, 16, 17, 101, 102, 103, 104, 105, 106],
+            "name": [None, None, None, None, None, None, None, None, None, None, None, None, None, None, "Alpha", "Beta", "Gamma", "Epsilon", "Delta", "Lonely"],
+            "label__Person": [True] * 6 + [False] * 14,
+            "label__Post": [False] * 6 + [True] * 8 + [False] * 6,
+            "label__Tag": [False] * 14 + [True] * 6,
+        }
+    )
+    knows = [(1, 2), (1, 3), (2, 3), (3, 4), (4, 5)]
+    creators = [(10, 2), (11, 3), (12, 3), (13, 4), (14, 4), (15, 5), (16, 2), (17, 4)]
+    post_tags = [
+        (10, [101, 102]),
+        (11, [101, 102]),
+        (12, [101, 103]),
+        (13, [101, 104]),
+        (14, [101]),
+        (15, [101, 105]),
+        (16, [106]),
+        (17, [101]),
+    ]
+    edges: list[tuple[int, int, str]] = [
+        *[(left, right, "KNOWS") for left, right in knows],
+        *[(post, creator, "HAS_CREATOR") for post, creator in creators],
+        *[(post, tag_id, "HAS_TAG") for post, tag_ids in post_tags for tag_id in tag_ids],
+    ]
+    edges_df = pd.DataFrame(edges, columns=["s", "d", "type"])
+    return _mk_graph(nodes_df, edges_df)
+
+
+_IC6_P0959_QUERY = (
+    "MATCH (knownTag:Tag { name: $tagName }) "
+    "WITH knownTag.id AS knownTagId "
+    "MATCH (person:Person { id: $personId })-[:KNOWS*1..2]-(friend) "
+    "WHERE NOT person=friend "
+    "WITH knownTagId, collect(distinct friend) AS friends "
+    "UNWIND friends AS f "
+    "MATCH (f)<-[:HAS_CREATOR]-(post:Post), "
+    "(post)-[:HAS_TAG]->(t:Tag { id: knownTagId }), "
+    "(post)-[:HAS_TAG]->(tag:Tag) "
+    "WHERE NOT t = tag "
+    "WITH tag.name AS tagName, count(post) AS postCount "
+    "RETURN tagName, postCount "
+    "ORDER BY postCount DESC, tagName ASC "
+    "LIMIT 10"
+)
+
+
+@pytest.mark.parametrize("engine", ["pandas", "polars"])
+@pytest.mark.parametrize(
+    ("case", "params", "expected_rows"),
+    [
+        pytest.param(
+            "positive_direct_and_two_hop",
+            {"tagName": "Alpha", "personId": 1},
+            [{"tagName": "Beta", "postCount": 2}, {"tagName": "Epsilon", "postCount": 1}, {"tagName": "Gamma", "postCount": 1}],
+            id="positive_direct_and_two_hop",
+        ),
+        pytest.param(
+            "negative_absent_person",
+            {"tagName": "Alpha", "personId": -1},
+            [],
+            id="negative_absent_person",
+        ),
+        pytest.param(
+            "negative_isolated_person",
+            {"tagName": "Alpha", "personId": 99},
+            [],
+            id="negative_isolated_person",
+        ),
+        pytest.param(
+            "negative_target_tag_without_co_tag",
+            {"tagName": "Lonely", "personId": 1},
+            [],
+            id="negative_target_tag_without_co_tag",
+        ),
+        pytest.param(
+            "negative_nonexistent_target_tag",
+            {"tagName": "NoSuchTag", "personId": 1},
+            [],
+            id="negative_nonexistent_target_tag",
+        ),
+    ],
+)
+def test_string_cypher_official_ic6_p0959_oracle_cases(
+    engine: str,
+    case: str,
+    params: dict[str, object],
+    expected_rows: list[dict[str, object]],
+) -> None:
+    del case
+    graph = _mk_ic6_p0959_graph()
+    if engine == "polars":
+        pl = pytest.importorskip("polars")
+        graph = cast(
+            _CypherTestGraph,
+            _CypherTestGraph()
+            .nodes(pl.from_pandas(cast(pd.DataFrame, graph._nodes)), "id")
+            .edges(pl.from_pandas(cast(pd.DataFrame, graph._edges)), "s", "d"),
+        )
+
+    result = graph.gfql(_IC6_P0959_QUERY, params=params, engine=engine)
+    output = _to_pandas_df(result._nodes)
+    assert list(output.columns) == ["tagName", "postCount"]
+    assert output.to_dict(orient="records") == expected_rows
+
+
 def test_string_cypher_executes_graph_backed_distinct_unwind_after_with_into_post_with_match() -> None:
     graph = _mk_graph(
         pd.DataFrame(

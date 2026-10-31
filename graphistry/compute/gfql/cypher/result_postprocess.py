@@ -254,6 +254,11 @@ def _project_property_column(
     column: ResultProjectionColumn,
 ) -> SeriesT:
     if column.source_name is None or column.source_name not in rows_df.columns:
+        if len(rows_df) == 0:
+            source_name = next(iter(rows_df.columns), None)
+            if source_name is None:
+                return cast(SeriesT, pd.Series(dtype="object"))
+            return cast(SeriesT, rows_df[source_name].head(0).rename(column.output_name))
         raise ValueError(f"projection source column not found: {column.source_name!r}")
     series = cast(SeriesT, rows_df[column.source_name])
     # Temporal-constructor normalization only applies to strings; numeric/bool/complex

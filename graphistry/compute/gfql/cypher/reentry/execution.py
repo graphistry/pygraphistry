@@ -27,6 +27,7 @@ from graphistry.Engine import (
 from graphistry.Plottable import Plottable
 from graphistry.compute.exceptions import GFQLValidationError, ErrorCode
 from graphistry.compute.gfql.agg_types import CypherEmptyGroupFills, CypherEmptyGroupValue
+from graphistry.compute.dataframe_utils import is_cudf_obj
 from graphistry.compute.gfql.cypher.ast import CypherScalar
 from graphistry.compute.gfql.cypher.reentry.carried_outputs import (
     CARRIED_OUTPUTS_NOT_REPRODUCIBLE,
@@ -491,6 +492,21 @@ def compiled_query_reentry_state(
     output_name = plan.reentry_alias_name
     carried_columns = tuple(plan.scalar_columns)
     prefix_rows = cast(Optional[DataFrameT], prefix_result._nodes)
+    if prefix_rows is not None and len(prefix_rows) == 0:
+        base_nodes = base_graph._nodes
+        id_column = base_graph._node
+        if base_nodes is None or id_column is None or id_column not in base_nodes.columns:
+            raise reentry_validation_error(
+                "Cypher MATCH after WITH could not recover the base node table for re-entry",
+                value=id_column,
+                suggestion=REENTRY_WHOLE_ROW_SUGGESTION,
+            )
+        empty_start_nodes = _empty_frame(base_nodes[[id_column]])
+        return _bind_reentry_graph(
+            base_graph,
+            _empty_frame(base_nodes),
+            empty_edges=True,
+        ), empty_start_nodes
     prefix_alias_values: Optional[SeriesT] = None
     if prefix_rows is not None and output_name in prefix_rows.columns:
         prefix_alias_values = cast(SeriesT, prefix_rows[output_name])
@@ -797,15 +813,17 @@ def reentry_carry_payload(
                 for output_name in carried_columns
             ]),
         )
-    return cast(
-        DataFrameT,
-        carried_node_ids.assign(
-            **{
-                _reentry_hidden_column_name(output_name): cast(SeriesT, prefix_rows[output_name]).reset_index(drop=True)
-                for output_name in carried_columns
-            }
-        ),
-    )
+    projected: Dict[str, SeriesT] = {}
+    for output_name in carried_columns:
+        values = cast(SeriesT, prefix_rows[output_name]).reset_index(drop=True)
+        if (
+            not is_cudf_obj(values)
+            and pd.api.types.is_integer_dtype(values)
+            and not pd.api.types.is_extension_array_dtype(values)
+        ):
+            values = values.astype("Int64")
+        projected[_reentry_hidden_column_name(output_name)] = values
+    return cast(DataFrameT, carried_node_ids.assign(**projected))
 
 
 def ordered_reentry_start_nodes(

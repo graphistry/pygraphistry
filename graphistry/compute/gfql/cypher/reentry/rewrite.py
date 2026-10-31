@@ -297,5 +297,4 @@ def _rewrite_collect_unwind_reentry_query(query: CypherQuery) -> Optional[Cypher
             + query.with_stages[prefix_stage_index + 1 :]
         ),
         unwinds=(),
-        reentry_unwinds=(),
     )

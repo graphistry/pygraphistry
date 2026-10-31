@@ -233,6 +233,16 @@ def _try_native_projection(
     entity_meta: typing.Dict[str, WholeRowProjectionMeta] = {}
     id_column = result._node if result._node is not None else source_node_id
     primary = _alias_view_polars(rows_df, projection.alias)
+    if rows_df.height == 0:
+        empty_out = result.bind()
+        empty_out._nodes = pl.DataFrame([
+            pl.Series(column.output_name, [], dtype=pl.Null)
+            for column in projection.columns
+        ])
+        edges_df = result._edges
+        if edges_df is not None:
+            empty_out._edges = edges_df.clear()
+        return empty_out
     primary_columns = primary.columns if primary is not None else {}
     for column in projection.columns:
         if column.kind == "whole_row":

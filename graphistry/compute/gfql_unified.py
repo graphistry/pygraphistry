@@ -139,6 +139,32 @@ def _slice_reentry_prefix_result_row(
     return out
 
 
+def _empty_reentry_output_frame(
+    compiled_query: CompiledCypherQuery,
+    *,
+    engine: Union[EngineAbstract, str],
+    base_graph: Plottable,
+) -> Optional[DataFrameT]:
+    """Build a zero-row frame carrying the final RETURN schema for an empty reentry prefix."""
+    scope_stack = (
+        () if compiled_query.execution_extras is None else compiled_query.execution_extras.scope_stack
+    )
+    if not scope_stack:
+        return None
+    output_columns = tuple(scope_stack[-1].schema.columns)
+    if not output_columns:
+        return None
+    concrete_engine = resolve_engine(cast(Any, engine), base_graph)
+    if concrete_engine == Engine.POLARS:
+        import polars as pl
+
+        return cast(DataFrameT, pl.DataFrame([
+            pl.Series(column, [], dtype=pl.Null)
+            for column in output_columns
+        ]))
+    return cast(DataFrameT, pd.DataFrame({column: pd.Series(dtype="object") for column in output_columns}))
+
+
 def _apply_empty_result_row(
     result: Plottable,
     *,
@@ -2062,6 +2088,27 @@ def _execute_compiled_query_with_reentry_impl(
                 return _union_scalar_reentry_results(
                     row_results, base_graph=base_graph, engine=engine
                 )
+    if (
+        start_nodes is not None
+        and len(start_nodes) == 0
+        and not compiled_query.optional_reentry
+    ):
+        empty_result = _union_scalar_reentry_results([], base_graph=base_graph, engine=engine)
+        output_nodes = _empty_reentry_output_frame(
+            compiled_query,
+            engine=engine,
+            base_graph=base_graph,
+        )
+        if output_nodes is not None:
+            empty_result = empty_result.bind()
+            empty_result._nodes = output_nodes
+        if compiled_query.empty_result_row is not None:
+            empty_result = _apply_empty_result_row(
+                empty_result,
+                engine=engine,
+                empty_result_row=compiled_query.empty_result_row,
+            )
+        return empty_result
     result = _execute_compiled_query(
         compiled_base_graph,
         compiled_query=compiled_query,
