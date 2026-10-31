@@ -8,7 +8,7 @@ and the boundary lane raises an honest NotImplementedError — never a pandas br
 """
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Dict, List, Optional, Sequence
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Sequence
 from graphistry.utils.json import JSONVal
 from graphistry.compute.gfql.index.types import HopDirection
 from graphistry.compute.typing import ArrayLike
@@ -23,6 +23,23 @@ if TYPE_CHECKING:
 from .dtypes import is_lazy
 from .membership import is_in_ids
 from .row_pipeline import _active_table, _rewrap
+
+
+def alias_node_id_with_property_polars(frame: Any, alias: str, node_id: str) -> Any:
+    """Add alias marker and prefixed identity/properties without overwriting user data."""
+    import polars as pl
+
+    columns = frame.collect_schema().names() if is_lazy(frame) else frame.columns
+    if alias != node_id:
+        exprs = []
+        for column in columns:
+            output = f"{alias}.{alias}" if column == alias else f"{alias}.{column}"
+            if output not in columns:
+                exprs.append(pl.col(column).alias(output))
+        if exprs:
+            frame = frame.with_columns(exprs)
+        frame = frame.with_columns(pl.lit(True).alias(alias))
+    return frame
 
 
 def _rows_base_graph(g: Plottable) -> Plottable:

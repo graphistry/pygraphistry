@@ -199,7 +199,8 @@ def _exec(op: ASTObject, g: Plottable, prev_wf: Optional[Any], target_wf: Option
         if target_wf is not None:
             nodes = _semi(nodes, target_wf, node_col, node_col)
         if op._name is not None:
-            nodes = nodes.with_columns(pl.lit(True).alias(op._name))
+            from graphistry.compute.gfql.lazy.engine.polars.pattern_apply import alias_node_id_with_property_polars
+            nodes = alias_node_id_with_property_polars(nodes, op._name, node_col)
         return g.nodes(nodes, node_col).edges(g._edges.clear(), g._source, g._destination)
 
     if isinstance(op, ASTEdge):

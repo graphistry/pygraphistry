@@ -370,6 +370,29 @@ def test_issue_2258_collected_entity_same_name_property_keeps_presence_and_ident
         for row in rows
     )
 
+    direct_nodes = pd.DataFrame({
+        "id": ["a", "b"],
+        "name": ["same", "same"],
+        "n": [same_name_value, same_name_value],
+        "label__City": [True, True],
+    })
+    if engine == "polars":
+        direct_nodes = pl.from_pandas(direct_nodes)
+    direct_graph = graphistry.nodes(direct_nodes, "id")
+    direct_query = "MATCH (n:City) RETURN collect(n) AS xs"
+    direct_result = direct_graph.gfql(direct_query, engine=engine)._nodes
+    direct_rows = (
+        direct_result.to_dicts()
+        if engine == "polars"
+        else direct_result.to_dict(orient="records")
+    )
+    expected_direct_entity = (
+        "(:City {name: 'same'})"
+        if same_name_value is None
+        else f"(:City {{name: 'same', n: '{same_name_value}'}})"
+    )
+    assert direct_rows == [{"xs": [expected_direct_entity, expected_direct_entity]}]
+
     # Ordinary alias/property access remains mapped to its actual prefixed property column.
     property_query = (
         "MATCH (country:Country)-[:HAS_CITY]->(city:City) "

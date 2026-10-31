@@ -39,6 +39,7 @@ class _AliasView:
     columns: typing.Mapping[str, str]
     presence_column: str
     presence_source: str
+    node_id_column: typing.Optional[str]
 
 
 def _has_temporal_constructor_text(rows_df: pl.DataFrame, col: str) -> bool:
@@ -127,8 +128,14 @@ def _alias_view_polars(
             field_sources.setdefault(alias, id_source)
     if field_sources is None:
         return None
-    presence_source = alias if alias in rows_df.columns else (
-        f"{alias}.{node_id_column}" if node_id_column is not None else None
+    presence_candidates = (
+        [f"{alias}.{node_id_column}", node_id_column]
+        if node_id_column is not None
+        else []
+    ) + [alias]
+    presence_source = next(
+        (source for source in presence_candidates if source in rows_df.columns),
+        None,
     )
     if presence_source is None or presence_source not in rows_df.columns:
         return None
@@ -141,6 +148,7 @@ def _alias_view_polars(
             columns=field_sources,
             presence_column=alias,
             presence_source=alias,
+            node_id_column=node_id_column,
         )
     frame = rows_df.select(
         [pl.col(source).alias(field) for field, source in field_sources.items()]
@@ -151,6 +159,7 @@ def _alias_view_polars(
         columns=field_sources,
         presence_column=presence_column,
         presence_source=presence_source,
+        node_id_column=node_id_column,
     )
 
 
@@ -172,9 +181,17 @@ def _native_node_entity_text_expr(
     from .dtypes import is_int
     schema = rows_df.schema
     excluded = set(str(c) for c in (exclude or ()))
+    bare_boolean_alias_marker = (
+        alias in cols
+        and view.columns.get(alias, alias) == alias
+        and view.presence_source != alias
+        and schema[alias] == pl.Boolean
+    )
     include_id = "id" in cols and is_int(schema["id"])
     prop_cols = [
         str(c) for c in cols
+        if not (str(c) == alias and bare_boolean_alias_marker)
+        if str(c) != view.node_id_column
         if not (
             str(c) == alias
             and view.columns.get(str(c), str(c)) == view.presence_source
