@@ -91,7 +91,9 @@ def _restore_alias_shadowed_user_column(
     else:
         base_is_marker = str(getattr(base_frame[source], "dtype", "")).startswith("bool")
         if base_is_marker and (
-            table != "edges" or type(table_df).__module__.startswith("cudf")
+            table != "edges"
+            or type(table_df).__module__.startswith("cudf")
+            or source in (ctx._gfql_rows_edge_aliases or ())
         ):
             return table_df
     key = base_graph._node if table == "nodes" else base_graph._edge  # type: ignore[union-attr]
