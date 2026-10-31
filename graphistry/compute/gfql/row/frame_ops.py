@@ -101,6 +101,8 @@ def _restore_alias_shadowed_user_column(
             return table_df
     key = base_graph._node if table == "nodes" else base_graph._edge  # type: ignore[union-attr]
     if _is_polars(table_df):
+        import polars as pl
+
         restore_col = shadow_restore_column(source)
         if (
             key is not None and key != source
