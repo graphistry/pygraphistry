@@ -105,10 +105,24 @@ def _native_scalar_text_expr(col: str, dtype: pl.DataType) -> typing.Optional[pl
     return None
 
 
-def _alias_view_polars(rows_df: pl.DataFrame, alias: str) -> typing.Optional[_AliasView]:
+def _alias_view_polars(
+    rows_df: pl.DataFrame, alias: str, node_id_column: typing.Optional[str] = None,
+) -> typing.Optional[_AliasView]:
     import polars as pl
 
     field_sources = alias_field_sources(rows_df.columns, alias)
+    if field_sources is None and node_id_column is not None:
+        # Reentry group-by can retain only prefixed binding columns (`alias.<field>`),
+        # omitting the bare alias marker. Recover the marker from the graph's configured
+        # node-ID field so whole-entity formatting and projection still use native identity.
+        id_source = f"{alias}.{node_id_column}"
+        if id_source in rows_df.columns:
+            field_sources = {
+                str(column)[len(alias) + 1:]: str(column)
+                for column in rows_df.columns
+                if str(column).startswith(f"{alias}.")
+            }
+            field_sources.setdefault(alias, id_source)
     if field_sources is None:
         return None
     if all(field == source for field, source in field_sources.items()):
@@ -232,14 +246,14 @@ def _try_native_projection(
     exprs: typing.List[typing.Union[pl.Expr, pl.Series]] = []
     entity_meta: typing.Dict[str, WholeRowProjectionMeta] = {}
     id_column = result._node if result._node is not None else source_node_id
-    primary = _alias_view_polars(rows_df, projection.alias)
+    primary = _alias_view_polars(rows_df, projection.alias, id_column)
     primary_columns = primary.columns if primary is not None else {}
     for column in projection.columns:
         if column.kind == "whole_row":
             if projection.table != "nodes":
                 return None  # edge entity rendering -> defer (NIE)
             source_alias = column.source_name or projection.alias
-            view = _alias_view_polars(rows_df, source_alias)
+            view = _alias_view_polars(rows_df, source_alias, id_column)
             if view is None:
                 return None
             if structured:
@@ -260,6 +274,12 @@ def _try_native_projection(
         if src is None or src not in rows_df.columns:
             return None  # expression needing evaluation / missing -> defer (NIE)
         dtype = rows_df.schema[src]
+        if isinstance(dtype, pl.List) and not isinstance(dtype.inner, (pl.List, pl.Struct, pl.Object)):
+            # Collected Cypher values are already materialized in their public representation
+            # (notably collect(node) -> list of display strings). Preserve that list verbatim;
+            # identity companions travel beside it as internal columns until suffix execution.
+            exprs.append(rows_df.get_column(src).alias(column.output_name))
+            continue
         if dtype in (pl.Date, pl.Datetime, pl.Duration, pl.Time) or isinstance(dtype, (pl.List, pl.Struct, pl.Object)):
             return None  # temporal/nested rendering -> defer (NIE)
         if dtype == pl.String and _has_temporal_constructor_text(rows_df, src):
