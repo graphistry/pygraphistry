@@ -8,7 +8,7 @@
 <rect x="16" y="74" width="1" height="172" fill="var(--rule)"/>
 <text class="a" x="17" y="85">Neo4j + GDS</text>
 <path class="neo" d="M16 94H436a4 4 0 0 1 4 4V114a4 4 0 0 1 -4 4H16Z"/>
-<text x="450" y="111"><tspan class="n">354.47 s</tspan></text>
+<text x="450" y="111"><tspan class="n">354.47 s</tspan><tspan class="a" dx="9">stale: measured 2026-08-30; re-measure: https://github.com/graphistry/pyg-bench/issues/338</tspan></text>
 <text class="a" x="17" y="147">GFQL Cypher on CPU (pandas + igraph)</text>
 <path class="cpu" d="M16 156H52.8a4 4 0 0 1 4 4V176a4 4 0 0 1 -4 4H16Z"/>
 <text x="66.8" y="173"><tspan class="n">34.11 s</tspan></text>

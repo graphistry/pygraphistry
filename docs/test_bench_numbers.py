@@ -92,13 +92,46 @@ def overdue_runs(payload, today):
     return overdue
 
 
-def test_no_published_number_is_stale(payload):
-    """The staleness rule is the whole reason this pipeline exists: a number nobody
-    re-measured must fail loudly rather than keep looking authoritative."""
-    overdue = overdue_runs(payload, datetime.date.today())
-    assert not overdue, (
-        'Re-measure in pyg-bench and republish published/docs-numbers.json: '
-        + '; '.join(overdue))
+REMEASURE_ISSUE = 'https://github.com/graphistry/pyg-bench/issues/338'
+
+
+def _synthetic_cell_key(payload):
+    template_key, _template = sorted(payload['cells'].items())[0]
+    return 'synthetic.' + template_key
+
+
+def test_a_stale_published_number_stays_labeled_and_linked(payload):
+    """Staleness is a rendered caveat, not permission to erase public evidence."""
+    doc, run_id = _with_synthetic_run(payload, quotable=True)
+    doc['policy']['remeasure_issue'] = REMEASURE_ISSUE
+    key = _synthetic_cell_key(payload)
+    state = bench.State(doc, datetime.date(2026, 11, 5))
+    cell = bench.check_reference(state, key, 'doc', 1, diagnostic=False)
+    assert cell is not None and key in state.stale_keys
+    assert state.problems == []
+    assert overdue_runs(doc, datetime.date(2026, 11, 5))
+
+
+def test_a_stale_published_number_without_a_remeasure_link_fails(payload):
+    doc, _run_id = _with_synthetic_run(payload, quotable=True)
+    doc['policy']['remeasure_issue'] = None
+    key = _synthetic_cell_key(payload)
+    state = bench.State(doc, datetime.date(2027, 1, 1))
+    bench.check_reference(state, key, 'doc', 1, diagnostic=False)
+    assert any('policy.remeasure_issue is missing' in problem for problem in state.problems)
+
+
+def test_a_compute_drifted_number_stays_labeled_and_linked(monkeypatch, payload):
+    doc, run_id = _with_synthetic_run(payload, quotable=True)
+    doc['policy']['remeasure_issue'] = REMEASURE_ISSUE
+    doc['policy']['max_compute_commit_drift'] = 12
+    doc['runs'][run_id]['measured_at'] = '2026-11-01'
+    monkeypatch.setattr(bench, 'compute_commit_drift', lambda commit, repo_root=None: 13)
+    key = _synthetic_cell_key(payload)
+    state = bench.State(doc, datetime.date(2026, 11, 5))
+    cell = bench.check_reference(state, key, 'doc', 1, diagnostic=False)
+    assert cell is not None and key in state.stale_keys
+    assert state.problems == []
 
 
 def _with_synthetic_run(payload, quotable):
@@ -204,14 +237,13 @@ def test_a_published_key_renders_cleanly(payload):
     assert _use(sorted(payload['cells'])[0]) == []
 
 
-def test_a_number_older_than_the_policy_fails_the_build(payload):
-    """The failure the withdrawn figures needed and did not have."""
+def test_a_number_older_than_the_policy_still_renders(payload):
+    """The old hard refusal is reversed; stale evidence remains visible and dated."""
     oldest = min(
         datetime.datetime.strptime(run['measured_at'], '%Y-%m-%d').date()
         for run in payload['runs'].values())
     much_later = oldest + datetime.timedelta(days=payload['policy']['max_age_days'] + 400)
-    problems = _use(sorted(payload['cells'])[0], today=much_later)
-    assert problems and 'max_age_days' in problems[0]
+    assert _use(sorted(payload['cells'])[0], today=much_later) == []
 
 
 def test_a_diagnostic_only_number_cannot_be_printed_as_a_result(payload):
@@ -378,6 +410,19 @@ def test_every_chart_draws_only_published_cells(payload):
     assert not missing, 'charts draw numbers pyg-bench does not publish: ' + '; '.join(missing)
 
 
+def test_a_stale_chart_prints_its_date_and_remeasure_link(payload):
+    doc, run_id = _with_synthetic_run(payload, quotable=True)
+    doc['policy']['remeasure_issue'] = REMEASURE_ISSUE
+    name = sorted(charts.CHARTS)[0]
+    drawn = next(bar.value for bar in charts.CHARTS[name].bars if bar.value)
+    drawn_cell = doc['cells'][drawn]
+    drawn_cell['run'] = run_id
+    drawn_cell['value'] = 1.0
+    svg = charts.render(name, doc, datetime.date(2026, 11, 5))
+    assert 'stale: measured 2020-01-01' in svg
+    assert REMEASURE_ISSUE in svg
+
+
 def test_a_chart_over_an_unpublished_cell_fails(payload):
     """The failure the SVGs needed and did not have."""
     broken = json.loads(json.dumps(payload))
@@ -522,17 +567,20 @@ def test_tally_with_no_quotable_pair_is_a_recorded_problem():
     assert any("bench-tally" in problem for problem in state.problems)
 
 
-def test_a_run_that_drifted_past_the_policy_fails_unless_waived(monkeypatch):
+def test_a_run_that_drifted_past_the_policy_still_renders(monkeypatch):
     payload = _tally_payload(q1__polars=1.0, q1__kuzu=2.0)
     payload["policy"]["max_compute_commit_drift"] = 12
+    payload["policy"]["remeasure_issue"] = REMEASURE_ISSUE
     monkeypatch.setattr(bench, "compute_commit_drift", lambda commit, repo_root=None: 274)
     state = bench.State(payload, datetime.date.today())
     bench.check_reference(state, "gb.q1.polars", "doc", 1, diagnostic=False)
-    assert any("max_compute_commit_drift" in problem for problem in state.problems)
+    assert "gb.q1.polars" in state.stale_keys
+    assert state.problems == []
 
     payload["policy"]["drift_waivers"] = {"r": "release re-measurement tracked"}
     waived = bench.State(payload, datetime.date.today())
     bench.check_reference(waived, "gb.q1.polars", "doc", 1, diagnostic=False)
+    assert "gb.q1.polars" not in waived.stale_keys
     assert waived.problems == []
 
 

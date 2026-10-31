@@ -23,12 +23,13 @@ a ``prefers-color-scheme`` block so the charts read in dark mode too.
 from __future__ import annotations
 
 import argparse
+import datetime
 import os
 from collections import OrderedDict
 from collections.abc import Sequence
 from typing import NamedTuple
 
-from gfql_bench_data import BENCHMARKS_JSON, JSONObject, format_cell, load
+from gfql_bench_data import BENCHMARKS_JSON, JSONObject, State, format_cell, load
 
 #: Where the committed charts live.
 CHART_DIR = os.path.join(
@@ -119,6 +120,25 @@ class ChartError(Exception):
     """A chart asked for a number the artifact does not publish."""
 
 
+def _stale_note(payload: JSONObject, key: str, today: datetime.date) -> str:
+    """The stable staleness caveat for a chart bar; charts print dates, not changing ages."""
+    cell = payload['cells'].get(key)
+    if not isinstance(cell, dict):
+        raise ChartError('{!r} does not publish'.format(key))
+    run_id = cell.get('run')
+    if not isinstance(run_id, str):
+        return ''
+    state = State(payload, today)
+    reasons = state.staleness_reasons(run_id)
+    if not reasons:
+        return ''
+    if not state.remeasure_issue:
+        raise ChartError('{} is stale without policy.remeasure_issue'.format(key))
+    run = state.run(run_id)
+    measured = run.get('measured_at') if run else None
+    return 'stale: measured {}; re-measure: {}'.format(measured, state.remeasure_issue)
+
+
 def _esc(text: str) -> str:
     return text.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
 
@@ -154,7 +174,7 @@ def _bar_path(x: float, y: float, width: float, height: float) -> str:
         b=_num(y + height - radius))
 
 
-def render(name: str, payload: JSONObject) -> str:
+def render(name: str, payload: JSONObject, today: datetime.date | None = None) -> str:
     """Render one chart to SVG text."""
     chart = CHARTS[name]
     lengths = [_seconds(payload, bar.value) for bar in chart.bars if bar.value]
@@ -196,6 +216,9 @@ def render(name: str, payload: JSONObject) -> str:
 
         spans = ['<tspan class="n">{}</tspan>'.format(
             _esc(format_cell(_cell(payload, bar.value))))]
+        stale_note = _stale_note(payload, bar.value, today or datetime.date.today())
+        if stale_note:
+            spans.append('<tspan class="a" dx="9">{}</tspan>'.format(_esc(stale_note)))
         if bar.ratio is not None:
             spans.append('<tspan class="a" dx="11">{}</tspan>'.format(
                 _esc('{} {}'.format(format_cell(_cell(payload, bar.ratio)), bar.note))))
@@ -302,7 +325,9 @@ def _gf_ratio_text(ratio: JSONObject) -> str:
         '{} of GraphFrames’ speed (slower)'.format(text)
 
 
-def render_graphframes(name: str, payload: JSONObject) -> str:
+def render_graphframes(
+    name: str, payload: JSONObject, today: datetime.date | None = None,
+) -> str:
     """Render one GraphFrames task chart from the published ladder cells."""
     chart = GF_CHARTS[name]
     subtitle = ('Median of 5 after 2 warmups; same result size on every system unless '
@@ -381,6 +406,9 @@ def render_graphframes(name: str, payload: JSONObject) -> str:
                     tone, _bar_path(bar_x, bar_top, width, GF_BAR_H)))
             drawn += 1
             spans = ['<tspan class="n">{}</tspan>'.format(_esc(format_cell(cell)))]
+            stale_note = _stale_note(payload, key, today or datetime.date.today())
+            if stale_note:
+                spans.append('<tspan class="a" dx="9">{}</tspan>'.format(_esc(stale_note)))
             if kernel is not None:
                 spans.append('<tspan class="a" dx="7">{}</tspan>'.format(
                     _esc('(solver {})'.format(format_cell(kernel)))))
@@ -413,13 +441,15 @@ def chart_path(name: str) -> str:
     return os.path.join(CHART_DIR, name)
 
 
-def rendered(payload: JSONObject | None = None) -> dict[str, str]:
+def rendered(
+    payload: JSONObject | None = None, today: datetime.date | None = None,
+) -> dict[str, str]:
     """Every chart, keyed by file name, rendered from the vendored artifact."""
     data = payload if payload is not None else load(BENCHMARKS_JSON)
-    charts = OrderedDict((name, render(name, data)) for name in CHARTS)
+    charts = OrderedDict((name, render(name, data, today)) for name in CHARTS)
     if gf_published(data):
         for name in GF_CHARTS:
-            charts[name] = render_graphframes(name, data)
+            charts[name] = render_graphframes(name, data, today)
     return charts
 
 
