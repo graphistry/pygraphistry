@@ -19,6 +19,7 @@ import pytest
 import graphistry
 
 from graphistry.compute.exceptions import GFQLValidationError
+from graphistry.compute.gfql.cypher.reentry.naming import REENTRY_ROW_TOKEN_OUTPUT
 pl = pytest.importorskip("polars")
 from graphistry.tests.compute.test_gfql import (
     TestGFQLCypherReentryCarrier,
@@ -426,36 +427,52 @@ def test_multi_match_whole_entity_identity(node_id, return_clause, aliases):
         assert meta[alias]["ids"].to_list() == result._nodes[alias + "." + node_id].to_list()
 
 
-@pytest.mark.parametrize(
-    ("rows", "ids", "match"),
-    [
-        ({"property": [1, 1]}, ["a1", "a1"], "unique carried node rows"),
-        ({"property": [1]}, ["a1", "a2"], "metadata row counts disagreed"),
-    ],
-    ids=["duplicate-carried-node-ids", "metadata-row-count-mismatch"],
-)
-def test_reentry_state_rejects_invalid_carried_scalar_rows_native_polars(
-    rows: dict[str, list[int]],
-    ids: list[str],
-    match: str,
-) -> None:
+def test_reentry_state_rejects_mismatched_carried_scalar_metadata_rows_native_polars() -> None:
     from graphistry.tests.test_compute import CGFull
 
     g = CGFull().nodes(pl.from_pandas(_mk_reentry_scalar_graph()._nodes), "id").edges(
         pl.from_pandas(_mk_reentry_scalar_graph()._edges), "s", "d"
     )
-    with pytest.raises(GFQLValidationError, match=match):
+    with pytest.raises(GFQLValidationError, match="metadata row counts disagreed"):
         TestGFQLCypherReentryCarrier._run_reentry_state(
             g,
             TestGFQLCypherReentryCarrier._compile_reentry_query(),
             TestGFQLCypherReentryCarrier._bind_reentry_prefix_result(
                 g,
-                rows=rows,
-                ids=ids,
+                rows={"property": [1]},
+                ids=["a1", "a2"],
                 engine="polars",
             ),
             engine="polars",
         )
+
+
+def test_reentry_state_preserves_duplicate_carried_scalar_rows_with_row_tokens_native_polars() -> None:
+    from graphistry.tests.test_compute import CGFull
+
+    g = CGFull().nodes(pl.from_pandas(_mk_reentry_scalar_graph()._nodes), "id").edges(
+        pl.from_pandas(_mk_reentry_scalar_graph()._edges), "s", "d"
+    )
+    _, start_nodes = TestGFQLCypherReentryCarrier._run_reentry_state(
+        g,
+        TestGFQLCypherReentryCarrier._compile_reentry_query(),
+        TestGFQLCypherReentryCarrier._bind_reentry_prefix_result(
+            g,
+            rows={"property": [1, 1]},
+            ids=["a1", "a1"],
+            engine="polars",
+        ),
+        engine="polars",
+    )
+
+    assert start_nodes.get_column("id").to_list() == ["a1", "a1"]
+    assert start_nodes.get_column("__cypher_reentry_property__").to_list() == [1, 1]
+    row_token_column = next(iter(
+        TestGFQLCypherReentryCarrier._hidden_updates(**{REENTRY_ROW_TOKEN_OUTPUT: 0})
+    ))
+    assert start_nodes.get_column(row_token_column).to_list() == [0, 1]
+    assert start_nodes.schema["__cypher_reentry_property__"] == pl.Int64
+    assert start_nodes.schema[row_token_column] == pl.Int64
 
 
 def test_reentry_state_accepts_unique_carried_scalar_rows_native_polars() -> None:
@@ -477,7 +494,38 @@ def test_reentry_state_accepts_unique_carried_scalar_rows_native_polars() -> Non
     )
 
     assert "polars" in type(dispatch_graph._nodes).__module__
+    row_token_column = next(iter(
+        TestGFQLCypherReentryCarrier._hidden_updates(**{REENTRY_ROW_TOKEN_OUTPUT: 0})
+    ))
+    assert dispatch_graph._nodes.schema["__cypher_reentry_property__"] == pl.Int64
+    assert dispatch_graph._nodes.schema[row_token_column] == pl.Int64
     assert TestGFQLCypherReentryCarrier._carry_by_id(dispatch_graph) == {
-        "a1": TestGFQLCypherReentryCarrier._hidden_updates(property=1),
-        "a2": TestGFQLCypherReentryCarrier._hidden_updates(property=2),
+        "a1": TestGFQLCypherReentryCarrier._hidden_updates(
+            property=1, **{REENTRY_ROW_TOKEN_OUTPUT: 0}
+        ),
+        "a2": TestGFQLCypherReentryCarrier._hidden_updates(
+            property=2, **{REENTRY_ROW_TOKEN_OUTPUT: 1}
+        ),
     }
+
+
+def test_reentry_state_public_projection_keeps_carried_values_and_hides_row_token_polars() -> None:
+    from graphistry.tests.test_compute import CGFull
+
+    base = _mk_reentry_scalar_graph()
+    graph = CGFull().nodes(pl.from_pandas(base._nodes), "id").edges(
+        pl.from_pandas(base._edges), "s", "d"
+    )
+    query = (
+        "MATCH (a:A) WITH a, a.num AS property "
+        "MATCH (a)-->(b) "
+        "RETURN a.id AS aid, property, b.id AS bid ORDER BY aid"
+    )
+    out = graph.gfql(query, engine="polars")._nodes
+
+    assert out.to_dicts() == [
+        {"aid": "a1", "property": 1, "bid": "b1"},
+        {"aid": "a2", "property": 2, "bid": "b2"},
+    ]
+    assert out.schema["property"] == pl.Int64
+    assert not any(column.startswith("__cypher_reentry_") for column in out.columns)

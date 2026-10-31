@@ -333,7 +333,9 @@ def apply_result_projection(
             result, projection, structured=structured, source_node_id=source_node_id,
         )
     else:
-        out = _apply_result_projection_pandas(result, projection, structured=structured)
+        out = _apply_result_projection_pandas(
+            result, projection, structured=structured, source_node_id=source_node_id,
+        )
     if out is result:
         out = out.bind()
     # Whole-entity provenance remains valid when an identity column is unavailable.
@@ -359,7 +361,8 @@ def apply_result_projection(
 
 
 def _apply_result_projection_pandas(
-    result: Plottable, projection: ResultProjectionPlan, *, structured: bool = True
+    result: Plottable, projection: ResultProjectionPlan, *, structured: bool = True,
+    source_node_id: Optional[str] = None,
 ) -> Plottable:
     rows_df = cast(Optional[DataFrameT], result._nodes)
     if rows_df is None:
@@ -377,7 +380,10 @@ def _apply_result_projection_pandas(
             if source_rows_df is None or source_alias not in source_rows_df.columns:
                 raise ValueError(f"whole-row projection source alias not found: {source_alias!r}")
             source_projection = projection if source_alias == projection.alias else replace(projection, alias=source_alias)
-            id_column = result._node if source_projection.table == "nodes" else result._edge
+            if source_projection.table == "nodes":
+                id_column = result._node if result._node is not None else source_node_id
+            else:
+                id_column = result._edge
             flat_columns = (
                 _flat_entity_columns(source_rows_df, source_projection, column.output_name, id_column)
                 if structured

@@ -6,7 +6,7 @@ from graphistry.compute.ast import ASTLet, ASTRef, n, e
 from graphistry.compute.chain import Chain
 from graphistry.compute.exceptions import ErrorCode, GFQLSyntaxError, GFQLValidationError
 from graphistry.compute.gfql.cypher import compile_cypher
-from graphistry.compute.gfql.cypher.reentry.naming import _reentry_hidden_column_name
+from graphistry.compute.gfql.cypher.reentry.naming import REENTRY_ROW_TOKEN_OUTPUT, _reentry_hidden_column_name
 from graphistry.compute.gfql.cypher.reentry.execution import compiled_query_reentry_state
 from graphistry.tests.test_compute import CGFull
 
@@ -729,13 +729,13 @@ class TestGFQLCypherReentryCarrier:
 
     @classmethod
     def _expected_reentry_rows(cls, ordered_ids: List[str], carry_values_by_id: Dict[str, Dict[str, Any]]) -> List[Dict[str, Any]]:
-        return [
-            {
-                **cls._BASE_A_ROWS[node_id],
-                **cls._hidden_updates(**carry_values_by_id.get(node_id, {})),
-            }
-            for node_id in ordered_ids
-        ]
+        out = []
+        for row_index, node_id in enumerate(ordered_ids):
+            carried = dict(carry_values_by_id.get(node_id, {}))
+            if carry_values_by_id:
+                carried[REENTRY_ROW_TOKEN_OUTPUT] = row_index
+            out.append({**cls._BASE_A_ROWS[node_id], **cls._hidden_updates(**carried)})
+        return out
 
     @staticmethod
     def _run_reentry_state(g, compiled, prefix_result, *, engine: str = "pandas"):
@@ -778,7 +778,10 @@ class TestGFQLCypherReentryCarrier:
             carry_values_by_id,
         )
         assert self._carry_by_id(dispatch_graph) == {
-            node_id: self._hidden_updates(**values)
+            node_id: self._hidden_updates(
+                **values,
+                **({REENTRY_ROW_TOKEN_OUTPUT: ordered_ids.index(node_id)} if carry_values_by_id else {}),
+            )
             for node_id, values in carry_values_by_id.items()
         }
 
@@ -804,22 +807,30 @@ class TestGFQLCypherReentryCarrier:
             {},
         )
 
-    @pytest.mark.parametrize(
-        ("rows", "ids", "match"),
-        [
-            ({"property": [1, 1]}, ["a1", "a1"], "unique carried node rows"),
-            ({"property": [1]}, ["a1", "a2"], "metadata row counts disagreed"),
-        ],
-    )
-    @pytest.mark.parametrize("engine", ["pandas"])
-    def test_reentry_state_rejects_invalid_carried_scalar_rows(self, rows, ids, match, engine):
+    def test_reentry_state_accepts_duplicate_carried_scalar_rows_with_row_tokens(self):
         g = _mk_reentry_scalar_graph()
-        with pytest.raises(GFQLValidationError, match=match):
+        dispatch_graph, start_nodes = self._run_reentry_state(
+            g,
+            self._compile_reentry_query(),
+            self._bind_reentry_prefix_result(
+                g,
+                rows={"property": [1, 1]},
+                ids=["a1", "a1"],
+            ),
+        )
+        assert dispatch_graph is not g
+        assert _to_pandas_df(start_nodes).to_dict(orient="records") == self._expected_reentry_rows(
+            ["a1", "a1"],
+            {"a1": {"property": 1}},
+        )
+
+    def test_reentry_state_rejects_mismatched_carried_scalar_metadata_rows(self):
+        g = _mk_reentry_scalar_graph()
+        with pytest.raises(GFQLValidationError, match="metadata row counts disagreed"):
             self._run_reentry_state(
                 g,
                 self._compile_reentry_query(),
-                self._bind_reentry_prefix_result(g, rows=rows, ids=ids),
-                engine=engine,
+                self._bind_reentry_prefix_result(g, rows={"property": [1]}, ids=["a1", "a2"]),
             )
 
     @pytest.mark.parametrize("engine", ["pandas"])
@@ -838,8 +849,8 @@ class TestGFQLCypherReentryCarrier:
         )
 
         assert self._carry_by_id(dispatch_graph) == {
-            "a1": self._hidden_updates(property=1),
-            "a2": self._hidden_updates(property=2),
+            "a1": self._hidden_updates(property=1, **{REENTRY_ROW_TOKEN_OUTPUT: 0}),
+            "a2": self._hidden_updates(property=2, **{REENTRY_ROW_TOKEN_OUTPUT: 1}),
         }
 
     def test_reentry_state_filters_null_carried_ids_before_aligning_scalar_payload(self):
