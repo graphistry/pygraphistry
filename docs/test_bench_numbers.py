@@ -416,20 +416,6 @@ def test_every_chart_draws_only_published_cells(payload):
     assert not missing, 'charts draw numbers pyg-bench does not publish: ' + '; '.join(missing)
 
 
-def test_a_stale_chart_prints_its_date_and_remeasure_link(payload):
-    doc, run_id = _with_synthetic_run(payload, quotable=True)
-    doc['policy']['remeasure_issue'] = REMEASURE_ISSUE
-    name = sorted(charts.CHARTS)[0]
-    drawn = next(bar.value for bar in charts.CHARTS[name].bars if bar.value)
-    drawn_cell = doc['cells'][drawn]
-    drawn_cell['run'] = run_id
-    drawn_cell['value'] = 1.0
-    svg = charts.render(name, doc, datetime.date(2026, 11, 5))
-    assert 'measured 2020-01-01' in svg
-    assert 'stale:' not in svg
-    assert REMEASURE_ISSUE in svg
-
-
 def test_a_chart_over_an_unpublished_cell_fails(payload):
     """The failure the SVGs needed and did not have."""
     broken = json.loads(json.dumps(payload))

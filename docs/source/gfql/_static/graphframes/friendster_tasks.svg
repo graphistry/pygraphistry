@@ -11,7 +11,7 @@
 <text class="m" x="202" y="116">not measured</text>
 <text class="a" x="26" y="144">GFQL polars (CPU)</text>
 <path class="cpu" d="M194 131H490a4 4 0 0 1 4 4V145a4 4 0 0 1 -4 4H194Z"/>
-<text x="502" y="144"><tspan class="n">3111.7 ms</tspan><tspan class="a" dx="9">measured 2026-09-20; re-measure: https://github.com/graphistry/pyg-bench/issues/338</tspan></text>
+<text x="502" y="144"><tspan class="n">3111.7 ms</tspan></text>
 <text class="a" x="26" y="172">GraphFrames local[*]</text>
 <text class="m" x="202" y="172">not measured</text>
 <text class="n" x="16" y="205">1-hop from 50 seeds</text>
@@ -20,7 +20,7 @@
 <text class="m" x="202" y="232">not measured</text>
 <text class="a" x="26" y="260">GFQL polars (CPU)</text>
 <path class="cpu" d="M194 247H490a4 4 0 0 1 4 4V261a4 4 0 0 1 -4 4H194Z"/>
-<text x="502" y="260"><tspan class="n">6123.4 ms</tspan><tspan class="a" dx="9">measured 2026-09-20; re-measure: https://github.com/graphistry/pyg-bench/issues/338</tspan></text>
+<text x="502" y="260"><tspan class="n">6123.4 ms</tspan></text>
 <text class="a" x="26" y="288">GraphFrames local[*]</text>
 <text class="m" x="202" y="288">not measured</text>
 <text class="n" x="16" y="321">2-hop from 50 seeds</text>
@@ -29,7 +29,7 @@
 <text class="m" x="202" y="348">not measured</text>
 <text class="a" x="26" y="376">GFQL polars (CPU)</text>
 <path class="cpu" d="M194 363H490a4 4 0 0 1 4 4V377a4 4 0 0 1 -4 4H194Z"/>
-<text x="502" y="376"><tspan class="n">164890.2 ms</tspan><tspan class="a" dx="9">measured 2026-09-20; re-measure: https://github.com/graphistry/pyg-bench/issues/338</tspan></text>
+<text x="502" y="376"><tspan class="n">164890.2 ms</tspan></text>
 <text class="a" x="26" y="404">GraphFrames local[*]</text>
 <text class="m" x="202" y="404">not measured</text>
 <text class="n" x="16" y="437">PageRank, full graph</text>

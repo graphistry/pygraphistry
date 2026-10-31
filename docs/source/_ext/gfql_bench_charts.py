@@ -29,7 +29,7 @@ from collections import OrderedDict
 from collections.abc import Sequence
 from typing import NamedTuple
 
-from gfql_bench_data import BENCHMARKS_JSON, JSONObject, State, format_cell, load
+from gfql_bench_data import BENCHMARKS_JSON, JSONObject, format_cell, load
 
 #: Where the committed charts live.
 CHART_DIR = os.path.join(
@@ -120,25 +120,6 @@ class ChartError(Exception):
     """A chart asked for a number the artifact does not publish."""
 
 
-def _stale_note(payload: JSONObject, key: str, today: datetime.date) -> str:
-    """A date-invariant measurement note for a chart bar.
-
-    Charts always show when a run was measured; changing stale labels belong to the
-    Sphinx role and board, not to committed SVG bytes.
-    """
-    cell = payload['cells'].get(key)
-    if not isinstance(cell, dict):
-        raise ChartError('{!r} does not publish'.format(key))
-    run_id = cell.get('run')
-    if not isinstance(run_id, str):
-        return ''
-    state = State(payload, today)
-    run = state.run(run_id)
-    measured = run.get('measured_at') if run else None
-    note = 'measured {}'.format(measured)
-    return '{}; re-measure: {}'.format(note, state.remeasure_issue) if state.remeasure_issue else note
-
-
 def _esc(text: str) -> str:
     return text.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
 
@@ -216,9 +197,6 @@ def render(name: str, payload: JSONObject, today: datetime.date | None = None) -
 
         spans = ['<tspan class="n">{}</tspan>'.format(
             _esc(format_cell(_cell(payload, bar.value))))]
-        stale_note = _stale_note(payload, bar.value, today or datetime.date.today())
-        if stale_note:
-            spans.append('<tspan class="a" dx="9">{}</tspan>'.format(_esc(stale_note)))
         if bar.ratio is not None:
             spans.append('<tspan class="a" dx="11">{}</tspan>'.format(
                 _esc('{} {}'.format(format_cell(_cell(payload, bar.ratio)), bar.note))))
@@ -406,9 +384,6 @@ def render_graphframes(
                     tone, _bar_path(bar_x, bar_top, width, GF_BAR_H)))
             drawn += 1
             spans = ['<tspan class="n">{}</tspan>'.format(_esc(format_cell(cell)))]
-            stale_note = _stale_note(payload, key, today or datetime.date.today())
-            if stale_note:
-                spans.append('<tspan class="a" dx="9">{}</tspan>'.format(_esc(stale_note)))
             if kernel is not None:
                 spans.append('<tspan class="a" dx="7">{}</tspan>'.format(
                     _esc('(solver {})'.format(format_cell(kernel)))))
