@@ -88,6 +88,12 @@ def _restore_alias_shadowed_user_column(
         base_is_marker = base_frame.schema.get(source) == pl.Boolean
         if base_is_marker:
             return table_df
+    else:
+        base_is_marker = str(getattr(base_frame[source], "dtype", "")).startswith("bool")
+        if base_is_marker and (
+            table != "edges" or type(table_df).__module__.startswith("cudf")
+        ):
+            return table_df
     key = base_graph._node if table == "nodes" else base_graph._edge  # type: ignore[union-attr]
     if _is_polars(table_df):
         if (
