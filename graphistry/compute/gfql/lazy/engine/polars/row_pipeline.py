@@ -167,6 +167,16 @@ def _lower_function(node: FunctionCall, columns: Sequence[str]) -> Optional[pl.E
             alias_id = f"{alias.name}.{node_id}" if node_id is not None else None
             if alias_id is not None and alias_id in columns:
                 return pl.col(alias_id)
+            node_id = _NODE_ID.get()
+            if (
+                node_id is not None
+                and node_id in columns
+                and alias.name in columns
+                and _SCHEMA.get().get(alias.name) == pl.Boolean
+            ):
+                # A direct named-node row without an alias/property collision keeps the
+                # legacy boolean marker; the configured graph ID remains its identity.
+                return pl.col(node_id)
             if alias.name in columns:
                 # Bare binding rows may store the graph's native ID under the alias.
                 return pl.col(alias.name)

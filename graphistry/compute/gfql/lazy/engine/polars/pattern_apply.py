@@ -34,8 +34,9 @@ def alias_node_id_with_property_polars(
 
     columns = frame.collect_schema().names() if is_lazy(frame) else frame.columns
     if alias != node_id:
-        exprs = [pl.col(node_id).alias(f"{alias}.{node_id}")]
+        exprs = []
         if alias in columns:
+            exprs.append(pl.col(node_id).alias(f"{alias}.{node_id}"))
             property_col = f"{alias}.{alias}"
             if property_col not in columns:
                 exprs.append(pl.col(alias).alias(property_col))
