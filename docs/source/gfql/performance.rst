@@ -103,10 +103,10 @@ GFQL uses indexed lookups and direct row selection to avoid work over the whole
 graph. The SNB tables measure those paths alongside larger queries.
 
 Start on CPU with no special hardware, and move to a GPU engine by changing one
-keyword when the graph or result becomes large. The :doc:`speedup case study
-<benchmark_filter_pagerank>` measures a full filter, PageRank, filter pipeline on CPU
-and GPU against Neo4j + GDS, and :doc:`benchmark_graphframes` measures filters,
-traversals, and PageRank against Spark GraphFrames.
+keyword when the graph or result becomes large. The :doc:`Cypher + PageRank pipeline
+example <benchmark_filter_pagerank>` shows how to express a filter, PageRank, filter
+workflow. :doc:`benchmark_graphframes` documents measured filters, traversals, and
+PageRank against Spark GraphFrames.
 
 .. note::
    Same-path constraints (``where``) can be more expensive on dense graphs.
@@ -126,5 +126,5 @@ Next steps
 
 - **Choose an engine**: :doc:`engines`.
 - **Lookups from known nodes**: :doc:`indexing`.
-- **Speedup case study**: :doc:`benchmark_filter_pagerank`.
+- **Cypher + PageRank pipeline example**: :doc:`benchmark_filter_pagerank`.
 - **Explore GFQL**: :ref:`10min-gfql`. **Get started**: :ref:`10min-pygraphistry`.

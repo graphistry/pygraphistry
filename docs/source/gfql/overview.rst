@@ -36,9 +36,9 @@ GFQL is an in-process graph query language for the compute tier. With it you can
 
 On CPU alone, GFQL's Polars engine is faster than Kuzu, Memgraph, and Neo4j on most of
 the nine graph-benchmark analytics queries at both graph sizes. GFQL also outperforms
-all three on SNB Interactive at both SF 0.1 and SF 1, with one tie. See :doc:`performance` for the full tables. The :doc:`speedup case study
-<benchmark_filter_pagerank>` compares a full filter, PageRank, filter pipeline
-against Neo4j + GDS on CPU and GPU.
+all three on SNB Interactive at both SF 0.1 and SF 1, with one tie. See :doc:`performance` for the full tables. The
+:doc:`Cypher + PageRank pipeline example <benchmark_filter_pagerank>` shows how to
+express a full filter, PageRank, filter workflow.
 
 Typical uses include cybersecurity, fraud detection, financial analysis, and knowledge
 graphs. The engine design is described in the blog post

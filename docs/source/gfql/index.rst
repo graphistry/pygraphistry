@@ -16,7 +16,7 @@ Where to start
 --------------
 
 - **New to GFQL**: :doc:`about` (10 minutes), :doc:`overview`, then the
-  :doc:`speedup case study <benchmark_filter_pagerank>`.
+  :doc:`Cypher + PageRank pipeline example <benchmark_filter_pagerank>`.
 - **Coming from Cypher**: :doc:`cypher` and :doc:`quick`, then
   :doc:`spec/cypher_mapping`.
 - **Need speed**: :doc:`engines` picks the engine. ``engine='polars'`` is the
@@ -30,7 +30,7 @@ Where to start
 
    about
    overview
-   Speedup Case Study: vs Neo4j <benchmark_filter_pagerank>
+   Cypher + PageRank pipeline example <benchmark_filter_pagerank>
 
 .. toctree::
    :maxdepth: 1
