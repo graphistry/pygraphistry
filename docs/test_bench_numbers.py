@@ -384,14 +384,20 @@ def test_every_chart_matches_the_published_numbers():
     Regenerate with ``python3 docs/source/_ext/gfql_bench_charts.py --write``.
     """
     stale = []
-    for name, svg in charts.rendered().items():
+    renders = {
+        today: charts.rendered(today=today)
+        for today in (datetime.date(2026, 11, 5), datetime.date(2027, 1, 1))
+    }
+    for name, committed_svg in renders[datetime.date(2026, 11, 5)].items():
         path = charts.chart_path(name)
         if not os.path.exists(path):
             stale.append('{} is missing'.format(name))
             continue
         with open(path, encoding='utf-8') as handle:
-            if handle.read() != svg:
+            if handle.read() != committed_svg:
                 stale.append('{} no longer matches the published numbers'.format(name))
+        if renders[datetime.date(2027, 1, 1)][name] != committed_svg:
+            stale.append('{} is calendar-dependent'.format(name))
     assert not stale, (
         'Regenerate: python3 docs/source/_ext/gfql_bench_charts.py --write — '
         + '; '.join(stale))
@@ -419,7 +425,8 @@ def test_a_stale_chart_prints_its_date_and_remeasure_link(payload):
     drawn_cell['run'] = run_id
     drawn_cell['value'] = 1.0
     svg = charts.render(name, doc, datetime.date(2026, 11, 5))
-    assert 'stale: measured 2020-01-01' in svg
+    assert 'measured 2020-01-01' in svg
+    assert 'stale:' not in svg
     assert REMEASURE_ISSUE in svg
 
 

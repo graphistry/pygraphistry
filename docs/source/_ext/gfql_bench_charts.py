@@ -121,7 +121,11 @@ class ChartError(Exception):
 
 
 def _stale_note(payload: JSONObject, key: str, today: datetime.date) -> str:
-    """The stable staleness caveat for a chart bar; charts print dates, not changing ages."""
+    """A date-invariant measurement note for a chart bar.
+
+    Charts always show when a run was measured; changing stale labels belong to the
+    Sphinx role and board, not to committed SVG bytes.
+    """
     cell = payload['cells'].get(key)
     if not isinstance(cell, dict):
         raise ChartError('{!r} does not publish'.format(key))
@@ -129,14 +133,10 @@ def _stale_note(payload: JSONObject, key: str, today: datetime.date) -> str:
     if not isinstance(run_id, str):
         return ''
     state = State(payload, today)
-    reasons = state.staleness_reasons(run_id)
-    if not reasons:
-        return ''
-    if not state.remeasure_issue:
-        raise ChartError('{} is stale without policy.remeasure_issue'.format(key))
     run = state.run(run_id)
     measured = run.get('measured_at') if run else None
-    return 'stale: measured {}; re-measure: {}'.format(measured, state.remeasure_issue)
+    note = 'measured {}'.format(measured)
+    return '{}; re-measure: {}'.format(note, state.remeasure_issue) if state.remeasure_issue else note
 
 
 def _esc(text: str) -> str:
