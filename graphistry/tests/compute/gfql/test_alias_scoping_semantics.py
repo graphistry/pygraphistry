@@ -625,9 +625,12 @@ def test_restore_alias_shadowed_user_column_branches() -> None:
     from graphistry.compute.gfql.row.frame_ops import _restore_alias_shadowed_user_column
 
     restore_col = shadow_restore_column("kind")
+    edge_restore_col = shadow_restore_column("r")
 
-    def ctx_for(base_graph):
-        return SimpleNamespace(_gfql_rows_base_graph=base_graph, _g=None)
+    def ctx_for(base_graph, edge_aliases=None):
+        return SimpleNamespace(
+            _gfql_rows_base_graph=base_graph, _gfql_rows_edge_aliases=edge_aliases, _g=None
+        )
 
     marked = pd.DataFrame({"id": ["a", "b"], "kind": [True, True]})
     # no base graph / alias shadows nothing: unchanged
@@ -637,6 +640,27 @@ def test_restore_alias_shadowed_user_column_branches() -> None:
     # base column is itself a boolean marker (an intermediate dispatch graph): unchanged
     base_marker = SimpleNamespace(_nodes=pd.DataFrame({"id": ["a", "b"], "kind": [True, False]}), _edges=None, _node="id", _edge=None)
     assert _restore_alias_shadowed_user_column(ctx_for(base_marker), marked, "nodes", "kind") is marked
+    # A generated relationship alias marker in the active edge frame remains a marker.
+    marked_edges = pd.DataFrame({"s": ["a"], "d": ["b"], "type": ["R"], "r": [True]})
+    base_edge_marker = SimpleNamespace(
+        _nodes=None,
+        _edges=pd.DataFrame({"s": ["a"], "d": ["b"], "type": ["R"], "r": [False]}),
+        _node="id",
+        _edge="type",
+    )
+    assert _restore_alias_shadowed_user_column(
+        ctx_for(base_edge_marker, {"r"}), marked_edges, "edges", "r"
+    ) is marked_edges
+    base_edge_property = SimpleNamespace(
+        _nodes=None,
+        _edges=pd.DataFrame({"s": ["a"], "d": ["b"], "type": ["R"], "r": [False]}),
+        _node="id",
+        _edge="type",
+    )
+    restored_edge = _restore_alias_shadowed_user_column(
+        ctx_for(base_edge_property), marked_edges, "edges", "r"
+    )
+    assert list(restored_edge[edge_restore_col]) == [False]
     # Keyed restore keeps the marker boolean.
     base = SimpleNamespace(_nodes=pd.DataFrame({"id": ["a", "b"], "kind": ["K1", "K2"]}), _edges=None, _node="id", _edge=None)
     out = _restore_alias_shadowed_user_column(ctx_for(base), marked, "nodes", "kind")
