@@ -212,11 +212,30 @@ def test_row_token_survives_a_second_with_match_boundary(engine: str) -> None:
         "MATCH (a)-[:S]->(m)-[:T]->(c) WHERE c.payload = carried "
         "RETURN carried, c.id AS cid"
     )
+    compiled = compile_cypher(query, _warn_deprecated=False)
+    assert compiled.reentry_plan is not None
+    assert REENTRY_ROW_TOKEN_OUTPUT not in compiled.reentry_plan.scalar_columns
     rows = _records(_graph(engine).gfql(query, engine=engine)._nodes, engine)
     _assert_no_hidden_reentry_columns(rows)
     assert Counter((row["carried"], row["cid"]) for row in rows) == Counter(
         {("red", "c-red"): 2, ("blue", "c-blue"): 1}
     )
+
+
+def test_row_token_forwarding_without_a_carried_node_alias_stays_a_typed_decline() -> None:
+    query = (
+        "MATCH (a {id: 'a'})-[:P]->(x) "
+        "WITH a, x.payload AS carried "
+        "MATCH (a)-[:Q]->(b) "
+        "WITH carried "
+        "MATCH (a)-[:S]->(c) "
+        "RETURN carried, c.id AS cid"
+    )
+    with pytest.raises(GFQLValidationError) as exc_info:
+        _graph("pandas").gfql(query)
+    assert exc_info.value.code == ErrorCode.E108
+    assert exc_info.value.context["field"] == "with"
+    assert exc_info.value.context["value"] == REENTRY_ROW_TOKEN_OUTPUT
 
 
 @pytest.mark.parametrize("engine", ["pandas", "polars"])
