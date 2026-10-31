@@ -17,6 +17,7 @@ from graphistry.compute.gfql.cypher.ast import (
     RelationshipPattern,
     UnwindClause,
 )
+from graphistry.compute.gfql.cypher._boolean_expr_text import boolean_expr_to_text
 from graphistry.compute.gfql.cypher.lowering import (
     CompiledCypherPostProcessing,
     CompiledCypherExecutionExtras,
@@ -61,11 +62,19 @@ from graphistry.compute.gfql.cypher.reentry.rewrite import (
     _rewrite_reentry_projection_stage,
 )
 from graphistry.compute.gfql.cypher.reentry_plan import CarriedAlias, ReentryPlan
+from graphistry.compute.gfql.same_path_types import NODE_IDENTITY_COLUMN
 from graphistry.compute.gfql.expr_parser import (
+    BinaryOp,
+    ExprNode,
     GFQLExprParseError,
+    FunctionCall,
     Identifier,
     ListLiteral,
+    PropertyAccessExpr,
+    _rebuild_expr_node,
+    collect_identifiers,
     parse_expr,
+    walk_expr_nodes,
 )
 from graphistry.compute.gfql.ir.logical_plan import (
     LogicalPlan,
@@ -107,6 +116,149 @@ def _map_terminal_reentry_query(
 
 def _without_outer_query_context(query: CypherQuery, **updates: Any) -> CypherQuery:
     return replace(query, call=None, row_sequence=(), graph_bindings=(), use=None, **updates)
+
+
+def _inject_collected_node_identity_lists(
+    prefix_stage: ProjectionStage,
+    *,
+    query: CypherQuery,
+) -> Tuple[ProjectionStage, Dict[str, str]]:
+    """Add hidden typed-ID list aggregates only for node lists used by reentry membership."""
+    if not query.reentry_matches or query.reentry_where is None or query.reentry_where.expr_tree is None:
+        return prefix_stage, {}
+    try:
+        where_expr = parse_expr(boolean_expr_to_text(query.reentry_where.expr_tree))
+    except (GFQLExprParseError, ImportError):
+        return prefix_stage, {}
+
+    collected: Dict[str, FunctionCall] = {}
+    node_source_aliases = {
+        alias for alias, kind in _all_match_alias_kinds(query).items() if kind == "node"
+    }
+    for item in prefix_stage.clause.items:
+        if item.alias is None:
+            continue
+        try:
+            item_expr = parse_expr(item.expression.text)
+        except (GFQLExprParseError, ImportError):
+            continue
+        if (
+            isinstance(item_expr, FunctionCall)
+            and item_expr.name.lower() == "collect"
+            and len(item_expr.args) == 1
+            and isinstance(item_expr.args[0], Identifier)
+            and item_expr.args[0].name in node_source_aliases
+        ):
+            collected[item.alias] = item_expr
+
+    trailing_node_aliases: set[str] = set()
+    for match_clause in query.reentry_matches[:1]:
+        for pattern in match_clause.patterns:
+            trailing_node_aliases.update(_pattern_node_aliases(pattern))
+
+    used_lists: set[str] = set()
+    def _find_membership(node: object) -> None:
+        if isinstance(node, BinaryOp) and node.op == "in" and isinstance(node.left, Identifier):
+            if node.left.name in trailing_node_aliases and isinstance(node.right, Identifier) and node.right.name in collected:
+                used_lists.add(node.right.name)
+    walk_expr_nodes(where_expr, enter=_find_membership)
+    if not used_lists:
+        return prefix_stage, {}
+
+    used_names: set[str] = set()
+    for item in prefix_stage.clause.items:
+        used_names.add(item.alias or "")
+        try:
+            used_names.update(collect_identifiers(parse_expr(item.expression.text)))
+        except (GFQLExprParseError, ImportError):
+            pass
+    for name in collect_identifiers(where_expr):
+        used_names.add(name)
+    for item in query.return_.items:
+        if item.alias is not None:
+            used_names.add(item.alias)
+        try:
+            used_names.update(collect_identifiers(parse_expr(item.expression.text)))
+        except (GFQLExprParseError, ImportError):
+            pass
+    used_names.update(trailing_node_aliases)
+    for match_clause in query.reentry_matches:
+        for pattern in match_clause.patterns:
+            for element in pattern:
+                if isinstance(element, (NodePattern, RelationshipPattern)) and element.variable is not None:
+                    used_names.add(element.variable)
+        used_names.update(alias for alias in match_clause.pattern_aliases if alias is not None)
+    for stage in query.with_stages:
+        for item in stage.clause.items:
+            if item.alias is not None:
+                used_names.add(item.alias)
+            try:
+                used_names.update(collect_identifiers(parse_expr(item.expression.text)))
+            except (GFQLExprParseError, ImportError):
+                pass
+    companions: Dict[str, str] = {}
+    extra_items: List[ReturnItem] = []
+    for list_alias in sorted(used_lists):
+        source = collected[list_alias]
+        entity_alias = cast(Identifier, source.args[0]).name
+        output_name = "__gfql_node_identity_list_0"
+        suffix = 1
+        while output_name in used_names:
+            output_name = f"__gfql_node_identity_list_{suffix}"
+            suffix += 1
+        used_names.add(output_name)
+        distinct = "DISTINCT " if source.distinct else ""
+        source_span = next(item.span for item in prefix_stage.clause.items if item.alias == list_alias)
+        extra_items.append(ReturnItem(
+            expression=ExpressionText(
+                text=f"collect({distinct}__node_identity__({entity_alias}))",
+                span=source_span,
+            ),
+            alias=output_name,
+            span=source_span,
+        ))
+        companions[list_alias] = output_name
+    return replace(
+        prefix_stage,
+        clause=replace(prefix_stage.clause, items=prefix_stage.clause.items + tuple(extra_items)),
+    ), companions
+
+
+def _rewrite_reentry_node_membership_to_identity_lists(
+    expression: ExpressionText,
+    *,
+    companions: Mapping[str, str],
+    node_aliases: set[str],
+) -> ExpressionText:
+    if not companions:
+        return expression
+    try:
+        node = parse_expr(expression.text)
+    except (GFQLExprParseError, ImportError):
+        return expression
+
+    def _rewrite(current: ExprNode) -> ExprNode:
+        if (
+            isinstance(current, BinaryOp)
+            and current.op == "in"
+            and isinstance(current.left, Identifier)
+            and current.left.name in node_aliases
+            and isinstance(current.right, Identifier)
+            and current.right.name in companions
+        ):
+            return BinaryOp(
+                "in",
+                PropertyAccessExpr(Identifier(current.left.name), NODE_IDENTITY_COLUMN),
+                Identifier(companions[current.right.name]),
+            )
+        return _rebuild_expr_node(
+            current,
+            rewrite=_rewrite,
+            error_context="entity membership identity rewrite",
+        )
+
+    rewritten = _rewrite(node)
+    return replace(expression, text=_render_expr_node(rewritten))
 
 
 def _rewrite_terminal_singleton_reentry_unwind(
@@ -379,6 +531,12 @@ def _compile_bounded_reentry_query(
         prefix_stage=prefix_stage,
         primary_alias=primary_alias_hint,
     )
+    prefix_stage, membership_identity_companions = _inject_collected_node_identity_lists(
+        prefix_stage,
+        query=query,
+    )
+    if membership_identity_companions:
+        query = replace(query, with_stages=(prefix_stage,) + query.with_stages[1:])
     reentry_match = query.reentry_matches[0]
     if supports_terminal_seed_retargeting:
         reentry_match = _orient_reentry_match_to_seed(reentry_match, primary_alias_hint)
@@ -569,6 +727,11 @@ def _compile_bounded_reentry_query(
         )
 
     def rewrite_expr(expr: ExpressionText, field: str) -> ExpressionText:
+        expr = _rewrite_reentry_node_membership_to_identity_lists(
+            expr,
+            companions=membership_identity_companions,
+            node_aliases=reentry_node_aliases,
+        )
         return _rewrite_reentry_expr_to_hidden_properties(
             expr,
             carried_alias=reentry_alias,

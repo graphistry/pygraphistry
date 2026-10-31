@@ -118,7 +118,6 @@ from graphistry.compute.gfql.row.integer_text import (
     normalize_supported_decimal_digits,
 )
 
-
 #: Cypher's two numeric kinds; a Literal so a typo'd branch is a type error, not a silent miss.
 CypherNumericKind = Literal["int", "float"]
 
@@ -1653,6 +1652,76 @@ class RowPipelineMixin:
                 null_mask = self._gfql_null_mask(source_table_df, source_table_df[source_alias])
                 if hasattr(out, "where"):
                     out = self._gfql_mask_fill(out, null_mask, None)
+                return True, out
+            if fn == "__cypher_node_in__":
+                if len(node.args) != 2 or not isinstance(node.args[1], ListLiteral):
+                    return False, None
+                ok, left_value = self._gfql_eval_expr_ast(table_df, node.args[0])
+                if not ok:
+                    return False, None
+                if not node.args[1].items:
+                    return True, self._gfql_broadcast_scalar(table_df, False).astype(bool)
+                left_series = left_value if is_series_like(left_value) else self._gfql_broadcast_scalar(table_df, left_value)
+                left_null = self._gfql_null_mask(table_df, left_series).astype(bool)
+                hit_mask = self._gfql_broadcast_scalar(table_df, False).astype(bool)
+                unknown_mask = left_null
+                for item in node.args[1].items:
+                    if (
+                        isinstance(item, FunctionCall)
+                        and item.name.lower() in {"__node_identity__", "__cypher_node_identity_value__"}
+                        and (item.name.lower() == "__node_identity__" or len(item.args) == 1)
+                    ):
+                        identity_expr = item if item.name.lower() == "__node_identity__" else item.args[0]
+                        ok, right_value = self._gfql_eval_expr_ast(table_df, identity_expr)
+                        if not ok:
+                            return False, None
+                        right_series = right_value if is_series_like(right_value) else self._gfql_broadcast_scalar(table_df, right_value)
+                        right_null = self._gfql_null_mask(table_df, right_series).astype(bool)
+                        equal = left_series == right_series
+                        equality_null = left_null | right_null
+                        if hasattr(equal, "where"):
+                            equal = equal.where(~equality_null, False)
+                        hit_mask = hit_mask | self._gfql_bool_mask(table_df, equal)
+                        unknown_mask = unknown_mask | right_null
+                    elif isinstance(item, FunctionCall) and item.name.lower() == "__cypher_non_entity_null__" and len(item.args) == 1:
+                        ok, scalar_value = self._gfql_eval_expr_ast(table_df, item.args[0])
+                        if not ok:
+                            return False, None
+                        scalar_null = self._gfql_null_mask(table_df, scalar_value).astype(bool)
+                        unknown_mask = unknown_mask | scalar_null
+                    elif isinstance(item, Literal) and item.value is None:
+                        unknown_mask = unknown_mask | self._gfql_broadcast_scalar(table_df, True).astype(bool)
+                    else:
+                        return False, None
+                false_mask = ~hit_mask & ~unknown_mask
+                null_mask = unknown_mask & ~hit_mask
+                return True, self._gfql_series_from_truth_masks(
+                    table_df,
+                    hit_mask,
+                    false_mask,
+                    null_mask,
+                )
+            if fn == "__node_identity__":
+                if len(node.args) != 1 or not isinstance(node.args[0], Identifier):
+                    return False, None
+                alias_name = node.args[0].name
+                node_id = self._node
+                if node_id is None:
+                    return False, None
+                alias_id_col = f"{alias_name}.{node_id}"
+                if alias_id_col in table_df.columns:
+                    out = table_df[alias_id_col]
+                elif node_id in table_df.columns and (
+                    alias_name == node_id
+                    or (alias_name in table_df.columns and RowPipelineMixin._gfql_series_bool_like(table_df[alias_name]))
+                ):
+                    out = table_df[node_id]
+                else:
+                    return False, None
+                if hasattr(out, "where"):
+                    alias_col = alias_id_col if alias_id_col in table_df.columns else alias_name
+                    if alias_col in table_df.columns and alias_col != node_id:
+                        out = self._gfql_mask_fill(out, self._gfql_null_mask(table_df, table_df[alias_col]), None)
                 return True, out
             if fn in {"__node_entity__", "__edge_entity__"}:
                 if len(node.args) < 1 or not isinstance(node.args[0], Identifier):
