@@ -126,6 +126,9 @@ def rewrap_projected_polars(
         if missing:
             out._edges = out._edges.with_columns([pl.lit(True).alias(alias) for alias in missing])
     out._gfql_rows_edge_aliases = set(edge_aliases)
+    out._gfql_rows_node_aliases = {
+        op._name for op in middle if isinstance(op, ASTNode) and isinstance(op._name, str)
+    }
     return out
 
 

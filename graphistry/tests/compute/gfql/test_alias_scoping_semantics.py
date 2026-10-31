@@ -627,9 +627,12 @@ def test_restore_alias_shadowed_user_column_branches() -> None:
     restore_col = shadow_restore_column("kind")
     edge_restore_col = shadow_restore_column("r")
 
-    def ctx_for(base_graph, edge_aliases=None):
+    def ctx_for(base_graph, edge_aliases=None, node_aliases=None):
         return SimpleNamespace(
-            _gfql_rows_base_graph=base_graph, _gfql_rows_edge_aliases=edge_aliases, _g=None
+            _gfql_rows_base_graph=base_graph,
+            _gfql_rows_edge_aliases=edge_aliases,
+            _gfql_rows_node_aliases=node_aliases,
+            _g=None,
         )
 
     marked = pd.DataFrame({"id": ["a", "b"], "kind": [True, True]})
@@ -637,9 +640,11 @@ def test_restore_alias_shadowed_user_column_branches() -> None:
     assert _restore_alias_shadowed_user_column(ctx_for(None), marked, "nodes", "kind") is marked
     base_no_col = SimpleNamespace(_nodes=pd.DataFrame({"id": ["a", "b"]}), _edges=None, _node="id", _edge=None)
     assert _restore_alias_shadowed_user_column(ctx_for(base_no_col), marked, "nodes", "kind") is marked
-    # base column is itself a boolean marker (an intermediate dispatch graph): unchanged
+    # A boolean property is restored unless explicit provenance says it is a marker.
     base_marker = SimpleNamespace(_nodes=pd.DataFrame({"id": ["a", "b"], "kind": [True, False]}), _edges=None, _node="id", _edge=None)
-    assert _restore_alias_shadowed_user_column(ctx_for(base_marker), marked, "nodes", "kind") is marked
+    assert _restore_alias_shadowed_user_column(ctx_for(base_marker, node_aliases={"kind"}), marked, "nodes", "kind") is marked
+    restored_bool = _restore_alias_shadowed_user_column(ctx_for(base_marker), marked, "nodes", "kind")
+    assert list(restored_bool[restore_col]) == [True, False]
     # A generated relationship alias marker in the active edge frame remains a marker.
     marked_edges = pd.DataFrame({"s": ["a"], "d": ["b"], "type": ["R"], "r": [True]})
     base_edge_marker = SimpleNamespace(
@@ -677,7 +682,7 @@ def test_restore_alias_shadowed_user_column_branches() -> None:
     shifted = pd.DataFrame({"id": ["a", "b"], "kind": [True, True]}, index=[10, 11])
     out = _restore_alias_shadowed_user_column(ctx_for(base), shifted, "nodes", "kind")
     assert list(out[restore_col]) == ["K1", "K2"]
-    # polars: id-keyed join replaces the marker column in place; no key -> unchanged
+    # polars string properties continue replacing the marker column in place.
     marked_pl = pl.DataFrame({"id": ["a", "b"], "kind": [True, True]})
     base_pl = SimpleNamespace(_nodes=pl.DataFrame({"id": ["a", "b"], "kind": ["K1", "K2"]}), _edges=None, _node="id", _edge=None)
     out_pl = _restore_alias_shadowed_user_column(ctx_for(base_pl), marked_pl, "nodes", "kind")
@@ -686,7 +691,9 @@ def test_restore_alias_shadowed_user_column_branches() -> None:
     assert _restore_alias_shadowed_user_column(ctx_for(base_pl_no_key), marked_pl, "nodes", "kind") is marked_pl
     # polars marker-carrying base: unchanged
     base_pl_marker = SimpleNamespace(_nodes=pl.DataFrame({"id": ["a", "b"], "kind": [True, False]}), _edges=None, _node="id", _edge=None)
-    assert _restore_alias_shadowed_user_column(ctx_for(base_pl_marker), marked_pl, "nodes", "kind") is marked_pl
+    assert _restore_alias_shadowed_user_column(ctx_for(base_pl_marker, node_aliases={"kind"}), marked_pl, "nodes", "kind") is marked_pl
+    restored_pl_bool = _restore_alias_shadowed_user_column(ctx_for(base_pl_marker), marked_pl, "nodes", "kind")
+    assert restored_pl_bool[restore_col].to_list() == [True, False]
 
 
 def test_cudf_rows_route_self_named_alias_parity() -> None:
