@@ -9,6 +9,7 @@ Own implementation, your plan.md, verification, and evidence. Follow [plan](../p
 
 ## Keep progressing
 
+- Preserve subagent-safe Markdown filenames when creating delegated artifacts, per [plan](../plan/SKILL.md).
 - Recover current plans, authority, unread messages, and actual execution state. Keep the plan’s next-action pointer accurate.
 - Incorporate planner guidance or explain an evidence-backed alternative. Update your plan and continue within authority; notification need not become a permission wait.
 - Execute successive authorized steps, including routine debugging and tests, without new assignments or ACKs. Ask when a consequential decision is needed; continue unaffected work.
