@@ -122,3 +122,41 @@ def test_missing_relationship_property_does_not_return_alias_marker(engine: str)
             engine=engine,
         )
     assert exc_info.value.code == ErrorCode.E108
+
+
+@pytest.mark.parametrize("engine", ["pandas", "polars"])
+def test_boolean_node_property_shadowing_alias_is_restored(engine: str) -> None:
+    pl = pytest.importorskip("polars") if engine == "polars" else None
+    nodes: Any = pd.DataFrame({
+        "id": ["a", "b"], "label__P": [True, True], "kind": [False, True]
+    })
+    edges: Any = pd.DataFrame({"s": ["a"], "d": ["b"], "type": ["X"]})
+    if pl is not None:
+        nodes, edges = pl.from_pandas(nodes), pl.from_pandas(edges)
+    g = graphistry.bind(source="s", destination="d", node="id", edge="type").nodes(nodes).edges(edges)
+
+    for query in (
+        "MATCH (kind:P) RETURN kind.kind AS x",
+        "MATCH (kind:P) WITH kind RETURN kind.kind AS x",
+    ):
+        assert _records(g.gfql(query, engine=engine)._nodes) == [
+            {"x": False}, {"x": True}
+        ]
+
+    # A traversed Boolean property remains a real property after a WITH re-entry too.
+    assert _records(g.gfql(
+        "MATCH (kind:P) WITH kind MATCH (kind)-[r:X]->(b) RETURN kind.kind AS x",
+        engine=engine,
+    )._nodes) == [{"x": False}]
+
+    # Negative control: without a real same-named property, the generated Boolean
+    # alias marker stays internal and resolves as a missing property.
+    marker_only_nodes: Any = pd.DataFrame({"id": ["a", "b"], "label__P": [True, True]})
+    if pl is not None:
+        marker_only_nodes = pl.from_pandas(marker_only_nodes)
+    marker_only = graphistry.bind(source="s", destination="d", node="id", edge="type").nodes(
+        marker_only_nodes
+    ).edges(edges)
+    assert _records(
+        marker_only.gfql("MATCH (a:P) RETURN a.a AS x", engine=engine)._nodes
+    ) == [{"x": None}, {"x": None}]

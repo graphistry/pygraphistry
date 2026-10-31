@@ -29,6 +29,7 @@ if TYPE_CHECKING:
         _gfql_rows_base_graph: Optional["Plottable"]
         _gfql_start_nodes: Optional["DataFrameT"]
         _gfql_rows_edge_aliases: Optional[Iterable[str]]
+        _gfql_rows_node_aliases: Optional[Iterable[str]]
         def bind(self) -> "Plottable": ...
         def _gfql_binding_ops_row_table(
             self,
@@ -72,7 +73,8 @@ def _restore_alias_shadowed_user_column(
     marker. Re-key the user's values from the base frame under an internal restore
     column the projection resolves, keeping the boolean marker intact for every other
     read. No-op when the alias shadows nothing or rows cannot be re-keyed. Polars
-    intermediate frames that expose only a Boolean marker are left untouched."""
+    intermediate frames preserve Boolean marker columns only when their alias provenance
+    identifies ``source`` as a generated marker."""
     from graphistry.compute.gfql.identifiers import shadow_restore_column
 
     if shadow_restore_column(source) in table_df.columns:
@@ -83,26 +85,35 @@ def _restore_alias_shadowed_user_column(
     )
     if base_frame is None or source not in base_frame.columns:
         return table_df
+    alias_markers = (
+        getattr(ctx, "_gfql_rows_node_aliases", None)
+        if table == "nodes"
+        else getattr(ctx, "_gfql_rows_edge_aliases", None)
+    ) or ()
     if _is_polars(table_df):
         import polars as pl
-        base_is_marker = base_frame.schema.get(source) == pl.Boolean
-        if base_is_marker:
+        base_is_marker = base_frame.collect_schema().get(source) == pl.Boolean
+        if base_is_marker and source in alias_markers:
             return table_df
     else:
         base_is_marker = str(getattr(base_frame[source], "dtype", "")).startswith("bool")
         if base_is_marker and (
-            table != "edges"
-            or type(table_df).__module__.startswith("cudf")
-            or source in (ctx._gfql_rows_edge_aliases or ())
+            type(table_df).__module__.startswith("cudf") or source in alias_markers
         ):
             return table_df
     key = base_graph._node if table == "nodes" else base_graph._edge  # type: ignore[union-attr]
     if _is_polars(table_df):
+        restore_col = shadow_restore_column(source)
         if (
             key is not None and key != source
             and key in table_df.columns and key in base_frame.columns
             and base_frame[key].n_unique() == len(base_frame)
         ):
+            if base_frame.collect_schema().get(source) == pl.Boolean:
+                return table_df.join(
+                    base_frame.select([key, source]).rename({source: restore_col}),
+                    on=key, how="left",
+                )
             orig_cols = list(table_df.columns)
             return table_df.drop(source).join(
                 base_frame.select([key, source]), on=key, how="left"
@@ -191,6 +202,8 @@ def row_table(ctx: RowPipelineCtx, table_df: Any) -> "Plottable":
         out._gfql_start_nodes = ctx._gfql_start_nodes
     if ctx._gfql_rows_edge_aliases is not None:
         out._gfql_rows_edge_aliases = ctx._gfql_rows_edge_aliases
+    if getattr(ctx, "_gfql_rows_node_aliases", None) is not None:
+        out._gfql_rows_node_aliases = ctx._gfql_rows_node_aliases
     return cast("Plottable", out)
 
 
@@ -299,19 +312,18 @@ def rows(
             raise ValueError(f"rows(source=...) alias column not found: {source!r}")
         if _is_polars(table_df):
             import polars as pl
-            # returns straight out of the guarded branch instead of rebinding ``table_df``:
-            # the polars frame would otherwise widen the variable's type and break the pandas
-            # ``.loc`` branch below (``is_polars_df`` is a TypeGuard, so it does not narrow the
-            # negative branch back to pandas). Same call, same argument, same result.
-            return row_table(ctx, _restore_alias_shadowed_user_column(
-                ctx, table_df.filter(pl.col(source).fill_null(False).cast(pl.Boolean)), table, source))
-        # unreachable for polars (returned above), but the guard on the ``.copy()`` branch
-        # further up leaves the polars arm in this variable's type: TypeGuard narrows only
-        # the positive branch, so ``not _is_polars(...)`` cannot narrow back to pandas.
-        table_df = table_df.loc[_alias_true_mask(table_df, source)]  # type: ignore[union-attr]
+            table_df = table_df.filter(pl.col(source).fill_null(False).cast(pl.Boolean))
+        else:
+            table_df = table_df.loc[_alias_true_mask(table_df, source)]  # type: ignore[union-attr]
         table_df = _restore_alias_shadowed_user_column(ctx, table_df, table, source)
 
-    return row_table(ctx, table_df)
+    out = row_table(ctx, table_df)
+    if source is not None:
+        attr = "_gfql_rows_node_aliases" if table == "nodes" else "_gfql_rows_edge_aliases"
+        aliases = set(getattr(out, attr, None) or ())
+        aliases.add(source)
+        setattr(out, attr, aliases)
+    return out
 
 
 def count_table(

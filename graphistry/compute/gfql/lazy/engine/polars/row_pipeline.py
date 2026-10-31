@@ -1136,6 +1136,11 @@ def _finish_binding_rows_polars(
         if isinstance(alias, str)
     }
     out._gfql_rows_edge_aliases = edge_aliases
+    out._gfql_rows_node_aliases = {
+        op._name
+        for op in ops
+        if isinstance(op, ASTNode) and isinstance(op._name, str)
+    }
     return out
 
 

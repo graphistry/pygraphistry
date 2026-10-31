@@ -465,6 +465,7 @@ class RowPipelineMixin:
     _gfql_start_nodes: Optional["DataFrameT"] = None
     _gfql_rows_base_graph: Optional["Plottable"] = None
     _gfql_rows_edge_aliases: Optional[Iterable[str]] = None
+    _gfql_rows_node_aliases: Optional[Iterable[str]] = None
     _nodes: Any
     _edges: Any
     _node: Any
@@ -4799,7 +4800,7 @@ class RowPipelineMixin:
         attach_prop_aliases: Optional[List[str]] = None,
         attach_prop_columns: Optional[Dict[str, List[str]]] = None,
     ) -> "Plottable":
-        from graphistry.compute.ast import ASTEdge
+        from graphistry.compute.ast import ASTEdge, ASTNode
 
         state_df, alias_frames = self._gfql_connected_bindings_state(ops, alias_prefilters=alias_prefilters)
         bindings = self._gfql_connected_bindings_row_frame_from_state(
@@ -4813,6 +4814,12 @@ class RowPipelineMixin:
             if isinstance(op, ASTEdge) and isinstance(alias, str)
         }
         out._gfql_rows_edge_aliases = edge_aliases
+        out._gfql_rows_node_aliases = {
+            alias
+            for op in ops
+            for alias in [getattr(op, "_name", None)]
+            if isinstance(op, ASTNode) and isinstance(alias, str)
+        }
         return out
 
     def _gfql_add_missing_binding_columns(
@@ -6285,6 +6292,7 @@ class _RowPipelineAdapter(RowPipelineMixin):
         self._gfql_start_nodes = g._gfql_start_nodes
         self._gfql_rows_base_graph = g._gfql_rows_base_graph
         self._gfql_rows_edge_aliases = g._gfql_rows_edge_aliases
+        self._gfql_rows_node_aliases = g._gfql_rows_node_aliases
         self._gfql_indexed_bindings_handoff = read_handoff(g)
         self._nodes = g._nodes
         self._edges = g._edges
