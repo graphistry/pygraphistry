@@ -745,8 +745,14 @@ def test_alias_restore_uses_entity_keys_after_row_reordering(backend, keys, dupl
     if backend == "cudf":
         cudf = pytest.importorskip("cudf")
         base, marked = cudf.from_pandas(base), cudf.from_pandas(marked)
-    ctx = SimpleNamespace(_gfql_rows_base_graph=SimpleNamespace(
-        _nodes=base, _edges=None, _node="id", _edge=None), _g=None)
+    ctx = SimpleNamespace(
+        _gfql_rows_base_graph=SimpleNamespace(
+            _nodes=base, _edges=None, _node="id", _edge=None
+        ),
+        _gfql_rows_edge_aliases=None,
+        _gfql_rows_node_aliases=None,
+        _g=None,
+    )
     result = _restore_alias_shadowed_user_column(ctx, marked, "nodes", "value")
     result_pd = result.to_pandas() if backend == "cudf" else result
     marked_pd = marked.to_pandas() if backend == "cudf" else marked
