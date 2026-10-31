@@ -20,6 +20,22 @@ def _graph(edge_rows, engine="pandas"):
     return graphistry.nodes(nodes, "id").edges(edges, "s", "d")
 
 
+def _graph_with_edge_binding(edge_rows, engine="pandas", *, bind_edge=True):
+    nodes = pd.DataFrame({
+        "id": ["c1", "c2", "a", "b", "z"],
+        "name": ["c1", "c2", "same", "other", "same"],
+        "label__Country": [True, True, False, False, False],
+        "label__City": [False, False, True, True, True],
+    })
+    edges = pd.DataFrame(edge_rows, columns=["s", "d", "type"])
+    edges.insert(0, "eid", range(len(edges)))
+    if engine == "polars":
+        pl = pytest.importorskip("polars")
+        nodes, edges = pl.from_pandas(nodes), pl.from_pandas(edges)
+    graph = graphistry.nodes(nodes, "id").edges(edges, "s", "d")
+    return graph.bind(edge="eid") if bind_edge else graph
+
+
 def _rows(graph, query, *, engine="pandas"):
     out = graph.gfql(query, engine=engine)._nodes
     if engine == "polars":
@@ -62,6 +78,35 @@ _REENTRY_QUERY = (
 )
 def test_issue_2258_collected_node_membership_uses_identity(engine, edges, expected):
     assert _rows(_graph(edges, engine), _REENTRY_QUERY, engine=engine) == expected
+
+
+@pytest.mark.parametrize("engine", ["pandas", "polars"])
+@pytest.mark.parametrize("bind_edge", [False, True], ids=["unbound-edge-id", "bound-edge-id"])
+def test_issue_2258_collected_node_reentry_preserves_bound_edge_identity(engine, bind_edge):
+    graph = _graph_with_edge_binding(
+        [
+            ("c1", "a", "HAS_CITY"), ("c1", "a", "HAS_CITY"),
+            ("c1", "a", "CAND"), ("c1", "a", "CAND"), ("c1", "z", "CAND"),
+            ("c2", "b", "CAND"),
+        ],
+        engine,
+        bind_edge=bind_edge,
+    )
+    query = (
+        "MATCH (country:Country)-[:HAS_CITY]->(city:City) "
+        "WITH country, collect(city) AS cities "
+        "MATCH (country)-[:CAND]->(candidate:City) WHERE candidate IN cities "
+        "RETURN candidate.id AS cityId, size(cities) AS n"
+    )
+    result = graph.gfql(query, engine=engine)._nodes
+    if engine == "polars":
+        rows = result.to_dicts()
+        columns = result.columns
+    else:
+        rows = result.to_dict(orient="records")
+        columns = result.columns.tolist()
+    assert Counter((row["cityId"], row["n"]) for row in rows) == Counter({("a", 2): 2})
+    assert not any(str(column).startswith("__cypher_reentry_") for column in columns)
 
 
 def test_issue_2258_direct_list_membership_and_unary_not_use_identity():
