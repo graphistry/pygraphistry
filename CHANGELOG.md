@@ -11,7 +11,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ### Fixed
 
 - **GFQL Cypher scalar carries after `WITH`**: a scalar carried through `WITH` remains available when a later `MATCH` reconnects the earlier alias, including whole-node-plus-scalar, connected-scalar, and multi-edge path prefixes. Grouping now keeps each carried scalar's multiplicity on pandas and Polars instead of returning null groups or dropping a connected result group (#2252).
-- **GFQL Cypher node entity membership identity** (#2258): direct and collected node aliases in `IN`/`NOT IN` predicates compare by graph node ID rather than display properties, while scalar/property equality and public collected-entity display retain their existing behavior. Mixed node/scalar/null lists preserve three-valued null semantics.
+- **GFQL Cypher node entity membership identity** (#2258): direct and collected node aliases in `IN`/`NOT IN` predicates compare by graph node ID rather than display properties, while scalar/property equality and public collected-entity display retain their existing behavior. Polars CPU now preserves collected node display values and uses native IDs for collected-node membership across one `WITH`/reentry boundary when entity properties have native text formatting. Mixed node/scalar/null lists preserve three-valued null semantics on the existing pandas route.
 
 - **GFQL Cypher conversion operand validation**: statically invalid conversion operands, such as lists, maps, and graph entities, are rejected at compile time before the engine sees them. Dynamic operands, null propagation, and list-comprehension lexical shadowing keep their existing behavior.
 

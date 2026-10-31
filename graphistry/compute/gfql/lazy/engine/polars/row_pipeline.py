@@ -159,6 +159,35 @@ def _lower_function(node: FunctionCall, columns: Sequence[str]) -> Optional[pl.E
     parity-verified mappings admitted; anything else returns None (caller NIEs, never guesses)."""
     import polars as pl  # function-local: polars is an optional dependency
     name = node.name.lower()
+    if name == "__node_identity__" and len(node.args) == 1:
+        from graphistry.compute.gfql.expr_parser import Identifier
+        alias = node.args[0]
+        if isinstance(alias, Identifier) and alias.name in columns:
+            # Binding rows store the graph's native node ID under the bare alias. Preserve
+            # identity as a typed scalar; never derive it from the public display string.
+            return pl.col(alias.name)
+        return None
+    if name == "__node_entity__" and node.args:
+        from graphistry.compute.gfql.expr_parser import Identifier, Literal
+        alias_node = node.args[0]
+        if not isinstance(alias_node, Identifier) or alias_node.name not in columns:
+            return None
+        schema = dict(_SCHEMA.get())
+        if not schema:
+            return None
+        from .projection import _alias_view_polars, _native_node_entity_text_expr
+        view = _alias_view_polars(pl.DataFrame(schema=schema), alias_node.name)
+        if view is None:
+            return None
+        excluded = [alias_node.name]
+        for arg in node.args[1:]:
+            if isinstance(arg, Identifier):
+                excluded.append(arg.name)
+            elif isinstance(arg, Literal) and isinstance(arg.value, str):
+                excluded.append(arg.value)
+            else:
+                return None
+        return _native_node_entity_text_expr(view, alias_node.name, excluded)
     if name == "__cypher_case_eq__" and len(node.args) == 2:
         # Simple CASE compares with '=', so a null WHEN value matches nothing and falls to ELSE.
         from graphistry.compute.gfql.expr_parser import Literal as _Lit
@@ -707,6 +736,27 @@ def lower_expr(node: ExprNode, columns: Sequence[str]) -> Optional[pl.Expr]:
             if left is None:
                 return None
             return _lower_in(left, node.right.items, columns)
+        if (
+            node.op == "in"
+            and isinstance(node.right, PropertyAccessExpr)
+            and node.right.property.startswith("__cypher_reentry___gfql_node_identity_list_")
+        ):
+            # Reentry membership over the hidden `collect(__node_identity__(alias))`
+            # companion. It is a native List column with null members already removed by
+            # Cypher collect; preserve NULL lhs as UNKNOWN before filtering.
+            left = lower_expr(node.left, columns)
+            right = lower_expr(node.right, columns)
+            if left is None or right is None:
+                return None
+            right_dtype = _expr_output_dtype(right)
+            if not isinstance(right_dtype, pl.List):
+                return None
+            left_dtype = _expr_output_dtype(left)
+            if right_dtype.inner != left_dtype:
+                return None
+            return pl.when(left.is_null()).then(
+                pl.lit(None, dtype=pl.Boolean)
+            ).otherwise(right.list.contains(left))
         # decline (NIE): temporal arithmetic — duration({...}) lowers to an ISO duration STRING
         # ('PT6M'), so +/- would become string concatenation (silent wrong answer); pandas handles it.
         if node.op in ("+", "-") and (_is_iso_duration_literal(node.left) or _is_iso_duration_literal(node.right)):
