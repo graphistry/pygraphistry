@@ -4104,6 +4104,8 @@ class RowPipelineMixin:
         alias: str,
         base_frame: Optional[DataFrameT],
         key_col: str,
+        *,
+        null_missing_property_slot: bool = True,
     ) -> Optional[DataFrameT]:
         """Restore a user column that the alias marker overwrote, for property lookup.
 
@@ -4121,6 +4123,8 @@ class RowPipelineMixin:
         if key_col not in lookup_source.columns:
             return lookup_source
         if alias not in getattr(base_frame, "columns", []):
+            if not null_missing_property_slot:
+                return lookup_source
             # Null the alias marker's qualified property slot so it cannot render as user data.
             lookup_source = lookup_source.copy()
             lookup_source[alias] = None
@@ -4652,7 +4656,11 @@ class RowPipelineMixin:
             if isinstance(edge_alias, str) and edges_df_step is not None:
                 # Same marker shadowing as the node side, keyed on the edge identity column.
                 unshadowed = self._gfql_unshadow_alias_marker_column(
-                    edges_df_step, edge_alias, base_graph._edges, ident_col
+                    edges_df_step,
+                    edge_alias,
+                    base_graph._edges,
+                    ident_col,
+                    null_missing_property_slot=False,
                 )
                 assert unshadowed is not None  # non-None in, non-None out
                 edges_df_step = unshadowed
