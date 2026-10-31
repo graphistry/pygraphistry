@@ -343,7 +343,9 @@ def test_cross_profile_ratios_stay_unpublished(payload: bench.JSONObject) -> Non
     )
 
 
-def test_withdrawn_pagerank_values_are_neither_quoted_nor_charted(payload):
+def test_withdrawn_pagerank_values_are_neither_quoted_nor_charted(
+    payload: bench.JSONObject,
+) -> None:
     cells = payload['cells']
     withdrawn = (
         'pagerank.twitter.gfql_cpu',

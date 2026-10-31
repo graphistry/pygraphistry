@@ -3345,7 +3345,7 @@
       "comparison_allowed": false,
       "decimals": 2,
       "disclosures": [
-        "Withdrawn ahead of the 2026-11-03 60-day freshness deadline because no refreshed CPU-only measurement and input data are available; historical value retained only in the artifact."
+        "The GFQL CPU measurement was taken on 2026-09-04 and reaches the 60-day freshness limit on 2026-11-03. No eligible replacement is published; the historical value is retained only in the artifact."
       ],
       "engine": "GFQL CPU (pandas + igraph)",
       "measurement_profile": "filter-pagerank-resident-in-process",
@@ -3360,7 +3360,7 @@
       "comparison_allowed": false,
       "decimals": 2,
       "disclosures": [
-        "Withdrawn ahead of the 2026-11-03 60-day freshness deadline because no refreshed CPU-only measurement and input data are available; historical value retained only in the artifact.",
+        "The GFQL GPU measurement was taken on 2026-09-04 and reaches the 60-day freshness limit on 2026-11-03. No eligible replacement is published; the historical value is retained only in the artifact.",
         "Its selected-node set differs from the GFQL CPU (pandas + igraph) arm's on gplus (Jaccard 0.91065, gate 0.95); this is a direct pipeline time, not a comparison."
       ],
       "engine": "GFQL GPU (cuDF + cuGraph)",
@@ -3392,7 +3392,7 @@
       "comparison_allowed": false,
       "decimals": 2,
       "disclosures": [
-        "Withdrawn ahead of the 2026-11-03 60-day freshness deadline because no refreshed CPU-only measurement and input data are available; historical value retained only in the artifact."
+        "The GFQL CPU measurement was taken on 2026-09-04 and reaches the 60-day freshness limit on 2026-11-03. No eligible replacement is published; the historical value is retained only in the artifact."
       ],
       "engine": "GFQL CPU (pandas + igraph)",
       "measurement_profile": "filter-pagerank-resident-in-process",
@@ -3407,7 +3407,7 @@
       "comparison_allowed": false,
       "decimals": 2,
       "disclosures": [
-        "Withdrawn ahead of the 2026-11-03 60-day freshness deadline because no refreshed CPU-only measurement and input data are available; historical value retained only in the artifact."
+        "The GFQL GPU measurement was taken on 2026-09-04 and reaches the 60-day freshness limit on 2026-11-03. No eligible replacement is published; the historical value is retained only in the artifact."
       ],
       "engine": "GFQL GPU (cuDF + cuGraph)",
       "measurement_profile": "filter-pagerank-resident-in-process",
@@ -3422,7 +3422,7 @@
       "comparison_allowed": false,
       "decimals": 2,
       "disclosures": [
-        "Withdrawn ahead of the 2026-11-03 60-day freshness deadline because no refreshed CPU-only measurement and input data are available; historical value retained only in the artifact.",
+        "The Twitter Neo4j + GDS measurement was taken on 2026-07-28 and is already beyond the 60-day freshness limit. No eligible replacement is published; the historical value is retained only in the artifact.",
         "In the Neo4j arm each filter stage writes a marker property onto every matched node and relationship, 32 seeds per batch, and GDS scores an explicitly symmetrised projection; the GDS in-memory projection is rebuilt per timed iteration while the GFQL arms retain their resident frames. The GFQL arms materialise a subgraph and write nothing. The figure is a pipeline time, not an engine-primitive time.",
         "The Twitter Neo4j + GDS arm was measured on 2026-07-28 and is reused unchanged; the GFQL arms were re-measured on 2026-09-04 at PyGraphistry 0.59.0 under the pinned PageRank contract."
       ],
@@ -4368,8 +4368,8 @@
     }
   },
   "contract_version": 3,
-  "generated_at": "2026-10-31T05:33:42Z",
-  "generated_by": "graphistry/pyg-bench 4a2e3387 scripts/export_docs_numbers.py",
+  "generated_at": "2026-10-31T05:42:35Z",
+  "generated_by": "graphistry/pyg-bench a413d045 scripts/export_docs_numbers.py",
   "policy": {
     "accepted_regressions": [],
     "drift_waivers": {
