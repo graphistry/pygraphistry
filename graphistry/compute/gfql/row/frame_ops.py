@@ -71,8 +71,8 @@ def _restore_alias_shadowed_user_column(
     column overwritten by the alias marker upstream, so ``source.source`` read back the
     marker. Re-key the user's values from the base frame under an internal restore
     column the projection resolves, keeping the boolean marker intact for every other
-    read. No-op when the alias shadows nothing, the base column is itself a boolean
-    marker (an intermediate dispatch graph), or rows cannot be re-keyed."""
+    read. No-op when the alias shadows nothing or rows cannot be re-keyed. Polars
+    intermediate frames that expose only a Boolean marker are left untouched."""
     from graphistry.compute.gfql.identifiers import shadow_restore_column
 
     if shadow_restore_column(source) in table_df.columns:
@@ -86,10 +86,8 @@ def _restore_alias_shadowed_user_column(
     if _is_polars(table_df):
         import polars as pl
         base_is_marker = base_frame.schema.get(source) == pl.Boolean
-    else:
-        base_is_marker = str(getattr(base_frame[source], "dtype", "")).startswith("bool")
-    if base_is_marker:
-        return table_df
+        if base_is_marker:
+            return table_df
     key = base_graph._node if table == "nodes" else base_graph._edge  # type: ignore[union-attr]
     if _is_polars(table_df):
         if (

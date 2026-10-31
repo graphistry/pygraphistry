@@ -689,6 +689,20 @@ def lower_expr(node: ExprNode, columns: Sequence[str]) -> Optional[pl.Expr]:
         return None
     if isinstance(node, PropertyAccessExpr):
         if isinstance(node.value, Identifier):
+            if (
+                node.value.name == node.property
+                and shadow_restore_column(node.value.name) not in columns
+                and node.value.name in columns
+                and _SCHEMA.get().get(node.value.name) == pl.Boolean
+            ):
+                # ``rows(source=alias)`` keeps the Boolean alias marker under its
+                # plain name. When no restored source field exists, alias.alias is
+                # a missing property, not the marker's value.
+                from graphistry.compute.gfql.row.pipeline import RowPipelineMixin
+                RowPipelineMixin._gfql_report_absent_property(
+                    f"{node.value.name}.{node.property}"
+                )
+                return pl.lit(None)
             src = _resolve_property(node.value.name, node.property, columns)
             if src is not None:
                 return pl.col(src)
