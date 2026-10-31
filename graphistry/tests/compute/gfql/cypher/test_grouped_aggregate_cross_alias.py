@@ -123,11 +123,13 @@ def test_whole_row_grouped_sole_min_serves_on_pandas():
 
 
 @polars_only
-def test_whole_row_grouped_sole_min_declines_typed_on_polars():
-    """polars has no native whole-entity result projection for this shape;
-    parity-or-error by design (NotImplementedError, never a silent wrong)."""
-    with pytest.raises(NotImplementedError):
-        _run(_graph_a("polars"), MATCH_A + "RETURN c, min(p.age) AS m", "polars")
+def test_whole_row_grouped_sole_min_serves_on_polars():
+    """Whole-row grouped sole-min matches the pandas oracle with native columns."""
+    out = _run(_graph_a("polars"), MATCH_A + "RETURN c, min(p.age) AS m", "polars")
+    got = {row["c.city"]: int(row["m"]) for row in out.to_dict("records")}
+    assert got == {"NYC": 20, "LA": 40}
+    assert "c.id" in out.columns
+    assert not any(column.startswith("__cypher_reentry_") for column in out.columns)
 
 
 @pytest.mark.parametrize("engine", ENGINES)
