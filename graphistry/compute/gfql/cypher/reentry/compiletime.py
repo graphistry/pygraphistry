@@ -50,6 +50,7 @@ from graphistry.compute.gfql.cypher.reentry.lowering_support import (
     _rewrite_order_by_expressions,
 )
 from graphistry.compute.gfql.cypher.reentry.naming import (
+    REENTRY_ROW_TOKEN_OUTPUT,
     _reentry_hidden_column_name,
     _reentry_property_carry_name,
 )
@@ -659,6 +660,28 @@ def _compile_bounded_reentry_query(
     if first_alias is None:
         _raise_requires_named_reentry_alias(reentry_match, first_alias)
 
+    row_token_enabled = (
+        not scalar_only_prefix
+        and not free_form
+        and prefix_projection is not None
+        and prefix_projection.table == "nodes"
+        and bool(carry_columns)
+    )
+    if row_token_enabled:
+        internal_token_projection = any(
+            item.alias == REENTRY_ROW_TOKEN_OUTPUT
+            and item.internal
+            for item in prefix_stage.clause.items
+        )
+        if REENTRY_ROW_TOKEN_OUTPUT in carry_columns and not internal_token_projection:
+            raise _unsupported_at_span(
+                "Cypher MATCH after WITH uses a reserved row-token output name",
+                field="with",
+                value=REENTRY_ROW_TOKEN_OUTPUT,
+                span=prefix_stage.span,
+            )
+        carry_columns = tuple(dict.fromkeys((*carry_columns, REENTRY_ROW_TOKEN_OUTPUT)))
+
     hidden_columns = tuple(_reentry_hidden_column_name(output_name) for output_name in carry_columns)
 
     if scalar_only_prefix:
@@ -667,6 +690,7 @@ def _compile_bounded_reentry_query(
             aliases=(),
             scalar_columns=tuple(carry_columns),
             scalar_only=True,
+            row_token_enabled=False,
         )
     else:
         assert prefix_projection is not None
@@ -699,6 +723,7 @@ def _compile_bounded_reentry_query(
             scalar_columns=tuple(carry_columns),
             scalar_only=False,
             free_form=free_form,
+            row_token_enabled=row_token_enabled,
         )
 
     def rewrite_expr(expr: ExpressionText, field: str) -> ExpressionText:
@@ -740,6 +765,46 @@ def _compile_bounded_reentry_query(
             _rewrite_reentry_projection_stage(stage, rewrite_expr=rewrite_expr)
             for stage in remaining_with_stages
         )
+        if row_token_enabled and remaining_reentry_matches and rewritten_with_stages:
+            token_stage = rewritten_with_stages[0]
+            token_aliases = _all_match_node_aliases(query)
+            if not any(
+                (item.alias or item.expression.text.strip()) == REENTRY_ROW_TOKEN_OUTPUT
+                for item in token_stage.clause.items
+            ):
+                token_source = next(
+                    (
+                        item.alias or item.expression.text.strip()
+                        for item in token_stage.clause.items
+                        if _is_whole_row_with_item(item, match_node_aliases=token_aliases)
+                    ),
+                    None,
+                )
+                if token_source is None:
+                    raise _unsupported_at_span(
+                        "Cypher MATCH after WITH cannot forward the internal row token without a carried node alias",
+                        field="with",
+                        value=REENTRY_ROW_TOKEN_OUTPUT,
+                        span=token_stage.span,
+                    )
+                token_item = ReturnItem(
+                    expression=ExpressionText(
+                        text=f"{token_source}.{_reentry_hidden_column_name(REENTRY_ROW_TOKEN_OUTPUT)}",
+                        span=token_stage.span,
+                    ),
+                    alias=REENTRY_ROW_TOKEN_OUTPUT,
+                    span=token_stage.span,
+                    internal=True,
+                )
+                rewritten_with_stages = (
+                    replace(
+                        token_stage,
+                        clause=replace(
+                            token_stage.clause,
+                            items=token_stage.clause.items + (token_item,),
+                        ),
+                    ),
+                ) + rewritten_with_stages[1:]
         rewritten_reentry_unwinds = tuple(
             replace(
                 unwind_clause,

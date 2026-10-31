@@ -4534,7 +4534,22 @@ class RowPipelineMixin:
                 "Cypher multi-alias row bindings require a bound graph"
             )
         preserve_start_multiplicity = owner_graph._gfql_preserve_start_node_multiplicity
-        if preserve_start_multiplicity:
+        from graphistry.compute.gfql.cypher.reentry.naming import (
+            REENTRY_HIDDEN_COLUMN_PREFIX,
+            REENTRY_ROW_TOKEN_OUTPUT,
+            _reentry_hidden_column_name,
+        )
+        row_token_column = _reentry_hidden_column_name(REENTRY_ROW_TOKEN_OUTPUT)
+        has_row_token = (
+            preserve_start_multiplicity and row_token_column in first_nodes.columns
+        )
+        if has_row_token:
+            hidden_carries = [
+                col for col in first_nodes.columns
+                if isinstance(col, str) and col.startswith(REENTRY_HIDDEN_COLUMN_PREFIX)
+            ]
+            state_df = first_nodes[[node_id_col] + hidden_carries].copy()
+        elif preserve_start_multiplicity:
             state_df = first_nodes[[node_id_col]].copy()
         else:
             state_df = (
@@ -4546,7 +4561,7 @@ class RowPipelineMixin:
         alias_frames: Dict[str, DataFrameT] = {}
         if isinstance(first_alias, str):
             state_df[first_alias] = state_df[WALK_CURRENT_COL]
-            alias_frames[first_alias] = (
+            alias_frames[first_alias] = first_nodes if has_row_token else (
                 first_nodes.drop_duplicates(subset=[node_id_col], keep="first")
                 if preserve_start_multiplicity
                 else first_nodes
@@ -4946,6 +4961,11 @@ class RowPipelineMixin:
         attach_prop_columns: Optional[Dict[str, List[str]]] = None,
     ) -> DataFrameT:
         from graphistry.compute.ast import ASTNode
+        from graphistry.compute.gfql.cypher.reentry.naming import (
+            REENTRY_HIDDEN_COLUMN_PREFIX,
+            REENTRY_ROW_TOKEN_OUTPUT,
+            _reentry_hidden_column_name,
+        )
 
         node_id = self._node
         if node_id is None:
@@ -4968,6 +4988,7 @@ class RowPipelineMixin:
             for op in ops
             if isinstance(op, ASTNode) and isinstance(op._name, str)
         ]
+        row_token_column = _reentry_hidden_column_name(REENTRY_ROW_TOKEN_OUTPUT)
         for alias in node_aliases:
             alias = str(alias)
             if alias not in bindings.columns:
@@ -4980,6 +5001,19 @@ class RowPipelineMixin:
             lookup_source = self._gfql_unshadow_alias_marker_column(
                 lookup_source, alias, base_nodes, node_id
             )
+            if alias == node_aliases[0] and row_token_column in bindings.columns:
+                # The start alias's hidden carries already travel with each binding
+                # occurrence in state_df. Rejoining them by node ID would cross-pair
+                # duplicate start rows; use the base node lookup only for entity fields.
+                hidden_columns = [
+                    col for col in lookup_source.columns
+                    if isinstance(col, str) and col.startswith(REENTRY_HIDDEN_COLUMN_PREFIX)
+                ]
+                if hidden_columns:
+                    lookup_source = lookup_source.drop(columns=hidden_columns)
+                    lookup_source = lookup_source.drop_duplicates(
+                        subset=[node_id], keep="first"
+                    )
             if attach_prop_columns is not None:
                 # projection pushdown: only the property columns the next select reads
                 wanted = set(attach_prop_columns.get(alias) or ())
