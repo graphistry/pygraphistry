@@ -162,10 +162,14 @@ def _lower_function(node: FunctionCall, columns: Sequence[str]) -> Optional[pl.E
     if name == "__node_identity__" and len(node.args) == 1:
         from graphistry.compute.gfql.expr_parser import Identifier
         alias = node.args[0]
-        if isinstance(alias, Identifier) and alias.name in columns:
-            # Binding rows store the graph's native node ID under the bare alias. Preserve
-            # identity as a typed scalar; never derive it from the public display string.
-            return pl.col(alias.name)
+        if isinstance(alias, Identifier):
+            node_id = _NODE_ID.get()
+            alias_id = f"{alias.name}.{node_id}" if node_id is not None else None
+            if alias_id is not None and alias_id in columns:
+                return pl.col(alias_id)
+            if alias.name in columns:
+                # Bare binding rows may store the graph's native ID under the alias.
+                return pl.col(alias.name)
         return None
     if name == "__node_entity__" and node.args:
         from graphistry.compute.gfql.expr_parser import Identifier, Literal
@@ -176,7 +180,9 @@ def _lower_function(node: FunctionCall, columns: Sequence[str]) -> Optional[pl.E
         if not schema:
             return None
         from .projection import _alias_view_polars, _native_node_entity_text_expr
-        view = _alias_view_polars(pl.DataFrame(schema=schema), alias_node.name)
+        view = _alias_view_polars(
+            pl.DataFrame(schema=schema), alias_node.name, _NODE_ID.get()
+        )
         if view is None:
             return None
         excluded = []

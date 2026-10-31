@@ -45,7 +45,8 @@ def _single_node_polars(g: Plottable, ops: Sequence[ASTObject], start_nodes: Opt
         return _exec(op0, g0, seed, None)
     nodes = _single_node_rows_via_index_or_filter(g0, op0, EngineAbstract.POLARS)
     if op0._name is not None:
-        nodes = nodes.with_columns(pl.lit(True).alias(op0._name))
+        from graphistry.compute.gfql.lazy.engine.polars.pattern_apply import alias_node_id_with_property_polars
+        nodes = alias_node_id_with_property_polars(nodes, op0._name, nc)
     return g0.nodes(nodes, nc).edges(g0._edges.clear(), edge_src, edge_dst)
 
 

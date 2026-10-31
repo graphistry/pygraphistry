@@ -1762,6 +1762,16 @@ class RowPipelineMixin:
                         columns={col: col[len(prefix):] for col in alias_cols}
                     )
                     source_alias = str(entity_id)
+                elif entity_id is not None and entity_id in table_df.columns:
+                    # Direct whole-entity aggregation runs on the source node table: its
+                    # configured ID column is the presence marker, while a property whose
+                    # name equals the Cypher alias remains ordinary entity data.
+                    source_alias = str(entity_id)
+                    base_graph = self._gfql_base_graph()
+                    base_nodes = base_graph._nodes if base_graph is not None else None
+                    source_table_df = self._gfql_unshadow_alias_marker_column(
+                        source_table_df, source_alias_name, base_nodes, source_alias
+                    )
                 elif source_alias not in table_df.columns:
                     return False, None
                 else:
