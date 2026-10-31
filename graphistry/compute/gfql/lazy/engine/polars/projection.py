@@ -128,6 +128,34 @@ def _alias_view_polars(
             field_sources.setdefault(alias, id_source)
     if field_sources is None:
         return None
+    if node_id_column is not None:
+        id_source = f"{alias}.{node_id_column}"
+        alias_property_source = f"{alias}.{alias}"
+        qualified = [
+            str(column) for column in rows_df.columns
+            if str(column).startswith(f"{alias}.")
+        ]
+        if id_source in qualified and all(
+            column in {id_source, alias_property_source} for column in qualified
+        ):
+            # Direct single-node operations carry only the native ID and (on collision)
+            # the alias-named property under qualified columns. Other source properties
+            # remain in their original columns to avoid widening ordinary node rows.
+            direct_sources: typing.Dict[str, str] = {}
+            for column in rows_df.columns:
+                source = str(column)
+                if source == alias:
+                    if alias_property_source in rows_df.columns:
+                        direct_sources[alias] = alias_property_source
+                    continue
+                if source in qualified:
+                    if source == id_source:
+                        direct_sources[node_id_column] = source
+                    continue
+                if source.startswith("__"):
+                    continue
+                direct_sources.setdefault(source, source)
+            field_sources = direct_sources
     presence_candidates = (
         [f"{alias}.{node_id_column}", node_id_column]
         if node_id_column is not None
