@@ -1753,9 +1753,7 @@ class RowPipelineMixin:
                     )
                     source_alias = str(entity_id)
                 elif entity_id is not None and entity_id in table_df.columns:
-                    # Direct whole-entity aggregation runs on the source node table: its
-                    # configured ID column is the presence marker, while a property whose
-                    # name equals the Cypher alias remains ordinary entity data.
+                    # Use the configured ID for presence so alias-named properties remain data.
                     source_alias = str(entity_id)
                     base_graph = self._gfql_base_graph()
                     base_nodes = base_graph._nodes if base_graph is not None else None
@@ -1765,9 +1763,7 @@ class RowPipelineMixin:
                 elif source_alias not in table_df.columns:
                     return False, None
                 else:
-                    # In a bare binding row the alias column is the node-presence marker,
-                    # not a user property. Prefixed alias fields, when available, separate
-                    # that marker from a real property whose name happens to equal the alias.
+                    # A bare binding alias marks presence; prefixed fields retain real properties.
                     excluded_entity_fields.append(source_alias_name)
                 out = self._gfql_format_entity_series(
                     source_table_df,
@@ -4125,9 +4121,7 @@ class RowPipelineMixin:
         if key_col not in lookup_source.columns:
             return lookup_source
         if alias not in getattr(base_frame, "columns", []):
-            # The alias-shaped source column is only the boolean marker installed by
-            # ASTNode.execute. Keep the qualified schema slot but null it so
-            # `alias.<alias>` cannot masquerade as user data in entity formatting.
+            # Null the alias marker's qualified property slot so it cannot render as user data.
             lookup_source = lookup_source.copy()
             lookup_source[alias] = None
             return lookup_source
@@ -5011,9 +5005,7 @@ class RowPipelineMixin:
                 lookup_source, alias, base_nodes, node_id
             )
             if alias == node_aliases[0] and row_token_column in bindings.columns:
-                # The start alias's hidden carries already travel with each binding
-                # occurrence in state_df. Rejoining them by node ID would cross-pair
-                # duplicate start rows; use the base node lookup only for entity fields.
+                # State rows retain carries per occurrence; later lookups attach entity fields only.
                 hidden_columns = [
                     col for col in lookup_source.columns
                     if isinstance(col, str) and col.startswith(REENTRY_HIDDEN_COLUMN_PREFIX)

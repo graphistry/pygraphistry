@@ -174,8 +174,7 @@ def _lower_function(node: FunctionCall, columns: Sequence[str]) -> Optional[pl.E
                 and alias.name in columns
                 and _SCHEMA.get().get(alias.name) == pl.Boolean
             ):
-                # A direct named-node row without an alias/property collision keeps the
-                # legacy boolean marker; the configured graph ID remains its identity.
+                # Direct alias markers resolve identity from the configured graph ID.
                 return pl.col(node_id)
             if alias.name in columns:
                 # Bare binding rows may store the graph's native ID under the alias.
@@ -757,9 +756,7 @@ def lower_expr(node: ExprNode, columns: Sequence[str]) -> Optional[pl.Expr]:
             and isinstance(node.right, PropertyAccessExpr)
             and node.right.property.startswith("__cypher_reentry___gfql_node_identity_list_")
         ):
-            # Reentry membership over the hidden `collect(__node_identity__(alias))`
-            # companion. It is a native List column with null members already removed by
-            # Cypher collect; preserve NULL lhs as UNKNOWN before filtering.
+            # Preserve null-LHS UNKNOWN semantics for collected native-identity lists.
             left = lower_expr(node.left, columns)
             right = lower_expr(node.right, columns)
             if left is None or right is None:
@@ -1189,10 +1186,7 @@ def _finish_binding_rows_polars(
                 lookup_exprs.append(pl.col(reentry_token_col))
             lookup = lookup_src.lazy().select(lookup_exprs)
             if has_reentry_token and not tokenized_start_alias:
-                # The state row already owns the occurrence's hidden carry values.
-                # Non-start entity lookups need one row per id; joining hidden
-                # columns from a repeated entity (e.g. z revisiting seed a) would
-                # cross-pair tokens. The first alias keeps its composite lookup.
+                # Keep occurrence tokens on state rows; deduplicate non-start entity lookups.
                 lookup_src = alias_frames[alias]
                 hidden_cols = [
                     col for col in names(lookup_src)
@@ -2355,9 +2349,7 @@ def binding_rows_polars(
             return None
         seed_nodes = filter_by_dict_polars(nodes_lf, first_op.filter_dict)
         if reentry_token_col is not None:
-            # The token distinguishes each WITH-row occurrence even when several
-            # rows re-enter the same entity. Joining only on node id would produce
-            # a cross-product of payloads; verify the composite seed identity is unique.
+            # Require a unique entity/token key for each reentry occurrence.
             seed_identity = seed_nodes.select([node_id, reentry_token_col]).collect()
             if seed_identity.height != seed_identity.unique().height:
                 return None
@@ -2402,10 +2394,7 @@ def binding_rows_polars(
                     col for col in _names(seed_nodes)
                     if isinstance(col, str) and col.startswith("__cypher_reentry_")
                 ]
-                # Keep the token available through an explicit WITH projection such
-                # as ``WITH a, carried``. Entity properties are joined by node id,
-                # while the hidden token is selected only when requested by the
-                # projection; dropping it here would turn the forwarded key null.
+                # Preserve the hidden token across explicit WITH projection.
                 alias_frames[first_alias] = seed_nodes.unique(
                     subset=[node_id, reentry_token_col], keep="first", maintain_order=True
                 )
