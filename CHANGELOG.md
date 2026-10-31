@@ -20,6 +20,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - **GFQL nullable 64-bit endpoint IDs**: pandas 3.1 fallback traversal preserves exact Int64/UInt64 node matches when nullable node-ID columns contain nulls, instead of silently dropping valid edges.
 - **GFQL multi-hop relationship aliases**: Cypher property reads and direct GFQL edge markers now include only edges that belong to a complete matched path, including ordinary and payload-shadowing aliases (#1911).
 - **GFQL reverse shadowed relationship properties**: pandas scalar projections now restore the matched edge payload after reverse traversal reorders rows (#2256).
+- **GFQL Cypher node entity membership identity** (#2258): direct and collected node aliases in `IN`/`NOT IN` predicates compare by graph node ID rather than display properties, while scalar/property equality and public collected-entity display retain their existing behavior. Mixed node/scalar/null lists preserve three-valued null semantics.
 - **GFQL Cypher conversion operand validation**: statically invalid conversion operands, such as lists, maps, and graph entities, are rejected at compile time before the engine sees them. Dynamic operands, null propagation, and list-comprehension lexical shadowing keep their existing behavior.
 
 - **GFQL remote Let/DAG compatibility**: `gfql_remote` no longer substitutes an empty `gfql_operations` array for a Let/DAG query, so unsupported older servers receive `gfql_query` and reject it explicitly instead of silently running an identity program.
