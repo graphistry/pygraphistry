@@ -115,9 +115,7 @@ def _alias_view_polars(
 
     field_sources = alias_field_sources(rows_df.columns, alias)
     if field_sources is None and node_id_column is not None:
-        # Reentry group-by can retain only prefixed binding columns (`alias.<field>`),
-        # omitting the bare alias marker. Recover the marker from the graph's configured
-        # node-ID field so whole-entity formatting and projection still use native identity.
+        # Recover a grouped alias marker from its qualified native node ID.
         id_source = f"{alias}.{node_id_column}"
         if id_source in rows_df.columns:
             field_sources = {
@@ -138,9 +136,7 @@ def _alias_view_polars(
         if id_source in qualified and all(
             column in {id_source, alias_property_source} for column in qualified
         ):
-            # Direct single-node operations carry only the native ID and (on collision)
-            # the alias-named property under qualified columns. Other source properties
-            # remain in their original columns to avoid widening ordinary node rows.
+            # Merge collision provenance while leaving other source properties untouched.
             direct_sources: typing.Dict[str, str] = {}
             for column in rows_df.columns:
                 source = str(column)
@@ -345,9 +341,7 @@ def _try_native_projection(
             return None  # expression needing evaluation / missing -> defer (NIE)
         dtype = rows_df.schema[src]
         if isinstance(dtype, pl.List) and not isinstance(dtype.inner, (pl.List, pl.Struct, pl.Object)):
-            # Collected Cypher values are already materialized in their public representation
-            # (notably collect(node) -> list of display strings). Preserve that list verbatim;
-            # identity companions travel beside it as internal columns until suffix execution.
+            # Preserve public collected values; hidden identity companions travel separately.
             exprs.append(rows_df.get_column(src).alias(column.output_name))
             continue
         if dtype in (pl.Date, pl.Datetime, pl.Duration, pl.Time) or isinstance(dtype, (pl.List, pl.Struct, pl.Object)):
