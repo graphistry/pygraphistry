@@ -1206,6 +1206,16 @@ def _chain_traversal_polars(self: Plottable, ops, start_nodes: Optional[Any] = N
     ]
     if seed_carry_cols:
         carry_map = start_nodes.select([node_col, *seed_carry_cols])
+        from graphistry.compute.gfql.cypher.reentry.naming import (
+            REENTRY_ROW_TOKEN_OUTPUT,
+            _reentry_hidden_column_name,
+        )
+        occurrence_token_col = _reentry_hidden_column_name(REENTRY_ROW_TOKEN_OUTPUT)
+        preserve_seed_occurrences = occurrence_token_col in seed_carry_cols
+        # Tokenized WITH rows also represent a named source alias. Keep that seed
+        # occurrence in the materialized graph while each edge step advances the
+        # carry frontier to destination aliases for a later WITH/MATCH boundary.
+        carry_maps = [carry_map] if preserve_seed_occurrences else []
         for edge_op, edge_step in edge_steps:
             if (
                 not isinstance(edge_op, ASTEdge)
@@ -1233,7 +1243,22 @@ def _chain_traversal_polars(self: Plottable, ops, start_nodes: Optional[Any] = N
                 pl.concat(next_carry_frames, how="vertical")
                 if len(next_carry_frames) > 1 else next_carry_frames[0]
             )
+            if preserve_seed_occurrences:
+                carry_maps.append(carry_map.select([node_col, *seed_carry_cols]))
+        carries_to_attach = (
+            pl.concat(carry_maps, how="vertical")
+            if preserve_seed_occurrences
+            else carry_map
+        )
+        if preserve_seed_occurrences:
+            # A token identifies one input WITH-row occurrence at an entity. A
+            # cycle can reach the same (entity, token) at multiple depths; aliases
+            # look up one row for that pair, while path multiplicity stays in edges.
+            carries_to_attach = carries_to_attach.unique(
+                subset=[node_col, occurrence_token_col],
+                maintain_order=True,
+            )
         final_nodes_eager = final_nodes_eager.drop(seed_carry_cols).join(
-            carry_map, on=node_col, how="left"
+            carries_to_attach, on=node_col, how="left"
         )
     return self.nodes(final_nodes_eager, node_col).edges(final_edges_eager, src, dst)
