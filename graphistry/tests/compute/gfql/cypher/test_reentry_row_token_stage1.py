@@ -49,6 +49,19 @@ CONVERGENT_EDGES = pd.DataFrame(
         "type": ["P", "P", "S", "S", "T", "T"],
     }
 )
+IDENTITY_COLLISION_NODES = pd.DataFrame(
+    {
+        "id": ["a1", "a2", "x-red", "x-blue"],
+        "payload": ["same", "same", "red", "blue"],
+    }
+)
+IDENTITY_COLLISION_EDGES = pd.DataFrame(
+    {
+        "s": ["a1", "a1", "a2", "a1", "a1", "a2", "a2"],
+        "d": ["x-red", "x-red", "x-blue", "a1", "a2", "a1", "a2"],
+        "type": ["P", "P", "P", "Q", "Q", "Q", "Q"],
+    }
+)
 
 
 def _graph(engine: str):
@@ -85,6 +98,16 @@ def _convergent_graph(engine: str):
         nodes, edges = pl.from_pandas(CONVERGENT_NODES), pl.from_pandas(CONVERGENT_EDGES)
     else:
         nodes, edges = CONVERGENT_NODES.copy(), CONVERGENT_EDGES.copy()
+    return graphistry.nodes(nodes, "id").edges(edges, "s", "d")
+
+
+def _identity_collision_graph(engine: str):
+    if engine == "polars":
+        pl = pytest.importorskip("polars")
+        nodes = pl.from_pandas(IDENTITY_COLLISION_NODES)
+        edges = pl.from_pandas(IDENTITY_COLLISION_EDGES)
+    else:
+        nodes, edges = IDENTITY_COLLISION_NODES.copy(), IDENTITY_COLLISION_EDGES.copy()
     return graphistry.nodes(nodes, "id").edges(edges, "s", "d")
 
 
@@ -280,3 +303,30 @@ def test_row_token_preserves_bag_until_grouped_return(engine: str) -> None:
     assert Counter((row["carried"], row["n"]) for row in rows) == Counter(
         {("red", 2): 1, ("blue", 1): 1}
     )
+
+
+@pytest.mark.parametrize("engine", ["pandas", "polars"])
+def test_row_token_reentry_preserves_identity_across_display_collision_and_cycle(engine: str) -> None:
+    query = (
+        "MATCH (a)-[:P]->(x) "
+        "WITH a, a.payload AS anchor, x.payload AS carried "
+        "MATCH (a)-[:Q]->(b) WHERE b = a "
+        "RETURN a.id AS aid, anchor, carried, b.id AS bid"
+    )
+    rows = _records(_identity_collision_graph(engine).gfql(query, engine=engine)._nodes, engine)
+    _assert_no_hidden_reentry_columns(rows)
+    assert Counter(
+        (row["aid"], row["anchor"], row["carried"], row["bid"]) for row in rows
+    ) == Counter({("a1", "same", "red", "a1"): 2, ("a2", "same", "blue", "a2"): 1})
+
+
+@pytest.mark.parametrize("engine", ["pandas", "polars"])
+def test_row_token_reentry_identity_collision_empty_seed_stays_empty(engine: str) -> None:
+    query = (
+        "MATCH (a {id: 'missing'})-[:P]->(x) "
+        "WITH a, a.payload AS anchor, x.payload AS carried "
+        "MATCH (a)-[:Q]->(b) WHERE b = a "
+        "RETURN a.id AS aid, anchor, carried, b.id AS bid"
+    )
+    rows = _records(_identity_collision_graph(engine).gfql(query, engine=engine)._nodes, engine)
+    assert rows == []
