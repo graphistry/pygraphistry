@@ -660,11 +660,12 @@ def compiled_query_scalar_reentry_state(
     if prefix_row_count == 0:
         if base_nodes is None:
             return base_graph, None
+        empty_nodes = _empty_frame(base_nodes)
         return _bind_reentry_graph(
             base_graph,
-            _empty_frame(base_nodes),
+            empty_nodes,
             empty_edges=True,
-        ), None
+        ), empty_nodes
     if base_nodes is None:
         raise reentry_validation_error(
             "Cypher MATCH after WITH scalar-only prefix stages could not recover the base node table for re-entry",
