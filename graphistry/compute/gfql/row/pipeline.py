@@ -5004,6 +5004,7 @@ class RowPipelineMixin:
             lookup_source = self._gfql_unshadow_alias_marker_column(
                 lookup_source, alias, base_nodes, node_id
             )
+            assert lookup_source is not None  # The missing-alias path uses the non-null empty frame above.
             if alias == node_aliases[0] and row_token_column in bindings.columns:
                 # State rows retain carries per occurrence; later lookups attach entity fields only.
                 hidden_columns = [
