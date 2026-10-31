@@ -320,3 +320,65 @@ def test_issue_2258_polars_collected_identity_membership_keeps_null_as_unknown()
     )
     assert expr is not None
     assert table.select(expr.alias("member")).get_column("member").to_list() == [True, None, False]
+
+
+@pytest.mark.parametrize("engine", ["pandas", "polars"])
+@pytest.mark.parametrize(
+    ("same_name_value", "expected_entity"),
+    [
+        (None, "(:City {name: 'same'})"),
+        ("inner", "(:City {name: 'same', city: 'inner'})"),
+    ],
+    ids=["same-name-null", "same-name-non-null"],
+)
+def test_issue_2258_collected_entity_same_name_property_keeps_presence_and_identity(
+    engine, same_name_value, expected_entity,
+):
+    if engine == "polars":
+        pl = pytest.importorskip("polars")
+    nodes = pd.DataFrame({
+        "id": ["c1", "a", "z"],
+        "name": ["country", "same", "same"],
+        # This property deliberately has the same spelling as the `city` node alias.
+        "city": ["outer", same_name_value, same_name_value],
+        "label__Country": [True, False, False],
+        "label__City": [False, True, True],
+    })
+    edges = pd.DataFrame({
+        "s": ["c1", "c1", "c1", "c1"],
+        "d": ["a", "a", "a", "z"],
+        "type": ["HAS_CITY", "CAND", "CAND", "CAND"],
+    })
+    if engine == "polars":
+        nodes, edges = pl.from_pandas(nodes), pl.from_pandas(edges)
+    graph = graphistry.nodes(nodes, "id").edges(edges, "s", "d")
+    query = (
+        "MATCH (country:Country)-[:HAS_CITY]->(city:City) "
+        "WITH country, collect(city) AS cities "
+        "MATCH (country)-[:CAND]->(candidate:City) WHERE candidate IN cities "
+        "RETURN cities, candidate.id AS cityId"
+    )
+    result = graph.gfql(query, engine=engine)._nodes
+    rows = result.to_dicts() if engine == "polars" else result.to_dict(orient="records")
+    expected = [
+        {"cities": [expected_entity], "cityId": "a"},
+        {"cities": [expected_entity], "cityId": "a"},
+    ]
+    assert rows == expected
+    assert all(
+        not any(str(column).startswith(("__gfql_", "__cypher_reentry_")) for column in row)
+        for row in rows
+    )
+
+    # Ordinary alias/property access remains mapped to its actual prefixed property column.
+    property_query = (
+        "MATCH (country:Country)-[:HAS_CITY]->(city:City) "
+        "RETURN country.city AS countryCity, city.name AS cityName"
+    )
+    property_result = graph.gfql(property_query, engine=engine)._nodes
+    property_rows = (
+        property_result.to_dicts()
+        if engine == "polars"
+        else property_result.to_dict(orient="records")
+    )
+    assert property_rows == [{"countryCity": "outer", "cityName": "same"}]
