@@ -6,6 +6,7 @@ import pytest
 
 import graphistry
 from graphistry.compute.exceptions import ErrorCode, GFQLValidationError
+from graphistry.compute.gfql.cypher.api import compile_cypher
 from graphistry.compute.gfql.cypher.reentry.naming import REENTRY_ROW_TOKEN_OUTPUT
 
 
@@ -115,6 +116,22 @@ def test_same_node_payload_pairing_and_repeated_input_bag(engine: str) -> None:
     assert Counter((row["carried"], row["bid"]) for row in rows) == Counter(
         {("red", "b-red"): 2, ("blue", "b-blue"): 1}
     )
+
+
+@pytest.mark.parametrize("engine", ["pandas", "polars"])
+def test_whole_row_reentry_without_scalar_carry_stays_on_no_token_route(engine: str) -> None:
+    query = (
+        "MATCH (a {id: 'a'}) "
+        "WITH a "
+        "MATCH (a)-[:Q]->(b) "
+        "RETURN b.id AS bid"
+    )
+    compiled = compile_cypher(query, _warn_deprecated=False)
+    assert compiled.reentry_plan is not None
+    assert not getattr(compiled.reentry_plan, "row_token_enabled", False)
+    rows = _records(_graph(engine).gfql(query, engine=engine)._nodes, engine)
+    _assert_no_hidden_reentry_columns(rows)
+    assert Counter(row["bid"] for row in rows) == Counter({"b-red": 1, "b-blue": 1})
 
 
 @pytest.mark.parametrize("engine", ["pandas", "polars"])
