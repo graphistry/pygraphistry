@@ -577,19 +577,20 @@ def compiled_query_reentry_state(
             value=output_name,
             suggestion=REENTRY_SCALAR_SUGGESTION,
         )
-    if not plan.row_token_enabled and _is_polars_series(carried_ids):
-        duplicate_mask = carried_ids.is_duplicated()
-    elif not plan.row_token_enabled:
-        duplicate_mask = carried_ids.duplicated()
-    if not plan.row_token_enabled and (bool(duplicate_mask.any()) if hasattr(duplicate_mask, "any") else False):
-        raise reentry_validation_error(
-            "Cypher MATCH after WITH carried scalar columns currently require unique carried node rows",
-            value=output_name,
-            suggestion="Use a single-node seed WITH shape, or avoid carrying scalar columns into MATCH re-entry.",
-            reason=REENTRY_DUPLICATE_CARRIED_ROWS_REASON,
-            carried_row_count=len(carried_ids),
-            carried_scalar_columns=tuple(carried_columns),
-        )
+    if not plan.row_token_enabled:
+        if _is_polars_series(carried_ids):
+            duplicate_mask = carried_ids.is_duplicated()
+        else:
+            duplicate_mask = carried_ids.duplicated()
+        if bool(duplicate_mask.any()):
+            raise reentry_validation_error(
+                "Cypher MATCH after WITH carried scalar columns currently require unique carried node rows",
+                value=output_name,
+                suggestion="Use a single-node seed WITH shape, or avoid carrying scalar columns into MATCH re-entry.",
+                reason=REENTRY_DUPLICATE_CARRIED_ROWS_REASON,
+                carried_row_count=len(carried_ids),
+                carried_scalar_columns=tuple(carried_columns),
+            )
     carry_payload = reentry_carry_payload(
         carried_node_ids=carried_node_ids,
         prefix_rows=aligned_prefix_rows,
