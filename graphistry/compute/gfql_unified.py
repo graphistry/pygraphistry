@@ -9,7 +9,7 @@ import pandas as pd
 from types import MappingProxyType
 from typing import Any, Callable, Dict, List, Literal, Mapping, Optional, Sequence, Set, Tuple, TYPE_CHECKING, TypeVar, Union, cast
 from graphistry.Plottable import Plottable
-from graphistry.Engine import Engine, EngineAbstract, POLARS_ENGINES, df_concat, df_cons, df_to_engine, df_unique, is_polars_df, is_series_like, resolve_engine, series_to_pylist
+from graphistry.Engine import Engine, EngineAbstract, EngineAbstractType, POLARS_ENGINES, df_concat, df_cons, df_to_engine, df_unique, is_polars_df, is_series_like, resolve_engine, series_to_pylist
 from graphistry.util import setup_logger
 from .ast import ASTObject, ASTLet, ASTNode, ASTEdge, ASTCall
 from .chain import Chain, chain as chain_impl
@@ -154,7 +154,8 @@ def _empty_reentry_output_frame(
     output_columns = tuple(scope_stack[-1].schema.columns)
     if not output_columns:
         return None
-    concrete_engine = resolve_engine(engine, base_graph)
+    abstract_engine = EngineAbstract(engine) if isinstance(engine, str) else engine
+    concrete_engine = resolve_engine(abstract_engine, base_graph)
     if concrete_engine == Engine.POLARS:
         import polars as pl
 
