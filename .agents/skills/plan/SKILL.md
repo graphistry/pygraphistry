@@ -105,6 +105,10 @@ Add task-specific commands here as discovered.
 ## Status
 ⬜ TODO · 🔄 IN_PROGRESS · 🔄(🤖agent_<id>_step_<N>) subagent · ✅ DONE · ❌ FAILED · ⏭️ SKIPPED · 🚧 BLOCKED
 
+## Subagent-Safe Filenames
+
+Subagent-written Markdown filenames must not start with `report`, `summary`, `findings`, or `analysis`, in any directory and case-insensitively (anthropics/claude-code#44657). Prefer role-prefixed names such as `dimension-report.md`, `issues-<slug>.md`, `adversarial-report.md`, or `agent-findings.md`; keep safe role-final names such as `wave-report.md`, `execution-report.md`, and `final-report.md`.
+
 ## Steps
 Hierarchical numbering (1, 1.1, 1.1.a …) — insert substeps freely without renumbering siblings.
 

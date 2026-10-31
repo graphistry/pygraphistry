@@ -117,12 +117,14 @@ Suggested folder layout:
 
 ```text
 plans/<task>/waves/wave-<N>/
-  <dimension>/findings-<file-slug>.md
-  <dimension>/report.md
+  <dimension>/issues-<file-slug>.md
+  <dimension>/<dimension>-report.md
   adversarial/<finding-id>.md
-  adversarial/report.md
+  adversarial/adversarial-report.md
   wave-report.md
 ```
+
+Subagent-written filenames must follow `.agents/skills/plan/SKILL.md`'s subagent-safe basename rule.
 
 ### Wave gate (start of each wave)
 
