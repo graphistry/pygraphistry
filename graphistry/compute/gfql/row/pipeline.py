@@ -1746,6 +1746,7 @@ class RowPipelineMixin:
                         return False, None
                 source_alias_name = entity_alias_names[0]
                 source_alias = source_alias_name
+                excluded_entity_fields = list(entity_alias_names[1:])
                 source_table_df = table_df
                 # On bindings-row tables, prefer alias.{id} even when a same-name
                 # marker column exists for the alias.
@@ -1763,11 +1764,16 @@ class RowPipelineMixin:
                     source_alias = str(entity_id)
                 elif source_alias not in table_df.columns:
                     return False, None
+                else:
+                    # In a bare binding row the alias column is the node-presence marker,
+                    # not a user property. Prefixed alias fields, when available, separate
+                    # that marker from a real property whose name happens to equal the alias.
+                    excluded_entity_fields.append(source_alias_name)
                 out = self._gfql_format_entity_series(
                     source_table_df,
                     alias_col=source_alias,
                     table=("nodes" if fn == "__node_entity__" else "edges"),
-                    excluded=tuple(entity_alias_names),
+                    excluded=tuple(excluded_entity_fields),
                 )
                 null_mask = self._gfql_null_mask(source_table_df, source_table_df[source_alias])
                 if hasattr(out, "where"):
@@ -4114,9 +4120,18 @@ class RowPipelineMixin:
             return lookup_source
         if alias == key_col:
             return lookup_source
-        if alias not in getattr(base_frame, "columns", []) or alias not in lookup_source.columns:
+        if alias not in lookup_source.columns:
             return lookup_source
-        if key_col not in lookup_source.columns or key_col not in base_frame.columns:
+        if key_col not in lookup_source.columns:
+            return lookup_source
+        if alias not in getattr(base_frame, "columns", []):
+            # The alias-shaped source column is only the boolean marker installed by
+            # ASTNode.execute. Keep the qualified schema slot but null it so
+            # `alias.<alias>` cannot masquerade as user data in entity formatting.
+            lookup_source = lookup_source.copy()
+            lookup_source[alias] = None
+            return lookup_source
+        if key_col not in base_frame.columns:
             return lookup_source
         return lookup_source.drop(columns=[alias]).merge(
             base_frame[[key_col, alias]], on=key_col, how="left"

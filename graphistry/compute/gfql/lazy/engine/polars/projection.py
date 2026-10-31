@@ -37,6 +37,8 @@ from graphistry.compute.gfql.row.entity_props import (
 class _AliasView:
     frame: pl.DataFrame
     columns: typing.Mapping[str, str]
+    presence_column: str
+    presence_source: str
 
 
 def _has_temporal_constructor_text(rows_df: pl.DataFrame, col: str) -> bool:
@@ -125,12 +127,31 @@ def _alias_view_polars(
             field_sources.setdefault(alias, id_source)
     if field_sources is None:
         return None
-    if all(field == source for field, source in field_sources.items()):
-        return _AliasView(frame=rows_df, columns=field_sources)
+    presence_source = alias if alias in rows_df.columns else (
+        f"{alias}.{node_id_column}" if node_id_column is not None else None
+    )
+    if presence_source is None or presence_source not in rows_df.columns:
+        return None
+    presence_column = f"__gfql_alias_presence_{alias}"
+    while presence_column in field_sources or presence_column in rows_df.columns:
+        presence_column += "_"
+    if all(field == source for field, source in field_sources.items()) and presence_source == alias:
+        return _AliasView(
+            frame=rows_df,
+            columns=field_sources,
+            presence_column=alias,
+            presence_source=alias,
+        )
     frame = rows_df.select(
         [pl.col(source).alias(field) for field, source in field_sources.items()]
+        + [pl.col(presence_source).alias(presence_column)]
     )
-    return _AliasView(frame=frame, columns=field_sources)
+    return _AliasView(
+        frame=frame,
+        columns=field_sources,
+        presence_column=presence_column,
+        presence_source=presence_source,
+    )
 
 
 def _native_node_entity_text_expr(
@@ -141,7 +162,7 @@ def _native_node_entity_text_expr(
 
     rows_df = view.frame
     cols = list(rows_df.columns)
-    has_node_entity_shape = alias in cols and "type" not in cols
+    has_node_entity_shape = view.presence_column in cols and "type" not in cols
     if not has_node_entity_shape:
         return None
 
@@ -154,7 +175,11 @@ def _native_node_entity_text_expr(
     include_id = "id" in cols and is_int(schema["id"])
     prop_cols = [
         str(c) for c in cols
-        if str(c) != alias and str(c) not in excluded
+        if not (
+            str(c) == alias
+            and view.columns.get(str(c), str(c)) == view.presence_source
+        )
+        and str(c) not in excluded
         and not str(c).startswith("__") and not str(c).startswith(LABEL_FLAG_PREFIX)
         and (str(c) not in NODE_INTERNAL_COLS or (include_id and str(c) == "id"))
     ]
@@ -185,7 +210,7 @@ def _native_node_entity_text_expr(
     # Nullify absent (OPTIONAL-MATCH miss) rows — alias marker is null there and an absent
     # entity must render null, not "()" (mirrors pandas _nullify_missing_alias_rows); a real
     # property-less node keeps "()".
-    return pl.when(_c(alias).is_null()).then(None).otherwise(rendered)
+    return pl.when(pl.col(view.presence_source).is_null()).then(None).otherwise(rendered)
 
 
 def _flat_entity_columns_polars(

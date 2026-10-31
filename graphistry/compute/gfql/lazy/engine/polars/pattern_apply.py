@@ -93,16 +93,15 @@ def rows_binding_ops_polars(
         # pandas' named-op flag column OVERWRITES the id column in this corner —
         # neither engine has sane semantics; decline honestly (wave-1 I1).
         return None
-    # Mirror the pandas twin's quirks (wave-1 I3): ASTNode.execute leaks the
-    # named-op FLAG column into its source frame, so pandas emits a fabricated
-    # `alias.alias = True` column (shadowing any real property of that name) —
-    # emit the same. (Column ORDER differs slightly; the parity sig sorts columns.)
+    # Keep the alias-presence marker in the bare alias column. The qualified
+    # `alias.alias` slot is user data only when the source graph has that property;
+    # otherwise null it so formatter logic cannot mistake the operation flag for data.
     prop_cols = [c for c in matched.columns if c != node_id and c != alias]
     exprs = [
         pl.col(node_id),
         pl.col(node_id).alias(alias),
         pl.col(node_id).alias(f"{alias}.{node_id}"),
-        pl.lit(True).alias(f"{alias}.{alias}"),
+        (pl.col(alias) if alias in matched.columns else pl.lit(None)).alias(f"{alias}.{alias}"),
     ]
     exprs.extend(pl.col(c).alias(f"{alias}.{c}") for c in prop_cols)
     lookup = matched.select(exprs)

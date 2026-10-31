@@ -179,7 +179,7 @@ def _lower_function(node: FunctionCall, columns: Sequence[str]) -> Optional[pl.E
         view = _alias_view_polars(pl.DataFrame(schema=schema), alias_node.name)
         if view is None:
             return None
-        excluded = [alias_node.name]
+        excluded = []
         for arg in node.args[1:]:
             if isinstance(arg, Identifier):
                 excluded.append(arg.name)
@@ -2052,7 +2052,7 @@ def _cartesian_node_bindings_polars(
         exprs = [
             pl.col(node_id).alias(alias),
             pl.col(node_id).alias(f"{alias}.{node_id}"),
-            (pl.col(alias) if alias in cols else pl.lit(True)).alias(f"{alias}.{alias}"),
+            (pl.col(alias) if alias in cols else pl.lit(None)).alias(f"{alias}.{alias}"),
         ]
         exprs.extend(pl.col(c).alias(f"{alias}.{c}") for c in prop_cols)
         per_alias.append(matched.select(exprs))
