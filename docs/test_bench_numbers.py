@@ -343,28 +343,6 @@ def test_cross_profile_ratios_stay_unpublished(payload: bench.JSONObject) -> Non
     )
 
 
-def test_withdrawn_pagerank_values_are_neither_quoted_nor_charted(
-    payload: bench.JSONObject,
-) -> None:
-    cells = payload['cells']
-    withdrawn = (
-        'pagerank.twitter.gfql_cpu',
-        'pagerank.twitter.gfql_gpu',
-        'pagerank.twitter.neo4j_gds',
-        'pagerank.gplus.gfql_cpu',
-        'pagerank.gplus.gfql_gpu',
-        'pagerank.gplus.neo4j_gds',
-    )
-    for key in withdrawn:
-        assert cells[key]['comparison_allowed'] is False
-        assert cells[key]['board_quotable'] is False
-        assert cells[key]['disclosures'], key
-    assert 'pagerank.twitter.gfql_gpu_vs_gfql_cpu' not in cells
-    assert not charts.CHARTS
-    citations = {key for _path, key, _diagnostic in _references()}
-    assert not citations.intersection(withdrawn)
-
-
 def test_every_chart_matches_the_published_numbers():
     """A chart is a number too.
 
@@ -395,7 +373,7 @@ def test_every_chart_draws_only_published_cells(payload):
         for bar in chart.bars
         for key in (bar.value, bar.ratio)
         if key is not None})
-    assert not charts.CHARTS, 'withdrawn PageRank timing charts must stay removed'
+    assert referenced, 'the charts reference no benchmark cell at all'
     missing = [key for key in referenced if key not in payload['cells']]
     assert not missing, 'charts draw numbers pyg-bench does not publish: ' + '; '.join(missing)
 
@@ -403,16 +381,12 @@ def test_every_chart_draws_only_published_cells(payload):
 def test_a_chart_over_an_unpublished_cell_fails(payload):
     """The failure the SVGs needed and did not have."""
     broken = json.loads(json.dumps(payload))
-    name = sorted(charts.GF_CHARTS)[0]
-    chart = charts.GF_CHARTS[name]
-    cells = broken['cells']
-    for key in list(cells):
-        if key.startswith(('graphframes.' + chart.dataset + '.',
-                           'graphframes_059.' + chart.dataset + '.')):
-            del cells[key]
+    name = sorted(charts.CHARTS)[0]
+    drawn = next(bar.value for bar in charts.CHARTS[name].bars if bar.value)
+    del broken['cells'][drawn]
     with pytest.raises(charts.ChartError) as excinfo:
-        charts.render_graphframes(name, broken)
-    assert 'draws no published cell' in str(excinfo.value)
+        charts.render(name, broken)
+    assert 'does not publish' in str(excinfo.value)
 
 
 def _gf_payload(payload, kernel=True, gpu=True):

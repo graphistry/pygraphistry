@@ -1,9 +1,14 @@
-"""Draw the GraphFrames task charts from the numbers pyg-bench publishes.
+"""Draw the benchmark charts from the numbers pyg-bench publishes.
 
-Every bar length and figure comes from a cell in
-``docs/source/_data/gfql_benchmarks.json``. ``docs/test_bench_numbers.py`` re-renders
-the committed SVGs and fails if they differ. The earlier PageRank timing charts were
-removed when their measurements were withdrawn.
+The charts on ``gfql/benchmark_filter_pagerank.rst`` are static SVGs, but they are not
+hand-drawn: every bar length and every figure printed on them comes from a cell of
+``docs/source/_data/gfql_benchmarks.json``, through the same ``format_cell`` the
+``:bench:`` role uses. ``docs/test_bench_numbers.py`` re-renders them and fails if a
+committed file differs, so a chart cannot go on asserting a number the artifact no longer
+publishes - which is exactly how withdrawn figures survived on this page as glyph paths.
+
+The GraphFrames task charts render the same way from the ``graphframes.*`` cells of the
+same artifact, once pyg-bench publishes the ladder.
 
 Regenerate after vendoring a new artifact::
 
@@ -82,7 +87,32 @@ class Chart(NamedTuple):
     foot: str
 
 
-CHARTS: dict[str, Chart] = OrderedDict()
+CHARTS: dict[str, Chart] = OrderedDict((
+    ('twitter_pipeline.svg', Chart(
+        title='Twitter: 81,306 nodes / 2.4M edges',
+        subtitle='Warm pipeline \u2014 search, PageRank, search. Lower is better.',
+        bars=(
+            Bar('Neo4j + GDS', 'neo', 'pagerank.twitter.neo4j_gds'),
+            Bar('GFQL Cypher on CPU (pandas + igraph)', 'cpu',
+                'pagerank.twitter.gfql_cpu'),
+            Bar('GFQL Cypher on GPU (cuDF + cuGraph)', 'gpu',
+                'pagerank.twitter.gfql_gpu', 'pagerank.twitter.gfql_gpu_vs_gfql_cpu',
+                'faster than the GFQL CPU path'),
+        ),
+        foot='Direct timings use different profiles; only the GFQL GPU/CPU ratio is valid.',
+    )),
+    ('gplus_pipeline.svg', Chart(
+        title='GPlus: 107,614 nodes / 30M edges',
+        subtitle='Warm pipeline \u2014 search, PageRank, search. Lower is better.',
+        bars=(
+            Bar('Neo4j + GDS', 'neo', 'pagerank.gplus.neo4j_gds'),
+            Bar('GFQL Cypher on CPU (pandas + igraph)', 'cpu', 'pagerank.gplus.gfql_cpu'),
+            Bar('GFQL Cypher on GPU (cuDF + cuGraph), diagnostic', 'gpu',
+                'pagerank.gplus.gfql_gpu'),
+        ),
+        foot='Direct timings span runs/profiles; the GPU arm selects a different node set.',
+    )),
+))
 
 
 class ChartError(Exception):

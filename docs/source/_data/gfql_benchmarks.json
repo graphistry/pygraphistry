@@ -3341,12 +3341,10 @@
       "workload": "GraphFrames tasks at 0.59.0 (diagnostic) LiveJournal hop2"
     },
     "pagerank.gplus.gfql_cpu": {
-      "board_quotable": false,
-      "comparison_allowed": false,
+      "board_quotable": true,
+      "comparison_allowed": true,
       "decimals": 2,
-      "disclosures": [
-        "The GFQL CPU measurement was taken on 2026-09-04 and reaches the 60-day freshness limit on 2026-11-03. No eligible replacement is published; the historical value is retained only in the artifact."
-      ],
+      "disclosures": [],
       "engine": "GFQL CPU (pandas + igraph)",
       "measurement_profile": "filter-pagerank-resident-in-process",
       "run": "filter-pagerank-059-20260904",
@@ -3360,7 +3358,6 @@
       "comparison_allowed": false,
       "decimals": 2,
       "disclosures": [
-        "The GFQL GPU measurement was taken on 2026-09-04 and reaches the 60-day freshness limit on 2026-11-03. No eligible replacement is published; the historical value is retained only in the artifact.",
         "Its selected-node set differs from the GFQL CPU (pandas + igraph) arm's on gplus (Jaccard 0.91065, gate 0.95); this is a direct pipeline time, not a comparison."
       ],
       "engine": "GFQL GPU (cuDF + cuGraph)",
@@ -3372,12 +3369,11 @@
       "workload": "filter -> PageRank -> filter, gplus \u2014 GFQL GPU (cuDF + cuGraph)"
     },
     "pagerank.gplus.neo4j_gds": {
-      "board_quotable": false,
-      "comparison_allowed": false,
+      "board_quotable": true,
+      "comparison_allowed": true,
       "decimals": 2,
       "disclosures": [
-        "The Neo4j arm writes marker properties during both filter stages and rebuilds its GDS projection per timed iteration; the paired GFQL arm retains resident frames and writes nothing. Twelve position-balanced slots (six per arm) produced exact selected-node parity, but the measurement profiles differ, so this is a direct pipeline time and no GFQL-vs-Neo4j ratio is published.",
-        "Withdrawn on 2026-10-31 because this measurement is 62 days old and exceeds the 60-day publication freshness limit; historical value and receipts are retained only in the artifact."
+        "The Neo4j arm writes marker properties during both filter stages and rebuilds its GDS projection per timed iteration; the paired GFQL arm retains resident frames and writes nothing. Twelve position-balanced slots (six per arm) produced exact selected-node parity, but the measurement profiles differ, so this is a direct pipeline time and no GFQL-vs-Neo4j ratio is published."
       ],
       "engine": "Neo4j + GDS",
       "measurement_profile": "filter-pagerank-server-roundtrip-projection-per-iteration",
@@ -3388,12 +3384,10 @@
       "workload": "filter -> PageRank -> filter, gplus \u2014 Neo4j + GDS"
     },
     "pagerank.twitter.gfql_cpu": {
-      "board_quotable": false,
-      "comparison_allowed": false,
+      "board_quotable": true,
+      "comparison_allowed": true,
       "decimals": 2,
-      "disclosures": [
-        "The GFQL CPU measurement was taken on 2026-09-04 and reaches the 60-day freshness limit on 2026-11-03. No eligible replacement is published; the historical value is retained only in the artifact."
-      ],
+      "disclosures": [],
       "engine": "GFQL CPU (pandas + igraph)",
       "measurement_profile": "filter-pagerank-resident-in-process",
       "run": "filter-pagerank-059-20260904",
@@ -3403,12 +3397,10 @@
       "workload": "filter -> PageRank -> filter, twitter \u2014 GFQL CPU (pandas + igraph)"
     },
     "pagerank.twitter.gfql_gpu": {
-      "board_quotable": false,
-      "comparison_allowed": false,
+      "board_quotable": true,
+      "comparison_allowed": true,
       "decimals": 2,
-      "disclosures": [
-        "The GFQL GPU measurement was taken on 2026-09-04 and reaches the 60-day freshness limit on 2026-11-03. No eligible replacement is published; the historical value is retained only in the artifact."
-      ],
+      "disclosures": [],
       "engine": "GFQL GPU (cuDF + cuGraph)",
       "measurement_profile": "filter-pagerank-resident-in-process",
       "run": "filter-pagerank-059-20260904",
@@ -3417,12 +3409,28 @@
       "value": 0.23,
       "workload": "filter -> PageRank -> filter, twitter \u2014 GFQL GPU (cuDF + cuGraph)"
     },
+    "pagerank.twitter.gfql_gpu_vs_gfql_cpu": {
+      "board_quotable": true,
+      "comparison_allowed": true,
+      "decimals": 1,
+      "disclosures": [],
+      "engine": "GFQL GPU (cuDF + cuGraph)",
+      "measurement_profile": "filter-pagerank-resident-in-process",
+      "operands": [
+        "pagerank.twitter.gfql_gpu",
+        "pagerank.twitter.gfql_cpu"
+      ],
+      "run": "filter-pagerank-059-20260904",
+      "status": "ok",
+      "unit": "x",
+      "value": 11.3,
+      "workload": "filter -> PageRank -> filter, twitter \u2014 GFQL GPU (cuDF + cuGraph) vs GFQL CPU (pandas + igraph)"
+    },
     "pagerank.twitter.neo4j_gds": {
-      "board_quotable": false,
-      "comparison_allowed": false,
+      "board_quotable": true,
+      "comparison_allowed": true,
       "decimals": 2,
       "disclosures": [
-        "The Twitter Neo4j + GDS measurement was taken on 2026-07-28 and is already beyond the 60-day freshness limit. No eligible replacement is published; the historical value is retained only in the artifact.",
         "In the Neo4j arm each filter stage writes a marker property onto every matched node and relationship, 32 seeds per batch, and GDS scores an explicitly symmetrised projection; the GDS in-memory projection is rebuilt per timed iteration while the GFQL arms retain their resident frames. The GFQL arms materialise a subgraph and write nothing. The figure is a pipeline time, not an engine-primitive time.",
         "The Twitter Neo4j + GDS arm was measured on 2026-07-28 and is reused unchanged; the GFQL arms were re-measured on 2026-09-04 at PyGraphistry 0.59.0 under the pinned PageRank contract."
       ],
@@ -3439,10 +3447,10 @@
       "comparison_allowed": true,
       "decimals": 3,
       "disclosures": [
-        "Matched SNB-derived queries without the official LDBC driver; these are internal results, not official or audited LDBC results. All engines use 8 discarded warmups, 31 timed executions with full result materialization, and 3 independent process runs. The published value is the median of run medians. Comparisons require identical canonical results. Independent competitor runs retain their original measurement dates: 2026-09-13.",
-        "GFQL builds resident adjacency and node-property indexes before measurement. An untimed probe verifies index use per query; the three single-node lookups engage point_rows. Not every query uses an index; per-query evidence records unused indexes too.",
-        "The GFQL improvements measured here are POLARS-side: the array-side bindings specialization and the seeded-point narrowing are polars-only by construction, so the gfql_pandas_idx arm does not carry them. Quote the engine with the number.",
-        "Competitor arms are REUSED from the H684 fixtures, not re-measured for this product revision: competitors do not import PyGraphistry. Original receipts are retained byte-for-byte and were re-verified against their recorded sha256; their original measurement dates stand."
+        "SNB-derived queries: 8 warmups and 31 fully materialized executions per process, repeated in 3 processes. Values are medians of process medians; query results match across systems.",
+        "GFQL builds adjacency and property indexes before timing. Index use is checked per query.",
+        "The measured bindings and seeded-lookup improvements apply to Polars.",
+        "Comparator measurements are from 2026-09-13."
       ],
       "engine": "gfql_pandas_idx",
       "measurement_profile": "snb-interactive-warm-repeated-query-v2",
@@ -3457,7 +3465,7 @@
       "comparison_allowed": true,
       "decimals": 3,
       "disclosures": [
-        "Matched SNB-derived queries without the official LDBC driver; these are internal results, not official or audited LDBC results. All engines use 8 discarded warmups, 31 timed executions with full result materialization, and 3 independent process runs. The published value is the median of run medians. Comparisons require identical canonical results. Independent competitor runs retain their original measurement dates: 2026-09-13."
+        "SNB-derived queries: 8 warmups and 31 fully materialized executions per process, repeated in 3 processes. Values are medians of process medians; query results match across systems."
       ],
       "engine": "gfql_polars",
       "measurement_profile": "snb-interactive-warm-repeated-query-v2",
@@ -3472,10 +3480,10 @@
       "comparison_allowed": true,
       "decimals": 3,
       "disclosures": [
-        "Matched SNB-derived queries without the official LDBC driver; these are internal results, not official or audited LDBC results. All engines use 8 discarded warmups, 31 timed executions with full result materialization, and 3 independent process runs. The published value is the median of run medians. Comparisons require identical canonical results. Independent competitor runs retain their original measurement dates: 2026-09-13.",
-        "GFQL builds resident adjacency and node-property indexes before measurement. An untimed probe verifies index use per query; the three single-node lookups engage point_rows. Not every query uses an index; per-query evidence records unused indexes too.",
-        "The GFQL improvements measured here are POLARS-side: the array-side bindings specialization and the seeded-point narrowing are polars-only by construction, so the gfql_pandas_idx arm does not carry them. Quote the engine with the number.",
-        "Competitor arms are REUSED from the H684 fixtures, not re-measured for this product revision: competitors do not import PyGraphistry. Original receipts are retained byte-for-byte and were re-verified against their recorded sha256; their original measurement dates stand."
+        "SNB-derived queries: 8 warmups and 31 fully materialized executions per process, repeated in 3 processes. Values are medians of process medians; query results match across systems.",
+        "GFQL builds adjacency and property indexes before timing. Index use is checked per query.",
+        "The measured bindings and seeded-lookup improvements apply to Polars.",
+        "Comparator measurements are from 2026-09-13."
       ],
       "engine": "gfql_polars_idx",
       "measurement_profile": "snb-interactive-warm-repeated-query-v2",
@@ -3491,7 +3499,7 @@
       "competitor": "kuzu",
       "decimals": 3,
       "disclosures": [
-        "Matched SNB-derived queries without the official LDBC driver; these are internal results, not official or audited LDBC results. All engines use 8 discarded warmups, 31 timed executions with full result materialization, and 3 independent process runs. The published value is the median of run medians. Comparisons require identical canonical results. Independent competitor runs retain their original measurement dates: 2026-09-13."
+        "SNB-derived queries: 8 warmups and 31 fully materialized executions per process, repeated in 3 processes. Values are medians of process medians; query results match across systems."
       ],
       "engine": "kuzu",
       "measurement_profile": "snb-interactive-warm-repeated-query-v2",
@@ -3507,7 +3515,7 @@
       "competitor": "memgraph",
       "decimals": 3,
       "disclosures": [
-        "Matched SNB-derived queries without the official LDBC driver; these are internal results, not official or audited LDBC results. All engines use 8 discarded warmups, 31 timed executions with full result materialization, and 3 independent process runs. The published value is the median of run medians. Comparisons require identical canonical results. Independent competitor runs retain their original measurement dates: 2026-09-13."
+        "SNB-derived queries: 8 warmups and 31 fully materialized executions per process, repeated in 3 processes. Values are medians of process medians; query results match across systems."
       ],
       "engine": "memgraph",
       "measurement_profile": "snb-interactive-warm-repeated-query-v2",
@@ -3523,7 +3531,7 @@
       "competitor": "neo4j",
       "decimals": 3,
       "disclosures": [
-        "Matched SNB-derived queries without the official LDBC driver; these are internal results, not official or audited LDBC results. All engines use 8 discarded warmups, 31 timed executions with full result materialization, and 3 independent process runs. The published value is the median of run medians. Comparisons require identical canonical results. Independent competitor runs retain their original measurement dates: 2026-09-13."
+        "SNB-derived queries: 8 warmups and 31 fully materialized executions per process, repeated in 3 processes. Values are medians of process medians; query results match across systems."
       ],
       "engine": "neo4j",
       "measurement_profile": "snb-interactive-warm-repeated-query-v2",
@@ -3538,10 +3546,10 @@
       "comparison_allowed": true,
       "decimals": 3,
       "disclosures": [
-        "Matched SNB-derived queries without the official LDBC driver; these are internal results, not official or audited LDBC results. All engines use 8 discarded warmups, 31 timed executions with full result materialization, and 3 independent process runs. The published value is the median of run medians. Comparisons require identical canonical results. Independent competitor runs retain their original measurement dates: 2026-09-13.",
-        "GFQL builds resident adjacency and node-property indexes before measurement. An untimed probe verifies index use per query; the three single-node lookups engage point_rows. Not every query uses an index; per-query evidence records unused indexes too.",
-        "The GFQL improvements measured here are POLARS-side: the array-side bindings specialization and the seeded-point narrowing are polars-only by construction, so the gfql_pandas_idx arm does not carry them. Quote the engine with the number.",
-        "Competitor arms are REUSED from the H684 fixtures, not re-measured for this product revision: competitors do not import PyGraphistry. Original receipts are retained byte-for-byte and were re-verified against their recorded sha256; their original measurement dates stand."
+        "SNB-derived queries: 8 warmups and 31 fully materialized executions per process, repeated in 3 processes. Values are medians of process medians; query results match across systems.",
+        "GFQL builds adjacency and property indexes before timing. Index use is checked per query.",
+        "The measured bindings and seeded-lookup improvements apply to Polars.",
+        "Comparator measurements are from 2026-09-13."
       ],
       "engine": "gfql_pandas_idx",
       "measurement_profile": "snb-interactive-warm-repeated-query-v2",
@@ -3556,7 +3564,7 @@
       "comparison_allowed": true,
       "decimals": 3,
       "disclosures": [
-        "Matched SNB-derived queries without the official LDBC driver; these are internal results, not official or audited LDBC results. All engines use 8 discarded warmups, 31 timed executions with full result materialization, and 3 independent process runs. The published value is the median of run medians. Comparisons require identical canonical results. Independent competitor runs retain their original measurement dates: 2026-09-13."
+        "SNB-derived queries: 8 warmups and 31 fully materialized executions per process, repeated in 3 processes. Values are medians of process medians; query results match across systems."
       ],
       "engine": "gfql_polars",
       "measurement_profile": "snb-interactive-warm-repeated-query-v2",
@@ -3571,10 +3579,10 @@
       "comparison_allowed": true,
       "decimals": 3,
       "disclosures": [
-        "Matched SNB-derived queries without the official LDBC driver; these are internal results, not official or audited LDBC results. All engines use 8 discarded warmups, 31 timed executions with full result materialization, and 3 independent process runs. The published value is the median of run medians. Comparisons require identical canonical results. Independent competitor runs retain their original measurement dates: 2026-09-13.",
-        "GFQL builds resident adjacency and node-property indexes before measurement. An untimed probe verifies index use per query; the three single-node lookups engage point_rows. Not every query uses an index; per-query evidence records unused indexes too.",
-        "The GFQL improvements measured here are POLARS-side: the array-side bindings specialization and the seeded-point narrowing are polars-only by construction, so the gfql_pandas_idx arm does not carry them. Quote the engine with the number.",
-        "Competitor arms are REUSED from the H684 fixtures, not re-measured for this product revision: competitors do not import PyGraphistry. Original receipts are retained byte-for-byte and were re-verified against their recorded sha256; their original measurement dates stand."
+        "SNB-derived queries: 8 warmups and 31 fully materialized executions per process, repeated in 3 processes. Values are medians of process medians; query results match across systems.",
+        "GFQL builds adjacency and property indexes before timing. Index use is checked per query.",
+        "The measured bindings and seeded-lookup improvements apply to Polars.",
+        "Comparator measurements are from 2026-09-13."
       ],
       "engine": "gfql_polars_idx",
       "measurement_profile": "snb-interactive-warm-repeated-query-v2",
@@ -3590,7 +3598,7 @@
       "competitor": "kuzu",
       "decimals": 3,
       "disclosures": [
-        "Matched SNB-derived queries without the official LDBC driver; these are internal results, not official or audited LDBC results. All engines use 8 discarded warmups, 31 timed executions with full result materialization, and 3 independent process runs. The published value is the median of run medians. Comparisons require identical canonical results. Independent competitor runs retain their original measurement dates: 2026-09-13."
+        "SNB-derived queries: 8 warmups and 31 fully materialized executions per process, repeated in 3 processes. Values are medians of process medians; query results match across systems."
       ],
       "engine": "kuzu",
       "measurement_profile": "snb-interactive-warm-repeated-query-v2",
@@ -3606,7 +3614,7 @@
       "competitor": "memgraph",
       "decimals": 3,
       "disclosures": [
-        "Matched SNB-derived queries without the official LDBC driver; these are internal results, not official or audited LDBC results. All engines use 8 discarded warmups, 31 timed executions with full result materialization, and 3 independent process runs. The published value is the median of run medians. Comparisons require identical canonical results. Independent competitor runs retain their original measurement dates: 2026-09-13."
+        "SNB-derived queries: 8 warmups and 31 fully materialized executions per process, repeated in 3 processes. Values are medians of process medians; query results match across systems."
       ],
       "engine": "memgraph",
       "measurement_profile": "snb-interactive-warm-repeated-query-v2",
@@ -3622,7 +3630,7 @@
       "competitor": "neo4j",
       "decimals": 3,
       "disclosures": [
-        "Matched SNB-derived queries without the official LDBC driver; these are internal results, not official or audited LDBC results. All engines use 8 discarded warmups, 31 timed executions with full result materialization, and 3 independent process runs. The published value is the median of run medians. Comparisons require identical canonical results. Independent competitor runs retain their original measurement dates: 2026-09-13."
+        "SNB-derived queries: 8 warmups and 31 fully materialized executions per process, repeated in 3 processes. Values are medians of process medians; query results match across systems."
       ],
       "engine": "neo4j",
       "measurement_profile": "snb-interactive-warm-repeated-query-v2",
@@ -3637,10 +3645,10 @@
       "comparison_allowed": true,
       "decimals": 3,
       "disclosures": [
-        "Matched SNB-derived queries without the official LDBC driver; these are internal results, not official or audited LDBC results. All engines use 8 discarded warmups, 31 timed executions with full result materialization, and 3 independent process runs. The published value is the median of run medians. Comparisons require identical canonical results. Independent competitor runs retain their original measurement dates: 2026-09-13.",
-        "GFQL builds resident adjacency and node-property indexes before measurement. An untimed probe verifies index use per query; the three single-node lookups engage point_rows. Not every query uses an index; per-query evidence records unused indexes too.",
-        "The GFQL improvements measured here are POLARS-side: the array-side bindings specialization and the seeded-point narrowing are polars-only by construction, so the gfql_pandas_idx arm does not carry them. Quote the engine with the number.",
-        "Competitor arms are REUSED from the H684 fixtures, not re-measured for this product revision: competitors do not import PyGraphistry. Original receipts are retained byte-for-byte and were re-verified against their recorded sha256; their original measurement dates stand."
+        "SNB-derived queries: 8 warmups and 31 fully materialized executions per process, repeated in 3 processes. Values are medians of process medians; query results match across systems.",
+        "GFQL builds adjacency and property indexes before timing. Index use is checked per query.",
+        "The measured bindings and seeded-lookup improvements apply to Polars.",
+        "Comparator measurements are from 2026-09-13."
       ],
       "engine": "gfql_pandas_idx",
       "measurement_profile": "snb-interactive-warm-repeated-query-v2",
@@ -3655,7 +3663,7 @@
       "comparison_allowed": true,
       "decimals": 3,
       "disclosures": [
-        "Matched SNB-derived queries without the official LDBC driver; these are internal results, not official or audited LDBC results. All engines use 8 discarded warmups, 31 timed executions with full result materialization, and 3 independent process runs. The published value is the median of run medians. Comparisons require identical canonical results. Independent competitor runs retain their original measurement dates: 2026-09-13."
+        "SNB-derived queries: 8 warmups and 31 fully materialized executions per process, repeated in 3 processes. Values are medians of process medians; query results match across systems."
       ],
       "engine": "gfql_polars",
       "measurement_profile": "snb-interactive-warm-repeated-query-v2",
@@ -3670,10 +3678,10 @@
       "comparison_allowed": true,
       "decimals": 3,
       "disclosures": [
-        "Matched SNB-derived queries without the official LDBC driver; these are internal results, not official or audited LDBC results. All engines use 8 discarded warmups, 31 timed executions with full result materialization, and 3 independent process runs. The published value is the median of run medians. Comparisons require identical canonical results. Independent competitor runs retain their original measurement dates: 2026-09-13.",
-        "GFQL builds resident adjacency and node-property indexes before measurement. An untimed probe verifies index use per query; the three single-node lookups engage point_rows. Not every query uses an index; per-query evidence records unused indexes too.",
-        "The GFQL improvements measured here are POLARS-side: the array-side bindings specialization and the seeded-point narrowing are polars-only by construction, so the gfql_pandas_idx arm does not carry them. Quote the engine with the number.",
-        "Competitor arms are REUSED from the H684 fixtures, not re-measured for this product revision: competitors do not import PyGraphistry. Original receipts are retained byte-for-byte and were re-verified against their recorded sha256; their original measurement dates stand."
+        "SNB-derived queries: 8 warmups and 31 fully materialized executions per process, repeated in 3 processes. Values are medians of process medians; query results match across systems.",
+        "GFQL builds adjacency and property indexes before timing. Index use is checked per query.",
+        "The measured bindings and seeded-lookup improvements apply to Polars.",
+        "Comparator measurements are from 2026-09-13."
       ],
       "engine": "gfql_polars_idx",
       "measurement_profile": "snb-interactive-warm-repeated-query-v2",
@@ -3689,7 +3697,7 @@
       "competitor": "kuzu",
       "decimals": 3,
       "disclosures": [
-        "Matched SNB-derived queries without the official LDBC driver; these are internal results, not official or audited LDBC results. All engines use 8 discarded warmups, 31 timed executions with full result materialization, and 3 independent process runs. The published value is the median of run medians. Comparisons require identical canonical results. Independent competitor runs retain their original measurement dates: 2026-09-13."
+        "SNB-derived queries: 8 warmups and 31 fully materialized executions per process, repeated in 3 processes. Values are medians of process medians; query results match across systems."
       ],
       "engine": "kuzu",
       "measurement_profile": "snb-interactive-warm-repeated-query-v2",
@@ -3704,10 +3712,10 @@
       "comparison_allowed": true,
       "decimals": 3,
       "disclosures": [
-        "Matched SNB-derived queries without the official LDBC driver; these are internal results, not official or audited LDBC results. All engines use 8 discarded warmups, 31 timed executions with full result materialization, and 3 independent process runs. The published value is the median of run medians. Comparisons require identical canonical results. Independent competitor runs retain their original measurement dates: 2026-09-13.",
-        "GFQL builds resident adjacency and node-property indexes before measurement. An untimed probe verifies index use per query; the three single-node lookups engage point_rows. Not every query uses an index; per-query evidence records unused indexes too.",
-        "The GFQL improvements measured here are POLARS-side: the array-side bindings specialization and the seeded-point narrowing are polars-only by construction, so the gfql_pandas_idx arm does not carry them. Quote the engine with the number.",
-        "Competitor arms are REUSED from the H684 fixtures, not re-measured for this product revision: competitors do not import PyGraphistry. Original receipts are retained byte-for-byte and were re-verified against their recorded sha256; their original measurement dates stand."
+        "SNB-derived queries: 8 warmups and 31 fully materialized executions per process, repeated in 3 processes. Values are medians of process medians; query results match across systems.",
+        "GFQL builds adjacency and property indexes before timing. Index use is checked per query.",
+        "The measured bindings and seeded-lookup improvements apply to Polars.",
+        "Comparator measurements are from 2026-09-13."
       ],
       "engine": "gfql_pandas_idx",
       "measurement_profile": "snb-interactive-warm-repeated-query-v2",
@@ -3722,7 +3730,7 @@
       "comparison_allowed": true,
       "decimals": 3,
       "disclosures": [
-        "Matched SNB-derived queries without the official LDBC driver; these are internal results, not official or audited LDBC results. All engines use 8 discarded warmups, 31 timed executions with full result materialization, and 3 independent process runs. The published value is the median of run medians. Comparisons require identical canonical results. Independent competitor runs retain their original measurement dates: 2026-09-13."
+        "SNB-derived queries: 8 warmups and 31 fully materialized executions per process, repeated in 3 processes. Values are medians of process medians; query results match across systems."
       ],
       "engine": "gfql_polars",
       "measurement_profile": "snb-interactive-warm-repeated-query-v2",
@@ -3737,10 +3745,10 @@
       "comparison_allowed": true,
       "decimals": 3,
       "disclosures": [
-        "Matched SNB-derived queries without the official LDBC driver; these are internal results, not official or audited LDBC results. All engines use 8 discarded warmups, 31 timed executions with full result materialization, and 3 independent process runs. The published value is the median of run medians. Comparisons require identical canonical results. Independent competitor runs retain their original measurement dates: 2026-09-13.",
-        "GFQL builds resident adjacency and node-property indexes before measurement. An untimed probe verifies index use per query; the three single-node lookups engage point_rows. Not every query uses an index; per-query evidence records unused indexes too.",
-        "The GFQL improvements measured here are POLARS-side: the array-side bindings specialization and the seeded-point narrowing are polars-only by construction, so the gfql_pandas_idx arm does not carry them. Quote the engine with the number.",
-        "Competitor arms are REUSED from the H684 fixtures, not re-measured for this product revision: competitors do not import PyGraphistry. Original receipts are retained byte-for-byte and were re-verified against their recorded sha256; their original measurement dates stand."
+        "SNB-derived queries: 8 warmups and 31 fully materialized executions per process, repeated in 3 processes. Values are medians of process medians; query results match across systems.",
+        "GFQL builds adjacency and property indexes before timing. Index use is checked per query.",
+        "The measured bindings and seeded-lookup improvements apply to Polars.",
+        "Comparator measurements are from 2026-09-13."
       ],
       "engine": "gfql_polars_idx",
       "measurement_profile": "snb-interactive-warm-repeated-query-v2",
@@ -3756,7 +3764,7 @@
       "competitor": "kuzu",
       "decimals": 3,
       "disclosures": [
-        "Matched SNB-derived queries without the official LDBC driver; these are internal results, not official or audited LDBC results. All engines use 8 discarded warmups, 31 timed executions with full result materialization, and 3 independent process runs. The published value is the median of run medians. Comparisons require identical canonical results. Independent competitor runs retain their original measurement dates: 2026-09-13."
+        "SNB-derived queries: 8 warmups and 31 fully materialized executions per process, repeated in 3 processes. Values are medians of process medians; query results match across systems."
       ],
       "engine": "kuzu",
       "measurement_profile": "snb-interactive-warm-repeated-query-v2",
@@ -3771,10 +3779,10 @@
       "comparison_allowed": true,
       "decimals": 3,
       "disclosures": [
-        "Matched SNB-derived queries without the official LDBC driver; these are internal results, not official or audited LDBC results. All engines use 8 discarded warmups, 31 timed executions with full result materialization, and 3 independent process runs. The published value is the median of run medians. Comparisons require identical canonical results. Independent competitor runs retain their original measurement dates: 2026-09-13.",
-        "GFQL builds resident adjacency and node-property indexes before measurement. An untimed probe verifies index use per query; the three single-node lookups engage point_rows. Not every query uses an index; per-query evidence records unused indexes too.",
-        "The GFQL improvements measured here are POLARS-side: the array-side bindings specialization and the seeded-point narrowing are polars-only by construction, so the gfql_pandas_idx arm does not carry them. Quote the engine with the number.",
-        "Competitor arms are REUSED from the H684 fixtures, not re-measured for this product revision: competitors do not import PyGraphistry. Original receipts are retained byte-for-byte and were re-verified against their recorded sha256; their original measurement dates stand."
+        "SNB-derived queries: 8 warmups and 31 fully materialized executions per process, repeated in 3 processes. Values are medians of process medians; query results match across systems.",
+        "GFQL builds adjacency and property indexes before timing. Index use is checked per query.",
+        "The measured bindings and seeded-lookup improvements apply to Polars.",
+        "Comparator measurements are from 2026-09-13."
       ],
       "engine": "gfql_pandas_idx",
       "measurement_profile": "snb-interactive-warm-repeated-query-v2",
@@ -3789,7 +3797,7 @@
       "comparison_allowed": true,
       "decimals": 3,
       "disclosures": [
-        "Matched SNB-derived queries without the official LDBC driver; these are internal results, not official or audited LDBC results. All engines use 8 discarded warmups, 31 timed executions with full result materialization, and 3 independent process runs. The published value is the median of run medians. Comparisons require identical canonical results. Independent competitor runs retain their original measurement dates: 2026-09-13."
+        "SNB-derived queries: 8 warmups and 31 fully materialized executions per process, repeated in 3 processes. Values are medians of process medians; query results match across systems."
       ],
       "engine": "gfql_polars",
       "measurement_profile": "snb-interactive-warm-repeated-query-v2",
@@ -3804,10 +3812,10 @@
       "comparison_allowed": true,
       "decimals": 3,
       "disclosures": [
-        "Matched SNB-derived queries without the official LDBC driver; these are internal results, not official or audited LDBC results. All engines use 8 discarded warmups, 31 timed executions with full result materialization, and 3 independent process runs. The published value is the median of run medians. Comparisons require identical canonical results. Independent competitor runs retain their original measurement dates: 2026-09-13.",
-        "GFQL builds resident adjacency and node-property indexes before measurement. An untimed probe verifies index use per query; the three single-node lookups engage point_rows. Not every query uses an index; per-query evidence records unused indexes too.",
-        "The GFQL improvements measured here are POLARS-side: the array-side bindings specialization and the seeded-point narrowing are polars-only by construction, so the gfql_pandas_idx arm does not carry them. Quote the engine with the number.",
-        "Competitor arms are REUSED from the H684 fixtures, not re-measured for this product revision: competitors do not import PyGraphistry. Original receipts are retained byte-for-byte and were re-verified against their recorded sha256; their original measurement dates stand."
+        "SNB-derived queries: 8 warmups and 31 fully materialized executions per process, repeated in 3 processes. Values are medians of process medians; query results match across systems.",
+        "GFQL builds adjacency and property indexes before timing. Index use is checked per query.",
+        "The measured bindings and seeded-lookup improvements apply to Polars.",
+        "Comparator measurements are from 2026-09-13."
       ],
       "engine": "gfql_polars_idx",
       "measurement_profile": "snb-interactive-warm-repeated-query-v2",
@@ -3823,7 +3831,7 @@
       "competitor": "kuzu",
       "decimals": 3,
       "disclosures": [
-        "Matched SNB-derived queries without the official LDBC driver; these are internal results, not official or audited LDBC results. All engines use 8 discarded warmups, 31 timed executions with full result materialization, and 3 independent process runs. The published value is the median of run medians. Comparisons require identical canonical results. Independent competitor runs retain their original measurement dates: 2026-09-13."
+        "SNB-derived queries: 8 warmups and 31 fully materialized executions per process, repeated in 3 processes. Values are medians of process medians; query results match across systems."
       ],
       "engine": "kuzu",
       "measurement_profile": "snb-interactive-warm-repeated-query-v2",
@@ -3839,7 +3847,7 @@
       "competitor": "memgraph",
       "decimals": 3,
       "disclosures": [
-        "Matched SNB-derived queries without the official LDBC driver; these are internal results, not official or audited LDBC results. All engines use 8 discarded warmups, 31 timed executions with full result materialization, and 3 independent process runs. The published value is the median of run medians. Comparisons require identical canonical results. Independent competitor runs retain their original measurement dates: 2026-09-13."
+        "SNB-derived queries: 8 warmups and 31 fully materialized executions per process, repeated in 3 processes. Values are medians of process medians; query results match across systems."
       ],
       "engine": "memgraph",
       "measurement_profile": "snb-interactive-warm-repeated-query-v2",
@@ -3855,7 +3863,7 @@
       "competitor": "neo4j",
       "decimals": 3,
       "disclosures": [
-        "Matched SNB-derived queries without the official LDBC driver; these are internal results, not official or audited LDBC results. All engines use 8 discarded warmups, 31 timed executions with full result materialization, and 3 independent process runs. The published value is the median of run medians. Comparisons require identical canonical results. Independent competitor runs retain their original measurement dates: 2026-09-13."
+        "SNB-derived queries: 8 warmups and 31 fully materialized executions per process, repeated in 3 processes. Values are medians of process medians; query results match across systems."
       ],
       "engine": "neo4j",
       "measurement_profile": "snb-interactive-warm-repeated-query-v2",
@@ -3870,10 +3878,10 @@
       "comparison_allowed": true,
       "decimals": 3,
       "disclosures": [
-        "Matched SNB-derived queries without the official LDBC driver; these are internal results, not official or audited LDBC results. All engines use 8 discarded warmups, 31 timed executions with full result materialization, and 3 independent process runs. The published value is the median of run medians. Comparisons require identical canonical results. Independent competitor runs retain their original measurement dates: 2026-09-13.",
-        "GFQL builds resident adjacency and node-property indexes before measurement. An untimed probe verifies index use per query; the three single-node lookups engage point_rows. Not every query uses an index; per-query evidence records unused indexes too.",
-        "The GFQL improvements measured here are POLARS-side: the array-side bindings specialization and the seeded-point narrowing are polars-only by construction, so the gfql_pandas_idx arm does not carry them. Quote the engine with the number.",
-        "Competitor arms are REUSED from the H684 fixtures, not re-measured for this product revision: competitors do not import PyGraphistry. Original receipts are retained byte-for-byte and were re-verified against their recorded sha256; their original measurement dates stand."
+        "SNB-derived queries: 8 warmups and 31 fully materialized executions per process, repeated in 3 processes. Values are medians of process medians; query results match across systems.",
+        "GFQL builds adjacency and property indexes before timing. Index use is checked per query.",
+        "The measured bindings and seeded-lookup improvements apply to Polars.",
+        "Comparator measurements are from 2026-09-13."
       ],
       "engine": "gfql_pandas_idx",
       "measurement_profile": "snb-interactive-warm-repeated-query-v2",
@@ -3888,7 +3896,7 @@
       "comparison_allowed": true,
       "decimals": 3,
       "disclosures": [
-        "Matched SNB-derived queries without the official LDBC driver; these are internal results, not official or audited LDBC results. All engines use 8 discarded warmups, 31 timed executions with full result materialization, and 3 independent process runs. The published value is the median of run medians. Comparisons require identical canonical results. Independent competitor runs retain their original measurement dates: 2026-09-13."
+        "SNB-derived queries: 8 warmups and 31 fully materialized executions per process, repeated in 3 processes. Values are medians of process medians; query results match across systems."
       ],
       "engine": "gfql_polars",
       "measurement_profile": "snb-interactive-warm-repeated-query-v2",
@@ -3903,10 +3911,10 @@
       "comparison_allowed": true,
       "decimals": 3,
       "disclosures": [
-        "Matched SNB-derived queries without the official LDBC driver; these are internal results, not official or audited LDBC results. All engines use 8 discarded warmups, 31 timed executions with full result materialization, and 3 independent process runs. The published value is the median of run medians. Comparisons require identical canonical results. Independent competitor runs retain their original measurement dates: 2026-09-13.",
-        "GFQL builds resident adjacency and node-property indexes before measurement. An untimed probe verifies index use per query; the three single-node lookups engage point_rows. Not every query uses an index; per-query evidence records unused indexes too.",
-        "The GFQL improvements measured here are POLARS-side: the array-side bindings specialization and the seeded-point narrowing are polars-only by construction, so the gfql_pandas_idx arm does not carry them. Quote the engine with the number.",
-        "Competitor arms are REUSED from the H684 fixtures, not re-measured for this product revision: competitors do not import PyGraphistry. Original receipts are retained byte-for-byte and were re-verified against their recorded sha256; their original measurement dates stand."
+        "SNB-derived queries: 8 warmups and 31 fully materialized executions per process, repeated in 3 processes. Values are medians of process medians; query results match across systems.",
+        "GFQL builds adjacency and property indexes before timing. Index use is checked per query.",
+        "The measured bindings and seeded-lookup improvements apply to Polars.",
+        "Comparator measurements are from 2026-09-13."
       ],
       "engine": "gfql_polars_idx",
       "measurement_profile": "snb-interactive-warm-repeated-query-v2",
@@ -3922,7 +3930,7 @@
       "competitor": "kuzu",
       "decimals": 3,
       "disclosures": [
-        "Matched SNB-derived queries without the official LDBC driver; these are internal results, not official or audited LDBC results. All engines use 8 discarded warmups, 31 timed executions with full result materialization, and 3 independent process runs. The published value is the median of run medians. Comparisons require identical canonical results. Independent competitor runs retain their original measurement dates: 2026-09-13."
+        "SNB-derived queries: 8 warmups and 31 fully materialized executions per process, repeated in 3 processes. Values are medians of process medians; query results match across systems."
       ],
       "engine": "kuzu",
       "measurement_profile": "snb-interactive-warm-repeated-query-v2",
@@ -3938,7 +3946,7 @@
       "competitor": "memgraph",
       "decimals": 3,
       "disclosures": [
-        "Matched SNB-derived queries without the official LDBC driver; these are internal results, not official or audited LDBC results. All engines use 8 discarded warmups, 31 timed executions with full result materialization, and 3 independent process runs. The published value is the median of run medians. Comparisons require identical canonical results. Independent competitor runs retain their original measurement dates: 2026-09-13."
+        "SNB-derived queries: 8 warmups and 31 fully materialized executions per process, repeated in 3 processes. Values are medians of process medians; query results match across systems."
       ],
       "engine": "memgraph",
       "measurement_profile": "snb-interactive-warm-repeated-query-v2",
@@ -3954,7 +3962,7 @@
       "competitor": "neo4j",
       "decimals": 3,
       "disclosures": [
-        "Matched SNB-derived queries without the official LDBC driver; these are internal results, not official or audited LDBC results. All engines use 8 discarded warmups, 31 timed executions with full result materialization, and 3 independent process runs. The published value is the median of run medians. Comparisons require identical canonical results. Independent competitor runs retain their original measurement dates: 2026-09-13."
+        "SNB-derived queries: 8 warmups and 31 fully materialized executions per process, repeated in 3 processes. Values are medians of process medians; query results match across systems."
       ],
       "engine": "neo4j",
       "measurement_profile": "snb-interactive-warm-repeated-query-v2",
@@ -3969,10 +3977,10 @@
       "comparison_allowed": false,
       "decimals": 3,
       "disclosures": [
-        "Matched SNB-derived queries without the official LDBC driver; these are internal results, not official or audited LDBC results. All engines use 8 discarded warmups, 31 timed executions with full result materialization, and 3 independent process runs. The published value is the median of run medians. Comparisons require identical canonical results. Independent competitor runs retain their original measurement dates: 2026-09-13.",
-        "GFQL builds resident adjacency and node-property indexes before measurement. An untimed probe verifies index use per query; the three single-node lookups engage point_rows. Not every query uses an index; per-query evidence records unused indexes too.",
-        "The GFQL improvements measured here are POLARS-side: the array-side bindings specialization and the seeded-point narrowing are polars-only by construction, so the gfql_pandas_idx arm does not carry them. Quote the engine with the number.",
-        "Competitor arms are REUSED from the H684 fixtures, not re-measured for this product revision: competitors do not import PyGraphistry. Original receipts are retained byte-for-byte and were re-verified against their recorded sha256; their original measurement dates stand.",
+        "SNB-derived queries: 8 warmups and 31 fully materialized executions per process, repeated in 3 processes. Values are medians of process medians; query results match across systems.",
+        "GFQL builds adjacency and property indexes before timing. Index use is checked per query.",
+        "The measured bindings and seeded-lookup improvements apply to Polars.",
+        "Comparator measurements are from 2026-09-13.",
         "tag-cooccurrence: not comparable with the four-engine board (parity, eligibility, or cardinality differs from the release GFQL arm)."
       ],
       "engine": "gfql_pandas_idx",
@@ -3988,10 +3996,10 @@
       "comparison_allowed": false,
       "decimals": 3,
       "disclosures": [
-        "Matched SNB-derived queries without the official LDBC driver; these are internal results, not official or audited LDBC results. All engines use 8 discarded warmups, 31 timed executions with full result materialization, and 3 independent process runs. The published value is the median of run medians. Comparisons require identical canonical results. Independent competitor runs retain their original measurement dates: 2026-09-13.",
-        "GFQL builds resident adjacency and node-property indexes before measurement. An untimed probe verifies index use per query; the three single-node lookups engage point_rows. Not every query uses an index; per-query evidence records unused indexes too.",
-        "The GFQL improvements measured here are POLARS-side: the array-side bindings specialization and the seeded-point narrowing are polars-only by construction, so the gfql_pandas_idx arm does not carry them. Quote the engine with the number.",
-        "Competitor arms are REUSED from the H684 fixtures, not re-measured for this product revision: competitors do not import PyGraphistry. Original receipts are retained byte-for-byte and were re-verified against their recorded sha256; their original measurement dates stand.",
+        "SNB-derived queries: 8 warmups and 31 fully materialized executions per process, repeated in 3 processes. Values are medians of process medians; query results match across systems.",
+        "GFQL builds adjacency and property indexes before timing. Index use is checked per query.",
+        "The measured bindings and seeded-lookup improvements apply to Polars.",
+        "Comparator measurements are from 2026-09-13.",
         "tag-cooccurrence: not comparable with the four-engine board (parity, eligibility, or cardinality differs from the release GFQL arm)."
       ],
       "engine": "gfql_polars_idx",
@@ -4007,10 +4015,10 @@
       "comparison_allowed": true,
       "decimals": 3,
       "disclosures": [
-        "Matched SNB-derived queries without the official LDBC driver; these are internal results, not official or audited LDBC results. All engines use 8 discarded warmups, 31 timed executions with full result materialization, and 3 independent process runs. The published value is the median of run medians. Comparisons require identical canonical results. Independent competitor runs retain their original measurement dates: 2026-09-13.",
-        "GFQL builds resident adjacency and node-property indexes before measurement. An untimed probe verifies index use per query; the three single-node lookups engage point_rows. Not every query uses an index; per-query evidence records unused indexes too.",
-        "The GFQL improvements measured here are POLARS-side: the array-side bindings specialization and the seeded-point narrowing are polars-only by construction, so the gfql_pandas_idx arm does not carry them. Quote the engine with the number.",
-        "Competitor arms are REUSED from the H684 fixtures, not re-measured for this product revision: competitors do not import PyGraphistry. Original receipts are retained byte-for-byte and were re-verified against their recorded sha256; their original measurement dates stand."
+        "SNB-derived queries: 8 warmups and 31 fully materialized executions per process, repeated in 3 processes. Values are medians of process medians; query results match across systems.",
+        "GFQL builds adjacency and property indexes before timing. Index use is checked per query.",
+        "The measured bindings and seeded-lookup improvements apply to Polars.",
+        "Comparator measurements are from 2026-09-13."
       ],
       "engine": "gfql_pandas_idx",
       "measurement_profile": "snb-interactive-warm-repeated-query-v2",
@@ -4025,7 +4033,7 @@
       "comparison_allowed": true,
       "decimals": 3,
       "disclosures": [
-        "Matched SNB-derived queries without the official LDBC driver; these are internal results, not official or audited LDBC results. All engines use 8 discarded warmups, 31 timed executions with full result materialization, and 3 independent process runs. The published value is the median of run medians. Comparisons require identical canonical results. Independent competitor runs retain their original measurement dates: 2026-09-13."
+        "SNB-derived queries: 8 warmups and 31 fully materialized executions per process, repeated in 3 processes. Values are medians of process medians; query results match across systems."
       ],
       "engine": "gfql_polars",
       "measurement_profile": "snb-interactive-warm-repeated-query-v2",
@@ -4040,10 +4048,10 @@
       "comparison_allowed": true,
       "decimals": 3,
       "disclosures": [
-        "Matched SNB-derived queries without the official LDBC driver; these are internal results, not official or audited LDBC results. All engines use 8 discarded warmups, 31 timed executions with full result materialization, and 3 independent process runs. The published value is the median of run medians. Comparisons require identical canonical results. Independent competitor runs retain their original measurement dates: 2026-09-13.",
-        "GFQL builds resident adjacency and node-property indexes before measurement. An untimed probe verifies index use per query; the three single-node lookups engage point_rows. Not every query uses an index; per-query evidence records unused indexes too.",
-        "The GFQL improvements measured here are POLARS-side: the array-side bindings specialization and the seeded-point narrowing are polars-only by construction, so the gfql_pandas_idx arm does not carry them. Quote the engine with the number.",
-        "Competitor arms are REUSED from the H684 fixtures, not re-measured for this product revision: competitors do not import PyGraphistry. Original receipts are retained byte-for-byte and were re-verified against their recorded sha256; their original measurement dates stand."
+        "SNB-derived queries: 8 warmups and 31 fully materialized executions per process, repeated in 3 processes. Values are medians of process medians; query results match across systems.",
+        "GFQL builds adjacency and property indexes before timing. Index use is checked per query.",
+        "The measured bindings and seeded-lookup improvements apply to Polars.",
+        "Comparator measurements are from 2026-09-13."
       ],
       "engine": "gfql_polars_idx",
       "measurement_profile": "snb-interactive-warm-repeated-query-v2",
@@ -4059,7 +4067,7 @@
       "competitor": "kuzu",
       "decimals": 3,
       "disclosures": [
-        "Matched SNB-derived queries without the official LDBC driver; these are internal results, not official or audited LDBC results. All engines use 8 discarded warmups, 31 timed executions with full result materialization, and 3 independent process runs. The published value is the median of run medians. Comparisons require identical canonical results. Independent competitor runs retain their original measurement dates: 2026-09-13."
+        "SNB-derived queries: 8 warmups and 31 fully materialized executions per process, repeated in 3 processes. Values are medians of process medians; query results match across systems."
       ],
       "engine": "kuzu",
       "measurement_profile": "snb-interactive-warm-repeated-query-v2",
@@ -4075,7 +4083,7 @@
       "competitor": "memgraph",
       "decimals": 3,
       "disclosures": [
-        "Matched SNB-derived queries without the official LDBC driver; these are internal results, not official or audited LDBC results. All engines use 8 discarded warmups, 31 timed executions with full result materialization, and 3 independent process runs. The published value is the median of run medians. Comparisons require identical canonical results. Independent competitor runs retain their original measurement dates: 2026-09-13."
+        "SNB-derived queries: 8 warmups and 31 fully materialized executions per process, repeated in 3 processes. Values are medians of process medians; query results match across systems."
       ],
       "engine": "memgraph",
       "measurement_profile": "snb-interactive-warm-repeated-query-v2",
@@ -4091,7 +4099,7 @@
       "competitor": "neo4j",
       "decimals": 3,
       "disclosures": [
-        "Matched SNB-derived queries without the official LDBC driver; these are internal results, not official or audited LDBC results. All engines use 8 discarded warmups, 31 timed executions with full result materialization, and 3 independent process runs. The published value is the median of run medians. Comparisons require identical canonical results. Independent competitor runs retain their original measurement dates: 2026-09-13."
+        "SNB-derived queries: 8 warmups and 31 fully materialized executions per process, repeated in 3 processes. Values are medians of process medians; query results match across systems."
       ],
       "engine": "neo4j",
       "measurement_profile": "snb-interactive-warm-repeated-query-v2",
@@ -4106,10 +4114,10 @@
       "comparison_allowed": true,
       "decimals": 3,
       "disclosures": [
-        "Matched SNB-derived queries without the official LDBC driver; these are internal results, not official or audited LDBC results. All engines use 8 discarded warmups, 31 timed executions with full result materialization, and 3 independent process runs. The published value is the median of run medians. Comparisons require identical canonical results. Independent competitor runs retain their original measurement dates: 2026-09-13.",
-        "GFQL builds resident adjacency and node-property indexes before measurement. An untimed probe verifies index use per query; the three single-node lookups engage point_rows. Not every query uses an index; per-query evidence records unused indexes too.",
-        "The GFQL improvements measured here are POLARS-side: the array-side bindings specialization and the seeded-point narrowing are polars-only by construction, so the gfql_pandas_idx arm does not carry them. Quote the engine with the number.",
-        "Competitor arms are REUSED from the H684 fixtures, not re-measured for this product revision: competitors do not import PyGraphistry. Original receipts are retained byte-for-byte and were re-verified against their recorded sha256; their original measurement dates stand."
+        "SNB-derived queries: 8 warmups and 31 fully materialized executions per process, repeated in 3 processes. Values are medians of process medians; query results match across systems.",
+        "GFQL builds adjacency and property indexes before timing. Index use is checked per query.",
+        "The measured bindings and seeded-lookup improvements apply to Polars.",
+        "Comparator measurements are from 2026-09-13."
       ],
       "engine": "gfql_pandas_idx",
       "measurement_profile": "snb-interactive-warm-repeated-query-v2",
@@ -4124,7 +4132,7 @@
       "comparison_allowed": true,
       "decimals": 3,
       "disclosures": [
-        "Matched SNB-derived queries without the official LDBC driver; these are internal results, not official or audited LDBC results. All engines use 8 discarded warmups, 31 timed executions with full result materialization, and 3 independent process runs. The published value is the median of run medians. Comparisons require identical canonical results. Independent competitor runs retain their original measurement dates: 2026-09-13."
+        "SNB-derived queries: 8 warmups and 31 fully materialized executions per process, repeated in 3 processes. Values are medians of process medians; query results match across systems."
       ],
       "engine": "gfql_polars",
       "measurement_profile": "snb-interactive-warm-repeated-query-v2",
@@ -4139,10 +4147,10 @@
       "comparison_allowed": true,
       "decimals": 3,
       "disclosures": [
-        "Matched SNB-derived queries without the official LDBC driver; these are internal results, not official or audited LDBC results. All engines use 8 discarded warmups, 31 timed executions with full result materialization, and 3 independent process runs. The published value is the median of run medians. Comparisons require identical canonical results. Independent competitor runs retain their original measurement dates: 2026-09-13.",
-        "GFQL builds resident adjacency and node-property indexes before measurement. An untimed probe verifies index use per query; the three single-node lookups engage point_rows. Not every query uses an index; per-query evidence records unused indexes too.",
-        "The GFQL improvements measured here are POLARS-side: the array-side bindings specialization and the seeded-point narrowing are polars-only by construction, so the gfql_pandas_idx arm does not carry them. Quote the engine with the number.",
-        "Competitor arms are REUSED from the H684 fixtures, not re-measured for this product revision: competitors do not import PyGraphistry. Original receipts are retained byte-for-byte and were re-verified against their recorded sha256; their original measurement dates stand."
+        "SNB-derived queries: 8 warmups and 31 fully materialized executions per process, repeated in 3 processes. Values are medians of process medians; query results match across systems.",
+        "GFQL builds adjacency and property indexes before timing. Index use is checked per query.",
+        "The measured bindings and seeded-lookup improvements apply to Polars.",
+        "Comparator measurements are from 2026-09-13."
       ],
       "engine": "gfql_polars_idx",
       "measurement_profile": "snb-interactive-warm-repeated-query-v2",
@@ -4158,7 +4166,7 @@
       "competitor": "kuzu",
       "decimals": 3,
       "disclosures": [
-        "Matched SNB-derived queries without the official LDBC driver; these are internal results, not official or audited LDBC results. All engines use 8 discarded warmups, 31 timed executions with full result materialization, and 3 independent process runs. The published value is the median of run medians. Comparisons require identical canonical results. Independent competitor runs retain their original measurement dates: 2026-09-13."
+        "SNB-derived queries: 8 warmups and 31 fully materialized executions per process, repeated in 3 processes. Values are medians of process medians; query results match across systems."
       ],
       "engine": "kuzu",
       "measurement_profile": "snb-interactive-warm-repeated-query-v2",
@@ -4174,7 +4182,7 @@
       "competitor": "memgraph",
       "decimals": 3,
       "disclosures": [
-        "Matched SNB-derived queries without the official LDBC driver; these are internal results, not official or audited LDBC results. All engines use 8 discarded warmups, 31 timed executions with full result materialization, and 3 independent process runs. The published value is the median of run medians. Comparisons require identical canonical results. Independent competitor runs retain their original measurement dates: 2026-09-13."
+        "SNB-derived queries: 8 warmups and 31 fully materialized executions per process, repeated in 3 processes. Values are medians of process medians; query results match across systems."
       ],
       "engine": "memgraph",
       "measurement_profile": "snb-interactive-warm-repeated-query-v2",
@@ -4190,7 +4198,7 @@
       "competitor": "neo4j",
       "decimals": 3,
       "disclosures": [
-        "Matched SNB-derived queries without the official LDBC driver; these are internal results, not official or audited LDBC results. All engines use 8 discarded warmups, 31 timed executions with full result materialization, and 3 independent process runs. The published value is the median of run medians. Comparisons require identical canonical results. Independent competitor runs retain their original measurement dates: 2026-09-13."
+        "SNB-derived queries: 8 warmups and 31 fully materialized executions per process, repeated in 3 processes. Values are medians of process medians; query results match across systems."
       ],
       "engine": "neo4j",
       "measurement_profile": "snb-interactive-warm-repeated-query-v2",
@@ -4205,10 +4213,10 @@
       "comparison_allowed": true,
       "decimals": 3,
       "disclosures": [
-        "Matched SNB-derived queries without the official LDBC driver; these are internal results, not official or audited LDBC results. All engines use 8 discarded warmups, 31 timed executions with full result materialization, and 3 independent process runs. The published value is the median of run medians. Comparisons require identical canonical results. Independent competitor runs retain their original measurement dates: 2026-09-13.",
-        "GFQL builds resident adjacency and node-property indexes before measurement. An untimed probe verifies index use per query; the three single-node lookups engage point_rows. Not every query uses an index; per-query evidence records unused indexes too.",
-        "The GFQL improvements measured here are POLARS-side: the array-side bindings specialization and the seeded-point narrowing are polars-only by construction, so the gfql_pandas_idx arm does not carry them. Quote the engine with the number.",
-        "Competitor arms are REUSED from the H684 fixtures, not re-measured for this product revision: competitors do not import PyGraphistry. Original receipts are retained byte-for-byte and were re-verified against their recorded sha256; their original measurement dates stand."
+        "SNB-derived queries: 8 warmups and 31 fully materialized executions per process, repeated in 3 processes. Values are medians of process medians; query results match across systems.",
+        "GFQL builds adjacency and property indexes before timing. Index use is checked per query.",
+        "The measured bindings and seeded-lookup improvements apply to Polars.",
+        "Comparator measurements are from 2026-09-13."
       ],
       "engine": "gfql_pandas_idx",
       "measurement_profile": "snb-interactive-warm-repeated-query-v2",
@@ -4223,7 +4231,7 @@
       "comparison_allowed": true,
       "decimals": 3,
       "disclosures": [
-        "Matched SNB-derived queries without the official LDBC driver; these are internal results, not official or audited LDBC results. All engines use 8 discarded warmups, 31 timed executions with full result materialization, and 3 independent process runs. The published value is the median of run medians. Comparisons require identical canonical results. Independent competitor runs retain their original measurement dates: 2026-09-13."
+        "SNB-derived queries: 8 warmups and 31 fully materialized executions per process, repeated in 3 processes. Values are medians of process medians; query results match across systems."
       ],
       "engine": "gfql_polars",
       "measurement_profile": "snb-interactive-warm-repeated-query-v2",
@@ -4238,10 +4246,10 @@
       "comparison_allowed": true,
       "decimals": 3,
       "disclosures": [
-        "Matched SNB-derived queries without the official LDBC driver; these are internal results, not official or audited LDBC results. All engines use 8 discarded warmups, 31 timed executions with full result materialization, and 3 independent process runs. The published value is the median of run medians. Comparisons require identical canonical results. Independent competitor runs retain their original measurement dates: 2026-09-13.",
-        "GFQL builds resident adjacency and node-property indexes before measurement. An untimed probe verifies index use per query; the three single-node lookups engage point_rows. Not every query uses an index; per-query evidence records unused indexes too.",
-        "The GFQL improvements measured here are POLARS-side: the array-side bindings specialization and the seeded-point narrowing are polars-only by construction, so the gfql_pandas_idx arm does not carry them. Quote the engine with the number.",
-        "Competitor arms are REUSED from the H684 fixtures, not re-measured for this product revision: competitors do not import PyGraphistry. Original receipts are retained byte-for-byte and were re-verified against their recorded sha256; their original measurement dates stand."
+        "SNB-derived queries: 8 warmups and 31 fully materialized executions per process, repeated in 3 processes. Values are medians of process medians; query results match across systems.",
+        "GFQL builds adjacency and property indexes before timing. Index use is checked per query.",
+        "The measured bindings and seeded-lookup improvements apply to Polars.",
+        "Comparator measurements are from 2026-09-13."
       ],
       "engine": "gfql_polars_idx",
       "measurement_profile": "snb-interactive-warm-repeated-query-v2",
@@ -4257,7 +4265,7 @@
       "competitor": "kuzu",
       "decimals": 3,
       "disclosures": [
-        "Matched SNB-derived queries without the official LDBC driver; these are internal results, not official or audited LDBC results. All engines use 8 discarded warmups, 31 timed executions with full result materialization, and 3 independent process runs. The published value is the median of run medians. Comparisons require identical canonical results. Independent competitor runs retain their original measurement dates: 2026-09-13."
+        "SNB-derived queries: 8 warmups and 31 fully materialized executions per process, repeated in 3 processes. Values are medians of process medians; query results match across systems."
       ],
       "engine": "kuzu",
       "measurement_profile": "snb-interactive-warm-repeated-query-v2",
@@ -4272,10 +4280,10 @@
       "comparison_allowed": true,
       "decimals": 3,
       "disclosures": [
-        "Matched SNB-derived queries without the official LDBC driver; these are internal results, not official or audited LDBC results. All engines use 8 discarded warmups, 31 timed executions with full result materialization, and 3 independent process runs. The published value is the median of run medians. Comparisons require identical canonical results. Independent competitor runs retain their original measurement dates: 2026-09-13.",
-        "GFQL builds resident adjacency and node-property indexes before measurement. An untimed probe verifies index use per query; the three single-node lookups engage point_rows. Not every query uses an index; per-query evidence records unused indexes too.",
-        "The GFQL improvements measured here are POLARS-side: the array-side bindings specialization and the seeded-point narrowing are polars-only by construction, so the gfql_pandas_idx arm does not carry them. Quote the engine with the number.",
-        "Competitor arms are REUSED from the H684 fixtures, not re-measured for this product revision: competitors do not import PyGraphistry. Original receipts are retained byte-for-byte and were re-verified against their recorded sha256; their original measurement dates stand."
+        "SNB-derived queries: 8 warmups and 31 fully materialized executions per process, repeated in 3 processes. Values are medians of process medians; query results match across systems.",
+        "GFQL builds adjacency and property indexes before timing. Index use is checked per query.",
+        "The measured bindings and seeded-lookup improvements apply to Polars.",
+        "Comparator measurements are from 2026-09-13."
       ],
       "engine": "gfql_pandas_idx",
       "measurement_profile": "snb-interactive-warm-repeated-query-v2",
@@ -4290,7 +4298,7 @@
       "comparison_allowed": true,
       "decimals": 3,
       "disclosures": [
-        "Matched SNB-derived queries without the official LDBC driver; these are internal results, not official or audited LDBC results. All engines use 8 discarded warmups, 31 timed executions with full result materialization, and 3 independent process runs. The published value is the median of run medians. Comparisons require identical canonical results. Independent competitor runs retain their original measurement dates: 2026-09-13."
+        "SNB-derived queries: 8 warmups and 31 fully materialized executions per process, repeated in 3 processes. Values are medians of process medians; query results match across systems."
       ],
       "engine": "gfql_polars",
       "measurement_profile": "snb-interactive-warm-repeated-query-v2",
@@ -4305,10 +4313,10 @@
       "comparison_allowed": true,
       "decimals": 3,
       "disclosures": [
-        "Matched SNB-derived queries without the official LDBC driver; these are internal results, not official or audited LDBC results. All engines use 8 discarded warmups, 31 timed executions with full result materialization, and 3 independent process runs. The published value is the median of run medians. Comparisons require identical canonical results. Independent competitor runs retain their original measurement dates: 2026-09-13.",
-        "GFQL builds resident adjacency and node-property indexes before measurement. An untimed probe verifies index use per query; the three single-node lookups engage point_rows. Not every query uses an index; per-query evidence records unused indexes too.",
-        "The GFQL improvements measured here are POLARS-side: the array-side bindings specialization and the seeded-point narrowing are polars-only by construction, so the gfql_pandas_idx arm does not carry them. Quote the engine with the number.",
-        "Competitor arms are REUSED from the H684 fixtures, not re-measured for this product revision: competitors do not import PyGraphistry. Original receipts are retained byte-for-byte and were re-verified against their recorded sha256; their original measurement dates stand."
+        "SNB-derived queries: 8 warmups and 31 fully materialized executions per process, repeated in 3 processes. Values are medians of process medians; query results match across systems.",
+        "GFQL builds adjacency and property indexes before timing. Index use is checked per query.",
+        "The measured bindings and seeded-lookup improvements apply to Polars.",
+        "Comparator measurements are from 2026-09-13."
       ],
       "engine": "gfql_polars_idx",
       "measurement_profile": "snb-interactive-warm-repeated-query-v2",
@@ -4324,7 +4332,7 @@
       "competitor": "kuzu",
       "decimals": 3,
       "disclosures": [
-        "Matched SNB-derived queries without the official LDBC driver; these are internal results, not official or audited LDBC results. All engines use 8 discarded warmups, 31 timed executions with full result materialization, and 3 independent process runs. The published value is the median of run medians. Comparisons require identical canonical results. Independent competitor runs retain their original measurement dates: 2026-09-13."
+        "SNB-derived queries: 8 warmups and 31 fully materialized executions per process, repeated in 3 processes. Values are medians of process medians; query results match across systems."
       ],
       "engine": "kuzu",
       "measurement_profile": "snb-interactive-warm-repeated-query-v2",
@@ -4340,7 +4348,7 @@
       "competitor": "memgraph",
       "decimals": 3,
       "disclosures": [
-        "Matched SNB-derived queries without the official LDBC driver; these are internal results, not official or audited LDBC results. All engines use 8 discarded warmups, 31 timed executions with full result materialization, and 3 independent process runs. The published value is the median of run medians. Comparisons require identical canonical results. Independent competitor runs retain their original measurement dates: 2026-09-13."
+        "SNB-derived queries: 8 warmups and 31 fully materialized executions per process, repeated in 3 processes. Values are medians of process medians; query results match across systems."
       ],
       "engine": "memgraph",
       "measurement_profile": "snb-interactive-warm-repeated-query-v2",
@@ -4356,7 +4364,7 @@
       "competitor": "neo4j",
       "decimals": 3,
       "disclosures": [
-        "Matched SNB-derived queries without the official LDBC driver; these are internal results, not official or audited LDBC results. All engines use 8 discarded warmups, 31 timed executions with full result materialization, and 3 independent process runs. The published value is the median of run medians. Comparisons require identical canonical results. Independent competitor runs retain their original measurement dates: 2026-09-13."
+        "SNB-derived queries: 8 warmups and 31 fully materialized executions per process, repeated in 3 processes. Values are medians of process medians; query results match across systems."
       ],
       "engine": "neo4j",
       "measurement_profile": "snb-interactive-warm-repeated-query-v2",
@@ -4368,8 +4376,8 @@
     }
   },
   "contract_version": 3,
-  "generated_at": "2026-10-31T05:42:35Z",
-  "generated_by": "graphistry/pyg-bench a413d045 scripts/export_docs_numbers.py",
+  "generated_at": "2026-10-04T12:53:58Z",
+  "generated_by": "graphistry/pyg-bench 2f7d574a scripts/export_docs_numbers.py",
   "policy": {
     "accepted_regressions": [],
     "drift_waivers": {

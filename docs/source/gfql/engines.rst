@@ -166,8 +166,9 @@ size. The query, the analytic and the scoring run in one pipeline over one set o
      - The same ``MATCH ... RETURN`` Cypher.
      - GFQL removes the database server, the GDS projection step, and the write-back. One
        call runs the filter, PageRank and scoring over frames that are already in memory,
-       on CPU or GPU, so a pipeline is one function instead of three systems. See the
-       :doc:`Cypher + PageRank pipeline example <benchmark_filter_pagerank>`.
+       on CPU or GPU, so a pipeline is one function instead of three systems. Measured
+       pipeline times against Neo4j + GDS on the 30M-edge GPlus graph:
+       :doc:`benchmark_filter_pagerank`.
    * - **Memgraph**
      - The same Cypher.
      - GFQL removes the server round trip and keeps results as dataframes. Indexed
@@ -343,7 +344,7 @@ See also
 --------
 
 - :doc:`performance` — measured results against graph databases
-- :doc:`benchmark_filter_pagerank` — a Cypher + PageRank pipeline example
+- :doc:`benchmark_filter_pagerank` — a Cypher + PageRank pipeline vs Neo4j + GDS
 - :ref:`gfql-adjacency-index` — queries that start from known nodes
 - :doc:`/api/gfql/index` — GFQL API reference
 - :doc:`remote` — run GFQL on a remote GPU
