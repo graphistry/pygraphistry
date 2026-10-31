@@ -290,7 +290,7 @@ See also
 --------
 
 - :doc:`engines`: choosing pandas, Polars, cuDF, or Polars-GPU
-- :doc:`benchmark_filter_pagerank`: GFQL CPU/GPU vs Neo4j + GDS
+- :doc:`benchmark_filter_pagerank`: Cypher + PageRank pipeline example
 - :doc:`performance`: the q1–q9 boards against Kuzu, Memgraph, and Neo4j
 - :doc:`cypher`: Cypher syntax through ``g.gfql("MATCH ...")``
 - :doc:`overview`: GFQL design and features

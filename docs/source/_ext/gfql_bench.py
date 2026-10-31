@@ -5,13 +5,13 @@ owns the runs. This repository renders them, and nothing else.
 
 Docs never restate a measured number, they reference one::
 
-    * - Twitter, GPU
-      - :bench:`pagerank.twitter.gfql_gpu`
+    * - Example published cell
+      - :bench:`graphbench.100k.q1.kuzu`
 
 and the page that references a cell must also render that cell's provenance and its
 disclosures::
 
-    .. bench-provenance:: filter-pagerank-20260728
+    .. bench-provenance:: graphbench-q1q9-20k-master-2d64913b5-20261003
     .. bench-disclosures::
 
 Every rule is in ``gfql_bench_data``, which is stdlib-only so the ordinary test lane
