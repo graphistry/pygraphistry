@@ -2217,8 +2217,7 @@ class _SyntheticRowGraph:
         # the same row pipeline, so every field must exist or typed access breaks.
         self._gfql_start_nodes = None
         self._gfql_rows_base_graph = None
-        self._gfql_rows_edge_aliases = None
-        self._gfql_rows_node_aliases = None
+        self._gfql_rows_edge_aliases = self._gfql_rows_node_aliases = None
         self._gfql_indexed_bindings_handoff = None
         self._gfql_index_policy = "use"
         self._gfql_index_registry = None
