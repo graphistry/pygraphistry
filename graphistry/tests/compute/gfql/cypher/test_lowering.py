@@ -397,9 +397,9 @@ def _mk_connected_multi_pattern_reentry_graph() -> _CypherTestGraph:
     )
 
 
-def _mk_collect_unwind_reentry_graph() -> _CypherTestGraph:
-    """Graph for WITH collect(...) UNWIND ... MATCH tests: s->b1->c1, s->b2->c2."""
-    return _mk_graph(
+def _mk_collect_unwind_reentry_data() -> Tuple[pd.DataFrame, pd.DataFrame]:
+    """Graph data for WITH collect(...) UNWIND ... MATCH tests: s->b1->c1, s->b2->c2."""
+    return (
         pd.DataFrame(
             {
                 "id": ["s", "b1", "b2", "c1", "c2"],
@@ -417,6 +417,10 @@ def _mk_collect_unwind_reentry_graph() -> _CypherTestGraph:
             }
         ),
     )
+
+
+def _mk_collect_unwind_reentry_graph() -> _CypherTestGraph:
+    return _mk_graph(*_mk_collect_unwind_reentry_data())
 
 
 def _mk_connected_multi_pattern_fanout_data() -> Tuple[pd.DataFrame, pd.DataFrame]:
@@ -6841,6 +6845,101 @@ def test_string_cypher_executes_graph_backed_unwind_after_with_into_post_with_ma
         nodes_df=graph._nodes,
         edges_df=graph._edges,
     )
+
+
+@pytest.mark.parametrize("engine", ["pandas", "polars"])
+def test_string_cypher_collect_unwind_reentry_keeps_carry_across_forms_and_names(engine: str) -> None:
+    """A carry can be returned and aggregated even when nodes own the same property name."""
+    nodes_df, edges_df = _mk_collect_unwind_reentry_data()
+    graph = _mk_polars_graph(nodes_df, edges_df) if engine == "polars" else _mk_graph(nodes_df, edges_df)
+    prefix = "MATCH (root:S)-[:X]->(b1:B) WITH root.id AS id, collect(b1) AS bees UNWIND bees AS b2 MATCH (b2)-[:Y]->(c:C) "
+
+    returned = graph.gfql(prefix + "RETURN id, c.id AS cid ORDER BY cid", engine=engine)
+    assert _to_pandas_df(returned._nodes).to_dict(orient="records") == [
+        {"id": "s", "cid": "c1"},
+        {"id": "s", "cid": "c2"},
+    ]
+
+    aggregated = graph.gfql(prefix + "RETURN id, count(c.id) AS cnt", engine=engine)
+    assert _to_pandas_df(aggregated._nodes).to_dict(orient="records") == [{"id": "s", "cnt": 2}]
+
+
+@pytest.mark.parametrize("engine", ["pandas", "polars"])
+@pytest.mark.parametrize(
+    ("case", "nodes_df", "edges_df"),
+    [
+        pytest.param(
+            "absent-source-edge",
+            pd.DataFrame(
+                {
+                    "id": ["s", "b", "c"],
+                    "label__S": [True, False, False],
+                    "label__B": [False, True, False],
+                    "label__C": [False, False, True],
+                }
+            ),
+            pd.DataFrame({"s": ["b"], "d": ["c"], "type": ["Y"]}),
+            id="absent-source-edge",
+        ),
+        pytest.param(
+            "isolated-root",
+            pd.DataFrame(
+                {
+                    "id": ["s", "b", "c"],
+                    "label__S": [True, False, False],
+                    "label__B": [False, True, False],
+                    "label__C": [False, False, True],
+                }
+            ),
+            pd.DataFrame({"s": ["b"], "d": ["c"], "type": ["Y"]}),
+            id="isolated-root",
+        ),
+        pytest.param(
+            "target-only-path",
+            pd.DataFrame(
+                {
+                    "id": ["s", "b", "c"],
+                    "label__S": [True, False, False],
+                    "label__B": [False, True, False],
+                    "label__C": [False, False, True],
+                }
+            ),
+            pd.DataFrame({"s": ["s"], "d": ["b"], "type": ["X"]}),
+            id="target-only-path",
+        ),
+        pytest.param(
+            "missing-target",
+            pd.DataFrame(
+                {
+                    "id": ["s", "b", "d"],
+                    "label__S": [True, False, False],
+                    "label__B": [False, True, False],
+                    "label__D": [False, False, True],
+                }
+            ),
+            pd.DataFrame({"s": ["s", "b"], "d": ["b", "d"], "type": ["X", "Y"]}),
+            id="missing-target",
+        ),
+    ],
+)
+def test_string_cypher_collect_unwind_reentry_negative_paths_return_empty(
+    engine: str,
+    case: str,
+    nodes_df: pd.DataFrame,
+    edges_df: pd.DataFrame,
+) -> None:
+    del case
+    graph = _mk_polars_graph(nodes_df, edges_df) if engine == "polars" else _mk_graph(nodes_df, edges_df)
+    query = (
+        "MATCH (root:S)-[:X]->(b:B) "
+        "WITH root.id AS id, collect(b) AS bees "
+        "UNWIND bees AS b2 "
+        "MATCH (b2)-[:Y]->(c:C) "
+        "RETURN id, c.id AS cid"
+    )
+
+    result = graph.gfql(query, engine=engine)
+    assert _to_pandas_df(result._nodes).to_dict(orient="records") == []
 
 
 def test_string_cypher_executes_graph_backed_distinct_unwind_after_with_into_post_with_match() -> None:

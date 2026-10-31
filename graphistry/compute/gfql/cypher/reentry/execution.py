@@ -60,6 +60,13 @@ from graphistry.Engine import is_polars_df as _is_polars_df
 from graphistry.Engine import is_polars_series as _is_polars_series
 
 
+def _empty_frame(frame: DataFrameT) -> DataFrameT:
+    """Return an engine-native empty frame without pandas-only indexing."""
+    if _is_polars_df(frame):
+        return cast(DataFrameT, frame.slice(0, 0))
+    return cast(DataFrameT, frame.iloc[0:0])
+
+
 def _serving_engine_base_graph(base_graph: Plottable, engine: Union[EngineAbstract, str]) -> Plottable:
     """Align the base graph to the SERVING engine before re-entry joins/guards run.
 
@@ -88,7 +95,7 @@ def _bind_reentry_graph(graph: Plottable, node_rows: Optional[DataFrameT], *, em
     if empty_edges:
         edges_df = graph._edges
         if edges_df is not None:
-            out._edges = cast(DataFrameT, edges_df.head(0) if _is_polars_df(edges_df) else edges_df.iloc[0:0])
+            out._edges = _empty_frame(edges_df)
     return out
 
 
@@ -510,7 +517,7 @@ def compiled_query_reentry_state(
                     value=id_column,
                     suggestion=REENTRY_WHOLE_ROW_SUGGESTION,
                 )
-            carried_node_ids = base_nodes[[id_column]].iloc[0:0].reset_index(drop=True)
+            carried_node_ids = _empty_frame(base_nodes[[id_column]]).reset_index(drop=True)
             return base_graph, ordered_reentry_start_nodes(
                 node_rows=base_nodes,
                 carried_node_ids=carried_node_ids,
@@ -613,10 +620,8 @@ def union_scalar_reentry_results(
         base_nodes = base_graph._nodes
         if base_nodes is None:
             node_rows = None
-        elif _is_polars_df(base_nodes):
-            node_rows = cast(DataFrameT, base_nodes.slice(0, 0))
         else:
-            node_rows = cast(DataFrameT, base_nodes.iloc[0:0])
+            node_rows = _empty_frame(base_nodes)
     return _bind_reentry_graph(base_graph, node_rows)
 
 
@@ -641,7 +646,7 @@ def compiled_query_scalar_reentry_state(
             return base_graph, None
         return _bind_reentry_graph(
             base_graph,
-            cast(DataFrameT, base_nodes.head(0) if _is_polars_df(base_nodes) else base_nodes.iloc[0:0]),
+            _empty_frame(base_nodes),
             empty_edges=True,
         ), None
     if base_nodes is None:
@@ -731,7 +736,7 @@ def compiled_query_freeform_reentry_state(
         # so the suffix produces no rows.
         return _bind_reentry_graph(
             base_graph,
-            cast(DataFrameT, base_nodes.iloc[0:0]),
+            _empty_frame(base_nodes),
             empty_edges=True,
         ), None
     dispatch_graph = freeform_broadcast_row_to_nodes(

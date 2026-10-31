@@ -14,6 +14,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- **GFQL Cypher carried scalars through collected reentry**: a scalar carried alongside `collect(...)` survives the shared `WITH collect ... UNWIND ... MATCH` reentry path for plain and aggregate projections, without being mistaken for a node property. The Polars empty-prefix path uses native empty-frame handling instead of `AttributeError` (#2267).
 - **GFQL Cypher missing relationship properties**: `RETURN r.r` now resolves to null when `r` is the relationship alias and the edge table has no `r` property, matching `WHERE r.r IS NULL`. The internal alias marker no longer leaks as the property value on pandas or Polars (#2262).
 - **GFQL Cypher scalar carries after `WITH`**: a scalar carried through `WITH` remains available when a later `MATCH` reconnects the earlier alias, including whole-node-plus-scalar, connected-scalar, and multi-edge path prefixes. Grouping now keeps each carried scalar's multiplicity on pandas and Polars instead of returning null groups or dropping a connected result group (#2252).
 - **GFQL Cypher scalar carries after `WITH`**: a scalar carried through `WITH` remains available when a later `MATCH` reconnects the earlier alias, including whole-node-plus-scalar, connected-scalar, and multi-edge path prefixes. Grouping now keeps each carried scalar's multiplicity on pandas and Polars instead of returning null groups or dropping a connected result group (#2252).
