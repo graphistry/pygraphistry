@@ -4810,15 +4810,15 @@ class RowPipelineMixin:
         edge_aliases = {
             alias
             for op in ops
-            for alias in [getattr(op, "_name", None)]
-            if isinstance(op, ASTEdge) and isinstance(alias, str)
+            if isinstance(op, ASTEdge)
+            for alias in [op._name]
+            if isinstance(alias, str)
         }
         out._gfql_rows_edge_aliases = edge_aliases
         out._gfql_rows_node_aliases = {
-            alias
+            op._name
             for op in ops
-            for alias in [getattr(op, "_name", None)]
-            if isinstance(op, ASTNode) and isinstance(alias, str)
+            if isinstance(op, ASTNode) and isinstance(op._name, str)
         }
         return out
 
