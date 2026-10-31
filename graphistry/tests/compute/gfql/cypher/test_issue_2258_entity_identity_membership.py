@@ -392,6 +392,15 @@ def test_issue_2258_collected_entity_same_name_property_keeps_presence_and_ident
         else f"(:City {{name: 'same', n: '{same_name_value}'}})"
     )
     assert direct_rows == [{"xs": [expected_direct_entity, expected_direct_entity]}]
+    noncolliding_alias_rows = (
+        direct_graph.gfql("MATCH (m:City) RETURN collect(m) AS xs", engine=engine)._nodes
+    )
+    noncolliding_rows = (
+        noncolliding_alias_rows.to_dicts()
+        if engine == "polars"
+        else noncolliding_alias_rows.to_dict(orient="records")
+    )
+    assert noncolliding_rows == [{"xs": [expected_direct_entity, expected_direct_entity]}]
 
     # Ordinary alias/property access remains mapped to its actual prefixed property column.
     property_query = (
