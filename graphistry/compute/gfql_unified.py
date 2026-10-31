@@ -39,6 +39,7 @@ from graphistry.compute.engine_coercion import ensure_engine_match
 from graphistry.compute.gfql.cypher.ast import CypherParams
 from graphistry.compute.gfql.cypher.parser import parse_cypher
 from graphistry.compute.gfql.exec_context import attach_row_exec_context, clear_row_exec_context
+from graphistry.compute.gfql.cypher.aggregate_identity import ungrouped_aggregate_identity_row
 from graphistry.compute.gfql.cypher.lowering import (
     ConnectedMatchJoinPlan,
     CompiledCypherGraphQuery,
@@ -145,7 +146,11 @@ def _empty_reentry_output_frame(
     engine: Union[EngineAbstract, str],
     base_graph: Plottable,
 ) -> Optional[DataFrameT]:
-    """Build a zero-row frame carrying the final RETURN schema for an empty reentry prefix."""
+    """Build the final RETURN frame for an empty reentry prefix.
+
+    Empty ungrouped aggregates preserve openCypher's one identity row; other empty
+    streams retain a zero-row schema.
+    """
     scope_stack = (
         () if compiled_query.execution_extras is None else compiled_query.execution_extras.scope_stack
     )
@@ -156,15 +161,22 @@ def _empty_reentry_output_frame(
         return None
     abstract_engine = EngineAbstract(engine) if isinstance(engine, str) else engine
     concrete_engine = resolve_engine(abstract_engine, base_graph)
-    if concrete_engine == Engine.POLARS:
-        import polars as pl
-
-        empty_frame: DataFrameT = pl.DataFrame([
-            pl.Series(column, [], dtype=pl.Null)
-            for column in output_columns
-        ])  # type: ignore[assignment]
-        return empty_frame
-    return pd.DataFrame({column: pd.Series(dtype="object") for column in output_columns})
+    connected_match_join = (
+        compiled_query.execution_extras.connected_match_join
+        if compiled_query.execution_extras is not None
+        else None
+    )
+    row_steps = (
+        connected_match_join.post_join_chain.chain
+        if connected_match_join is not None
+        else compiled_query.chain.chain
+    )
+    identity_row = ungrouped_aggregate_identity_row(row_steps)
+    if identity_row is not None and set(identity_row) == set(output_columns):
+        data: Dict[str, List[Any]] = {column: [identity_row[column]] for column in output_columns}
+    else:
+        data = {column: [] for column in output_columns}
+    return df_cons(concrete_engine)(data)
 
 
 def _apply_empty_result_row(

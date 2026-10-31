@@ -7062,6 +7062,75 @@ def test_string_cypher_two_stage_collect_reentry_empty_prefix_returns_native_emp
     assert output.to_dict(orient="records") == expected_rows
 
 
+@pytest.mark.parametrize("engine", ["pandas", "polars"])
+@pytest.mark.parametrize(
+    ("aggregate", "expected_row"),
+    [
+        pytest.param("count(post) AS postCount", {"postCount": 0}, id="count"),
+        pytest.param("sum(post.id) AS postSum", {"postSum": 0}, id="sum"),
+        pytest.param("collect(post.id) AS postIds", {"postIds": []}, id="collect"),
+    ],
+)
+@pytest.mark.parametrize(
+    ("case", "params"),
+    [
+        pytest.param(
+            "missing_tag",
+            {"tagName": "Nope", "personId": 10},
+            id="missing_tag",
+        ),
+        pytest.param(
+            "absent_person",
+            {"tagName": "Alpha", "personId": 999},
+            id="absent_person",
+        ),
+        pytest.param(
+            "isolated_person",
+            {"tagName": "Alpha", "personId": 13},
+            id="isolated_person",
+        ),
+    ],
+)
+def test_string_cypher_two_stage_collect_reentry_empty_global_aggregate_identity(
+    engine: str,
+    aggregate: str,
+    expected_row: dict[str, object],
+    case: str,
+    params: dict[str, object],
+) -> None:
+    del case
+    graph = _mk_ic6_two_stage_graph()
+    if engine == "polars":
+        pl = pytest.importorskip("polars")
+        graph = cast(
+            _CypherTestGraph,
+            _CypherTestGraph()
+            .nodes(pl.from_pandas(cast(pd.DataFrame, graph._nodes)), "id")
+            .edges(pl.from_pandas(cast(pd.DataFrame, graph._edges)), "s", "d"),
+        )
+
+    query = (
+        "MATCH (knownTag:Tag { name: $tagName }) "
+        "WITH knownTag.id AS knownTagId "
+        "MATCH (person:Person { id: $personId })-[:KNOWS]-(friend) "
+        "WITH knownTagId, collect(distinct friend) AS friends "
+        "UNWIND friends AS f "
+        "MATCH (f)<-[:HAS_CREATOR]-(post:Post), "
+        "(post)-[:HAS_TAG]->(tag:Tag { id: knownTagId }) "
+        f"RETURN {aggregate}"
+    )
+    result = graph.gfql(query, params=params, engine=engine)
+    output = _to_pandas_df(result._nodes)
+    [output_alias] = output.columns
+    [expected_alias] = expected_row
+    assert list(output.columns) == list(expected_row)
+    assert len(output) == 1
+    if output_alias == "postIds":
+        assert list(output.iloc[0][output_alias]) == []
+    else:
+        assert output.iloc[0][output_alias] == expected_row[expected_alias]
+
+
 def _mk_ic6_p0959_graph() -> _CypherTestGraph:
     nodes_df = pd.DataFrame(
         {
