@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING, Any, Dict, Iterable, List, Optional, Sequence,
 
 import pandas as pd
 
-from graphistry.compute.dataframe_utils import df_cons as template_df_cons
+from graphistry.compute.dataframe_utils import df_cons as template_df_cons, is_cudf_obj
 from graphistry.compute.gfql.row.prefilter import AliasPrefilters
 from graphistry.utils.json import JSONVal
 
@@ -86,9 +86,7 @@ def _restore_alias_shadowed_user_column(
     if base_frame is None or source not in base_frame.columns:
         return table_df
     alias_markers = (
-        getattr(ctx, "_gfql_rows_node_aliases", None)
-        if table == "nodes"
-        else getattr(ctx, "_gfql_rows_edge_aliases", None)
+        ctx._gfql_rows_node_aliases if table == "nodes" else ctx._gfql_rows_edge_aliases
     ) or ()
     if _is_polars(table_df):
         import polars as pl
@@ -98,7 +96,7 @@ def _restore_alias_shadowed_user_column(
     else:
         base_is_marker = str(getattr(base_frame[source], "dtype", "")).startswith("bool")
         if base_is_marker and (
-            type(table_df).__module__.startswith("cudf") or source in alias_markers
+            is_cudf_obj(table_df) or source in alias_markers
         ):
             return table_df
     key = base_graph._node if table == "nodes" else base_graph._edge  # type: ignore[union-attr]
@@ -202,7 +200,7 @@ def row_table(ctx: RowPipelineCtx, table_df: Any) -> "Plottable":
         out._gfql_start_nodes = ctx._gfql_start_nodes
     if ctx._gfql_rows_edge_aliases is not None:
         out._gfql_rows_edge_aliases = ctx._gfql_rows_edge_aliases
-    if getattr(ctx, "_gfql_rows_node_aliases", None) is not None:
+    if ctx._gfql_rows_node_aliases is not None:
         out._gfql_rows_node_aliases = ctx._gfql_rows_node_aliases
     return cast("Plottable", out)
 
@@ -319,10 +317,14 @@ def rows(
 
     out = row_table(ctx, table_df)
     if source is not None:
-        attr = "_gfql_rows_node_aliases" if table == "nodes" else "_gfql_rows_edge_aliases"
-        aliases = set(getattr(out, attr, None) or ())
-        aliases.add(source)
-        setattr(out, attr, aliases)
+        if table == "nodes":
+            aliases = set(out._gfql_rows_node_aliases or ())
+            aliases.add(source)
+            out._gfql_rows_node_aliases = aliases
+        else:
+            aliases = set(out._gfql_rows_edge_aliases or ())
+            aliases.add(source)
+            out._gfql_rows_edge_aliases = aliases
     return out
 
 
