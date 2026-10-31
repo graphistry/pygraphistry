@@ -154,15 +154,16 @@ def _empty_reentry_output_frame(
     output_columns = tuple(scope_stack[-1].schema.columns)
     if not output_columns:
         return None
-    concrete_engine = resolve_engine(cast(Any, engine), base_graph)
+    concrete_engine = resolve_engine(engine, base_graph)
     if concrete_engine == Engine.POLARS:
         import polars as pl
 
-        return cast(DataFrameT, pl.DataFrame([
+        empty_frame: DataFrameT = pl.DataFrame([
             pl.Series(column, [], dtype=pl.Null)
             for column in output_columns
-        ]))
-    return cast(DataFrameT, pd.DataFrame({column: pd.Series(dtype="object") for column in output_columns}))
+        ])  # type: ignore[assignment]
+        return empty_frame
+    return pd.DataFrame({column: pd.Series(dtype="object") for column in output_columns})
 
 
 def _apply_empty_result_row(
