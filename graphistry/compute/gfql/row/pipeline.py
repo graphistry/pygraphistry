@@ -1343,16 +1343,9 @@ class RowPipelineMixin:
                         alias_name in table_df.columns
                         and RowPipelineMixin._gfql_series_bool_like(table_df[alias_name])
                     ):
-                        # A rows(source=alias) frame keeps the Boolean alias marker
-                        # in its original column. If the same-named source property
-                        # was not restored above, that marker is not the property.
                         self._gfql_report_absent_property(f"{alias_name}.{node.property}")
                         return True, self._gfql_broadcast_scalar(table_df, pd.NA)
                     if RowPipelineMixin._gfql_has_bindings_alias_prefix(table_df, alias_name):
-                        # Without the preserved same-named user field above, a
-                        # qualified alias.alias slot can only be the Boolean alias
-                        # marker. It is not a property value; the missing property
-                        # resolves to null while the bare alias remains available.
                         self._gfql_report_absent_property(f"{alias_name}.{node.property}")
                         return True, self._gfql_broadcast_scalar(table_df, pd.NA)
                 # Quoted aliases are raw user identifiers; punctuation in their spelling
