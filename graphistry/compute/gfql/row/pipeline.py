@@ -1335,6 +1335,9 @@ class RowPipelineMixin:
         if isinstance(node, PropertyAccessExpr):
             if isinstance(node.value, Identifier):
                 alias_name = node.value.name
+                from graphistry.compute.gfql.cypher.reentry.naming import _is_hidden_reentry_property
+                if node.property in table_df.columns and _is_hidden_reentry_property(node.property):
+                    return True, table_df[node.property]
                 if alias_name == node.property:
                     restore_col = shadow_restore_column(alias_name)
                     if restore_col in table_df.columns:
@@ -2510,6 +2513,7 @@ class RowPipelineMixin:
                 return list(values.to_arrow().to_pylist())
             except Exception:
                 pass
+
         if hasattr(values, "to_pandas"):
             try:
                 return list(values.to_pandas().tolist())

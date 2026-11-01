@@ -1200,4 +1200,40 @@ def _chain_traversal_polars(self: Plottable, ops, start_nodes: Optional[Any] = N
     # error, and silencing it would cost the lazy/eager distinction the shim exists to keep.
     final_edges_eager, final_nodes_eager = collect_all([final_edges, final_nodes])
     final_edges_eager = _restore_edge_dtypes(final_edges_eager, src, dst, _endpoint_restore)
+    seed_carry_cols = [
+        col for col in (start_nodes.columns if start_nodes is not None else [])
+        if isinstance(col, str) and col.startswith("__cypher_reentry_")
+    ]
+    if seed_carry_cols:
+        carry_map = start_nodes.select([node_col, *seed_carry_cols])
+        for edge_op, edge_step in edge_steps:
+            if (
+                not isinstance(edge_op, ASTEdge)
+                or edge_step._edges is None
+                or edge_step._source is None
+                or edge_step._destination is None
+            ):
+                continue
+            edge_src, edge_dst = edge_step._source, edge_step._destination
+            edge_parts = []
+            if edge_op.direction != "reverse":
+                edge_parts.append((edge_src, edge_dst))
+            if edge_op.direction != "forward":
+                edge_parts.append((edge_dst, edge_src))
+            next_carry_frames = []
+            for from_col, to_col in edge_parts:
+                next_carry_frames.append(
+                    carry_map.join(
+                        edge_step._edges.select([from_col, to_col]),
+                        left_on=node_col, right_on=from_col, how="inner")
+                    .drop(node_col)
+                    .rename({to_col: node_col})
+                )
+            carry_map = (
+                pl.concat(next_carry_frames, how="vertical")
+                if len(next_carry_frames) > 1 else next_carry_frames[0]
+            )
+        final_nodes_eager = final_nodes_eager.drop(seed_carry_cols).join(
+            carry_map, on=node_col, how="left"
+        )
     return self.nodes(final_nodes_eager, node_col).edges(final_edges_eager, src, dst)

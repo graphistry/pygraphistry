@@ -121,7 +121,11 @@ def _slice_reentry_prefix_result_row(
     if rows_df is None:
         return prefix_result
     out = prefix_result.bind()
-    out._nodes = cast(DataFrameT, rows_df.iloc[row_index:row_index + 1].reset_index(drop=True))
+    if _is_polars_frame(rows_df):
+        row_nodes = cast(DataFrameT, rows_df.slice(row_index, 1))
+    else:
+        row_nodes = cast(DataFrameT, rows_df.iloc[row_index:row_index + 1].reset_index(drop=True))
+    out._nodes = row_nodes
     out._cypher_entity_projection_presence = entity_projection_presence_for_rows(prefix_result, [row_index])
     entry = prefix_result._cypher_entity_projection_meta.get(output_name)
     if entry is not None:
