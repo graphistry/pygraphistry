@@ -10,6 +10,15 @@ import graphistry
 from graphistry.Plottable import Plottable
 
 
+def _require_gpu_polars() -> None:
+    pytest.importorskip("polars")
+    pytest.importorskip("cudf")
+    pytest.importorskip("cudf_polars")
+    from graphistry.compute.gfql.lazy import polars_gpu_available
+
+    assert polars_gpu_available(), "cudf-polars GPU probe failed"
+
+
 @pytest.mark.parametrize(
     "engine",
     [
@@ -31,7 +40,9 @@ from graphistry.Plottable import Plottable
 )
 def test_scalar_reentry_defers_aggregation_until_after_union(engine: str) -> None:
     if engine != "pandas":
-        pytest.importorskip(engine, reason=f"{engine} unavailable")
+        pytest.importorskip("polars" if engine == "polars-gpu" else engine, reason=f"{engine} unavailable")
+    if engine == "polars-gpu":
+        _require_gpu_polars()
     if engine == "cudf":
         cudf = pytest.importorskip("cudf")
     nodes = pd.DataFrame(
@@ -92,7 +103,9 @@ def test_scalar_reentry_defers_aggregation_until_after_union(engine: str) -> Non
 )
 def test_scalar_reentry_preserves_unequal_seed_multiplicity(engine: str) -> None:
     if engine != "pandas":
-        pytest.importorskip(engine, reason=f"{engine} unavailable")
+        pytest.importorskip("polars" if engine == "polars-gpu" else engine, reason=f"{engine} unavailable")
+    if engine == "polars-gpu":
+        _require_gpu_polars()
     if engine == "cudf":
         cudf = pytest.importorskip("cudf")
     nodes = pd.DataFrame(
