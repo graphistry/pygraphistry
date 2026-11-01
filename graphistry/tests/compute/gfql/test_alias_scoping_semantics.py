@@ -22,7 +22,7 @@ Discriminating controls from the probe are pinned alongside each fix so a future
 regression cannot pass by repairing only one side.
 """
 import os
-from typing import List, Literal
+from typing import Any, List, Literal
 
 import pandas as pd
 import pytest
@@ -378,19 +378,20 @@ def test_single_alias_and_cartesian_shadowed_alias_reads_the_user_value(
     cartesian paths unshadow like the connected one. Anti-vacuity: 3 node rows / 9
     cartesian rows / 2 relationship rows, distinct values -- an all-``True`` marker
     leak or an empty frame cannot pass."""
-    gpu_declined_shapes = {"single-node", "cartesian", "bare-edge"}
-    if engine == "polars-gpu":
-        assert shape in gpu_declined_shapes
-        with pytest.raises(NotImplementedError):
-            _run(SHADOW_NODES, SHADOW_EDGES, query, engine)
-        return
-    if shape == "single-node":
-        assert sorted(r["k"] for r in _run(SHADOW_NODES, SHADOW_EDGES, query, engine)) == ["K1", "K2", "K3"]
-    elif shape == "cartesian":
+    def matches(rows: list[dict[str, Any]]) -> bool:
+        if shape == "single-node":
+            return sorted(r["k"] for r in rows) == ["K1", "K2", "K3"]
+        if shape == "cartesian":
+            return len(rows) == 9 and sorted({r["k"] for r in rows}) == ["K1", "K2", "K3"]
+        return sorted(r["k"] for r in rows) == [7, 8]
+
+    try:
         rows = _run(SHADOW_NODES, SHADOW_EDGES, query, engine)
-        assert len(rows) == 9 and sorted({r["k"] for r in rows}) == ["K1", "K2", "K3"]
-    else:
-        assert sorted(r["k"] for r in _run(SHADOW_NODES, SHADOW_EDGES, query, engine)) == [7, 8]
+    except NotImplementedError:
+        assert engine == "polars-gpu"
+        assert shape in {"single-node"}
+        return
+    assert matches(rows)
 
 
 def test_multihop_relationship_alias_reads_only_path_valid_edge() -> None:
