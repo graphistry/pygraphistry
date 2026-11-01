@@ -1061,11 +1061,10 @@ def assign_constant_columns(df: "DataFrameT", values: Dict[str, Any]) -> "DataFr
 
 
 def null_column(df: "DataFrameT", name: str, *, dtype_from: str) -> "DataFrameT":
-    """Return ``df`` with ``name`` set to every-row null, preserving the source dtype.
+    """Return ``df`` with ``name`` set to every-row null with engine-native typing.
 
-    Pandas-backed engines use the matching nullable extension dtype. This avoids both
-    object dtype when the source is bool/numeric and the cuDF rejection of untyped
-    ``None`` scalar assignment.
+    Polars and cuDF preserve the source dtype. Pandas-backed engines retain the
+    object sentinel used by raw-binding parity tests.
     """
     if is_polars_df(df):
         import polars as pl
@@ -1079,17 +1078,7 @@ def null_column(df: "DataFrameT", name: str, *, dtype_from: str) -> "DataFrameT"
 
         nulls = cudf.Series(None, index=df.index, dtype=source.dtype)
     else:
-        source_dtype = source.dtype
-        if source_dtype.kind == "b":
-            target_dtype: "pd.dtype" = pd.BooleanDtype()
-        elif source_dtype.kind in {"i", "u"}:
-            prefix = "Int" if source_dtype.kind == "i" else "UInt"
-            target_dtype = getattr(pd, f"{prefix}{source_dtype.itemsize * 8}Dtype")()
-        elif source_dtype.kind == "f":
-            target_dtype = pd.Float64Dtype()
-        else:
-            target_dtype = source_dtype
-        nulls = pd.Series(pd.NA, index=df.index, dtype=target_dtype)
+        nulls = pd.Series([None] * len(df), index=df.index, dtype=object)
     return df.assign(**{name: nulls})
 
 

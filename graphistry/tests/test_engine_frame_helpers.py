@@ -87,11 +87,12 @@ def test_assign_constant_columns_pandas_and_empty() -> None:
     assert same is df
 
 
-def test_null_column_pandas_preserves_nullable_dtype() -> None:
+def test_null_column_pandas_preserves_object_none_sentinel() -> None:
     df = pd.DataFrame({"bools": [True, False], "ints": [1, 2], "text": ["a", "b"]})
     out = null_column(df, "missing", dtype_from="bools")
-    assert out["missing"].dtype == pd.BooleanDtype()
+    assert out["missing"].dtype == object
     assert out["missing"].isna().all()
+    assert all(value is None for value in out["missing"])
     assert out.drop(columns="missing").equals(df)
 
 
