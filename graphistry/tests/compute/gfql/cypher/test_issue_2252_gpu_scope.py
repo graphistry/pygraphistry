@@ -102,6 +102,13 @@ def test_connected_prefix_and_filtered_suffix_stay_path_scoped(engine: str) -> N
         "weight": [None, None, 10, 20],
     })
     graph = _graph(engine, nodes, edges)
+    unfiltered = graph.gfql(
+        "MATCH (a:A)-[:R]->(b:B) WITH b, b.score AS property "
+        "MATCH (b)-[:S]->(c:C) "
+        "RETURN property, count(DISTINCT c.id) AS messageCount ORDER BY property",
+        engine=engine,
+        language="cypher",
+    )
     positive = graph.gfql(
         "MATCH (a:A)-[:R]->(b:B) WITH b, b.score AS property "
         "MATCH (b)-[:S {weight: 10}]->(c:C) "
@@ -109,6 +116,11 @@ def test_connected_prefix_and_filtered_suffix_stay_path_scoped(engine: str) -> N
         engine=engine,
         language="cypher",
     )
+    assert _records(unfiltered._nodes) == [
+        {"property": 10.0, "messageCount": 1},
+        {"property": 20.0, "messageCount": 1},
+    ]
+    _assert_served(engine, unfiltered._nodes)
     empty = graph.gfql(
         "MATCH (a:A)-[:R]->(b:B) WITH b, b.score AS property "
         "MATCH (b)-[:S {weight: 99}]->(c:C) "
@@ -222,13 +234,19 @@ def test_typed_carried_scalar_survives_match(engine: str) -> None:
     _assert_served(engine, result._nodes)
 
 
-@pytest.mark.skipif(
-    os.environ.get("TEST_CUDF") != "1", reason="cudf tests need TEST_CUDF=1"
-)
-def test_whole_relationship_return_keeps_property_columns_on_cudf() -> None:
+@pytest.mark.parametrize("engine", ENGINES)
+def test_whole_relationship_return_matches_engine_support(engine: str) -> None:
     nodes = pd.DataFrame({"id": ["a", "b"]})
     edges = pd.DataFrame({"s": ["a"], "d": ["b"], "type": ["X"], "r": [None]})
-    graph = _graph("cudf", nodes, edges)
-    result = graph.gfql("MATCH (a)-[r:X]->(b) RETURN r AS edge", engine="cudf")
-    assert _records(result._nodes) == [{"edge.type": "X"}]
-    _assert_served("cudf", result._nodes)
+    graph = _graph(engine, nodes, edges)
+
+    if engine == "cudf":
+        result = graph.gfql("MATCH (a)-[r:X]->(b) RETURN r AS edge", engine="cudf")
+        assert _records(result._nodes) == [{"edge.type": "X"}]
+        _assert_served("cudf", result._nodes)
+    else:
+        with pytest.raises(NotImplementedError):
+            graph.gfql(
+                "MATCH (a)-[r:X]->(b) RETURN r AS edge",
+                engine=engine,
+            )

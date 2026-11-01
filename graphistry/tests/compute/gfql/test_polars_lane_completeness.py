@@ -73,6 +73,11 @@ NOT_POLARS_GATED: Dict[str, str] = {
         "cudf/GPU-gated (module-level importorskip('cudf') + skipif no GPU), not polars-gated; "
         "belongs to the separate GPU-lane gap, and the polars CPU lane could not run it"
     ),
+    "graphistry/tests/compute/gfql/cypher/test_issue_2252_gpu_scope.py": (
+        "cuDF/Polars-GPU only: params are explicitly gated on TEST_CUDF or TEST_POLARS_GPU; "
+        "the CPU Polars lane cannot serve either GPU route, so it belongs to the separately "
+        "gated GPU lane rather than this CPU lane"
+    ),
 }
 
 _POLARS_IMPORTORSKIP = re.compile(r"""importorskip\(\s*["']polars["']""")
