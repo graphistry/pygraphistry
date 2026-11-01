@@ -367,6 +367,10 @@ def test_single_alias_and_cartesian_shadowed_alias_reads_the_user_value(engine: 
     cartesian paths unshadow like the connected one. Anti-vacuity: 3 node rows / 9
     cartesian rows / 2 relationship rows, distinct values -- an all-``True`` marker
     leak or an empty frame cannot pass."""
+    if engine == "polars-gpu":
+        with pytest.raises(NotImplementedError, match="plan not GPU-executable"):
+            _run(SHADOW_NODES, SHADOW_EDGES, "MATCH (kind:P) RETURN kind.kind AS k", engine)
+        return
     rows = _run(SHADOW_NODES, SHADOW_EDGES, "MATCH (kind:P) RETURN kind.kind AS k", engine)
     assert sorted(r["k"] for r in rows) == ["K1", "K2", "K3"]
     rows = _run(SHADOW_NODES, SHADOW_EDGES,
@@ -609,14 +613,19 @@ def test_edge_onto_node_entity_rebind_declines_at_compile_time() -> None:
 
 
 @pytest.mark.parametrize("engine", ENGINES)
-def test_scalar_rebind_stays_an_error(engine: Literal["pandas", "polars"]) -> None:
+def test_scalar_rebind_stays_an_error(
+    engine: Literal["pandas", "polars", "polars-gpu", "cudf"],
+) -> None:
     query = "MATCH (a:Person)-[r:KNOWS]->(b:Person) WITH a.name AS b RETURN b.name AS t"
-    if engine == "pandas":
+    if engine in {"pandas", "cudf"}:
         with pytest.raises(GFQLTypeError) as exc_info:
             _run(PEOPLE_NODES, PEOPLE_EDGES, query, engine)
         assert exc_info.value.code == ErrorCode.E306
         assert exc_info.value.context["field"] == "function"
         assert exc_info.value.context["value"] == "select"
+    elif engine == "polars-gpu":
+        with pytest.raises(NotImplementedError, match="plan not GPU-executable"):
+            _run(PEOPLE_NODES, PEOPLE_EDGES, query, engine)
     else:
         with pytest.raises(NotImplementedError):
             _run(PEOPLE_NODES, PEOPLE_EDGES, query, engine)
