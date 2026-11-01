@@ -7006,7 +7006,20 @@ def _mk_ic6_two_stage_graph() -> _CypherTestGraph:
     return _mk_graph(*_mk_ic6_two_stage_data())
 
 
-@pytest.mark.parametrize("engine", ["pandas", "polars", "cudf"])
+@pytest.mark.parametrize(
+    "engine",
+    [
+        "pandas",
+        "polars",
+        pytest.param(
+            "polars-gpu",
+            marks=pytest.mark.skipif(
+                os.environ.get("TEST_POLARS_GPU") != "1", reason="requires actual polars-gpu"
+            ),
+        ),
+        "cudf",
+    ],
+)
 @pytest.mark.parametrize(
     ("case", "params", "expected_rows"),
     [

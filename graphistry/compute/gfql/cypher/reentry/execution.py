@@ -63,9 +63,7 @@ from graphistry.Engine import is_polars_series as _is_polars_series
 
 def _empty_frame(frame: DataFrameT) -> DataFrameT:
     """Return an engine-native empty frame without pandas-only indexing."""
-    if _is_polars_df(frame):
-        return cast(DataFrameT, frame.slice(0, 0))
-    return cast(DataFrameT, frame.iloc[0:0])
+    return cast(DataFrameT, frame.head(0))
 
 
 def _serving_engine_base_graph(base_graph: Plottable, engine: Union[EngineAbstract, str]) -> Plottable:

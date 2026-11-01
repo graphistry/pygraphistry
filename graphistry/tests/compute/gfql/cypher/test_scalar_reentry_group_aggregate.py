@@ -16,6 +16,12 @@ from graphistry.Plottable import Plottable
         "pandas",
         "polars",
         pytest.param(
+            "polars-gpu",
+            marks=pytest.mark.skipif(
+                os.environ.get("TEST_POLARS_GPU") != "1", reason="requires actual polars-gpu"
+            ),
+        ),
+        pytest.param(
             "cudf",
             marks=pytest.mark.skipif(
                 os.environ.get("TEST_CUDF") != "1", reason="cudf tests need TEST_CUDF=1"
@@ -71,6 +77,12 @@ def test_scalar_reentry_defers_aggregation_until_after_union(engine: str) -> Non
         "pandas",
         "polars",
         pytest.param(
+            "polars-gpu",
+            marks=pytest.mark.skipif(
+                os.environ.get("TEST_POLARS_GPU") != "1", reason="requires actual polars-gpu"
+            ),
+        ),
+        pytest.param(
             "cudf",
             marks=pytest.mark.skipif(
                 os.environ.get("TEST_CUDF") != "1", reason="cudf tests need TEST_CUDF=1"
@@ -122,6 +134,12 @@ def test_scalar_reentry_preserves_unequal_seed_multiplicity(engine: str) -> None
     [
         "pandas",
         "polars",
+        pytest.param(
+            "polars-gpu",
+            marks=pytest.mark.skipif(
+                os.environ.get("TEST_POLARS_GPU") != "1", reason="requires actual polars-gpu"
+            ),
+        ),
         pytest.param(
             "cudf",
             marks=pytest.mark.skipif(
