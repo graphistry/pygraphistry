@@ -35,6 +35,7 @@ from graphistry.compute.gfql.cypher.reentry.carried_outputs import (
 )
 from graphistry.compute.gfql.cypher.reentry.naming import (
     REENTRY_HIDDEN_COLUMN_PREFIX,
+    REENTRY_ROW_TOKEN_OUTPUT,
     _reentry_hidden_column_name,
 )
 from graphistry.compute.gfql.cypher.reentry_plan import ReentryPlan
@@ -571,6 +572,19 @@ def compiled_query_reentry_state(
         prefix_rows=prefix_result._nodes,
         output_name=output_name,
     )
+    if plan.row_token_enabled and aligned_prefix_rows is not None:
+        if _is_polars_df(aligned_prefix_rows):
+            import polars as pl
+
+            aligned_prefix_rows = aligned_prefix_rows.with_columns(
+                pl.Series(REENTRY_ROW_TOKEN_OUTPUT, np.arange(len(aligned_prefix_rows), dtype=np.int64))
+            )  # type: ignore[attr-defined]  # Polars frame in the engine-generic row carrier.
+        else:
+            aligned_prefix_rows = aligned_prefix_rows.assign(
+                **{REENTRY_ROW_TOKEN_OUTPUT: np.arange(len(aligned_prefix_rows), dtype=np.int64)}
+            )
+        if REENTRY_ROW_TOKEN_OUTPUT not in carried_columns:
+            carried_columns = tuple((*carried_columns, REENTRY_ROW_TOKEN_OUTPUT))
     carried_node_ids = cast(DataFrameT, df_cons(concrete_engine)({id_column: carried_ids}))
     if not carried_columns:
         return base_graph, ordered_reentry_start_nodes(
@@ -584,19 +598,20 @@ def compiled_query_reentry_state(
             value=output_name,
             suggestion=REENTRY_SCALAR_SUGGESTION,
         )
-    if _is_polars_series(carried_ids):
-        duplicate_mask = carried_ids.is_duplicated()
-    else:
-        duplicate_mask = carried_ids.duplicated()
-    if bool(duplicate_mask.any()) if hasattr(duplicate_mask, "any") else False:
-        raise reentry_validation_error(
-            "Cypher MATCH after WITH carried scalar columns currently require unique carried node rows",
-            value=output_name,
-            suggestion="Use a single-node seed WITH shape, or avoid carrying scalar columns into MATCH re-entry.",
-            reason=REENTRY_DUPLICATE_CARRIED_ROWS_REASON,
-            carried_row_count=len(carried_ids),
-            carried_scalar_columns=tuple(carried_columns),
-        )
+    if not plan.row_token_enabled:
+        if _is_polars_series(carried_ids):
+            duplicate_mask = carried_ids.is_duplicated()
+        else:
+            duplicate_mask = carried_ids.duplicated()
+        if bool(duplicate_mask.any()):
+            raise reentry_validation_error(
+                "Cypher MATCH after WITH carried scalar columns currently require unique carried node rows",
+                value=output_name,
+                suggestion="Use a single-node seed WITH shape, or avoid carrying scalar columns into MATCH re-entry.",
+                reason=REENTRY_DUPLICATE_CARRIED_ROWS_REASON,
+                carried_row_count=len(carried_ids),
+                carried_scalar_columns=tuple(carried_columns),
+            )
     carry_payload = reentry_carry_payload(
         carried_node_ids=carried_node_ids,
         prefix_rows=aligned_prefix_rows,
@@ -607,6 +622,20 @@ def compiled_query_reentry_state(
     node_rows = cast(DataFrameT, ordered_left_join(merge_base, carry_payload, on=id_column))
 
     dispatch_graph = _bind_reentry_graph(base_graph, node_rows)
+    if plan.row_token_enabled:
+        row_token_column = _reentry_hidden_column_name(REENTRY_ROW_TOKEN_OUTPUT)
+        if row_token_column not in node_rows.columns:
+            raise reentry_validation_error(
+                "Cypher MATCH after WITH could not preserve its internal row-token column",
+                value=row_token_column,
+                suggestion=REENTRY_WHOLE_ROW_SUGGESTION,
+            )
+        start_nodes = frame_filter(node_rows, series_not_null_mask(node_rows[row_token_column]))
+        if _is_polars_df(start_nodes):
+            start_nodes = start_nodes.sort(row_token_column)  # type: ignore[attr-defined]  # Polars frame branch.
+        else:
+            start_nodes = start_nodes.sort_values(row_token_column).reset_index(drop=True)
+        return dispatch_graph, start_nodes
     return dispatch_graph, ordered_reentry_start_nodes(
         node_rows=node_rows,
         carried_node_ids=carried_node_ids,

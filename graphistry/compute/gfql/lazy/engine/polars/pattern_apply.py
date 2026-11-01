@@ -19,10 +19,31 @@ if TYPE_CHECKING:
     import polars as pl
     from graphistry.compute.ast import ASTObject
     from graphistry.compute.gfql.row.prefilter import AliasPrefilters
+    from graphistry.compute.typing import PolarsFrame
 
 from .dtypes import is_lazy
 from .membership import is_in_ids
 from .row_pipeline import _active_table, _rewrap
+
+
+def alias_node_id_with_property_polars(
+    frame: "PolarsFrame", alias: str, node_id: str,
+) -> "PolarsFrame":
+    """Add an alias marker and native ID, preserving only a colliding user property."""
+    import polars as pl
+
+    columns = frame.collect_schema().names() if is_lazy(frame) else frame.columns
+    if alias != node_id:
+        exprs = []
+        if alias in columns:
+            exprs.append(pl.col(node_id).alias(f"{alias}.{node_id}"))
+            property_col = f"{alias}.{alias}"
+            if property_col not in columns:
+                exprs.append(pl.col(alias).alias(property_col))
+        if exprs:
+            frame = frame.with_columns(exprs)
+        frame = frame.with_columns(pl.lit(True).alias(alias))
+    return frame
 
 
 def _rows_base_graph(g: Plottable) -> Plottable:
@@ -93,16 +114,15 @@ def rows_binding_ops_polars(
         # pandas' named-op flag column OVERWRITES the id column in this corner —
         # neither engine has sane semantics; decline honestly (wave-1 I1).
         return None
-    # Mirror the pandas twin's quirks (wave-1 I3): ASTNode.execute leaks the
-    # named-op FLAG column into its source frame, so pandas emits a fabricated
-    # `alias.alias = True` column (shadowing any real property of that name) —
-    # emit the same. (Column ORDER differs slightly; the parity sig sorts columns.)
+    # Keep the alias-presence marker in the bare alias column. The qualified
+    # `alias.alias` slot is user data only when the source graph has that property;
+    # otherwise null it so formatter logic cannot mistake the operation flag for data.
     prop_cols = [c for c in matched.columns if c != node_id and c != alias]
     exprs = [
         pl.col(node_id),
         pl.col(node_id).alias(alias),
         pl.col(node_id).alias(f"{alias}.{node_id}"),
-        pl.lit(True).alias(f"{alias}.{alias}"),
+        (pl.col(alias) if alias in matched.columns else pl.lit(None)).alias(f"{alias}.{alias}"),
     ]
     exprs.extend(pl.col(c).alias(f"{alias}.{c}") for c in prop_cols)
     lookup = matched.select(exprs)

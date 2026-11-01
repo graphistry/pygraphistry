@@ -14,6 +14,7 @@ import pandas as pd
 from graphistry.Engine import (
     is_polars_df,
     df_to_engine,
+    null_column,
     Engine,
     EngineAbstract,
     is_series_like,
@@ -1746,6 +1747,7 @@ class RowPipelineMixin:
                         return False, None
                 source_alias_name = entity_alias_names[0]
                 source_alias = source_alias_name
+                excluded_entity_fields = list(entity_alias_names[1:])
                 source_table_df = table_df
                 # On bindings-row tables, prefer alias.{id} even when a same-name
                 # marker column exists for the alias.
@@ -1761,13 +1763,24 @@ class RowPipelineMixin:
                         columns={col: col[len(prefix):] for col in alias_cols}
                     )
                     source_alias = str(entity_id)
+                elif entity_id is not None and entity_id in table_df.columns:
+                    # Use the configured ID for presence so alias-named properties remain data.
+                    source_alias = str(entity_id)
+                    base_graph = self._gfql_base_graph()
+                    base_nodes = base_graph._nodes if base_graph is not None else None
+                    source_table_df = self._gfql_unshadow_alias_marker_column(
+                        source_table_df, source_alias_name, base_nodes, source_alias
+                    )
                 elif source_alias not in table_df.columns:
                     return False, None
+                else:
+                    # A bare binding alias marks presence; prefixed fields retain real properties.
+                    excluded_entity_fields.append(source_alias_name)
                 out = self._gfql_format_entity_series(
                     source_table_df,
                     alias_col=source_alias,
                     table=("nodes" if fn == "__node_entity__" else "edges"),
-                    excluded=tuple(entity_alias_names),
+                    excluded=tuple(excluded_entity_fields),
                 )
                 null_mask = self._gfql_null_mask(source_table_df, source_table_df[source_alias])
                 if hasattr(out, "where"):
@@ -4102,6 +4115,8 @@ class RowPipelineMixin:
         alias: str,
         base_frame: Optional[DataFrameT],
         key_col: str,
+        *,
+        null_missing_property_slot: bool = True,
     ) -> Optional[DataFrameT]:
         """Restore a user column that the alias marker overwrote, for property lookup.
 
@@ -4114,9 +4129,18 @@ class RowPipelineMixin:
             return lookup_source
         if alias == key_col:
             return lookup_source
-        if alias not in getattr(base_frame, "columns", []) or alias not in lookup_source.columns:
+        if alias not in lookup_source.columns:
             return lookup_source
-        if key_col not in lookup_source.columns or key_col not in base_frame.columns:
+        if key_col not in lookup_source.columns:
+            return lookup_source
+        if alias not in getattr(base_frame, "columns", []):
+            if not null_missing_property_slot:
+                return lookup_source
+            # Null the alias marker's qualified property slot so it cannot render as user data.
+            lookup_source = lookup_source.copy()
+            lookup_source = null_column(lookup_source, alias, dtype_from=alias)
+            return lookup_source
+        if key_col not in base_frame.columns:
             return lookup_source
         return lookup_source.drop(columns=[alias]).merge(
             base_frame[[key_col, alias]], on=key_col, how="left"
@@ -4534,7 +4558,22 @@ class RowPipelineMixin:
                 "Cypher multi-alias row bindings require a bound graph"
             )
         preserve_start_multiplicity = owner_graph._gfql_preserve_start_node_multiplicity
-        if preserve_start_multiplicity:
+        from graphistry.compute.gfql.cypher.reentry.naming import (
+            REENTRY_HIDDEN_COLUMN_PREFIX,
+            REENTRY_ROW_TOKEN_OUTPUT,
+            _reentry_hidden_column_name,
+        )
+        row_token_column = _reentry_hidden_column_name(REENTRY_ROW_TOKEN_OUTPUT)
+        has_row_token = (
+            preserve_start_multiplicity and row_token_column in first_nodes.columns
+        )
+        if has_row_token:
+            hidden_carries = [
+                col for col in first_nodes.columns
+                if isinstance(col, str) and col.startswith(REENTRY_HIDDEN_COLUMN_PREFIX)
+            ]
+            state_df = first_nodes[[node_id_col] + hidden_carries].copy()
+        elif preserve_start_multiplicity:
             state_df = first_nodes[[node_id_col]].copy()
         else:
             state_df = (
@@ -4546,7 +4585,7 @@ class RowPipelineMixin:
         alias_frames: Dict[str, DataFrameT] = {}
         if isinstance(first_alias, str):
             state_df[first_alias] = state_df[WALK_CURRENT_COL]
-            alias_frames[first_alias] = (
+            alias_frames[first_alias] = first_nodes if has_row_token else (
                 first_nodes.drop_duplicates(subset=[node_id_col], keep="first")
                 if preserve_start_multiplicity
                 else first_nodes
@@ -4628,7 +4667,11 @@ class RowPipelineMixin:
             if isinstance(edge_alias, str) and edges_df_step is not None:
                 # Same marker shadowing as the node side, keyed on the edge identity column.
                 unshadowed = self._gfql_unshadow_alias_marker_column(
-                    edges_df_step, edge_alias, base_graph._edges, ident_col
+                    edges_df_step,
+                    edge_alias,
+                    base_graph._edges,
+                    ident_col,
+                    null_missing_property_slot=False,
                 )
                 assert unshadowed is not None  # non-None in, non-None out
                 edges_df_step = unshadowed
@@ -4946,6 +4989,11 @@ class RowPipelineMixin:
         attach_prop_columns: Optional[Dict[str, List[str]]] = None,
     ) -> DataFrameT:
         from graphistry.compute.ast import ASTNode
+        from graphistry.compute.gfql.cypher.reentry.naming import (
+            REENTRY_HIDDEN_COLUMN_PREFIX,
+            REENTRY_ROW_TOKEN_OUTPUT,
+            _reentry_hidden_column_name,
+        )
 
         node_id = self._node
         if node_id is None:
@@ -4968,6 +5016,7 @@ class RowPipelineMixin:
             for op in ops
             if isinstance(op, ASTNode) and isinstance(op._name, str)
         ]
+        row_token_column = _reentry_hidden_column_name(REENTRY_ROW_TOKEN_OUTPUT)
         for alias in node_aliases:
             alias = str(alias)
             if alias not in bindings.columns:
@@ -4980,6 +5029,18 @@ class RowPipelineMixin:
             lookup_source = self._gfql_unshadow_alias_marker_column(
                 lookup_source, alias, base_nodes, node_id
             )
+            assert lookup_source is not None  # The missing-alias path uses the non-null empty frame above.
+            if alias == node_aliases[0] and row_token_column in bindings.columns:
+                # State rows retain carries per occurrence; later lookups attach entity fields only.
+                hidden_columns = [
+                    col for col in lookup_source.columns
+                    if isinstance(col, str) and col.startswith(REENTRY_HIDDEN_COLUMN_PREFIX)
+                ]
+                if hidden_columns:
+                    lookup_source = lookup_source.drop(columns=hidden_columns)
+                    lookup_source = lookup_source.drop_duplicates(
+                        subset=[node_id], keep="first"
+                    )
             if attach_prop_columns is not None:
                 # projection pushdown: only the property columns the next select reads
                 wanted = set(attach_prop_columns.get(alias) or ())

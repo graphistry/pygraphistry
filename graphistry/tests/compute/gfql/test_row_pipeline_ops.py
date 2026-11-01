@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import warnings
 
 import pandas as pd
@@ -9,6 +10,7 @@ import graphistry.compute.gfql.call.validation as call_safelist
 import graphistry.compute.gfql.expr_parser as expr_parser
 import graphistry.compute.gfql.row.pipeline as row_pipeline_mixin
 from graphistry.compute.gfql.row.entity_props import (
+    append_property_segments,
     entity_keys_series,
     format_node_entity_text,
     format_node_labels_text,
@@ -147,6 +149,34 @@ def test_row_entity_props_format_sparse_label_columns_and_type_text() -> None:
     assert rendered_values[:2] == ["(:Keep)", "(:Movie)"]
     assert pd.isna(rendered_values[2])
     assert labels.tolist() == ["['Keep']", "['Movie']", "[]"]
+
+
+@pytest.mark.parametrize(
+    "engine",
+    [
+        "pandas",
+        pytest.param(
+            "cudf",
+            marks=pytest.mark.skipif(
+                not (os.environ.get("TEST_CUDF") == "1"),
+                reason="cudf tests need TEST_CUDF=1",
+            ),
+            id="cudf",
+        ),
+    ],
+)
+def test_append_property_segments_integer_alias_typed_false_mask(engine: str) -> None:
+    if engine == "cudf":
+        cudf = pytest.importorskip("cudf")
+        df = cudf.DataFrame({"n": [1, 2], "value": [None, None]})
+    else:
+        df = pd.DataFrame({"n": [1, 2], "value": [None, None]})
+
+    text, has_props = append_property_segments(df, "n", ["value"])
+
+    assert str(has_props.dtype) == "bool"
+    assert _safe_series_to_list(has_props) == [False, False]
+    assert _safe_series_to_list(text) == ["", ""]
 
 
 _NESTED_MAP_LIST_ORDER_CASES = [
