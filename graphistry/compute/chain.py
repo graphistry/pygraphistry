@@ -614,8 +614,9 @@ def combine_steps(
     cols = list(out_df.columns)
     # An alias named like a user column collides here (marker `_x` from the step frames
     # vs user values `_y` from the base frame). The marker is authoritative (null =
-    # unbound row); user values are restored from the base frame at property-read time,
-    # never coalesced into the marker (mixed bool/user dtypes also crash cuDF).
+    # unbound row); a Cypher pipeline keeps the user values in a separate restore column
+    # while the temporary edge identity still aligns them. Never coalesce them into the
+    # marker (mixed bool/user dtypes also crash cuDF).
     alias_marker_names = {
         op._name for op, _ in steps
         if isinstance(op, op_type) and isinstance(op._name, str)
@@ -626,6 +627,12 @@ def combine_steps(
             c_y = base + '_y'
             if c_y in out_df.columns:
                 if base in alias_marker_names:
+                    from graphistry.compute.gfql.identifiers import (
+                        shadow_restore_column,
+                        shadow_restore_wanted,
+                    )
+                    if shadow_restore_wanted():
+                        out_df[shadow_restore_column(base)] = out_df[c_y]
                     out_df[base] = out_df[c].fillna(False).astype(bool)
                     out_df = out_df.drop(columns=[c, c_y])
                     continue

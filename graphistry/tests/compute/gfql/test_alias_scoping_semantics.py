@@ -21,18 +21,25 @@ Four defects, all pinned on BOTH engines with hand-computed openCypher oracles:
 Discriminating controls from the probe are pinned alongside each fix so a future
 regression cannot pass by repairing only one side.
 """
-from typing import Literal
+import os
+from typing import List, Literal
 
 import pandas as pd
 import pytest
 
 import graphistry
+from graphistry.compute.ast import e_forward, n
 from graphistry.compute.exceptions import ErrorCode, GFQLTypeError, GFQLValidationError
 from graphistry.compute.gfql.cypher.api import compile_cypher
 
 pl = pytest.importorskip("polars")
 
-ENGINES = ["pandas", "polars"]
+ENGINES = [
+    "pandas",
+    "polars",
+    pytest.param("polars-gpu", marks=pytest.mark.skipif(os.environ.get("TEST_POLARS_GPU") != "1", reason="requires actual polars-gpu")),
+    pytest.param("cudf", marks=pytest.mark.skipif(os.environ.get("TEST_CUDF") != "1", reason="cudf tests need TEST_CUDF=1")),
+]
 
 
 # ---------------------------------------------------------------- fixtures
@@ -84,10 +91,27 @@ SHADOW_EDGES = pd.DataFrame({
     "w": [7, 8],
 })
 
+# A valid two-edge path plus an edge that is reachable at the first hop but cannot
+# continue to the second hop. Used to distinguish path-valid alias markers from labels
+# taken from the forward-only hop frame.
+MULTIHOP_NODES = pd.DataFrame({
+    "id": ["n1", "n2", "n3", "n4"],
+    "label__P": [True] * 4,
+})
+MULTIHOP_EDGES = pd.DataFrame({
+    "s": ["n1", "n2", "n2"],
+    "d": ["n2", "n3", "n4"],
+    "type": ["K", "K", "K"],
+    "w": [7, 8, 10],
+})
+
 
 def _graph(nodes: pd.DataFrame, edges: pd.DataFrame, engine: str):
-    if engine == "polars":
+    if engine in {"polars", "polars-gpu"}:
         nodes, edges = pl.from_pandas(nodes), pl.from_pandas(edges)
+    elif engine == "cudf":
+        cudf = pytest.importorskip("cudf")
+        nodes, edges = cudf.from_pandas(nodes), cudf.from_pandas(edges)
     return graphistry.nodes(nodes, "id").edges(edges, "s", "d")
 
 
@@ -99,7 +123,10 @@ def _rows(g, query: str, engine: str):
     frame = g.gfql(query, engine=engine)._nodes
     if frame is None:
         return []
-    records = frame.to_dicts() if isinstance(frame, pl.DataFrame) else frame.to_dict("records")
+    if isinstance(frame, pl.DataFrame):
+        records = frame.to_dicts()
+    else:
+        records = (frame.to_pandas() if hasattr(frame, "to_pandas") else frame).to_dict("records")
     return [{k: _null(v) for k, v in r.items()} for r in records]
 
 
@@ -350,13 +377,114 @@ def test_single_alias_and_cartesian_shadowed_alias_reads_the_user_value(engine: 
     assert sorted(r["k"] for r in rows) == [7, 8]
 
 
-def test_multihop_relationship_shadowed_alias_pandas_fixed_polars_multiplicity_residual() -> None:
-    """#1911 defect 4: pandas now reads the user value in the MULTI-hop shape too
-    (was the marker ``True``). polars still over-multiplies the rows -- a separate
-    pre-existing multiplicity defect independent of the alias name -- pinned as-is."""
+def test_multihop_relationship_alias_reads_only_path_valid_edge() -> None:
+    """A relationship alias in a multi-hop pattern marks only edges in a complete path."""
     query = "MATCH (a:P)-[w:K]->(b:P)-[:K]->(c:P) RETURN w.w AS x"
     assert [r["x"] for r in _run(SHADOW_NODES, SHADOW_EDGES, query, "pandas")] == [7]
-    assert sorted(r["x"] for r in _run(SHADOW_NODES, SHADOW_EDGES, query, "polars")) == [7, 8]
+    assert [r["x"] for r in _run(SHADOW_NODES, SHADOW_EDGES, query, "polars")] == [7]
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+@pytest.mark.parametrize(
+    ("query", "expected"),
+    [
+        (
+            "MATCH (a:P)-[w:K]->(b:P)-[:K]->(c:P) RETURN w.w AS x",
+            [7],
+        ),
+        (
+            "MATCH (a:P)-[r:K]->(b:P)-[:K]->(c:P) RETURN r.w AS x",
+            [7],
+        ),
+        (
+            "MATCH (a:P)-[w:K]->(b:P)-[:K]->(c:P) "
+            "WHERE b.id='n2' RETURN w.w AS x",
+            [7],
+        ),
+        (
+            "MATCH (a:P)-[w:K]->(b:P)-[:K]->(c:P) "
+            "WHERE w.w=10 RETURN w.w AS x",
+            [],
+        ),
+        (
+            "MATCH (a:P)-[w:K]->(b:P)-[:K]->(c:P) "
+            "WHERE a.id='n4' RETURN w.w AS x",
+            [],
+        ),
+        (
+            "MATCH (a:P)<-[w:K]-(b:P)<-[:K]-(c:P) "
+            "WHERE a.id='n3' RETURN w.w AS x",
+            [8],
+        ),
+        (
+            "MATCH (a:P)<-[:K]-(b:P)<-[w:K]-(c:P) "
+            "WHERE a.id='n3' RETURN w.w AS x",
+            [7],
+        ),
+        (
+            "MATCH (a:P)-[w:K]-(b:P)-[:K]-(c:P) "
+            "WHERE a.id='n1' RETURN w.w AS x",
+            [7],
+        ),
+    ],
+    ids=[
+        "forward-shadow",
+        "forward-ordinary",
+        "middle-filter",
+        "dead-end-filter-empty",
+        "no-path-empty",
+        "reverse-first-edge-alias",
+        "reverse-second-edge-alias",
+        "undirected-path",
+    ],
+)
+def test_multihop_relationship_alias_matches_path_oracle(
+    query: str, expected: List[int], engine: str
+) -> None:
+    """Direction, alias shadowing, filters and no-path controls share one hand oracle."""
+    rows = _run(MULTIHOP_NODES, MULTIHOP_EDGES, query, engine)
+    assert sorted(r["x"] for r in rows) == expected
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+@pytest.mark.parametrize("alias", ["r", "w"], ids=["ordinary", "shadows-edge-column"])
+def test_direct_gfql_multihop_named_edge_alias_marks_only_complete_path(
+    engine: str, alias: str
+) -> None:
+    """Direct GFQL uses the same combine path; a dead-end first-hop edge is unbound."""
+    graph = _graph(MULTIHOP_NODES, MULTIHOP_EDGES, engine)
+    result = graph.gfql(
+        [
+            n(name="start"),
+            e_forward({"type": "K"}, name=alias),
+            n(name="middle"),
+            e_forward({"type": "K"}),
+            n(name="end"),
+        ],
+        engine=engine,
+    )
+    if engine in {"polars", "polars-gpu"}:
+        edge_rows = result._edges.to_dicts()
+    else:
+        edge_rows = result._edges.to_dict("records")
+    marked = [(row["s"], row["d"]) for row in edge_rows if bool(row[alias])]
+    assert marked == [("n1", "n2")]
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_reverse_multihop_shadowed_relationship_property_reads_matching_edge(engine: str) -> None:
+    """Reverse traversal may reorder edge rows before rows(source=alias) restores payloads."""
+    nodes = pd.DataFrame({"id": ["n1", "n2", "n3", "n4"], "label__P": [True] * 4})
+    edges = pd.DataFrame({
+        "s": ["n1", "n2", "n2"],
+        "d": ["n2", "n3", "n4"],
+        "type": ["K", "K", "K"],
+        "w": [7, 8, 10],
+    })
+    positive = "MATCH (a:P)<-[w:K]-(b:P)<-[:K]-(c:P) WHERE a.id='n3' RETURN w.w AS x"
+    empty = "MATCH (a:P)<-[w:K]-(b:P)<-[:K]-(c:P) WHERE a.id='n1' RETURN w.w AS x"
+    assert _run(nodes, edges, positive, engine) == [{"x": 8}]
+    assert _run(nodes, edges, empty, engine) == []
 
 
 def test_empty_result_keeps_a_shadowed_alias_column_on_both_engines() -> None:
@@ -696,6 +824,7 @@ def test_restore_alias_shadowed_user_column_branches() -> None:
     assert restored_pl_bool[restore_col].to_list() == [True, False]
 
 
+@pytest.mark.skipif(os.environ.get("TEST_CUDF") != "1", reason="cudf tests need TEST_CUDF=1")
 def test_cudf_rows_route_self_named_alias_parity() -> None:
     """cuDF (dataframe ops only): the node shape crashed with a raw mixed-types
     TypeError from the marker/user-column coalesce; both shapes now match pandas."""
@@ -710,6 +839,7 @@ def test_cudf_rows_route_self_named_alias_parity() -> None:
     assert sorted(out.to_pandas()["t"]) == ["K", "K"]
 
 
+@pytest.mark.skipif(os.environ.get("TEST_CUDF") != "1", reason="cudf tests need TEST_CUDF=1")
 def test_cudf_unshadow_and_rebind_guard_parity() -> None:
     """cuDF (dataframe ops only): the marker unshadow reads the user value and
     the rebind guard declines identically."""
@@ -728,7 +858,13 @@ def test_cudf_unshadow_and_rebind_guard_parity() -> None:
     assert "rebind an entity alias" in str(exc_info.value)
 
 
-@pytest.mark.parametrize("backend", ["pandas", "cudf"])
+@pytest.mark.parametrize(
+    "backend",
+    [
+        "pandas",
+        pytest.param("cudf", marks=pytest.mark.skipif(os.environ.get("TEST_CUDF") != "1", reason="cudf tests need TEST_CUDF=1")),
+    ],
+)
 @pytest.mark.parametrize("keys", [[], [2, 1], [2, 1, 2], [2, 99, 1]])
 @pytest.mark.parametrize("duplicate_index", [False, True])
 @pytest.mark.parametrize("values", [[10, 20], ["first", "second"]])

@@ -338,8 +338,9 @@ def _combine_edges(g: "_LazyShim",
     Takes the ``_LazyShim`` duck-type, NOT a ``Plottable``: the Track-B combine runs entirely on
     already-materialized-then-lazified hop frames, which is exactly what the shim carries (and
     why its frames are ``LazyFrame``, not the ``PolarsFrame`` union). ``steps`` are the edge
-    steps (recomputed ones when ``has_multihop``); ``label_steps`` are the forward-pass steps
-    used for the endpoint gates and the alias flags."""
+    steps (recomputed ones when ``has_multihop``); ``label_steps`` are forward-pass
+    steps used for single-hop endpoint gates. Alias flags come from ``steps`` so an
+    edge is tagged only when it survives path pruning."""
     import polars as pl
     src, dst, node_col, edge_id = g._source, g._destination, g._node, g._edge
     assert src is not None and dst is not None and node_col is not None and edge_id is not None
@@ -387,9 +388,12 @@ def _combine_edges(g: "_LazyShim",
 
     out = all_edges.join(out_ids, on=edge_id, how="semi")
 
-    for op, g_step in label_steps:
-        if op._name is not None and isinstance(op, ASTEdge) and g_step._edges is not None and op._name in colnames(g_step._edges):
-            named = g_step._edges.filter(pl.col(op._name)).select(pl.col(edge_id)).with_columns(pl.lit(True).alias(op._name))
+    for op, g_step in steps:
+        if op._name is not None and isinstance(op, ASTEdge) and g_step._edges is not None:
+            # The pruned edge-ID set is the alias membership. Alias-shadow restoration can
+            # put the original payload column back on this frame, so filtering by op._name
+            # would either read that payload or reintroduce forward-only dead-end edges.
+            named = g_step._edges.select(pl.col(edge_id)).with_columns(pl.lit(True).alias(op._name))
             if op._name in colnames(out):  # the alias marker shadows the user column; only a Cypher pipeline keeps its values, under the restore name
                 if shadow_restore_wanted():
                     restore = shadow_restore_column(op._name)
