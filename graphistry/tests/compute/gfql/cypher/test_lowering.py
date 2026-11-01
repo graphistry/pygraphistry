@@ -7133,7 +7133,7 @@ def test_string_cypher_two_stage_collect_reentry_empty_global_aggregate_identity
         assert output.iloc[0][output_alias] == expected_row[expected_alias]
 
 
-def _mk_ic6_p0959_graph() -> _CypherTestGraph:
+def _mk_ic6_p0959_data() -> tuple[pd.DataFrame, pd.DataFrame]:
     nodes_df = pd.DataFrame(
         {
             "id": [1, 2, 3, 4, 5, 99, 10, 11, 12, 13, 14, 15, 16, 17, 101, 102, 103, 104, 105, 106],
@@ -7161,7 +7161,11 @@ def _mk_ic6_p0959_graph() -> _CypherTestGraph:
         *[(post, tag_id, "HAS_TAG") for post, tag_ids in post_tags for tag_id in tag_ids],
     ]
     edges_df = pd.DataFrame(edges, columns=["s", "d", "type"])
-    return _mk_graph(nodes_df, edges_df)
+    return nodes_df, edges_df
+
+
+def _mk_ic6_p0959_graph() -> _CypherTestGraph:
+    return _mk_graph(*_mk_ic6_p0959_data())
 
 
 _IC6_P0959_QUERY = (
@@ -7182,7 +7186,7 @@ _IC6_P0959_QUERY = (
 )
 
 
-@pytest.mark.parametrize("engine", ["pandas", "polars"])
+@pytest.mark.parametrize("engine", ["pandas", "polars", "cudf"])
 @pytest.mark.parametrize(
     ("case", "params", "expected_rows"),
     [
@@ -7225,15 +7229,7 @@ def test_string_cypher_official_ic6_p0959_oracle_cases(
     expected_rows: list[dict[str, object]],
 ) -> None:
     del case
-    graph = _mk_ic6_p0959_graph()
-    if engine == "polars":
-        pl = pytest.importorskip("polars")
-        graph = cast(
-            _CypherTestGraph,
-            _CypherTestGraph()
-            .nodes(pl.from_pandas(cast(pd.DataFrame, graph._nodes)), "id")
-            .edges(pl.from_pandas(cast(pd.DataFrame, graph._edges)), "s", "d"),
-        )
+    graph = _mk_engine_graph(engine, *_mk_ic6_p0959_data())
 
     result = graph.gfql(_IC6_P0959_QUERY, params=params, engine=engine)
     output = _to_pandas_df(result._nodes)
