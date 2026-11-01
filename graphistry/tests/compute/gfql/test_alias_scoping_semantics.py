@@ -22,7 +22,7 @@ Discriminating controls from the probe are pinned alongside each fix so a future
 regression cannot pass by repairing only one side.
 """
 import os
-from typing import List, Literal
+from typing import Any, List, Literal
 
 import pandas as pd
 import pytest
@@ -369,7 +369,7 @@ def test_whole_entity_projection_of_shadowing_alias_omits_the_column(engine: str
 )
 @pytest.mark.parametrize("engine", ENGINES)
 def test_single_alias_and_cartesian_shadowed_alias_reads_the_user_value(
-    engine: str, shape: str, query: str
+    engine: str, shape: str, query: str, record_property
 ) -> None:
     """#1911 defect 4 (was RESIDUAL): the single-alias ``rows(table=..., source=...)``
     route and the cartesian binding path read properties off the chain output frame,
@@ -378,19 +378,29 @@ def test_single_alias_and_cartesian_shadowed_alias_reads_the_user_value(
     cartesian paths unshadow like the connected one. Anti-vacuity: 3 node rows / 9
     cartesian rows / 2 relationship rows, distinct values -- an all-``True`` marker
     leak or an empty frame cannot pass."""
-    gpu_declined_shapes = {"single-node", "cartesian", "bare-edge"}
+    def matches(rows: list[dict[str, Any]]) -> bool:
+        if shape == "single-node":
+            return sorted(r["k"] for r in rows) == ["K1", "K2", "K3"]
+        if shape == "cartesian":
+            return len(rows) == 9 and sorted({r["k"] for r in rows}) == ["K1", "K2", "K3"]
+        return sorted(r["k"] for r in rows) == [7, 8]
+
+    gpu_capability = (
+        "declined"
+        if engine == "polars-gpu" and shape in {"single-node", "cartesian"}
+        else "served"
+    )
+    record_property("gpu_capability", gpu_capability)
     if engine == "polars-gpu":
-        assert shape in gpu_declined_shapes
-        with pytest.raises(NotImplementedError):
-            _run(SHADOW_NODES, SHADOW_EDGES, query, engine)
-        return
-    if shape == "single-node":
-        assert sorted(r["k"] for r in _run(SHADOW_NODES, SHADOW_EDGES, query, engine)) == ["K1", "K2", "K3"]
-    elif shape == "cartesian":
+        record_property("gpu_decline_shapes", "single-node,cartesian")
+
+    try:
         rows = _run(SHADOW_NODES, SHADOW_EDGES, query, engine)
-        assert len(rows) == 9 and sorted({r["k"] for r in rows}) == ["K1", "K2", "K3"]
-    else:
-        assert sorted(r["k"] for r in _run(SHADOW_NODES, SHADOW_EDGES, query, engine)) == [7, 8]
+    except NotImplementedError:
+        assert engine == "polars-gpu"
+        assert shape in {"single-node", "cartesian"}
+        return
+    assert matches(rows)
 
 
 def test_multihop_relationship_alias_reads_only_path_valid_edge() -> None:
