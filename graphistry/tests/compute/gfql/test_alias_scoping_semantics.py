@@ -385,12 +385,6 @@ def test_single_alias_and_cartesian_shadowed_alias_reads_the_user_value(
             return len(rows) == 9 and sorted({r["k"] for r in rows}) == ["K1", "K2", "K3"]
         return sorted(r["k"] for r in rows) == [7, 8]
 
-    gpu_capability = (
-        "declined"
-        if engine == "polars-gpu" and shape in {"single-node", "cartesian"}
-        else "served"
-    )
-    record_property("gpu_capability", gpu_capability)
     if engine == "polars-gpu":
         record_property("gpu_decline_shapes", "single-node,cartesian")
 
@@ -399,7 +393,9 @@ def test_single_alias_and_cartesian_shadowed_alias_reads_the_user_value(
     except NotImplementedError:
         assert engine == "polars-gpu"
         assert shape in {"single-node", "cartesian"}
+        record_property("gpu_capability", "declined")
         return
+    record_property("gpu_capability", "served")
     assert matches(rows)
 
 
