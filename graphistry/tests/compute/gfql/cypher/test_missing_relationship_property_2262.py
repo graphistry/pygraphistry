@@ -113,7 +113,7 @@ def test_missing_relationship_property_does_not_return_alias_marker(engine: str)
     ) == [{"id": "b"}]
 
     noncolliding_missing = "MATCH (a)-[rel:X]->(b) RETURN rel.r AS x"
-    if engine == "polars":
+    if engine in {"polars", "polars-gpu"}:
         with pytest.raises(NotImplementedError, match="row op 'select'"):
             missing_graph.gfql(noncolliding_missing, engine=engine)
     else:
