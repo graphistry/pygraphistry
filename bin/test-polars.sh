@@ -22,6 +22,9 @@ python -m pytest --version
 # fails if any module-level polars-gated test file is absent from it (or listed but gone).
 POLARS_TEST_FILES=(
     graphistry/tests/compute/gfql/index/test_sorted_csr_build_ownership.py
+    # #2268 S1: engine-native empty-row helper test is engine-parametrized; its Polars
+    # eager/lazy/GPU params only run in this lane because importorskip is dynamic
+    graphistry/tests/compute/gfql/cypher/reentry/test_empty_frame_s1.py
     graphistry/tests/compute/gfql/test_searchany_wysiwyg_datetime.py
     graphistry/tests/compute/gfql/test_temporal_membership_1949.py
     graphistry/tests/test_plotterbase_optional_deps.py
