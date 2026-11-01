@@ -58,6 +58,9 @@ POLARS_TEST_FILES=(
     graphistry/tests/compute/gfql/cypher/test_null_equality_conjunction.py
     graphistry/tests/compute/gfql/cypher/test_missing_relationship_property_2262.py
     graphistry/tests/compute/gfql/cypher/test_issue_2258_entity_identity_membership.py
+    # grouped whole-entity identity is engine-parametrized; pandas runs in core,
+    # while Polars only has this explicit lane
+    graphistry/tests/compute/gfql/cypher/test_issue_2261_grouped_identity.py
     # quoted map keys/MATCH aliases are engine-parametrized; pandas runs in core,
     # polars params only run in this lane
     graphistry/tests/compute/gfql/cypher/test_backtick_identifiers.py

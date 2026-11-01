@@ -357,6 +357,7 @@ def apply_result_projection(
                 continue
             source_alias = column.source_name or projection.alias
             marker_frame = None
+            marker_source = None
             if projection.table == "nodes":
                 entity_id_column = result._node if result._node is not None else source_node_id
             else:
@@ -368,9 +369,11 @@ def apply_result_projection(
                 else None
             )
             if entity_id_column is not None and str(entity_id_column) in rows_df.columns:
-                marker_frame = rows_df[[str(entity_id_column)]]
+                marker_source = str(entity_id_column)
+                marker_frame = rows_df[[marker_source]]
             elif identity_source is not None and identity_source in rows_df.columns:
-                marker_frame = rows_df[[identity_source]]
+                marker_source = identity_source
+                marker_frame = rows_df[[marker_source]]
             else:
                 if source_alias in rows_df.columns:
                     marker_column = source_alias
@@ -381,6 +384,11 @@ def apply_result_projection(
                 if marker_column is not None:
                     marker_frame = rows_df[[marker_column]]
             if marker_frame is not None:
+                if marker_source is not None and projection.alias != marker_source:
+                    if is_polars_df(marker_frame):
+                        marker_frame = marker_frame.rename({marker_source: projection.alias})
+                    else:
+                        marker_frame = marker_frame.rename(columns={marker_source: projection.alias})
                 presence[column.output_name] = marker_frame.clone() if is_polars_df(marker_frame) else marker_frame.copy()
     out._cypher_entity_projection_presence = presence
     return out
