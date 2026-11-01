@@ -25,6 +25,12 @@ def _records(frame: Any) -> list[dict[str, Any]]:
     return frame.to_dict(orient="records")
 
 
+def _assert_served(engine: str, frame: Any) -> None:
+    assert type(frame).__module__.startswith(
+        "cudf" if engine == "cudf" else "polars"
+    )
+
+
 def _graph(engine: str, nodes: pd.DataFrame, edges: pd.DataFrame) -> Any:
     if engine == "cudf":
         import cudf
@@ -62,6 +68,7 @@ def test_whole_plus_scalar_prefix_survives_match(engine: str) -> None:
         {"property": 1.0, "messageCount": 1},
         {"property": 2.0, "messageCount": 1},
     ]
+    _assert_served(engine, result._nodes)
 
 
 @pytest.mark.parametrize("engine", ENGINES)
@@ -76,6 +83,7 @@ def test_scalar_only_prefix_survives_match(engine: str) -> None:
         {"property": 1.0, "messageCount": 2},
         {"property": 2.0, "messageCount": 2},
     ]
+    _assert_served(engine, result._nodes)
 
 
 @pytest.mark.parametrize("engine", ENGINES)
@@ -109,7 +117,9 @@ def test_connected_prefix_and_filtered_suffix_stay_path_scoped(engine: str) -> N
         language="cypher",
     )
     assert _records(positive._nodes) == [{"property": 10.0, "messageCount": 1}]
+    _assert_served(engine, positive._nodes)
     assert _records(empty._nodes) == []
+    _assert_served(engine, empty._nodes)
 
 
 @pytest.mark.parametrize("engine", ENGINES)
@@ -137,6 +147,7 @@ def test_multi_edge_prefix_keeps_path_scalar(engine: str) -> None:
         {"p": 1.0, "cid": "c1"},
         {"p": 2.0, "cid": "c2"},
     ]
+    _assert_served(engine, result._nodes)
 
 
 @pytest.mark.parametrize("engine", ENGINES)
@@ -160,6 +171,7 @@ def test_multi_edge_prefix_negative_is_empty(engine: str) -> None:
         language="cypher",
     )
     assert _records(result._nodes) == []
+    _assert_served(engine, result._nodes)
 
 
 @pytest.mark.parametrize("engine", ENGINES)
@@ -171,6 +183,7 @@ def test_scalar_only_prefix_negative_is_empty(engine: str) -> None:
         language="cypher",
     )
     assert _records(result._nodes) == []
+    _assert_served(engine, result._nodes)
 
 
 @pytest.mark.parametrize("engine", ENGINES)
@@ -181,6 +194,7 @@ def test_no_reentry_match_retains_multiplicity(engine: str) -> None:
         language="cypher",
     )
     assert _records(result._nodes) == [{"pathCount": 2}]
+    _assert_served(engine, result._nodes)
 
 
 @pytest.mark.parametrize("engine", ENGINES)
@@ -205,6 +219,7 @@ def test_typed_carried_scalar_survives_match(engine: str) -> None:
         {"event": pd.Timestamp("2020-01-01"), "messageCount": 2},
         {"event": pd.Timestamp("2020-01-02"), "messageCount": 2},
     ]
+    _assert_served(engine, result._nodes)
 
 
 @pytest.mark.skipif(
@@ -216,3 +231,4 @@ def test_whole_relationship_return_keeps_property_columns_on_cudf() -> None:
     graph = _graph("cudf", nodes, edges)
     result = graph.gfql("MATCH (a)-[r:X]->(b) RETURN r AS edge", engine="cudf")
     assert _records(result._nodes) == [{"edge.type": "X"}]
+    _assert_served("cudf", result._nodes)
