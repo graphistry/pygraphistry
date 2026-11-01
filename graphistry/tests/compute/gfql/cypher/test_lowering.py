@@ -107,6 +107,15 @@ def _mk_graph(nodes_df: pd.DataFrame, edges_df: pd.DataFrame) -> _CypherTestGrap
     return cast(_CypherTestGraph, _CypherTestGraph().nodes(nodes_df, "id").edges(edges_df, "s", "d"))
 
 
+def _mk_engine_graph(engine: str, nodes_df: pd.DataFrame, edges_df: pd.DataFrame) -> _CypherTestGraph:
+    if engine == "cudf":
+        _require_cudf_runtime()
+        return _mk_cudf_graph(nodes_df, edges_df)
+    if engine == "polars":
+        return _mk_polars_graph(nodes_df, edges_df)
+    return _mk_graph(nodes_df, edges_df)
+
+
 def _mk_cudf_graph(nodes_df: pd.DataFrame, edges_df: pd.DataFrame) -> _CypherTestGraph:
     cudf = pytest.importorskip("cudf")
     return cast(
@@ -6847,11 +6856,11 @@ def test_string_cypher_executes_graph_backed_unwind_after_with_into_post_with_ma
     )
 
 
-@pytest.mark.parametrize("engine", ["pandas", "polars"])
+@pytest.mark.parametrize("engine", ["pandas", "polars", "cudf"])
 def test_string_cypher_collect_unwind_reentry_keeps_carry_across_forms_and_names(engine: str) -> None:
     """A carry can be returned and aggregated even when nodes own the same property name."""
     nodes_df, edges_df = _mk_collect_unwind_reentry_data()
-    graph = _mk_polars_graph(nodes_df, edges_df) if engine == "polars" else _mk_graph(nodes_df, edges_df)
+    graph = _mk_engine_graph(engine, nodes_df, edges_df)
     prefix = "MATCH (root:S)-[:X]->(b1:B) WITH root.id AS id, collect(b1) AS bees UNWIND bees AS b2 MATCH (b2)-[:Y]->(c:C) "
 
     returned = graph.gfql(prefix + "RETURN id, c.id AS cid ORDER BY cid", engine=engine)
@@ -6864,7 +6873,7 @@ def test_string_cypher_collect_unwind_reentry_keeps_carry_across_forms_and_names
     assert _to_pandas_df(aggregated._nodes).to_dict(orient="records") == [{"id": "s", "cnt": 2}]
 
 
-@pytest.mark.parametrize("engine", ["pandas", "polars"])
+@pytest.mark.parametrize("engine", ["pandas", "polars", "cudf"])
 @pytest.mark.parametrize(
     ("case", "nodes_df", "edges_df"),
     [
@@ -6929,7 +6938,7 @@ def test_string_cypher_collect_unwind_reentry_negative_paths_return_empty(
     edges_df: pd.DataFrame,
 ) -> None:
     del case
-    graph = _mk_polars_graph(nodes_df, edges_df) if engine == "polars" else _mk_graph(nodes_df, edges_df)
+    graph = _mk_engine_graph(engine, nodes_df, edges_df)
     query = (
         "MATCH (root:S)-[:X]->(b:B) "
         "WITH root.id AS id, collect(b) AS bees "
@@ -6942,28 +6951,29 @@ def test_string_cypher_collect_unwind_reentry_negative_paths_return_empty(
     assert _to_pandas_df(result._nodes).to_dict(orient="records") == []
 
 
-def test_string_cypher_preserves_unwind_after_collect_unwind_reentry() -> None:
-    graph = _mk_collect_unwind_reentry_graph()
-    _assert_query_rows(
+@pytest.mark.parametrize("engine", ["pandas", "polars", "cudf"])
+def test_string_cypher_preserves_unwind_after_collect_unwind_reentry(engine: str) -> None:
+    nodes_df, edges_df = _mk_collect_unwind_reentry_data()
+    graph = _mk_engine_graph(engine, nodes_df, edges_df)
+    query = (
         "MATCH (root:S)-[:X]->(b1:B) "
         "WITH root.id AS id, collect(b1) AS bees "
         "UNWIND bees AS b2 "
         "MATCH (b2)-[:Y]->(c:C) "
         "UNWIND [1, 2] AS k "
         "RETURN id, c.id AS cid, k "
-        "ORDER BY cid, k",
-        [
-            {"id": "s", "cid": "c1", "k": 1},
-            {"id": "s", "cid": "c1", "k": 2},
-            {"id": "s", "cid": "c2", "k": 1},
-            {"id": "s", "cid": "c2", "k": 2},
-        ],
-        nodes_df=graph._nodes,
-        edges_df=graph._edges,
+        "ORDER BY cid, k"
     )
+    result = graph.gfql(query, engine=engine)
+    assert _to_pandas_df(result._nodes).to_dict(orient="records") == [
+        {"id": "s", "cid": "c1", "k": 1},
+        {"id": "s", "cid": "c1", "k": 2},
+        {"id": "s", "cid": "c2", "k": 1},
+        {"id": "s", "cid": "c2", "k": 2},
+    ]
 
 
-def _mk_ic6_two_stage_graph() -> _CypherTestGraph:
+def _mk_ic6_two_stage_data() -> tuple[pd.DataFrame, pd.DataFrame]:
     nodes_df = pd.DataFrame(
         {
             "id": [1, 2, 10, 11, 12, 13, 101, 102, 103, 104],
@@ -6989,10 +6999,14 @@ def _mk_ic6_two_stage_graph() -> _CypherTestGraph:
         ],
         columns=["s", "d", "type"],
     )
-    return _mk_graph(nodes_df, edges_df)
+    return nodes_df, edges_df
 
 
-@pytest.mark.parametrize("engine", ["pandas", "polars"])
+def _mk_ic6_two_stage_graph() -> _CypherTestGraph:
+    return _mk_graph(*_mk_ic6_two_stage_data())
+
+
+@pytest.mark.parametrize("engine", ["pandas", "polars", "cudf"])
 @pytest.mark.parametrize(
     ("case", "params", "expected_rows"),
     [
@@ -7029,15 +7043,7 @@ def test_string_cypher_two_stage_collect_reentry_empty_prefix_returns_native_emp
     expected_rows: list[dict[str, object]],
 ) -> None:
     del case
-    graph = _mk_ic6_two_stage_graph()
-    if engine == "polars":
-        pl = pytest.importorskip("polars")
-        graph = cast(
-            _CypherTestGraph,
-            _CypherTestGraph()
-            .nodes(pl.from_pandas(cast(pd.DataFrame, graph._nodes)), "id")
-            .edges(pl.from_pandas(cast(pd.DataFrame, graph._edges)), "s", "d"),
-        )
+    graph = _mk_engine_graph(engine, *_mk_ic6_two_stage_data())
 
     query = (
         "MATCH (knownTag:Tag { name: $tagName }) "
@@ -7062,13 +7068,15 @@ def test_string_cypher_two_stage_collect_reentry_empty_prefix_returns_native_emp
     assert output.to_dict(orient="records") == expected_rows
 
 
-@pytest.mark.parametrize("engine", ["pandas", "polars"])
+@pytest.mark.parametrize("engine", ["pandas", "polars", "cudf"])
 @pytest.mark.parametrize(
     ("aggregate", "expected_row"),
     [
         pytest.param("count(post) AS postCount", {"postCount": 0}, id="count"),
         pytest.param("sum(post.id) AS postSum", {"postSum": 0}, id="sum"),
         pytest.param("collect(post.id) AS postIds", {"postIds": []}, id="collect"),
+        pytest.param("avg(post.id) AS postAvg", {"postAvg": None}, id="avg"),
+        pytest.param("max(post.id) AS postMax", {"postMax": None}, id="max"),
     ],
 )
 @pytest.mark.parametrize(
@@ -7099,15 +7107,7 @@ def test_string_cypher_two_stage_collect_reentry_empty_global_aggregate_identity
     params: dict[str, object],
 ) -> None:
     del case
-    graph = _mk_ic6_two_stage_graph()
-    if engine == "polars":
-        pl = pytest.importorskip("polars")
-        graph = cast(
-            _CypherTestGraph,
-            _CypherTestGraph()
-            .nodes(pl.from_pandas(cast(pd.DataFrame, graph._nodes)), "id")
-            .edges(pl.from_pandas(cast(pd.DataFrame, graph._edges)), "s", "d"),
-        )
+    graph = _mk_engine_graph(engine, *_mk_ic6_two_stage_data())
 
     query = (
         "MATCH (knownTag:Tag { name: $tagName }) "
@@ -7127,6 +7127,8 @@ def test_string_cypher_two_stage_collect_reentry_empty_global_aggregate_identity
     assert len(output) == 1
     if output_alias == "postIds":
         assert list(output.iloc[0][output_alias]) == []
+    elif expected_row[expected_alias] is None:
+        assert pd.isna(output.iloc[0][output_alias])
     else:
         assert output.iloc[0][output_alias] == expected_row[expected_alias]
 
