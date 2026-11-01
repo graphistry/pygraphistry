@@ -10239,16 +10239,18 @@ def test_string_cypher_executes_real_cugraph_node_multi_column_write_call_on_cud
 def test_string_cypher_executes_real_cugraph_graph_write_call_on_cudf() -> None:
     pytest.importorskip("cugraph")
 
-    result = _mk_path_with_isolate_graph_cudf().gfql(
+    result = _mk_cudf_graph(
+        pd.DataFrame({"id": ["a", "b", "c", "d", "z"]}),
+        pd.DataFrame({"s": ["a", "d"], "d": ["b", "c"]}),
+    ).gfql(
         "CALL graphistry.cugraph.k_core.write({k: 1, directed: false})"
     )
 
     nodes_pdf = _to_pandas_df(result._nodes).sort_values("id").reset_index(drop=True)
-    edges_pdf = _to_pandas_df(result._edges).sort_values(["s", "d"]).reset_index(drop=True)
-    assert set(nodes_pdf["id"]) == {"a", "b", "c", "z"}
+    edges_pdf = _to_pandas_df(result._edges).sort_values("s").reset_index(drop=True)
+    assert set(nodes_pdf["id"]) == {"a", "b", "c", "d", "z"}
     assert edges_pdf.columns.tolist() == ["s", "d"]
-    edge_pairs = sorted(tuple(sorted(edge)) for edge in zip(edges_pdf["s"], edges_pdf["d"]))
-    assert edge_pairs == [("a", "b"), ("b", "c")]
+    assert list(zip(edges_pdf["s"], edges_pdf["d"])) == [("a", "b"), ("d", "c")]
 
 
 def test_string_cypher_executes_real_igraph_graph_write_call() -> None:
