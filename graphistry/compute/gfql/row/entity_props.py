@@ -120,7 +120,7 @@ def _const_text(df: DataFrameT, alias_col: str, value: str) -> SeriesT:
 
 def _false_mask(df: DataFrameT, alias_col: str) -> SeriesT:
     base = cast(SeriesT, df[alias_col])
-    return cast(SeriesT, (base == True) & False)  # noqa: E712
+    return cast(SeriesT, ~_is_null_mask(base) & False)
 
 
 def _mask_has_true(mask: SeriesT) -> bool:

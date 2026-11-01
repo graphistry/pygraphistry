@@ -209,11 +209,11 @@ def test_null_column_cudf_preserves_dtype() -> None:
     source = cudf.DataFrame({"bools": [True, False], "ints": [1, 2]})
     out = null_column(source, "missing", dtype_from="bools")
     assert str(out["missing"].dtype) == "bool"
-    assert out["missing"].isna().all().item()
+    assert out["missing"].isna().all()
 
     out = null_column(source, "missing", dtype_from="ints")
     assert str(out["missing"].dtype) == "int64"
-    assert out["missing"].isna().all().item()
+    assert out["missing"].isna().all()
 
 
 @polars_only
