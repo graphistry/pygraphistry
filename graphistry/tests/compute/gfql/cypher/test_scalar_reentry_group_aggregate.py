@@ -76,7 +76,7 @@ def test_scalar_reentry_defers_aggregation_until_after_union(engine: str) -> Non
         result = graph.gfql(query, engine=engine)
         records = (
             result._nodes.to_dicts()
-            if engine == "polars"
+            if engine in {"polars", "polars-gpu"}
             else result._nodes.to_dict(orient="records")
         )
         assert sorted(records, key=lambda row: tuple(sorted(row.items()))) == expected
@@ -136,7 +136,7 @@ def test_scalar_reentry_preserves_unequal_seed_multiplicity(engine: str) -> None
         result = graph.gfql(query, engine=engine)
         records = (
             result._nodes.to_dicts()
-            if engine == "polars"
+            if engine in {"polars", "polars-gpu"}
             else result._nodes.to_dict(orient="records")
         )
         assert sorted(records, key=lambda row: row["t"]) == expected
