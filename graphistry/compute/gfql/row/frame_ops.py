@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING, Any, Dict, Iterable, List, Optional, Sequence,
 
 import pandas as pd
 
-from graphistry.compute.dataframe_utils import df_cons as template_df_cons, is_cudf_obj
+from graphistry.compute.dataframe_utils import df_cons as template_df_cons
 from graphistry.compute.gfql.row.prefilter import AliasPrefilters
 from graphistry.utils.json import JSONVal
 
@@ -95,9 +95,7 @@ def _restore_alias_shadowed_user_column(
             return table_df
     else:
         base_is_marker = str(getattr(base_frame[source], "dtype", "")).startswith("bool")
-        if base_is_marker and (
-            is_cudf_obj(table_df) or source in alias_markers
-        ):
+        if base_is_marker and source in alias_markers:
             return table_df
     key = base_graph._node if table == "nodes" else base_graph._edge  # type: ignore[union-attr]
     if _is_polars(table_df):

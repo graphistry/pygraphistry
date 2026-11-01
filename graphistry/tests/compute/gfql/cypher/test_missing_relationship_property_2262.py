@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import pandas as pd
 import pytest
 from typing import Any
@@ -11,29 +12,48 @@ from graphistry.compute.exceptions import ErrorCode, GFQLSchemaError, GFQLValida
 def _records(frame: Any) -> list[dict[str, Any]]:
     if hasattr(frame, "to_dicts"):
         return frame.to_dicts()
+    if hasattr(frame, "to_pandas"):
+        return frame.to_pandas().to_dict(orient="records")
     return frame.to_dict(orient="records")
 
 
-@pytest.mark.parametrize("engine", ["pandas", "polars"])
+ENGINES = [
+    "pandas",
+    pytest.param("cudf", marks=pytest.mark.skipif(
+        os.environ.get("TEST_CUDF") != "1", reason="cudf tests need TEST_CUDF=1"
+    )),
+    "polars",
+    pytest.param("polars-gpu", marks=pytest.mark.skipif(
+        os.environ.get("TEST_POLARS_GPU") != "1", reason="requires actual polars-gpu"
+    )),
+]
+
+
+def _frames_for_engine(engine: str, *frames: pd.DataFrame) -> tuple[Any, ...]:
+    if engine == "cudf":
+        import cudf
+        return tuple(cudf.from_pandas(frame) for frame in frames)
+    if engine in {"polars", "polars-gpu"}:
+        pl = pytest.importorskip("polars")
+        return tuple(pl.from_pandas(frame) for frame in frames)
+    return frames
+
+
+@pytest.mark.parametrize("engine", ENGINES)
 def test_missing_relationship_property_does_not_return_alias_marker(engine: str) -> None:
-    pl = pytest.importorskip("polars") if engine == "polars" else None
-    nodes: Any = pd.DataFrame({"id": ["a", "b"]})
-    missing_edges: Any = pd.DataFrame({"s": ["a"], "d": ["b"], "type": ["X"]})
-    present_edges: Any = pd.DataFrame({
+    nodes, missing_edges, present_edges = _frames_for_engine(
+        engine,
+        pd.DataFrame({"id": ["a", "b"]}),
+        pd.DataFrame({"s": ["a"], "d": ["b"], "type": ["X"]}),
+        pd.DataFrame({
         "s": ["a"], "d": ["b"], "type": ["X"], "r": ["edge-value"]
-    })
-    boolean_edges: Any = pd.DataFrame({
+        }),
+    )
+    boolean_edges, nullable_edges = _frames_for_engine(engine, pd.DataFrame({
         "s": ["a"], "d": ["b"], "type": ["X"], "r": [False]
-    })
-    nullable_edges: Any = pd.DataFrame({
+    }), pd.DataFrame({
         "s": ["a"], "d": ["b"], "type": ["X"], "r": [None]
-    })
-    if pl is not None:
-        nodes = pl.from_pandas(nodes)
-        missing_edges = pl.from_pandas(missing_edges)
-        present_edges = pl.from_pandas(present_edges)
-        boolean_edges = pl.from_pandas(boolean_edges)
-        nullable_edges = pl.from_pandas(nullable_edges)
+    }))
 
     def graph(edges: Any) -> Any:
         return (
@@ -93,7 +113,7 @@ def test_missing_relationship_property_does_not_return_alias_marker(engine: str)
     ) == [{"id": "b"}]
 
     noncolliding_missing = "MATCH (a)-[rel:X]->(b) RETURN rel.r AS x"
-    if engine == "polars":
+    if engine in {"polars", "polars-gpu"}:
         with pytest.raises(NotImplementedError, match="row op 'select'"):
             missing_graph.gfql(noncolliding_missing, engine=engine)
     else:
@@ -124,15 +144,11 @@ def test_missing_relationship_property_does_not_return_alias_marker(engine: str)
     assert exc_info.value.code == ErrorCode.E108
 
 
-@pytest.mark.parametrize("engine", ["pandas", "polars"])
+@pytest.mark.parametrize("engine", ENGINES)
 def test_boolean_node_property_shadowing_alias_is_restored(engine: str) -> None:
-    pl = pytest.importorskip("polars") if engine == "polars" else None
-    nodes: Any = pd.DataFrame({
+    nodes, edges = _frames_for_engine(engine, pd.DataFrame({
         "id": ["a", "b"], "label__P": [True, True], "kind": [False, True]
-    })
-    edges: Any = pd.DataFrame({"s": ["a"], "d": ["b"], "type": ["X"]})
-    if pl is not None:
-        nodes, edges = pl.from_pandas(nodes), pl.from_pandas(edges)
+    }), pd.DataFrame({"s": ["a"], "d": ["b"], "type": ["X"]}))
     g = graphistry.bind(source="s", destination="d", node="id", edge="type").nodes(nodes).edges(edges)
 
     for query in (
@@ -151,12 +167,12 @@ def test_boolean_node_property_shadowing_alias_is_restored(engine: str) -> None:
 
     # Negative control: without a real same-named property, the generated Boolean
     # alias marker stays internal and resolves as a missing property.
-    marker_only_nodes: Any = pd.DataFrame({"id": ["a", "b"], "label__P": [True, True]})
-    if pl is not None:
-        marker_only_nodes = pl.from_pandas(marker_only_nodes)
-    marker_only = graphistry.bind(source="s", destination="d", node="id", edge="type").nodes(
-        marker_only_nodes
-    ).edges(edges)
+    (marker_only_nodes,) = _frames_for_engine(
+        engine, pd.DataFrame({"id": ["a", "b"], "label__P": [True, True]})
+    )
+    marker_only = graphistry.bind(
+        source="s", destination="d", node="id", edge="type"
+    ).nodes(marker_only_nodes).edges(edges)
     assert _records(
         marker_only.gfql("MATCH (a:P) RETURN a.a AS x", engine=engine)._nodes
     ) == [{"x": None}, {"x": None}]
