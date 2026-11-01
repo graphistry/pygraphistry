@@ -463,7 +463,7 @@ def test_direct_gfql_multihop_named_edge_alias_marks_only_complete_path(
         ],
         engine=engine,
     )
-    if engine == "polars":
+    if engine in {"polars", "polars-gpu"}:
         edge_rows = result._edges.to_dicts()
     else:
         edge_rows = result._edges.to_dict("records")
