@@ -21,6 +21,7 @@ Four defects, all pinned on BOTH engines with hand-computed openCypher oracles:
 Discriminating controls from the probe are pinned alongside each fix so a future
 regression cannot pass by repairing only one side.
 """
+import os
 from typing import List, Literal
 
 import pandas as pd
@@ -33,7 +34,12 @@ from graphistry.compute.gfql.cypher.api import compile_cypher
 
 pl = pytest.importorskip("polars")
 
-ENGINES = ["pandas", "polars"]
+ENGINES = [
+    "pandas",
+    "polars",
+    pytest.param("polars-gpu", marks=pytest.mark.skipif(os.environ.get("TEST_POLARS_GPU") != "1", reason="requires actual polars-gpu")),
+    pytest.param("cudf", marks=pytest.mark.skipif(os.environ.get("TEST_CUDF") != "1", reason="cudf tests need TEST_CUDF=1")),
+]
 
 
 # ---------------------------------------------------------------- fixtures
@@ -101,8 +107,11 @@ MULTIHOP_EDGES = pd.DataFrame({
 
 
 def _graph(nodes: pd.DataFrame, edges: pd.DataFrame, engine: str):
-    if engine == "polars":
+    if engine in {"polars", "polars-gpu"}:
         nodes, edges = pl.from_pandas(nodes), pl.from_pandas(edges)
+    elif engine == "cudf":
+        cudf = pytest.importorskip("cudf")
+        nodes, edges = cudf.from_pandas(nodes), cudf.from_pandas(edges)
     return graphistry.nodes(nodes, "id").edges(edges, "s", "d")
 
 
@@ -114,7 +123,10 @@ def _rows(g, query: str, engine: str):
     frame = g.gfql(query, engine=engine)._nodes
     if frame is None:
         return []
-    records = frame.to_dicts() if isinstance(frame, pl.DataFrame) else frame.to_dict("records")
+    if isinstance(frame, pl.DataFrame):
+        records = frame.to_dicts()
+    else:
+        records = (frame.to_pandas() if hasattr(frame, "to_pandas") else frame).to_dict("records")
     return [{k: _null(v) for k, v in r.items()} for r in records]
 
 
@@ -812,6 +824,7 @@ def test_restore_alias_shadowed_user_column_branches() -> None:
     assert restored_pl_bool[restore_col].to_list() == [True, False]
 
 
+@pytest.mark.skipif(os.environ.get("TEST_CUDF") != "1", reason="cudf tests need TEST_CUDF=1")
 def test_cudf_rows_route_self_named_alias_parity() -> None:
     """cuDF (dataframe ops only): the node shape crashed with a raw mixed-types
     TypeError from the marker/user-column coalesce; both shapes now match pandas."""
@@ -826,6 +839,7 @@ def test_cudf_rows_route_self_named_alias_parity() -> None:
     assert sorted(out.to_pandas()["t"]) == ["K", "K"]
 
 
+@pytest.mark.skipif(os.environ.get("TEST_CUDF") != "1", reason="cudf tests need TEST_CUDF=1")
 def test_cudf_unshadow_and_rebind_guard_parity() -> None:
     """cuDF (dataframe ops only): the marker unshadow reads the user value and
     the rebind guard declines identically."""
@@ -844,7 +858,13 @@ def test_cudf_unshadow_and_rebind_guard_parity() -> None:
     assert "rebind an entity alias" in str(exc_info.value)
 
 
-@pytest.mark.parametrize("backend", ["pandas", "cudf"])
+@pytest.mark.parametrize(
+    "backend",
+    [
+        "pandas",
+        pytest.param("cudf", marks=pytest.mark.skipif(os.environ.get("TEST_CUDF") != "1", reason="cudf tests need TEST_CUDF=1")),
+    ],
+)
 @pytest.mark.parametrize("keys", [[], [2, 1], [2, 1, 2], [2, 99, 1]])
 @pytest.mark.parametrize("duplicate_index", [False, True])
 @pytest.mark.parametrize("values", [[10, 20], ["first", "second"]])
