@@ -369,7 +369,7 @@ def test_whole_entity_projection_of_shadowing_alias_omits_the_column(engine: str
 )
 @pytest.mark.parametrize("engine", ENGINES)
 def test_single_alias_and_cartesian_shadowed_alias_reads_the_user_value(
-    engine: str, shape: str, query: str
+    engine: str, shape: str, query: str, record_property
 ) -> None:
     """#1911 defect 4 (was RESIDUAL): the single-alias ``rows(table=..., source=...)``
     route and the cartesian binding path read properties off the chain output frame,
@@ -385,12 +385,17 @@ def test_single_alias_and_cartesian_shadowed_alias_reads_the_user_value(
             return len(rows) == 9 and sorted({r["k"] for r in rows}) == ["K1", "K2", "K3"]
         return sorted(r["k"] for r in rows) == [7, 8]
 
+    if engine == "polars-gpu":
+        record_property("gpu_decline_shapes", "single-node,cartesian")
+
     try:
         rows = _run(SHADOW_NODES, SHADOW_EDGES, query, engine)
     except NotImplementedError:
         assert engine == "polars-gpu"
-        assert shape in {"single-node"}
+        assert shape in {"single-node", "cartesian"}
+        record_property("gpu_capability", "declined")
         return
+    record_property("gpu_capability", "served")
     assert matches(rows)
 
 
