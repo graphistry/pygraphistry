@@ -358,8 +358,19 @@ def test_whole_entity_projection_of_shadowing_alias_omits_the_column(engine: str
 
 # ---------------------------------------- defect-4 remaining shapes (fixed)
 
+@pytest.mark.parametrize(
+    ("shape", "query"),
+    [
+        ("single-node", "MATCH (kind:P) RETURN kind.kind AS k"),
+        ("cartesian", "MATCH (kind:P), (b:P) RETURN kind.kind AS k, b.id AS bi"),
+        ("bare-edge", "MATCH (a:P)-[w:K]->(b:P) RETURN w.w AS k"),
+    ],
+    ids=["single-node", "cartesian", "bare-edge"],
+)
 @pytest.mark.parametrize("engine", ENGINES)
-def test_single_alias_and_cartesian_shadowed_alias_reads_the_user_value(engine: str) -> None:
+def test_single_alias_and_cartesian_shadowed_alias_reads_the_user_value(
+    engine: str, shape: str, query: str
+) -> None:
     """#1911 defect 4 (was RESIDUAL): the single-alias ``rows(table=..., source=...)``
     route and the cartesian binding path read properties off the chain output frame,
     where the alias marker had overwritten the user column. The rows route now restores
@@ -367,18 +378,19 @@ def test_single_alias_and_cartesian_shadowed_alias_reads_the_user_value(engine: 
     cartesian paths unshadow like the connected one. Anti-vacuity: 3 node rows / 9
     cartesian rows / 2 relationship rows, distinct values -- an all-``True`` marker
     leak or an empty frame cannot pass."""
+    gpu_declined_shapes = {"single-node", "cartesian", "bare-edge"}
     if engine == "polars-gpu":
-        with pytest.raises(NotImplementedError, match="plan not GPU-executable"):
-            _run(SHADOW_NODES, SHADOW_EDGES, "MATCH (kind:P) RETURN kind.kind AS k", engine)
+        assert shape in gpu_declined_shapes
+        with pytest.raises(NotImplementedError):
+            _run(SHADOW_NODES, SHADOW_EDGES, query, engine)
         return
-    rows = _run(SHADOW_NODES, SHADOW_EDGES, "MATCH (kind:P) RETURN kind.kind AS k", engine)
-    assert sorted(r["k"] for r in rows) == ["K1", "K2", "K3"]
-    rows = _run(SHADOW_NODES, SHADOW_EDGES,
-                "MATCH (kind:P), (b:P) RETURN kind.kind AS k, b.id AS bi", engine)
-    assert len(rows) == 9 and sorted({r["k"] for r in rows}) == ["K1", "K2", "K3"]
-    # bare relationship-property projection (rows(table='edges', source=alias) route)
-    rows = _run(SHADOW_NODES, SHADOW_EDGES, "MATCH (a:P)-[w:K]->(b:P) RETURN w.w AS k", engine)
-    assert sorted(r["k"] for r in rows) == [7, 8]
+    if shape == "single-node":
+        assert sorted(r["k"] for r in _run(SHADOW_NODES, SHADOW_EDGES, query, engine)) == ["K1", "K2", "K3"]
+    elif shape == "cartesian":
+        rows = _run(SHADOW_NODES, SHADOW_EDGES, query, engine)
+        assert len(rows) == 9 and sorted({r["k"] for r in rows}) == ["K1", "K2", "K3"]
+    else:
+        assert sorted(r["k"] for r in _run(SHADOW_NODES, SHADOW_EDGES, query, engine)) == [7, 8]
 
 
 def test_multihop_relationship_alias_reads_only_path_valid_edge() -> None:
@@ -623,9 +635,6 @@ def test_scalar_rebind_stays_an_error(
         assert exc_info.value.code == ErrorCode.E306
         assert exc_info.value.context["field"] == "function"
         assert exc_info.value.context["value"] == "select"
-    elif engine == "polars-gpu":
-        with pytest.raises(NotImplementedError, match="plan not GPU-executable"):
-            _run(PEOPLE_NODES, PEOPLE_EDGES, query, engine)
     else:
         with pytest.raises(NotImplementedError):
             _run(PEOPLE_NODES, PEOPLE_EDGES, query, engine)
