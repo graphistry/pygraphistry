@@ -356,10 +356,31 @@ def apply_result_projection(
             if column.kind != "whole_row":
                 continue
             source_alias = column.source_name or projection.alias
-            sources = alias_field_sources(rows_df.columns, source_alias)
-            if sources is not None and source_alias in sources:
-                marker_column = source_alias if source_alias in rows_df.columns else sources[source_alias]
-                marker_frame = rows_df[[marker_column]]
+            marker_frame = None
+            if projection.table == "nodes":
+                entity_id_column = result._node if result._node is not None else source_node_id
+            else:
+                entity_id_column = result._edge
+            alias_sources = alias_field_sources(rows_df.columns, source_alias)
+            identity_source = (
+                alias_sources.get(str(entity_id_column))
+                if entity_id_column is not None and alias_sources is not None
+                else None
+            )
+            if entity_id_column is not None and str(entity_id_column) in rows_df.columns:
+                marker_frame = rows_df[[str(entity_id_column)]]
+            elif identity_source is not None and identity_source in rows_df.columns:
+                marker_frame = rows_df[[identity_source]]
+            else:
+                if source_alias in rows_df.columns:
+                    marker_column = source_alias
+                elif alias_sources is not None and source_alias in alias_sources:
+                    marker_column = alias_sources[source_alias]
+                else:
+                    marker_column = None
+                if marker_column is not None:
+                    marker_frame = rows_df[[marker_column]]
+            if marker_frame is not None:
                 presence[column.output_name] = marker_frame.clone() if is_polars_df(marker_frame) else marker_frame.copy()
     out._cypher_entity_projection_presence = presence
     return out
