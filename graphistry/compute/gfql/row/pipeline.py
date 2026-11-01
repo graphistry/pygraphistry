@@ -14,6 +14,7 @@ import pandas as pd
 from graphistry.Engine import (
     is_polars_df,
     df_to_engine,
+    null_column,
     Engine,
     EngineAbstract,
     is_series_like,
@@ -4137,7 +4138,7 @@ class RowPipelineMixin:
                 return lookup_source
             # Null the alias marker's qualified property slot so it cannot render as user data.
             lookup_source = lookup_source.copy()
-            lookup_source[alias] = None
+            lookup_source = null_column(lookup_source, alias, dtype_from=alias)
             return lookup_source
         if key_col not in base_frame.columns:
             return lookup_source

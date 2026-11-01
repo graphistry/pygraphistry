@@ -1060,6 +1060,39 @@ def assign_constant_columns(df: "DataFrameT", values: Dict[str, Any]) -> "DataFr
     return df.assign(**values)
 
 
+def null_column(df: "DataFrameT", name: str, *, dtype_from: str) -> "DataFrameT":
+    """Return ``df`` with ``name`` set to every-row null, preserving the source dtype.
+
+    Pandas-backed engines use the matching nullable extension dtype. This avoids both
+    object dtype when the source is bool/numeric and the cuDF rejection of untyped
+    ``None`` scalar assignment.
+    """
+    if is_polars_df(df):
+        import polars as pl
+
+        source_dtype = df.schema[dtype_from]
+        return df.with_columns(pl.lit(None, dtype=source_dtype).alias(name))  # type: ignore[return-value]
+
+    source = df[dtype_from]
+    if is_cudf_series(source):
+        import cudf
+
+        nulls = cudf.Series(None, index=df.index, dtype=source.dtype)
+    else:
+        source_dtype = source.dtype
+        if source_dtype.kind == "b":
+            target_dtype: "pd.dtype" = pd.BooleanDtype()
+        elif source_dtype.kind in {"i", "u"}:
+            prefix = "Int" if source_dtype.kind == "i" else "UInt"
+            target_dtype = getattr(pd, f"{prefix}{source_dtype.itemsize * 8}Dtype")()
+        elif source_dtype.kind == "f":
+            target_dtype = pd.Float64Dtype()
+        else:
+            target_dtype = source_dtype
+        nulls = pd.Series(pd.NA, index=df.index, dtype=target_dtype)
+    return df.assign(**{name: nulls})
+
+
 def drop_columns(df: "DataFrameT", cols: Sequence[str]) -> "DataFrameT":
     """Drop columns by name, engine-aware (polars ``drop(list)`` vs pandas ``drop(columns=)``)."""
     if is_polars_df(df):
