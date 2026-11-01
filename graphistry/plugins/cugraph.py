@@ -42,6 +42,92 @@ def _unique_ids_to_set(values: Union[SeriesT, np.ndarray]) -> Set[NodeId]:
     raise TypeError(f'Unsupported unique-ID type: {type(values)}')
 
 
+def _preserve_graph_edge_orientation(
+    returned_edges: DataFrameT,
+    original_edges: DataFrameT,
+    source: str,
+    destination: str,
+) -> DataFrameT:
+    """Restore caller edge orientation after a cuGraph graph operation.
+
+    cuGraph may canonicalize the endpoint order in an undirected result. The
+    Graphistry contract is that graph-write output preserves each original
+    ``source``/``destination`` orientation, so map returned endpoint pairs back
+    to the matching caller pair.
+    """
+    try:
+        import cudf
+    except ImportError:
+        cudf = None
+
+    original = (
+        df_to_gdf(original_edges)
+        if cudf is not None and isinstance(returned_edges, cudf.DataFrame)
+        else original_edges.copy()
+    )
+    original = original.drop_duplicates(subset=[source, destination])
+
+    returned_id = '__cugraph_returned_edge_id__'
+    original_id = '__cugraph_original_edge_id__'
+    match_source = '__cugraph_match_source__'
+    match_destination = '__cugraph_match_destination__'
+    while returned_id in returned_edges.columns:
+        returned_id = f'_{returned_id}'
+    while original_id in original.columns or original_id == returned_id:
+        original_id = f'_{original_id}'
+    while (
+        match_source in list(returned_edges.columns) + list(original.columns)
+        or match_destination in list(returned_edges.columns) + list(original.columns)
+        or match_source == match_destination
+    ):
+        match_source = f'_{match_source}'
+        match_destination = f'_{match_destination}'
+
+    original[original_id] = range(len(original))
+    orientation = original[[original_id, source, destination]].rename(
+        columns={source: match_source, destination: match_destination}
+    )
+    orientation[source] = original[source]
+    orientation[destination] = original[destination]
+
+    returned = returned_edges.copy()
+    returned[returned_id] = range(len(returned))
+
+    forward = returned.rename(
+        columns={source: match_source, destination: match_destination}
+    ).merge(
+        orientation,
+        on=[match_source, match_destination],
+    )
+
+    reversed_returned = returned.copy()
+    reversed_returned[source] = returned[destination]
+    reversed_returned[destination] = returned[source]
+    reverse = reversed_returned.rename(
+        columns={source: match_source, destination: match_destination}
+    ).merge(
+        orientation,
+        on=[match_source, match_destination],
+    )
+
+    concat = (
+        cudf.concat
+        if cudf is not None and isinstance(returned_edges, cudf.DataFrame)
+        else pd.concat
+    )
+    matches = concat([forward, reverse]).drop_duplicates(
+        subset=[returned_id], keep='first'
+    )
+    if matches[returned_id].nunique() != len(returned):
+        raise ValueError(
+            'cuGraph graph-algorithm output contains an edge absent from the original graph'
+        )
+    matches = matches.sort_values(returned_id).drop(
+        columns=[returned_id, original_id, match_source, match_destination]
+    )
+    return matches[list(returned_edges.columns)]
+
+
 def _restore_graph_edge_attrs(
     returned_edges: DataFrameT,
     original_edges: DataFrameT,
@@ -163,10 +249,17 @@ def _restore_graph_return_edge_attrs(
             if column not in (source, destination)
         ]
         if attr_columns:
-            restored = _restore_graph_edge_attrs(
+            oriented_edges = _preserve_graph_edge_orientation(
                 graph._edges, original_edges, source, destination
             )
+            restored = _restore_graph_edge_attrs(
+                oriented_edges, original_edges, source, destination
+            )
             return graph.edges(restored, source, destination)
+        oriented_edges = _preserve_graph_edge_orientation(
+            graph._edges, original_edges, source, destination
+        )
+        return graph.edges(oriented_edges, source, destination)
     return graph
 
 

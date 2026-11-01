@@ -6,6 +6,7 @@ from graphistry.constants import SRC, DST, NODE
 from graphistry.plugins.cugraph import (
     SRC_CUGRAPH, DST_CUGRAPH, NODE_CUGRAPH,
     _restore_graph_edge_attrs, _restore_graph_return_edge_attrs,
+    _preserve_graph_edge_orientation,
     from_cugraph, to_cugraph,
     compute_cugraph, layout_cugraph,
     compute_algs,
@@ -943,6 +944,31 @@ class Test_restore_graph_edge_attrs:
         assert restored._edges.shape == (1, 4)
         assert restored._edges["__cugraph_returned_edge_id__"].tolist() == ["user"]
         assert restored._edges["label"].tolist() == ["ab"]
+
+
+class Test_preserve_graph_edge_orientation:
+    def test_restores_reverse_endpoint_pairs(self):
+        returned = pd.DataFrame({"s": ["a", "c"], "d": ["b", "d"]})
+        original = pd.DataFrame({"s": ["a", "d"], "d": ["b", "c"]})
+
+        restored = _preserve_graph_edge_orientation(returned, original, "s", "d")
+
+        assert list(zip(restored["s"], restored["d"])) == [("a", "b"), ("d", "c")]
+
+    def test_preserves_forward_endpoint_pairs(self):
+        returned = pd.DataFrame({"s": ["a", "b"], "d": ["b", "c"]})
+        original = pd.DataFrame({"s": ["a", "b"], "d": ["b", "c"]})
+
+        restored = _preserve_graph_edge_orientation(returned, original, "s", "d")
+
+        assert list(zip(restored["s"], restored["d"])) == [("a", "b"), ("b", "c")]
+
+    def test_declines_unmatched_returned_edges(self):
+        returned = pd.DataFrame({"s": ["a"], "d": ["z"]})
+        original = pd.DataFrame({"s": ["a"], "d": ["b"]})
+
+        with pytest.raises(ValueError, match="absent from the original graph"):
+            _preserve_graph_edge_orientation(returned, original, "s", "d")
 
 
 @pytest.mark.skipif(not test_cugraph, reason="Requires TEST_CUGRAPH=1")
