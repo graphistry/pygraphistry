@@ -20,7 +20,7 @@ ENGINES = [
 ]
 
 
-def _graph(edge_rows, engine="pandas"):
+def _graph(edge_rows, *, engine="pandas"):
     nodes = pd.DataFrame({
         "id": ["c1", "c2", "a", "b", "z"],
         "name": ["c1", "c2", "same", "other", "same"],
@@ -53,6 +53,11 @@ def _assert_polars_capability_decline(graph, query, engine, route):
         _rows(graph, query, engine=engine)
 
 
+def _require_polars(engine):
+    if engine in {"polars", "polars-gpu"}:
+        pytest.importorskip("polars")
+
+
 _REENTRY_QUERY = (
     "MATCH (country:Country)-[:HAS_CITY]->(city:City) "
     "WITH country, collect(city) AS cities "
@@ -78,15 +83,17 @@ _REENTRY_QUERY = (
 )
 @pytest.mark.parametrize("engine", ENGINES)
 def test_issue_2258_collected_node_membership_uses_identity(edges, expected, engine):
+    _require_polars(engine)
     if engine in {"polars", "polars-gpu"}:
-        _assert_polars_capability_decline(_graph(edges, engine), _REENTRY_QUERY, engine, "with_")
+        _assert_polars_capability_decline(_graph(edges, engine=engine), _REENTRY_QUERY, engine, "with_")
         return
-    assert _rows(_graph(edges, engine), _REENTRY_QUERY, engine=engine) == expected
+    assert _rows(_graph(edges, engine=engine), _REENTRY_QUERY, engine=engine) == expected
 
 
 @pytest.mark.parametrize("engine", ENGINES)
 def test_issue_2258_direct_list_membership_and_unary_not_use_identity(engine):
-    graph = _graph([
+    _require_polars(engine)
+    graph = _graph(engine=engine, edge_rows=[
         ("a", "a", "CAND"),
         ("a", "z", "CAND"),
         ("a", "b", "CAND"),
@@ -122,7 +129,8 @@ def test_issue_2258_direct_list_membership_and_unary_not_use_identity(engine):
 )
 @pytest.mark.parametrize("engine", ENGINES)
 def test_issue_2258_mixed_entity_lists_keep_identity_and_null_semantics(rhs, expected_not, engine):
-    graph = _graph([
+    _require_polars(engine)
+    graph = _graph(engine=engine, edge_rows=[
         ("a", "a", "CAND"),
         ("a", "z", "CAND"),
         ("a", "b", "CAND"),
@@ -144,6 +152,7 @@ def test_issue_2258_mixed_entity_lists_keep_identity_and_null_semantics(rhs, exp
 
 @pytest.mark.parametrize("engine", ENGINES)
 def test_issue_2258_numeric_node_id_does_not_match_same_scalar_list_value(engine):
+    _require_polars(engine)
     nodes = pd.DataFrame({
         "id": [1, 2],
         "name": ["same", "same"],
@@ -168,7 +177,8 @@ def test_issue_2258_numeric_node_id_does_not_match_same_scalar_list_value(engine
 
 @pytest.mark.parametrize("engine", ENGINES)
 def test_issue_2258_dynamic_scalar_and_null_rhs_items_preserve_tri_values(engine):
-    graph = _graph([
+    _require_polars(engine)
+    graph = _graph(engine=engine, edge_rows=[
         ("a", "a", "CAND"),
         ("a", "z", "CAND"),
         ("a", "b", "CAND"),
@@ -200,7 +210,8 @@ def test_issue_2258_dynamic_scalar_and_null_rhs_items_preserve_tri_values(engine
 )
 @pytest.mark.parametrize("engine", ENGINES)
 def test_issue_2258_nested_head_entity_membership_uses_identity(entity_expr, engine):
-    graph = _graph([
+    _require_polars(engine)
+    graph = _graph(engine=engine, edge_rows=[
         ("a", "a", "CAND"),
         ("a", "z", "CAND"),
     ])
@@ -221,7 +232,8 @@ def test_issue_2258_nested_head_entity_membership_uses_identity(entity_expr, eng
 
 @pytest.mark.parametrize("engine", ENGINES)
 def test_issue_2258_generated_identity_carry_avoids_trailing_alias_collision(engine):
-    graph = _graph([("c1", "a", "HAS_CITY"), ("c1", "a", "CAND")], engine)
+    _require_polars(engine)
+    graph = _graph([("c1", "a", "HAS_CITY"), ("c1", "a", "CAND")], engine=engine)
     query = (
         "MATCH (country:Country)-[:HAS_CITY]->(city:City) "
         "WITH country, collect(city) AS cities "
@@ -246,7 +258,8 @@ def test_issue_2258_generated_identity_carry_avoids_trailing_alias_collision(eng
 
 @pytest.mark.parametrize("engine", ENGINES)
 def test_issue_2258_preserves_alias_and_property_equality_and_collect_display(engine):
-    graph = _graph([
+    _require_polars(engine)
+    graph = _graph(engine=engine, edge_rows=[
         ("a", "a", "CAND"),
         ("a", "z", "CAND"),
         ("a", "b", "CAND"),
@@ -282,7 +295,7 @@ def test_issue_2258_preserves_alias_and_property_equality_and_collect_display(en
         "(:City {name: 'other'})",
         "(:City {name: 'same'})",
     ]
-    reentry_graph = _graph([("c1", "a", "HAS_CITY"), ("c1", "a", "CAND")], engine)
+    reentry_graph = _graph([("c1", "a", "HAS_CITY"), ("c1", "a", "CAND")], engine=engine)
     if engine in {"polars", "polars-gpu"}:
         _assert_polars_capability_decline(
             reentry_graph,
