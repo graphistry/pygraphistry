@@ -42,6 +42,27 @@ def _unique_ids_to_set(values: Union[SeriesT, np.ndarray]) -> Set[NodeId]:
     raise TypeError(f'Unsupported unique-ID type: {type(values)}')
 
 
+def _preserves_positional_orientation(
+    returned_edges: DataFrameT,
+    original_edges: DataFrameT,
+    source: str,
+    destination: str,
+) -> bool:
+    if len(returned_edges) != len(original_edges):
+        return False
+
+    for column in (source, destination):
+        returned_values = returned_edges[column]
+        original_values = original_edges[column]
+        if is_cudf_series(returned_values) != is_cudf_series(original_values):
+            return False
+        if not returned_values.reset_index(drop=True).equals(
+            original_values.reset_index(drop=True)
+        ):
+            return False
+    return True
+
+
 def _preserve_graph_edge_orientation(
     returned_edges: DataFrameT,
     original_edges: DataFrameT,
@@ -55,6 +76,11 @@ def _preserve_graph_edge_orientation(
     ``source``/``destination`` orientation, so map returned endpoint pairs back
     to the matching caller pair.
     """
+    if _preserves_positional_orientation(
+        returned_edges, original_edges, source, destination
+    ):
+        return returned_edges
+
     try:
         import cudf
     except ImportError:

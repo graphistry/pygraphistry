@@ -957,6 +957,34 @@ class Test_restore_graph_edge_attrs:
 
 
 class Test_preserve_graph_edge_orientation:
+    def test_returns_unchanged_on_positional_fast_path(self, monkeypatch):
+        def fail_merge(*args, **kwargs):
+            raise AssertionError("positionally oriented edges should not merge")
+
+        returned = pd.DataFrame(
+            {"s": ["a", "b"], "d": ["b", "c"], "weight": [1, 2]},
+            index=[7, 8],
+        )
+        original = pd.DataFrame({"s": ["a", "b"], "d": ["b", "c"]})
+        monkeypatch.setattr(pd.DataFrame, "merge", fail_merge)
+
+        restored = _preserve_graph_edge_orientation(returned, original, "s", "d")
+
+        assert restored is returned
+        assert list(restored.columns) == ["s", "d", "weight"]
+
+    def test_fast_path_keeps_duplicate_endpoint_pairs(self, monkeypatch):
+        def fail_merge(*args, **kwargs):
+            raise AssertionError("positionally oriented edges should not merge")
+
+        returned = pd.DataFrame({"s": ["a", "a"], "d": ["b", "b"]})
+        original = pd.DataFrame({"s": ["a", "a"], "d": ["b", "b"]})
+        monkeypatch.setattr(pd.DataFrame, "merge", fail_merge)
+
+        restored = _preserve_graph_edge_orientation(returned, original, "s", "d")
+
+        assert restored is returned
+
     def test_restores_reverse_endpoint_pairs(self):
         returned = pd.DataFrame({"s": ["a", "c"], "d": ["b", "d"]})
         original = pd.DataFrame({"s": ["a", "d"], "d": ["b", "c"]})
@@ -965,6 +993,15 @@ class Test_preserve_graph_edge_orientation:
 
         _assert_arrow_safe_range_index(restored)
         assert list(zip(restored["s"], restored["d"])) == [("a", "b"), ("d", "c")]
+
+    def test_restores_duplicate_reversed_endpoint_pairs(self):
+        returned = pd.DataFrame({"s": ["b", "b"], "d": ["a", "a"]})
+        original = pd.DataFrame({"s": ["a", "a"], "d": ["b", "b"]})
+
+        restored = _preserve_graph_edge_orientation(returned, original, "s", "d")
+
+        _assert_arrow_safe_range_index(restored)
+        assert list(zip(restored["s"], restored["d"])) == [("a", "b"), ("a", "b")]
 
     def test_preserves_forward_endpoint_pairs(self):
         returned = pd.DataFrame({"s": ["a", "b"], "d": ["b", "c"]})
@@ -981,6 +1018,30 @@ class Test_preserve_graph_edge_orientation:
 
         with pytest.raises(ValueError, match="absent from the original graph"):
             _preserve_graph_edge_orientation(returned, original, "s", "d")
+
+
+@pytest.mark.skipif(not test_cugraph, reason="Requires TEST_CUGRAPH=1")
+class Test_preserve_graph_edge_orientation_gpu:
+    def test_returns_unchanged_on_cudf_positional_fast_path(self):
+        import cudf
+
+        returned = cudf.DataFrame({"s": ["a", "b"], "d": ["b", "c"]})
+        original = cudf.DataFrame({"s": ["a", "b"], "d": ["b", "c"]})
+
+        restored = _preserve_graph_edge_orientation(returned, original, "s", "d")
+
+        assert restored is returned
+
+    def test_restores_cudf_reverse_endpoint_pairs(self):
+        import cudf
+
+        returned = cudf.DataFrame({"s": ["b"], "d": ["a"]})
+        original = cudf.DataFrame({"s": ["a"], "d": ["b"]})
+
+        restored = _preserve_graph_edge_orientation(returned, original, "s", "d")
+
+        assert restored["s"].to_arrow().to_pylist() == ["a"]
+        assert restored["d"].to_arrow().to_pylist() == ["b"]
 
 
 @pytest.mark.skipif(not test_cugraph, reason="Requires TEST_CUGRAPH=1")
