@@ -22,7 +22,7 @@ Discriminating controls from the probe are pinned alongside each fix so a future
 regression cannot pass by repairing only one side.
 """
 import os
-from typing import List, Literal
+from typing import Any, List, Literal
 
 import pandas as pd
 import pytest
@@ -358,8 +358,19 @@ def test_whole_entity_projection_of_shadowing_alias_omits_the_column(engine: str
 
 # ---------------------------------------- defect-4 remaining shapes (fixed)
 
+@pytest.mark.parametrize(
+    ("shape", "query"),
+    [
+        ("single-node", "MATCH (kind:P) RETURN kind.kind AS k"),
+        ("cartesian", "MATCH (kind:P), (b:P) RETURN kind.kind AS k, b.id AS bi"),
+        ("bare-edge", "MATCH (a:P)-[w:K]->(b:P) RETURN w.w AS k"),
+    ],
+    ids=["single-node", "cartesian", "bare-edge"],
+)
 @pytest.mark.parametrize("engine", ENGINES)
-def test_single_alias_and_cartesian_shadowed_alias_reads_the_user_value(engine: str) -> None:
+def test_single_alias_and_cartesian_shadowed_alias_reads_the_user_value(
+    engine: str, shape: str, query: str, record_property
+) -> None:
     """#1911 defect 4 (was RESIDUAL): the single-alias ``rows(table=..., source=...)``
     route and the cartesian binding path read properties off the chain output frame,
     where the alias marker had overwritten the user column. The rows route now restores
@@ -367,14 +378,25 @@ def test_single_alias_and_cartesian_shadowed_alias_reads_the_user_value(engine: 
     cartesian paths unshadow like the connected one. Anti-vacuity: 3 node rows / 9
     cartesian rows / 2 relationship rows, distinct values -- an all-``True`` marker
     leak or an empty frame cannot pass."""
-    rows = _run(SHADOW_NODES, SHADOW_EDGES, "MATCH (kind:P) RETURN kind.kind AS k", engine)
-    assert sorted(r["k"] for r in rows) == ["K1", "K2", "K3"]
-    rows = _run(SHADOW_NODES, SHADOW_EDGES,
-                "MATCH (kind:P), (b:P) RETURN kind.kind AS k, b.id AS bi", engine)
-    assert len(rows) == 9 and sorted({r["k"] for r in rows}) == ["K1", "K2", "K3"]
-    # bare relationship-property projection (rows(table='edges', source=alias) route)
-    rows = _run(SHADOW_NODES, SHADOW_EDGES, "MATCH (a:P)-[w:K]->(b:P) RETURN w.w AS k", engine)
-    assert sorted(r["k"] for r in rows) == [7, 8]
+    def matches(rows: list[dict[str, Any]]) -> bool:
+        if shape == "single-node":
+            return sorted(r["k"] for r in rows) == ["K1", "K2", "K3"]
+        if shape == "cartesian":
+            return len(rows) == 9 and sorted({r["k"] for r in rows}) == ["K1", "K2", "K3"]
+        return sorted(r["k"] for r in rows) == [7, 8]
+
+    if engine == "polars-gpu":
+        record_property("gpu_decline_shapes", "single-node,cartesian")
+
+    try:
+        rows = _run(SHADOW_NODES, SHADOW_EDGES, query, engine)
+    except NotImplementedError:
+        assert engine == "polars-gpu"
+        assert shape in {"single-node", "cartesian"}
+        record_property("gpu_capability", "declined")
+        return
+    record_property("gpu_capability", "served")
+    assert matches(rows)
 
 
 def test_multihop_relationship_alias_reads_only_path_valid_edge() -> None:
@@ -609,9 +631,11 @@ def test_edge_onto_node_entity_rebind_declines_at_compile_time() -> None:
 
 
 @pytest.mark.parametrize("engine", ENGINES)
-def test_scalar_rebind_stays_an_error(engine: Literal["pandas", "polars"]) -> None:
+def test_scalar_rebind_stays_an_error(
+    engine: Literal["pandas", "polars", "polars-gpu", "cudf"],
+) -> None:
     query = "MATCH (a:Person)-[r:KNOWS]->(b:Person) WITH a.name AS b RETURN b.name AS t"
-    if engine == "pandas":
+    if engine in {"pandas", "cudf"}:
         with pytest.raises(GFQLTypeError) as exc_info:
             _run(PEOPLE_NODES, PEOPLE_EDGES, query, engine)
         assert exc_info.value.code == ErrorCode.E306

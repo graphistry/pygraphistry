@@ -24,7 +24,13 @@ from graphistry.Engine import (
     safe_map_series,
 )
 from graphistry.compute.exceptions import ErrorCode, GFQLTypeError, GFQLValidationError
-from graphistry.compute.dataframe_utils import concat_frames, domain_diff, domain_union, series_values
+from graphistry.compute.dataframe_utils import (
+    concat_frames,
+    domain_diff,
+    domain_union,
+    is_cudf_obj,
+    series_values,
+)
 from graphistry.compute.gfql.call.support import AggSpec
 from graphistry.compute.gfql.row import frame_ops as row_frame_ops
 from graphistry.compute.gfql.row.prefilter import AliasPrefilters
@@ -3130,8 +3136,11 @@ class RowPipelineMixin:
         """Give a positionally built series the table's own index so label-aligned consumers line up."""
         if len(series) != len(table_df.index):
             return series
+        index = table_df.index
+        if not is_cudf_obj(series) and is_cudf_obj(index):
+            index = index.to_pandas()
         out = series.copy(deep=False)
-        out.index = table_df.index
+        out.index = index
         return out
 
     def _gfql_truth_masks(self, table_df: Any, value: Any) -> Optional[Tuple[Any, Any, Any]]:

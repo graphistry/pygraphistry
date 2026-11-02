@@ -14,6 +14,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- **GFQL Cypher AST evaluation on cuDF**: row-expression results built on the host no longer force a cuDF index through implicit NumPy conversion. They retain positional alignment on the table's labels, so supported list, subscript, map, and dynamic-property expressions match the pandas result instead of failing with `TypeError` or an opaque `E306` wrapper (#2269).
 - **GFQL Cypher carried scalars through collected reentry**: a scalar carried alongside `collect(...)` survives the shared `WITH collect ... UNWIND ... MATCH` reentry path for plain and aggregate projections, without being mistaken for a node property. The Polars empty-prefix path uses native empty-frame handling instead of `AttributeError` (#2267).
 - **GFQL Cypher boolean node properties**: a node alias that shadows a real Boolean user property now restores that property on cuDF like pandas and Polars, instead of returning null for `kind.kind` (#2271).
 - **GFQL Cypher missing relationship properties**: `RETURN r.r` now resolves to null when `r` is the relationship alias and the edge table has no `r` property, matching `WHERE r.r IS NULL`. The internal alias marker no longer leaks as the property value on pandas or Polars (#2262).
