@@ -24,6 +24,8 @@ bool_col=[T,F,T,T,F,F], int_col=[1..6]; edges 0->1,1->2,2->3,3->4.
 ``WITH a.grp AS k, b.col AS v``: k=x pairs b in {1,2,3}, k=y pairs b in {4}.
   sum(int): x=2+3+4=9, y=5;  sum(bool): x=F+T+T=2, y=F=0.
 """
+import os
+
 import pandas as pd
 import pytest
 
@@ -38,7 +40,20 @@ except ImportError:
 
 polars_only = pytest.mark.skipif(not HAS_POLARS, reason="polars not installed")
 
-ENGINES = ["pandas", pytest.param("polars", marks=polars_only)]
+ENGINES = [
+    "pandas",
+    pytest.param("polars", marks=polars_only),
+    pytest.param(
+        "polars-gpu",
+        marks=pytest.mark.skipif(
+            os.environ.get("TEST_POLARS_GPU") != "1", reason="requires actual polars-gpu"
+        ),
+    ),
+    pytest.param(
+        "cudf",
+        marks=pytest.mark.skipif(os.environ.get("TEST_CUDF") != "1", reason="cudf tests need TEST_CUDF=1"),
+    ),
+]
 
 
 NODES_A = pd.DataFrame({
@@ -52,10 +67,25 @@ EDGES_A = pd.DataFrame({"s": [0, 1, 2], "d": [10, 10, 11], "rel": ["LIVES_IN"] *
 MATCH_A = ("MATCH (p {node_type:'Person'})-[{rel:'LIVES_IN'}]->(c {node_type:'City'}) ")
 
 
+def _graph_frames(
+    nodes: pd.DataFrame,
+    edges: pd.DataFrame,
+    engine: str,
+    node: str = "id",
+    source: str = "s",
+    destination: str = "d",
+):
+    if engine in {"polars", "polars-gpu"}:
+        pl = pytest.importorskip("polars")
+        nodes, edges = pl.from_pandas(nodes), pl.from_pandas(edges)
+    elif engine == "cudf":
+        cudf = pytest.importorskip("cudf")
+        nodes, edges = cudf.from_pandas(nodes), cudf.from_pandas(edges)
+    return graphistry.nodes(nodes, node).edges(edges, source, destination)
+
+
 def _graph_a(engine: str):
-    if engine == "polars":
-        return graphistry.nodes(pl.from_pandas(NODES_A), "id").edges(pl.from_pandas(EDGES_A), "s", "d")
-    return graphistry.nodes(NODES_A, "id").edges(EDGES_A, "s", "d")
+    return _graph_frames(NODES_A, EDGES_A, engine)
 
 
 def _run(g, query: str, engine: str) -> pd.DataFrame:
@@ -123,11 +153,13 @@ def test_whole_row_grouped_sole_min_serves_on_pandas():
 
 
 @polars_only
-def test_whole_row_grouped_sole_min_declines_typed_on_polars():
-    """polars has no native whole-entity result projection for this shape;
-    parity-or-error by design (NotImplementedError, never a silent wrong)."""
-    with pytest.raises(NotImplementedError):
-        _run(_graph_a("polars"), MATCH_A + "RETURN c, min(p.age) AS m", "polars")
+def test_whole_row_grouped_sole_min_serves_on_polars():
+    """Whole-row grouped sole-min matches the pandas oracle with native columns."""
+    out = _run(_graph_a("polars"), MATCH_A + "RETURN c, min(p.age) AS m", "polars")
+    got = {row["c.city"]: int(row["m"]) for row in out.to_dict("records")}
+    assert got == {"NYC": 20, "LA": 40}
+    assert "c.id" in out.columns
+    assert not any(column.startswith("__cypher_reentry_") for column in out.columns)
 
 
 @pytest.mark.parametrize("engine", ENGINES)
@@ -189,9 +221,7 @@ Q_B = "MATCH (a)-[e]->(b) WITH a.grp AS k, b.%s AS v RETURN k, sum(v) AS r ORDER
 
 
 def _graph_b(engine: str):
-    if engine == "polars":
-        return graphistry.nodes(pl.from_pandas(NODES_B), "id").edges(pl.from_pandas(EDGES_B), "src", "dst")
-    return graphistry.nodes(NODES_B, "id").edges(EDGES_B, "src", "dst")
+    return _graph_frames(NODES_B, EDGES_B, engine, node="id", source="src", destination="dst")
 
 
 @pytest.mark.parametrize("engine", ENGINES)

@@ -9,6 +9,7 @@ Own priorities, decisions, review, and acceptance. The worker owns implementatio
 
 ## Guide the plan
 
+- Preserve subagent-safe Markdown filenames when prescribing artifacts, per [plan](../plan/SKILL.md).
 - Recover the outcome, acceptance, authority, current plans, and unread messages. Check actual source/execution state when it affects a decision.
 - Suggest changes to the worker’s plan: affected steps, desired outcome, evidence/reasoning, and what would refute the recommendation. Leave routine sequencing and implementation to the worker.
 - Let the worker proceed across authorized steps. With planner involvement roughly 10–20× more expensive in tokens, intervene for questions, notable developments, consequential decisions, or required reviews. Step counts and heartbeat cadence are not review triggers.

@@ -241,6 +241,7 @@ class ReturnItem:
     expression: ExpressionText
     alias: Optional[str]
     span: SourceSpan
+    internal: bool = False
 
 
 @dataclass(frozen=True)

@@ -8,8 +8,20 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [Development]
 <!-- Do Not Erase This Section - Used for tracking unreleased changes -->
 
+### Documentation
+
+- **Stale benchmark results stay published**: age or compute-drift staleness is now rendered as a caveat with its measurement date and a linked re-measure issue instead of refusing or withdrawing the number. Removal of a published benchmark result requires explicit maintainer approval upstream.
+
 ### Fixed
 
+- **GFQL Cypher carried scalars through collected reentry**: a scalar carried alongside `collect(...)` survives the shared `WITH collect ... UNWIND ... MATCH` reentry path for plain and aggregate projections, without being mistaken for a node property. The Polars empty-prefix path uses native empty-frame handling instead of `AttributeError` (#2267).
+- **GFQL Cypher boolean node properties**: a node alias that shadows a real Boolean user property now restores that property on cuDF like pandas and Polars, instead of returning null for `kind.kind` (#2271).
+- **GFQL Cypher missing relationship properties**: `RETURN r.r` now resolves to null when `r` is the relationship alias and the edge table has no `r` property, matching `WHERE r.r IS NULL`. The internal alias marker no longer leaks as the property value on pandas or Polars (#2262).
+- **GFQL Cypher scalar carries after `WITH`**: a scalar carried through `WITH` remains available when a later `MATCH` reconnects the earlier alias, including whole-node-plus-scalar, connected-scalar, and multi-edge path prefixes. Grouping now keeps each carried scalar's multiplicity on pandas and Polars instead of returning null groups or dropping a connected result group (#2252).
+- **GFQL nullable 64-bit endpoint IDs**: pandas 3.1 fallback traversal preserves exact Int64/UInt64 node matches when nullable node-ID columns contain nulls, instead of silently dropping valid edges.
+- **GFQL multi-hop relationship aliases**: Cypher property reads and direct GFQL edge markers now include only edges that belong to a complete matched path, including ordinary and payload-shadowing aliases (#1911).
+- **GFQL reverse shadowed relationship properties**: pandas scalar projections now restore the matched edge payload after reverse traversal reorders rows (#2256).
+- **GFQL Cypher node entity membership identity** (#2258): direct and collected node aliases in `IN`/`NOT IN` predicates compare by graph node ID rather than display properties, while scalar/property equality and public collected-entity display retain their existing behavior. Mixed node/scalar/null lists preserve three-valued null semantics.
 - **GFQL Cypher conversion operand validation**: statically invalid conversion operands, such as lists, maps, and graph entities, are rejected at compile time before the engine sees them. Dynamic operands, null propagation, and list-comprehension lexical shadowing keep their existing behavior.
 
 - **GFQL remote Let/DAG compatibility**: `gfql_remote` no longer substitutes an empty `gfql_operations` array for a Let/DAG query, so unsupported older servers receive `gfql_query` and reject it explicitly instead of silently running an identity program.

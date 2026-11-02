@@ -4,20 +4,36 @@ Graph hop/traversal operations for PyGraphistry.
 NOTE: Excluded from pyre (.pyre_configuration) - hop() complexity causes hang. Use mypy.
 """
 import os
-from typing import Any, Callable, Dict, Hashable, List, Optional, Set, Tuple, TYPE_CHECKING, Union, cast
+from functools import lru_cache
+from typing import TYPE_CHECKING, Any, Callable, Dict, Hashable, List, Optional, Set, Tuple, Union, cast
+
 import pandas as pd
 
 from graphistry.Engine import (
-    EngineAbstract, POLARS_ENGINES, align_shared_column_dtypes, df_concat, df_cons, df_to_engine, resolve_engine, safe_map_series, safe_row_concat, s_series, s_to_numeric, s_na, Engine
+    POLARS_ENGINES,
+    Engine,
+    EngineAbstract,
+    align_shared_column_dtypes,
+    df_concat,
+    df_cons,
+    df_to_engine,
+    resolve_engine,
+    s_na,
+    s_series,
+    s_to_numeric,
+    safe_map_series,
+    safe_merge,
+    safe_row_concat,
 )
+from graphistry.otel import otel_detail_enabled, otel_traced
 from graphistry.Plottable import Plottable
-from graphistry.otel import otel_traced, otel_detail_enabled
-from .filter_by_dict import filter_by_dict
-from graphistry.Engine import safe_merge
-from .typing import DataFrameT, DomainT, SeriesT
-from .endpoint_utils import drop_null_endpoint_edges
+
 from .dataframe_utils import column_frame, column_values
+from .endpoint_utils import drop_null_endpoint_edges
+from .filter_by_dict import filter_by_dict
+from .gfql.cache_registry import register_process_singleton
 from .gfql.seed_rediscovery import rediscovered_seed_ids
+from .typing import DataFrameT, DomainT, SeriesT
 from .util import generate_safe_column_name
 
 
@@ -45,6 +61,24 @@ def query_if_not_none(query: Optional[str], df: DataFrameT) -> DataFrameT:
     if query is None:
         return df
     return df.query(query)
+
+
+@lru_cache(maxsize=1)
+def _pandas_nullable_integer_isin_requires_null_filter() -> bool:
+    """Detect pandas versions that lose exact 64-bit matches with a nullable RHS."""
+    cases = (("Int64", 2**53 + 1), ("UInt64", 2**63 + 1))
+    for dtype, value in cases:
+        candidates = pd.Series(pd.array([pd.NA, value, value - 1], dtype=dtype))
+        probe = pd.Series(pd.array([value], dtype=dtype))
+        if not bool(probe.isin(candidates).iloc[0]):
+            return True
+    return False
+
+
+register_process_singleton(
+    _pandas_nullable_integer_isin_requires_null_filter,
+    "a behavior probe over the installed pandas version, which cannot change inside this process",
+)
 
 
 def resolve_hop_bounds(
@@ -247,8 +281,8 @@ def hop(self: Plottable,
             edge_query=edge_query, return_as_wave_front=return_as_wave_front,
             include_zero_hop_seed=include_zero_hop_seed, target_wave_front=target_wave_front,
         )
+        from graphistry.compute.gfql.lazy import ExecutionTarget, target_mode
         from graphistry.compute.gfql.lazy.engine.polars.hop import hop_lazy_or_eager
-        from graphistry.compute.gfql.lazy import target_mode, ExecutionTarget
         _tgt = ExecutionTarget.GPU if engine_concrete == Engine.POLARS_GPU else ExecutionTarget.CPU
         with target_mode(_tgt):
             return hop_lazy_or_eager(self, nodes, hops, **_hop_kwargs)
@@ -387,6 +421,12 @@ def hop(self: Plottable,
     ids_an_endpoint_may_resolve_to = base_target_nodes[node_col]
     closure_rides_traversal = (
         node_table_bound and seeds_provided and not to_fixed_point and resolved_max_hops == 1)
+    if (
+        engine_concrete == Engine.PANDAS
+        and _pandas_nullable_integer_isin_requires_null_filter()
+        and ids_an_endpoint_may_resolve_to.hasnans
+    ):
+        ids_an_endpoint_may_resolve_to = ids_an_endpoint_may_resolve_to.dropna()
     if node_table_bound and not closure_rides_traversal:
         edges_indexed = edges_indexed[
             edges_indexed[source_col].isin(ids_an_endpoint_may_resolve_to)

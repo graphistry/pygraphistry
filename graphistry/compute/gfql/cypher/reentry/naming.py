@@ -11,6 +11,7 @@ from graphistry.compute.gfql.identifiers import (
 
 __all__ = [
     "REENTRY_HIDDEN_COLUMN_PREFIX",
+    "REENTRY_ROW_TOKEN_OUTPUT",
     "REENTRY_PROPERTY_CARRY_PREFIX",
     "is_reentry_hidden_column_reference",
     "reentry_hidden_column_output_name",
@@ -22,6 +23,9 @@ __all__ = [
 
 #: Prefix of every hidden reentry carry column.
 REENTRY_HIDDEN_COLUMN_PREFIX: str = "__cypher_reentry_"
+
+# Internal scalar output used to carry one unique WITH-row occurrence through re-entry.
+REENTRY_ROW_TOKEN_OUTPUT: str = "__cypher_reentry_row_token"
 
 #: Prefix of the intermediate carry alias for a non-source whole-row alias's property.
 REENTRY_PROPERTY_CARRY_PREFIX: str = "__carry_"
