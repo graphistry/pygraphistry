@@ -117,12 +117,14 @@ Suggested folder layout:
 
 ```text
 plans/<task>/waves/wave-<N>/
-  <dimension>/findings-<file-slug>.md
-  <dimension>/report.md
+  <dimension>/issues-<file-slug>.md
+  <dimension>/<dimension>-report.md
   adversarial/<finding-id>.md
-  adversarial/report.md
+  adversarial/adversarial-report.md
   wave-report.md
 ```
+
+Subagent-written filenames must follow `.agents/skills/plan/SKILL.md`'s subagent-safe basename rule.
 
 ### Wave gate (start of each wave)
 
@@ -166,6 +168,7 @@ git show origin/<base>:<file>
 
 - Test coverage should mirror changed areas in `graphistry/tests/**`.
 - Prefer behavioral tests over implementation-detail assertions.
+- Never approve removal or suppression of a published benchmark number without explicit maintainer approval; require staleness to be labeled and linked to a re-measure issue instead.
 - Treat broad exception catches (`except Exception`, bare `except`) as a bad dynamic/over-defensive typing pattern by default. Require narrowed, documented exception types at local helpers; allow broad catches only at explicit isolation boundaries where the PR explains why programmer errors must be contained.
 ### Encoding: names, tests, structure — not prose
 

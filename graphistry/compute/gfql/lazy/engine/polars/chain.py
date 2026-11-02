@@ -199,7 +199,8 @@ def _exec(op: ASTObject, g: Plottable, prev_wf: Optional[Any], target_wf: Option
         if target_wf is not None:
             nodes = _semi(nodes, target_wf, node_col, node_col)
         if op._name is not None:
-            nodes = nodes.with_columns(pl.lit(True).alias(op._name))
+            from graphistry.compute.gfql.lazy.engine.polars.pattern_apply import alias_node_id_with_property_polars
+            nodes = alias_node_id_with_property_polars(nodes, op._name, node_col)
         return g.nodes(nodes, node_col).edges(g._edges.clear(), g._source, g._destination)
 
     if isinstance(op, ASTEdge):
@@ -338,8 +339,9 @@ def _combine_edges(g: "_LazyShim",
     Takes the ``_LazyShim`` duck-type, NOT a ``Plottable``: the Track-B combine runs entirely on
     already-materialized-then-lazified hop frames, which is exactly what the shim carries (and
     why its frames are ``LazyFrame``, not the ``PolarsFrame`` union). ``steps`` are the edge
-    steps (recomputed ones when ``has_multihop``); ``label_steps`` are the forward-pass steps
-    used for the endpoint gates and the alias flags."""
+    steps (recomputed ones when ``has_multihop``); ``label_steps`` are forward-pass
+    steps used for single-hop endpoint gates. Alias flags come from ``steps`` so an
+    edge is tagged only when it survives path pruning."""
     import polars as pl
     src, dst, node_col, edge_id = g._source, g._destination, g._node, g._edge
     assert src is not None and dst is not None and node_col is not None and edge_id is not None
@@ -387,9 +389,12 @@ def _combine_edges(g: "_LazyShim",
 
     out = all_edges.join(out_ids, on=edge_id, how="semi")
 
-    for op, g_step in label_steps:
-        if op._name is not None and isinstance(op, ASTEdge) and g_step._edges is not None and op._name in colnames(g_step._edges):
-            named = g_step._edges.filter(pl.col(op._name)).select(pl.col(edge_id)).with_columns(pl.lit(True).alias(op._name))
+    for op, g_step in steps:
+        if op._name is not None and isinstance(op, ASTEdge) and g_step._edges is not None:
+            # The pruned edge-ID set is the alias membership. Alias-shadow restoration can
+            # put the original payload column back on this frame, so filtering by op._name
+            # would either read that payload or reintroduce forward-only dead-end edges.
+            named = g_step._edges.select(pl.col(edge_id)).with_columns(pl.lit(True).alias(op._name))
             if op._name in colnames(out):  # the alias marker shadows the user column; only a Cypher pipeline keeps its values, under the restore name
                 if shadow_restore_wanted():
                     restore = shadow_restore_column(op._name)
@@ -1200,4 +1205,65 @@ def _chain_traversal_polars(self: Plottable, ops, start_nodes: Optional[Any] = N
     # error, and silencing it would cost the lazy/eager distinction the shim exists to keep.
     final_edges_eager, final_nodes_eager = collect_all([final_edges, final_nodes])
     final_edges_eager = _restore_edge_dtypes(final_edges_eager, src, dst, _endpoint_restore)
+    seed_carry_cols = [
+        col for col in (start_nodes.columns if start_nodes is not None else [])
+        if isinstance(col, str) and col.startswith("__cypher_reentry_")
+    ]
+    if seed_carry_cols:
+        carry_map = start_nodes.select([node_col, *seed_carry_cols])
+        from graphistry.compute.gfql.cypher.reentry.naming import (
+            REENTRY_ROW_TOKEN_OUTPUT,
+            _reentry_hidden_column_name,
+        )
+        occurrence_token_col = _reentry_hidden_column_name(REENTRY_ROW_TOKEN_OUTPUT)
+        preserve_seed_occurrences = occurrence_token_col in seed_carry_cols
+        # Tokenized WITH rows also represent a named source alias. Keep that seed
+        # occurrence in the materialized graph while each edge step advances the
+        # carry frontier to destination aliases for a later WITH/MATCH boundary.
+        carry_maps = [carry_map] if preserve_seed_occurrences else []
+        for edge_op, edge_step in edge_steps:
+            if (
+                not isinstance(edge_op, ASTEdge)
+                or edge_step._edges is None
+                or edge_step._source is None
+                or edge_step._destination is None
+            ):
+                continue
+            edge_src, edge_dst = edge_step._source, edge_step._destination
+            edge_parts = []
+            if edge_op.direction != "reverse":
+                edge_parts.append((edge_src, edge_dst))
+            if edge_op.direction != "forward":
+                edge_parts.append((edge_dst, edge_src))
+            next_carry_frames = []
+            for from_col, to_col in edge_parts:
+                next_carry_frames.append(
+                    carry_map.join(
+                        edge_step._edges.select([from_col, to_col]),
+                        left_on=node_col, right_on=from_col, how="inner")
+                    .drop(node_col)
+                    .rename({to_col: node_col})
+                )
+            carry_map = (
+                pl.concat(next_carry_frames, how="vertical")
+                if len(next_carry_frames) > 1 else next_carry_frames[0]
+            )
+            if preserve_seed_occurrences:
+                carry_maps.append(carry_map.select([node_col, *seed_carry_cols]))
+        carries_to_attach = (
+            pl.concat(carry_maps, how="vertical")
+            if preserve_seed_occurrences
+            else carry_map
+        )
+        if preserve_seed_occurrences:
+            # A token identifies one input WITH-row occurrence at an entity. A
+            # cycle can reach the same (entity, token) at multiple depths; aliases
+            # look up one row for that pair, while path multiplicity stays in edges.
+            carries_to_attach = carries_to_attach.unique(
+                subset=[node_col, occurrence_token_col],
+                maintain_order=True,
+            )
+        final_nodes_eager = final_nodes_eager.drop(seed_carry_cols).join(
+            carries_to_attach, on=node_col, how="left"
+        )
     return self.nodes(final_nodes_eager, node_col).edges(final_edges_eager, src, dst)

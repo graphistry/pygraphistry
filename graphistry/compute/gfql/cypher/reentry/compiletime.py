@@ -17,6 +17,7 @@ from graphistry.compute.gfql.cypher.ast import (
     RelationshipPattern,
     UnwindClause,
 )
+from graphistry.compute.gfql.cypher._boolean_expr_text import boolean_expr_to_text
 from graphistry.compute.gfql.cypher.lowering import (
     CompiledCypherPostProcessing,
     CompiledCypherExecutionExtras,
@@ -49,6 +50,7 @@ from graphistry.compute.gfql.cypher.reentry.lowering_support import (
     _rewrite_order_by_expressions,
 )
 from graphistry.compute.gfql.cypher.reentry.naming import (
+    REENTRY_ROW_TOKEN_OUTPUT,
     _reentry_hidden_column_name,
     _reentry_property_carry_name,
 )
@@ -60,11 +62,19 @@ from graphistry.compute.gfql.cypher.reentry.rewrite import (
     _rewrite_reentry_projection_stage,
 )
 from graphistry.compute.gfql.cypher.reentry_plan import CarriedAlias, ReentryPlan
+from graphistry.compute.gfql.same_path_types import NODE_IDENTITY_COLUMN
 from graphistry.compute.gfql.expr_parser import (
+    BinaryOp,
+    ExprNode,
     GFQLExprParseError,
+    FunctionCall,
     Identifier,
     ListLiteral,
+    PropertyAccessExpr,
+    _rebuild_expr_node,
+    collect_identifiers,
     parse_expr,
+    walk_expr_nodes,
 )
 from graphistry.compute.gfql.ir.logical_plan import (
     LogicalPlan,
@@ -106,6 +116,149 @@ def _map_terminal_reentry_query(
 
 def _without_outer_query_context(query: CypherQuery, **updates: Any) -> CypherQuery:
     return replace(query, call=None, row_sequence=(), graph_bindings=(), use=None, **updates)
+
+
+def _inject_collected_node_identity_lists(
+    prefix_stage: ProjectionStage,
+    *,
+    query: CypherQuery,
+) -> Tuple[ProjectionStage, Dict[str, str]]:
+    """Add hidden typed-ID list aggregates only for node lists used by reentry membership."""
+    if not query.reentry_matches or query.reentry_where is None or query.reentry_where.expr_tree is None:
+        return prefix_stage, {}
+    try:
+        where_expr = parse_expr(boolean_expr_to_text(query.reentry_where.expr_tree))
+    except (GFQLExprParseError, ImportError):
+        return prefix_stage, {}
+
+    collected: Dict[str, FunctionCall] = {}
+    node_source_aliases = {
+        alias for alias, kind in _all_match_alias_kinds(query).items() if kind == "node"
+    }
+    for item in prefix_stage.clause.items:
+        if item.alias is None:
+            continue
+        try:
+            item_expr = parse_expr(item.expression.text)
+        except (GFQLExprParseError, ImportError):
+            continue
+        if (
+            isinstance(item_expr, FunctionCall)
+            and item_expr.name.lower() == "collect"
+            and len(item_expr.args) == 1
+            and isinstance(item_expr.args[0], Identifier)
+            and item_expr.args[0].name in node_source_aliases
+        ):
+            collected[item.alias] = item_expr
+
+    trailing_node_aliases: set[str] = set()
+    for match_clause in query.reentry_matches[:1]:
+        for pattern in match_clause.patterns:
+            trailing_node_aliases.update(_pattern_node_aliases(pattern))
+
+    used_lists: set[str] = set()
+    def _find_membership(node: object) -> None:
+        if isinstance(node, BinaryOp) and node.op == "in" and isinstance(node.left, Identifier):
+            if node.left.name in trailing_node_aliases and isinstance(node.right, Identifier) and node.right.name in collected:
+                used_lists.add(node.right.name)
+    walk_expr_nodes(where_expr, enter=_find_membership)
+    if not used_lists:
+        return prefix_stage, {}
+
+    used_names: set[str] = set()
+    for item in prefix_stage.clause.items:
+        used_names.add(item.alias or "")
+        try:
+            used_names.update(collect_identifiers(parse_expr(item.expression.text)))
+        except (GFQLExprParseError, ImportError):
+            pass
+    for name in collect_identifiers(where_expr):
+        used_names.add(name)
+    for item in query.return_.items:
+        if item.alias is not None:
+            used_names.add(item.alias)
+        try:
+            used_names.update(collect_identifiers(parse_expr(item.expression.text)))
+        except (GFQLExprParseError, ImportError):
+            pass
+    used_names.update(trailing_node_aliases)
+    for match_clause in query.reentry_matches:
+        for pattern in match_clause.patterns:
+            for element in pattern:
+                if isinstance(element, (NodePattern, RelationshipPattern)) and element.variable is not None:
+                    used_names.add(element.variable)
+        used_names.update(alias for alias in match_clause.pattern_aliases if alias is not None)
+    for stage in query.with_stages:
+        for item in stage.clause.items:
+            if item.alias is not None:
+                used_names.add(item.alias)
+            try:
+                used_names.update(collect_identifiers(parse_expr(item.expression.text)))
+            except (GFQLExprParseError, ImportError):
+                pass
+    companions: Dict[str, str] = {}
+    extra_items: List[ReturnItem] = []
+    for list_alias in sorted(used_lists):
+        source = collected[list_alias]
+        entity_alias = cast(Identifier, source.args[0]).name
+        output_name = "__gfql_node_identity_list_0"
+        suffix = 1
+        while output_name in used_names:
+            output_name = f"__gfql_node_identity_list_{suffix}"
+            suffix += 1
+        used_names.add(output_name)
+        distinct = "DISTINCT " if source.distinct else ""
+        source_span = next(item.span for item in prefix_stage.clause.items if item.alias == list_alias)
+        extra_items.append(ReturnItem(
+            expression=ExpressionText(
+                text=f"collect({distinct}__node_identity__({entity_alias}))",
+                span=source_span,
+            ),
+            alias=output_name,
+            span=source_span,
+        ))
+        companions[list_alias] = output_name
+    return replace(
+        prefix_stage,
+        clause=replace(prefix_stage.clause, items=prefix_stage.clause.items + tuple(extra_items)),
+    ), companions
+
+
+def _rewrite_reentry_node_membership_to_identity_lists(
+    expression: ExpressionText,
+    *,
+    companions: Mapping[str, str],
+    node_aliases: set[str],
+) -> ExpressionText:
+    if not companions:
+        return expression
+    try:
+        node = parse_expr(expression.text)
+    except (GFQLExprParseError, ImportError):
+        return expression
+
+    def _rewrite(current: ExprNode) -> ExprNode:
+        if (
+            isinstance(current, BinaryOp)
+            and current.op == "in"
+            and isinstance(current.left, Identifier)
+            and current.left.name in node_aliases
+            and isinstance(current.right, Identifier)
+            and current.right.name in companions
+        ):
+            return BinaryOp(
+                "in",
+                PropertyAccessExpr(Identifier(current.left.name), NODE_IDENTITY_COLUMN),
+                Identifier(companions[current.right.name]),
+            )
+        return _rebuild_expr_node(
+            current,
+            rewrite=_rewrite,
+            error_context="entity membership identity rewrite",
+        )
+
+    rewritten = _rewrite(node)
+    return replace(expression, text=_render_expr_node(rewritten))
 
 
 def _rewrite_terminal_singleton_reentry_unwind(
@@ -277,6 +430,47 @@ def _optional_reentry_logical_route_marker(reentry_match: MatchClause) -> Logica
     return logical_plan
 
 
+def _collect_unwind_reentry_resets_row_identity(
+    *,
+    with_stages: Tuple[ProjectionStage, ...],
+    unwinds: Tuple[UnwindClause, ...],
+    preceding_match: MatchClause,
+    following_match: MatchClause,
+) -> bool:
+    """Whether a collected node list becomes the next MATCH's identity carrier."""
+    if len(unwinds) != 1 or not with_stages:
+        return False
+    unwind = unwinds[0]
+    unwind_source = unwind.expression.text.strip()
+    list_item = next(
+        (
+            item
+            for item in with_stages[0].clause.items
+            if item.alias == unwind_source
+        ),
+        None,
+    )
+    if list_item is None:
+        return False
+    try:
+        collect_expr = parse_expr(list_item.expression.text)
+    except GFQLExprParseError:
+        return False
+    if (
+        not isinstance(collect_expr, FunctionCall)
+        or collect_expr.name.lower() != "collect"
+        or len(collect_expr.args) != 1
+        or not isinstance(collect_expr.args[0], Identifier)
+    ):
+        return False
+    collected_alias = collect_expr.args[0].name
+    preceding_aliases = set().union(
+        *(_pattern_node_aliases(pattern) for pattern in preceding_match.patterns)
+    )
+    following_alias = _first_pattern_node_alias(following_match)
+    return collected_alias in preceding_aliases and unwind.alias == following_alias
+
+
 def _compile_bounded_reentry_query(
     query: CypherQuery,
     *,
@@ -378,6 +572,12 @@ def _compile_bounded_reentry_query(
         prefix_stage=prefix_stage,
         primary_alias=primary_alias_hint,
     )
+    prefix_stage, membership_identity_companions = _inject_collected_node_identity_lists(
+        prefix_stage,
+        query=query,
+    )
+    if membership_identity_companions:
+        query = replace(query, with_stages=(prefix_stage,) + query.with_stages[1:])
     reentry_match = query.reentry_matches[0]
     if supports_terminal_seed_retargeting:
         reentry_match = _orient_reentry_match_to_seed(reentry_match, primary_alias_hint)
@@ -501,6 +701,40 @@ def _compile_bounded_reentry_query(
     if first_alias is None:
         _raise_requires_named_reentry_alias(reentry_match, first_alias)
 
+    collect_unwind_resets_row_identity = bool(remaining_reentry_matches) and (
+        _collect_unwind_reentry_resets_row_identity(
+            with_stages=remaining_with_stages,
+            unwinds=query.reentry_unwinds,
+            preceding_match=reentry_match,
+            following_match=remaining_reentry_matches[0],
+        )
+    )
+    row_token_enabled = (
+        not scalar_only_prefix
+        and not free_form
+        and prefix_projection is not None
+        and prefix_projection.table == "nodes"
+        and bool(carry_columns)
+        and not collect_unwind_resets_row_identity
+    )
+    if row_token_enabled:
+        internal_token_projection = any(
+            item.alias == REENTRY_ROW_TOKEN_OUTPUT
+            and item.internal
+            for item in prefix_stage.clause.items
+        )
+        if REENTRY_ROW_TOKEN_OUTPUT in carry_columns and not internal_token_projection:
+            raise _unsupported_at_span(
+                "Cypher MATCH after WITH uses a reserved row-token output name",
+                field="with",
+                value=REENTRY_ROW_TOKEN_OUTPUT,
+                span=prefix_stage.span,
+            )
+        carry_columns = tuple(dict.fromkeys((*carry_columns, REENTRY_ROW_TOKEN_OUTPUT)))
+
+    public_scalar_columns = tuple(
+        column for column in carry_columns if column != REENTRY_ROW_TOKEN_OUTPUT
+    )
     hidden_columns = tuple(_reentry_hidden_column_name(output_name) for output_name in carry_columns)
 
     if scalar_only_prefix:
@@ -509,6 +743,7 @@ def _compile_bounded_reentry_query(
             aliases=(),
             scalar_columns=tuple(carry_columns),
             scalar_only=True,
+            row_token_enabled=False,
         )
     else:
         assert prefix_projection is not None
@@ -538,12 +773,18 @@ def _compile_bounded_reentry_query(
         current_reentry_plan = ReentryPlan(
             reentry_alias_name=reentry_alias,
             aliases=current_aliases,
-            scalar_columns=tuple(carry_columns),
+            scalar_columns=public_scalar_columns,
             scalar_only=False,
             free_form=free_form,
+            row_token_enabled=row_token_enabled,
         )
 
     def rewrite_expr(expr: ExpressionText, field: str) -> ExpressionText:
+        expr = _rewrite_reentry_node_membership_to_identity_lists(
+            expr,
+            companions=membership_identity_companions,
+            node_aliases=reentry_node_aliases,
+        )
         return _rewrite_reentry_expr_to_hidden_properties(
             expr,
             carried_alias=reentry_alias,
@@ -577,6 +818,51 @@ def _compile_bounded_reentry_query(
             _rewrite_reentry_projection_stage(stage, rewrite_expr=rewrite_expr)
             for stage in remaining_with_stages
         )
+        if row_token_enabled and remaining_reentry_matches and rewritten_with_stages:
+            token_stage = rewritten_with_stages[0]
+            token_aliases = _all_match_node_aliases(query) | {
+                alias
+                for match_clause in query.reentry_matches
+                for pattern in match_clause.patterns
+                for alias in _pattern_node_aliases(pattern)
+            }
+            if not any(
+                (item.alias or item.expression.text.strip()) == REENTRY_ROW_TOKEN_OUTPUT
+                for item in token_stage.clause.items
+            ):
+                token_source = next(
+                    (
+                        item.alias or item.expression.text.strip()
+                        for item in token_stage.clause.items
+                        if _is_whole_row_with_item(item, match_node_aliases=token_aliases)
+                    ),
+                    None,
+                )
+                if token_source is None:
+                    raise _unsupported_at_span(
+                        "Cypher MATCH after WITH cannot forward the internal row token without a carried node alias",
+                        field="with",
+                        value=REENTRY_ROW_TOKEN_OUTPUT,
+                        span=token_stage.span,
+                    )
+                token_item = ReturnItem(
+                    expression=ExpressionText(
+                        text=f"{token_source}.{_reentry_hidden_column_name(REENTRY_ROW_TOKEN_OUTPUT)}",
+                        span=token_stage.span,
+                    ),
+                    alias=REENTRY_ROW_TOKEN_OUTPUT,
+                    span=token_stage.span,
+                    internal=True,
+                )
+                rewritten_with_stages = (
+                    replace(
+                        token_stage,
+                        clause=replace(
+                            token_stage.clause,
+                            items=token_stage.clause.items + (token_item,),
+                        ),
+                    ),
+                ) + rewritten_with_stages[1:]
         rewritten_reentry_unwinds = tuple(
             replace(
                 unwind_clause,

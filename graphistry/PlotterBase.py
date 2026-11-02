@@ -230,6 +230,7 @@ class PlotterBase(Plottable):
     _gfql_start_nodes: Optional["DataFrameT"] = None
     _gfql_preserve_start_node_multiplicity: bool = False
     _gfql_rows_edge_aliases: Optional[Iterable[str]] = None
+    _gfql_rows_node_aliases: Optional[Iterable[str]] = None
     _gfql_shortest_path_backend: str = "auto"
     _g: Optional["Plottable"] = None  # set only on row-pipeline adapters
 

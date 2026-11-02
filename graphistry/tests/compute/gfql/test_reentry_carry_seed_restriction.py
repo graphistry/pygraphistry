@@ -18,6 +18,7 @@ without that filter, so its carried set is persons 0 and 1 and its aggregate ans
 The Polars pins cover the same positive projection-carry rows as pandas. cuDF controls
 remain in the parameterized matrix and run only on GPU-capable hosts.
 """
+import os
 from typing import Any, List
 
 import pandas as pd
@@ -86,7 +87,7 @@ REPEATED_REENTRY_CROSS_ENGINE = (
 
 
 def _graph(engine: str) -> Any:
-    if engine == "polars":
+    if engine in {"polars", "polars-gpu"}:
         pl = pytest.importorskip("polars")
         return graphistry.nodes(pl.from_pandas(NODES), "node_id").edges(
             pl.from_pandas(EDGES), "src", "dst"
@@ -133,7 +134,15 @@ def _rows(engine: str, query: str) -> List[dict]:
 
 # ------------------------------ route 1: single-hop grouped-aggregate fast path
 
-@pytest.mark.parametrize("engine", ["pandas", "polars", "cudf"])
+@pytest.mark.parametrize(
+    "engine",
+    [
+        "pandas",
+        "polars",
+        pytest.param("polars-gpu", marks=pytest.mark.skipif(os.environ.get("TEST_POLARS_GPU") != "1", reason="requires actual polars-gpu")),
+        pytest.param("cudf", marks=pytest.mark.skipif(os.environ.get("TEST_CUDF") != "1", reason="cudf tests need TEST_CUDF=1")),
+    ],
+)
 def test_projection_carry_grouped_count_restricts_to_carried_rows(engine: str) -> None:
     """Was ``[{'t': 'Person', 'numPersons': 1}, {'t': NaN, 'numPersons': 2}]`` — the
     fast path re-matched all 3 persons and parked the 2 un-carried ones in a NULL
@@ -141,7 +150,15 @@ def test_projection_carry_grouped_count_restricts_to_carried_rows(engine: str) -
     assert _rows(engine, GROUPED_COUNT_PROJ) == [{"t": "Person", "numPersons": 1}]
 
 
-@pytest.mark.parametrize("engine", ["pandas", "polars", "cudf"])
+@pytest.mark.parametrize(
+    "engine",
+    [
+        "pandas",
+        "polars",
+        pytest.param("polars-gpu", marks=pytest.mark.skipif(os.environ.get("TEST_POLARS_GPU") != "1", reason="requires actual polars-gpu")),
+        pytest.param("cudf", marks=pytest.mark.skipif(os.environ.get("TEST_CUDF") != "1", reason="cudf tests need TEST_CUDF=1")),
+    ],
+)
 def test_projection_carry_null_scalar_survives_the_carry(engine: str) -> None:
     """NULL cell in the carried column: person 0's nickname is NULL, and the carried
     group key must stay NULL (this rendered as the sentinel string '0000-00-00'
@@ -151,7 +168,15 @@ def test_projection_carry_null_scalar_survives_the_carry(engine: str) -> None:
     assert pd.isna(rows[0]["t"])
 
 
-@pytest.mark.parametrize("engine", ["pandas", "polars", "cudf"])
+@pytest.mark.parametrize(
+    "engine",
+    [
+        "pandas",
+        "polars",
+        pytest.param("polars-gpu", marks=pytest.mark.skipif(os.environ.get("TEST_POLARS_GPU") != "1", reason="requires actual polars-gpu")),
+        pytest.param("cudf", marks=pytest.mark.skipif(os.environ.get("TEST_CUDF") != "1", reason="cudf tests need TEST_CUDF=1")),
+    ],
+)
 def test_projection_carry_row_form_control(engine: str) -> None:
     """CONTROL (discriminator): the non-aggregate row form of the same query was
     already restricted — the leak was fast-path-specific."""
@@ -167,7 +192,15 @@ def test_projection_carry_row_form_control(engine: str) -> None:
         ("whole", [{"t": "Person", "numPersons": 3}]),
     ],
 )
-@pytest.mark.parametrize("engine", ["pandas", "polars", "cudf"])
+@pytest.mark.parametrize(
+    "engine",
+    [
+        "pandas",
+        "polars",
+        pytest.param("polars-gpu", marks=pytest.mark.skipif(os.environ.get("TEST_POLARS_GPU") != "1", reason="requires actual polars-gpu")),
+        pytest.param("cudf", marks=pytest.mark.skipif(os.environ.get("TEST_CUDF") != "1", reason="cudf tests need TEST_CUDF=1")),
+    ],
+)
 def test_projection_carry_seed_width(engine: str, scenario: str, expected: List[dict]) -> None:
     extra = pd.DataFrame({"src": [], "dst": [], "rel": []})
     if scenario == "many":
@@ -185,32 +218,86 @@ def test_projection_carry_seed_width(engine: str, scenario: str, expected: List[
 
 # ------------------------------------- route 2: connected comma-pattern join
 
-@pytest.mark.parametrize("engine", ["pandas", "polars", "cudf"])
+@pytest.mark.parametrize(
+    "engine",
+    [
+        "pandas",
+        "polars",
+        pytest.param("polars-gpu", marks=pytest.mark.skipif(os.environ.get("TEST_POLARS_GPU") != "1", reason="requires actual polars-gpu")),
+        pytest.param("cudf", marks=pytest.mark.skipif(os.environ.get("TEST_CUDF") != "1", reason="cudf tests need TEST_CUDF=1")),
+    ],
+)
 def test_bare_carry_connected_join_restricts_to_carried_rows(engine: str) -> None:
     """Was ``[{'pid': 0, ...}, {'pid': 1, ...}]`` on all three engines: person 1 owns a
     pet and lives in the city but was never carried."""
     assert _rows(engine, CONNECTED_JOIN_BARE) == [{"pid": 0, "pets": 1}]
 
 
-@pytest.mark.parametrize("engine", ["pandas", "polars", "cudf"])
+@pytest.mark.parametrize(
+    "engine",
+    [
+        "pandas",
+        "polars",
+        pytest.param("polars-gpu", marks=pytest.mark.skipif(os.environ.get("TEST_POLARS_GPU") != "1", reason="requires actual polars-gpu")),
+        pytest.param("cudf", marks=pytest.mark.skipif(os.environ.get("TEST_CUDF") != "1", reason="cudf tests need TEST_CUDF=1")),
+    ],
+)
 def test_projection_carry_connected_join_restricts_to_carried_rows(engine: str) -> None:
     assert _rows(engine, CONNECTED_JOIN_PROJ) == [{"t": "Person", "pets": 1}]
 
 
 # --------------------------------------------- route 3: two-hop count fast path
 
-@pytest.mark.parametrize("engine", ["pandas", "polars", "cudf"])
+@pytest.mark.parametrize(
+    "engine",
+    [
+        "pandas",
+        "polars",
+        pytest.param("polars-gpu", marks=pytest.mark.skipif(os.environ.get("TEST_POLARS_GPU") != "1", reason="requires actual polars-gpu")),
+        pytest.param("cudf", marks=pytest.mark.skipif(os.environ.get("TEST_CUDF") != "1", reason="cudf tests need TEST_CUDF=1")),
+    ],
+)
 def test_two_hop_count_after_carry_restricts_to_carried_rows(engine: str) -> None:
     """Was ``n=3`` (all persons re-matched). Only carried person 0's path counts."""
     assert _rows(engine, TWO_HOP_COUNT) == [{"n": 1}]
 
 # --------------------------------------------- route 4: repeated reentry
 
-@pytest.mark.parametrize("engine", ["pandas", "polars", "cudf"])
+@pytest.mark.parametrize(
+    "engine",
+    [
+        "pandas",
+        "polars",
+        pytest.param("polars-gpu", marks=pytest.mark.skipif(os.environ.get("TEST_POLARS_GPU") != "1", reason="requires actual polars-gpu")),
+        pytest.param("cudf", marks=pytest.mark.skipif(os.environ.get("TEST_CUDF") != "1", reason="cudf tests need TEST_CUDF=1")),
+    ],
+)
 def test_projection_carry_survives_repeated_reentry(engine: str) -> None:
     """Persons 0 and 1 survive the initial unrestricted match and both repeated
     WITH->MATCH reentries; the aggregate must not widen back to person 2."""
     assert _rows(engine, REPEATED_REENTRY_CROSS_ENGINE) == [{"t": "Person", "n": 2}]
+
+
+@pytest.mark.parametrize(
+    ("query",),
+    [
+        (GROUPED_COUNT_PROJ,),
+        (CONNECTED_JOIN_PROJ,),
+        (TWO_HOP_COUNT,),
+    ],
+)
+@pytest.mark.parametrize(
+    "engine",
+    [
+        "pandas",
+        "polars",
+        pytest.param("polars-gpu", marks=pytest.mark.skipif(os.environ.get("TEST_POLARS_GPU") != "1", reason="requires actual polars-gpu")),
+        pytest.param("cudf", marks=pytest.mark.skipif(os.environ.get("TEST_CUDF") != "1", reason="cudf tests need TEST_CUDF=1")),
+    ],
+)
+def test_reentry_shapes_use_the_general_fallback_pipeline(query: str, engine: str) -> None:
+    report = _graph(engine).gfql_explain(query, engine=engine)
+    assert not any(step.get("served") is True for step in report.get("steps", []))
 
 
 # ----------------------------------------------------- helper-level unit pins

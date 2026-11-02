@@ -1060,6 +1060,28 @@ def assign_constant_columns(df: "DataFrameT", values: Dict[str, Any]) -> "DataFr
     return df.assign(**values)
 
 
+def null_column(df: "DataFrameT", name: str, *, dtype_from: str) -> "DataFrameT":
+    """Return ``df`` with ``name`` set to every-row null with engine-native typing.
+
+    Polars and cuDF preserve the source dtype. Pandas-backed engines retain the
+    object sentinel used by raw-binding parity tests.
+    """
+    if is_polars_df(df):
+        import polars as pl
+
+        source_dtype = df.schema[dtype_from]
+        return df.with_columns(pl.lit(None, dtype=source_dtype).alias(name))  # type: ignore[return-value]
+
+    source = df[dtype_from]
+    if is_cudf_series(source):
+        import cudf
+
+        nulls = cudf.Series(None, index=df.index, dtype=source.dtype)
+    else:
+        nulls = pd.Series([None] * len(df), index=df.index, dtype=object)
+    return df.assign(**{name: nulls})
+
+
 def drop_columns(df: "DataFrameT", cols: Sequence[str]) -> "DataFrameT":
     """Drop columns by name, engine-aware (polars ``drop(list)`` vs pandas ``drop(columns=)``)."""
     if is_polars_df(df):

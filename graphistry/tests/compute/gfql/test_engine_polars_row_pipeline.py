@@ -118,6 +118,7 @@ NATIVE_LOWERED = [
     "MATCH (a)-[e]->(b) RETURN count(DISTINCT b) AS c",
     # property-arg distinct (already native; guard against regression)
     "MATCH (n) RETURN n.kind, count(DISTINCT n.val) AS c",
+    "MATCH (n) RETURN collect(n) AS xs",
 ]
 
 # NO-CHEATING (see plan.md): no native impl yet -> NotImplementedError, never a
@@ -126,9 +127,6 @@ NATIVE_LOWERED = [
 # lowered via rows(binding_ops) are native.
 DEFERRED = [
     "MATCH (n)-[e]->(m) WHERE n.val < m.val RETURN n, m",   # cross-entity WHERE
-    # whole-entity collect: agg arg is the __node_entity__(n) whole-entity token (not the bare
-    # identity sentinel), whose native list-of-entities representation isn't ported yet -> NIE.
-    "MATCH (n) RETURN collect(n) AS xs",
 ]
 
 
