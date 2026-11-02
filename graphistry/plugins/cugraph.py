@@ -115,14 +115,14 @@ def _preserve_graph_edge_orientation(
         if cudf is not None and isinstance(returned_edges, cudf.DataFrame)
         else pd.concat
     )
-    matches = concat([forward, reverse]).drop_duplicates(
+    matches = concat([forward, reverse], ignore_index=True).drop_duplicates(
         subset=[returned_id], keep='first'
     )
     if matches[returned_id].nunique() != len(returned):
         raise ValueError(
             'cuGraph graph-algorithm output contains an edge absent from the original graph'
         )
-    matches = matches.sort_values(returned_id).drop(
+    matches = matches.sort_values(returned_id).reset_index(drop=True).drop(
         columns=[returned_id, original_id, match_source, match_destination]
     )
     return matches[list(returned_edges.columns)]
@@ -231,7 +231,7 @@ def _restore_graph_edge_attrs(
         selected[[returned_id, *attr_columns]],
         how='left',
         on=[returned_id],
-    )
+    ).sort_values(returned_id).reset_index(drop=True)
     return restored.drop(columns=[returned_id])
 
 

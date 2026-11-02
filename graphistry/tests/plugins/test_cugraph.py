@@ -1,6 +1,7 @@
 from functools import lru_cache
 from collections import Counter
 import graphistry, logging, os, pandas as pd, pytest
+import pyarrow as pa
 from graphistry.tests.common import NoAuthTestCase
 from graphistry.constants import SRC, DST, NODE
 from graphistry.plugins.cugraph import (
@@ -16,6 +17,12 @@ from graphistry.plugins.cugraph import (
 
 logger = logging.getLogger()
 logger.setLevel(logging.DEBUG)
+
+
+def _assert_arrow_safe_range_index(restored: pd.DataFrame) -> None:
+    assert isinstance(restored.index, pd.RangeIndex)
+    assert list(restored.index) == list(range(len(restored)))
+    assert pa.Table.from_pandas(restored).column_names == list(restored.columns)
 
 
 test_cugraph = "TEST_CUGRAPH" in os.environ and os.environ["TEST_CUGRAPH"] == "1"
@@ -803,6 +810,7 @@ class Test_restore_graph_edge_attrs:
 
         restored = _restore_graph_edge_attrs(returned, original, "s", "d")
 
+        _assert_arrow_safe_range_index(restored)
         assert restored.to_dict("records") == [
             {"s": "a", "d": "b", "label": "ab", "weight": 2.0},
             {"s": "b", "d": "a", "label": "ab", "weight": 2.0},
@@ -816,6 +824,7 @@ class Test_restore_graph_edge_attrs:
 
         restored = _restore_graph_edge_attrs(returned, original, "s", "d")
 
+        _assert_arrow_safe_range_index(restored)
         assert list(zip(restored["s"], restored["d"], restored["label"])) == [
             ("a", "b", "ab"), ("b", "a", "ba")
         ]
@@ -854,6 +863,7 @@ class Test_restore_graph_edge_attrs:
 
         restored = _restore_graph_edge_attrs(returned, original, "s", "d")
 
+        _assert_arrow_safe_range_index(restored)
         assert restored.shape == (1, 3)
         assert restored["label"].tolist() == ["same"]
 
@@ -953,6 +963,7 @@ class Test_preserve_graph_edge_orientation:
 
         restored = _preserve_graph_edge_orientation(returned, original, "s", "d")
 
+        _assert_arrow_safe_range_index(restored)
         assert list(zip(restored["s"], restored["d"])) == [("a", "b"), ("d", "c")]
 
     def test_preserves_forward_endpoint_pairs(self):
@@ -961,6 +972,7 @@ class Test_preserve_graph_edge_orientation:
 
         restored = _preserve_graph_edge_orientation(returned, original, "s", "d")
 
+        _assert_arrow_safe_range_index(restored)
         assert list(zip(restored["s"], restored["d"])) == [("a", "b"), ("b", "c")]
 
     def test_declines_unmatched_returned_edges(self):
