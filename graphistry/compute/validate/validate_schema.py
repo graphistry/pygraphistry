@@ -1,6 +1,6 @@
 """Schema validation for GFQL chains without execution."""
 
-from typing import List, Optional, Union, TYPE_CHECKING, cast, Tuple, Set
+from typing import Dict, List, Optional, Union, TYPE_CHECKING, cast, Tuple, Set
 from typing_extensions import Literal
 import pandas as pd
 from graphistry.Plottable import Plottable
@@ -183,7 +183,7 @@ def validate_chain_schema(
     return errors if collect_all else None
 
 
-def _validate_node_op(op: ASTNode, node_columns: set, nodes_df: Optional[pd.DataFrame], collect_all: bool) -> List[GFQLSchemaError]:
+def _validate_node_op(op: ASTNode, node_columns: Set[str], nodes_df: Optional[pd.DataFrame], collect_all: bool) -> List[GFQLSchemaError]:
     """Validate node operation against schema."""
     errors = []
     if op.filter_dict and nodes_df is not None:
@@ -193,8 +193,8 @@ def _validate_node_op(op: ASTNode, node_columns: set, nodes_df: Optional[pd.Data
 
 def _validate_edge_op(
     op: ASTEdge,
-    node_columns: set,
-    edge_columns: set,
+    node_columns: Set[str],
+    edge_columns: Set[str],
     nodes_df: Optional[pd.DataFrame],
     edges_df: Optional[pd.DataFrame],
     collect_all: bool
@@ -218,8 +218,8 @@ def _validate_edge_op(
 
 
 def _validate_filter_dict(
-    filter_dict: dict,
-    columns: set,
+    filter_dict: Dict[str, object],
+    columns: Set[str],
     df: pd.DataFrame,
     context: str,
     collect_all: bool = False
@@ -340,8 +340,8 @@ def _validate_filter_dict(
 
 def _validate_call_op(
     op: ASTCall,
-    node_columns: set,
-    edge_columns: set,
+    node_columns: Set[str],
+    edge_columns: Set[str],
     active_row_table: Literal["nodes", "edges"],
     collect_all: bool = False
 ) -> List[GFQLValidationError]:
@@ -417,8 +417,8 @@ def _validate_call_op(
 
 def _apply_call_schema_effects(
     op: ASTCall,
-    node_columns: set,
-    edge_columns: set,
+    node_columns: Set[str],
+    edge_columns: Set[str],
     active_row_table: Literal["nodes", "edges"],
 ) -> Literal["nodes", "edges"]:
     """Apply schema effects from a call operation to tracked column sets."""

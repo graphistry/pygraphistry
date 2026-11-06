@@ -304,8 +304,6 @@
       "graphistry/compute/predicates/comparison.py": 2,
       "graphistry/compute/predicates/is_in.py": 1,
       "graphistry/compute/predicates/str.py": 6,
-      "graphistry/compute/validate/validate_schema.py": 9,
-      "graphistry/compute/validate_schema.py": 7,
       "graphistry/dgl_utils.py": 1,
       "graphistry/embed_utils.py": 3,
       "graphistry/exceptions.py": 1,

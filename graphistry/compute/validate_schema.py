@@ -1,6 +1,6 @@
 """Schema validation for GFQL chains without execution."""
 
-from typing import List, Optional, Union, TYPE_CHECKING, cast
+from typing import Dict, List, Optional, Set, Union, TYPE_CHECKING, cast
 import pandas as pd
 from graphistry.Plottable import Plottable
 from graphistry.compute.ast import ASTObject, ASTNode, ASTEdge, ASTLet, ASTRef, ASTRemoteGraph, ASTCall
@@ -79,7 +79,7 @@ def validate_chain_schema(
     return errors if collect_all else None
 
 
-def _validate_node_op(op: ASTNode, node_columns: set, nodes_df: Optional[pd.DataFrame], collect_all: bool) -> List[GFQLSchemaError]:
+def _validate_node_op(op: ASTNode, node_columns: Set[str], nodes_df: Optional[pd.DataFrame], collect_all: bool) -> List[GFQLSchemaError]:
     """Validate node operation against schema."""
     errors = []
     if op.filter_dict and nodes_df is not None:
@@ -89,8 +89,8 @@ def _validate_node_op(op: ASTNode, node_columns: set, nodes_df: Optional[pd.Data
 
 def _validate_edge_op(
     op: ASTEdge,
-    node_columns: set,
-    edge_columns: set,
+    node_columns: Set[str],
+    edge_columns: Set[str],
     nodes_df: Optional[pd.DataFrame],
     edges_df: Optional[pd.DataFrame],
     collect_all: bool
@@ -213,8 +213,8 @@ def _validate_remotegraph_op(op: ASTRemoteGraph, collect_all: bool) -> List[GFQL
 
 
 def _validate_filter_dict(
-    filter_dict: dict,
-    columns: set,
+    filter_dict: Dict[str, object],
+    columns: Set[str],
     df: pd.DataFrame,
     context: str,
     collect_all: bool = False
@@ -308,8 +308,8 @@ def _validate_filter_dict(
 
 def _validate_call_op(
     op: ASTCall,
-    node_columns: set,
-    edge_columns: set,
+    node_columns: Set[str],
+    edge_columns: Set[str],
     collect_all: bool = False
 ) -> List[GFQLSchemaError]:
     """Validate Call operation schema requirements.
