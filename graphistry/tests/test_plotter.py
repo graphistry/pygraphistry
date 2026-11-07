@@ -1556,7 +1556,7 @@ class TestNodesEdgesExtraArgsCudf:
         import cudf
 
         nodes_gdf = cudf.from_pandas(pd.DataFrame({'id': [0, 1], 'c': ['a', 'b']}))
-        edges_gdf = cudf.from_pandas(pd.DataFrame({'s': [0, 1], 'd': [1], 'w': [1, 2]}))
+        edges_gdf = cudf.from_pandas(pd.DataFrame({'s': [0, 1], 'd': [1, 2], 'w': [1, 2]}))
 
         g = graphistry.nodes(nodes_gdf, 'id').edges(edges_gdf, 's', 'd', 'w')
         assert g._node == 'id' and g._source == 's' and g._destination == 'd' and g._edge == 'w'
@@ -1564,8 +1564,8 @@ class TestNodesEdgesExtraArgsCudf:
         def count_nodes(g, count):
             return g._nodes.head(count)
 
-        def count_edges(g, count):
-            return g._edges.head(count)
+        def count_edges(g, n):
+            return g._edges.head(n)
 
         assert len(g.nodes(count_nodes, None, 1)._nodes) == 1
         assert len(g.edges(count_edges, n=1)._edges) == 1
@@ -1582,12 +1582,12 @@ class TestNodesEdgesExtraArgsCudf:
                 return 'SECRET_REPR_MARKER'
 
         nodes_gdf = cudf.from_pandas(pd.DataFrame({'id': [0]}))
-        edges_gdf = cudf.from_pandas(pd.DataFrame({'s': [0], 'd': [0]}))
+        edges_gdf = cudf.from_pandas(pd.DataFrame({'s': [0], 'd': [0], 'w': [0]}))
         marker = SecretRepr()
 
         with pytest.raises(TypeError, match=r"nodes\(\) got 1 unexpected positional argument\(s\)") as nodes_exc:
             graphistry.nodes(nodes_gdf, 'id', marker)
         assert 'SECRET_REPR_MARKER' not in str(nodes_exc.value)
         with pytest.raises(TypeError, match=r"edges\(\) got 1 unexpected positional argument\(s\)") as edges_exc:
-            graphistry.bind().edges(edges_gdf, 's', 'd', marker)
+            graphistry.bind().edges(edges_gdf, 's', 'd', 'w', marker)
         assert 'SECRET_REPR_MARKER' not in str(edges_exc.value)
