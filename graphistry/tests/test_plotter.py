@@ -1543,3 +1543,51 @@ class TestNodesEdgesExtraArgs:
     def test_bind_unknown_kwarg_unchanged(self):
         with pytest.raises(TypeError, match='point_titel'):
             graphistry.bind(point_titel='c')
+
+
+class TestNodesEdgesExtraArgsCudf:
+    """The public extra-argument contract must also hold for real cuDF frames."""
+
+    @pytest.mark.skipif(
+        not ("TEST_CUDF" in os.environ and os.environ["TEST_CUDF"] == "1"),
+        reason="cudf tests need TEST_CUDF=1",
+    )
+    def test_valid_and_callable_calls_unchanged(self):
+        import cudf
+
+        nodes_gdf = cudf.from_pandas(pd.DataFrame({'id': [0, 1], 'c': ['a', 'b']}))
+        edges_gdf = cudf.from_pandas(pd.DataFrame({'s': [0, 1], 'd': [1], 'w': [1, 2]}))
+
+        g = graphistry.nodes(nodes_gdf, 'id').edges(edges_gdf, 's', 'd', 'w')
+        assert g._node == 'id' and g._source == 's' and g._destination == 'd' and g._edge == 'w'
+
+        def count_nodes(g, count):
+            return g._nodes.head(count)
+
+        def count_edges(g, count):
+            return g._edges.head(count)
+
+        assert len(g.nodes(count_nodes, None, 1)._nodes) == 1
+        assert len(g.edges(count_edges, n=1)._edges) == 1
+
+    @pytest.mark.skipif(
+        not ("TEST_CUDF" in os.environ and os.environ["TEST_CUDF"] == "1"),
+        reason="cudf tests need TEST_CUDF=1",
+    )
+    def test_rejects_extra_positional_without_materializing(self):
+        import cudf
+
+        class SecretRepr:
+            def __repr__(self):
+                return 'SECRET_REPR_MARKER'
+
+        nodes_gdf = cudf.from_pandas(pd.DataFrame({'id': [0]}))
+        edges_gdf = cudf.from_pandas(pd.DataFrame({'s': [0], 'd': [0]}))
+        marker = SecretRepr()
+
+        with pytest.raises(TypeError, match=r"nodes\(\) got 1 unexpected positional argument\(s\)") as nodes_exc:
+            graphistry.nodes(nodes_gdf, 'id', marker)
+        assert 'SECRET_REPR_MARKER' not in str(nodes_exc.value)
+        with pytest.raises(TypeError, match=r"edges\(\) got 1 unexpected positional argument\(s\)") as edges_exc:
+            graphistry.bind().edges(edges_gdf, 's', 'd', marker)
+        assert 'SECRET_REPR_MARKER' not in str(edges_exc.value)
