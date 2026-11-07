@@ -8,6 +8,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [Development]
 <!-- Do Not Erase This Section - Used for tracking unreleased changes -->
 
+### Breaking 🔥
+
+- **`nodes()` / `edges()` reject extra arguments for non-callable data** (#398): extra positional or keyword arguments are only forwarded when `nodes` / `edges` is a callable. With a DataFrame (or other non-callable), they were silently dropped. These calls now raise `TypeError` with the positional count and unexpected keyword names only, without materializing or rendering dropped positional values, and suggest `.bind(...)` when a keyword is a binding name such as `point_title` or `edge_title`. Applies to `PlotterBase` and the module-level `graphistry.nodes()` / `graphistry.edges()`; callable forwarding and `bind()` are unchanged.
+
 ### Documentation
 
 - **Stale benchmark results stay published**: age or compute-drift staleness is now rendered as a caveat with its measurement date and a linked re-measure issue instead of refusing or withdrawing the number. Removal of a published benchmark result requires explicit maintainer approval upstream.
@@ -84,7 +88,6 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ### Documentation
 
 - **Added planner and worker coordination skills**: these internal `.agents` workflows describe implementation planning, focused evidence, review handoffs, and lightweight heartbeat coordination (#2206).
-
 ## [0.61.0] - 2026-10-18
 
 ### Added
