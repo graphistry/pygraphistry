@@ -8,6 +8,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [Development]
 <!-- Do Not Erase This Section - Used for tracking unreleased changes -->
 
+### Deprecated
+
+- **Ignored extra arguments to `nodes()` / `edges()`** (#398, #2280): non-callable data with extra positional or keyword arguments now emits a `FutureWarning` while preserving the existing behavior of ignoring those arguments. Use `.bind(...)` for binding options. Formal arguments and callable forwarding are unchanged; warnings include positional counts and keyword names, never argument values. Strict `TypeError` rejection is targeted for May 2027, after at least six months of released deprecation notice.
+
 ### Documentation
 
 - **Stale benchmark results stay published**: age or compute-drift staleness is now rendered as a caveat with its measurement date and a linked re-measure issue instead of refusing or withdrawing the number. Removal of a published benchmark result requires explicit maintainer approval upstream.
@@ -84,7 +88,6 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ### Documentation
 
 - **Added planner and worker coordination skills**: these internal `.agents` workflows describe implementation planning, focused evidence, review handoffs, and lightweight heartbeat coordination (#2206).
-
 ## [0.61.0] - 2026-10-18
 
 ### Added
