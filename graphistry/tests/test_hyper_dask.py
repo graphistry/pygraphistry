@@ -5,7 +5,7 @@ from pandas.api.types import is_datetime64_any_dtype
 
 from graphistry.pygraphistry import PyGraphistry
 from graphistry.Engine import Engine, DataframeLike
-from graphistry.hyper_dask import HyperBindings, hypergraph
+from graphistry.hyper_dask import HyperBindings, clean_events, hypergraph
 from graphistry.tests.common import NoAuthTestCase
 from graphistry.tests.test_hypergraph import (
     triangleNodes,
@@ -16,6 +16,40 @@ from graphistry.tests.test_hypergraph import (
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
+
+
+class TestCleanEventsEventID(NoAuthTestCase):
+    def test_implicit_eventid_is_dropped_with_caller_warning(self):
+        df = pd.DataFrame({"EventID": [7, 8], "user": ["a", "b"]})
+
+        with pytest.warns(UserWarning, match="ignoring input column 'EventID'") as record:
+            events = clean_events(df, HyperBindings(), Engine.PANDAS)
+
+        eventid_warnings = [w for w in record if "ignoring input column" in str(w.message)]
+        assert [w.filename for w in eventid_warnings] == [__file__]
+        assert events["EventID"].tolist() == ["EventID::0", "EventID::1"]
+        pd.testing.assert_frame_equal(df, pd.DataFrame({"EventID": [7, 8], "user": ["a", "b"]}))
+
+    def test_warning_points_at_caller_across_public_entrypoints(self):
+        df = pd.DataFrame({"EventID": [7, 8], "user": ["a", "b"]})
+
+        for call in [
+            lambda: PyGraphistry.bind().hypergraph(df),
+            lambda: PyGraphistry.hypergraph(df),
+            lambda: hypergraph(PyGraphistry.bind(), df),
+        ]:
+            with pytest.warns(UserWarning, match="ignoring input column 'EventID'") as record:
+                call()
+            eventid_warnings = [w for w in record if "ignoring input column" in str(w.message)]
+            assert [w.filename for w in eventid_warnings] == [__file__]
+
+    def test_dask_events_receive_global_row_ids(self):
+        import dask.dataframe as dd
+
+        df = pd.DataFrame({"user": ["a", "b", "c"], "host": ["x", "x", "y"]})
+        events = clean_events(dd.from_pandas(df, npartitions=2), HyperBindings(), Engine.DASK)
+
+        assert events["EventID"].compute().tolist() == ["EventID::0", "EventID::1", "EventID::2"]
 
 
 def make_cluster_client():
