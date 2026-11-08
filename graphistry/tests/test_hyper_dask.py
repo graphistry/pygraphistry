@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-import datetime as dt, logging, numpy as np, os, pandas as pd, pyarrow as pa, pytest
+import datetime as dt, logging, numpy as np, os, pandas as pd, pyarrow as pa, pytest, warnings
 from pandas.api.types import is_datetime64_any_dtype
 
 from graphistry.pygraphistry import PyGraphistry
@@ -232,6 +232,19 @@ def test_HyperBindings_mt():
 def test_HyperBindings_override():
     hb = HyperBindings(NODETYPE="abc")
     assert hb.node_type == "abc"
+
+
+def test_HyperBindings_event_id_default():
+    hb = HyperBindings()
+    assert hb.event_id == "EventID"
+    assert hb.event_id_explicit is False
+
+
+def test_HyperBindings_event_id_explicit():
+    assert HyperBindings(EVENTID="EventID").event_id_explicit is True
+    hb = HyperBindings(EVENTID="row_id")
+    assert hb.event_id == "row_id"
+    assert hb.event_id_explicit is True
 
 
 # ###
@@ -488,6 +501,97 @@ class TestHypergraphPandas(NoAuthTestCase):
 
         default_h_edges = hypergraph(PyGraphistry.bind(), nans_df).edges
         self.assertEqual(len(default_h_edges), len(expected_hits))
+
+    def test_implicit_eventid_repeated_uses_row_ids(self):
+        df = pd.DataFrame({"EventID": [4624, 4624, 4625], "user": ["a", "b", "c"]})
+
+        with pytest.warns(UserWarning, match="ignoring input column 'EventID'"):
+            hg = hypergraph(PyGraphistry.bind(), df)
+
+        assert hg.events["EventID"].tolist() == ["EventID::0", "EventID::1", "EventID::2"]
+        assert sorted(hg.edges["EventID"].tolist()) == ["EventID::0", "EventID::1", "EventID::2"]
+        assert len(hg.graph._nodes) == 6
+        assert hg.graph._nodes["nodeID"].is_unique
+        assert "EventID::4624" not in hg.graph._nodes["nodeID"].tolist()
+
+    def test_implicit_eventid_unique_uses_row_ids(self):
+        df = pd.DataFrame({"EventID": ["e1", "e2", "e3"], "user": ["a", "a", "b"]})
+
+        with pytest.warns(UserWarning, match="ignoring input column 'EventID'"):
+            hg = hypergraph(PyGraphistry.bind(), df)
+
+        assert hg.events["EventID"].tolist() == ["EventID::0", "EventID::1", "EventID::2"]
+        assert hg.graph._nodes["nodeID"].is_unique
+
+    def test_implicit_eventid_direct_uses_row_ids(self):
+        df = pd.DataFrame({"EventID": [7, 7], "user": ["a", "b"], "host": ["x", "y"]})
+
+        with pytest.warns(UserWarning, match="ignoring input column 'EventID'"):
+            hg = hypergraph(PyGraphistry.bind(), df, direct=True)
+
+        assert sorted(hg.edges["EventID"].tolist()) == ["EventID::0", "EventID::1"]
+        assert sorted(hg.edges["src"].tolist()) == ["user::a", "user::b"]
+        assert sorted(hg.edges["dst"].tolist()) == ["host::x", "host::y"]
+
+    def test_explicit_eventid_is_honored(self):
+        df = pd.DataFrame({"EventID": [4624, 4624, 4625], "user": ["a", "b", "c"]})
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", UserWarning)
+            hg = hypergraph(PyGraphistry.bind(), df, opts={"EVENTID": "EventID"})
+
+        assert hg.events["EventID"].tolist() == ["EventID::4624", "EventID::4624", "EventID::4625"]
+
+    def test_explicit_other_eventid_keeps_implicit_name_free(self):
+        df = pd.DataFrame({"row": ["r1", "r2"], "user": ["a", "b"]})
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", UserWarning)
+            hg = hypergraph(PyGraphistry.bind(), df, opts={"EVENTID": "row"})
+
+        assert hg.events["row"].tolist() == ["row::r1", "row::r2"]
+
+    def test_explicit_other_eventid_coexists_with_eventid_column(self):
+        df = pd.DataFrame({"EventID": [7, 7], "row": ["r1", "r2"], "user": ["a", "b"]})
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", UserWarning)
+            hg = hypergraph(PyGraphistry.bind(), df, opts={"EVENTID": "row"})
+
+        assert hg.events["row"].tolist() == ["row::r1", "row::r2"]
+        assert "EventID::7" in hg.graph._nodes["nodeID"].tolist()
+
+    def test_no_eventid_col_does_not_warn(self):
+        df = pd.DataFrame({"user": ["a", "b"], "host": ["x", "y"]})
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", UserWarning)
+            hg = hypergraph(PyGraphistry.bind(), df)
+
+        assert hg.events["EventID"].tolist() == ["EventID::0", "EventID::1"]
+
+    def test_implicit_eventid_does_not_modify_input(self):
+        df = pd.DataFrame({"EventID": [4624, 4624, 4625], "user": ["a", "b", "c"]})
+        expected = df.copy()
+
+        for kwargs in [{}, {"direct": True}, {"opts": {"EVENTID": "EventID"}}]:
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", UserWarning)
+                hypergraph(PyGraphistry.bind(), df, **kwargs)
+            pd.testing.assert_frame_equal(df, expected)
+
+    def test_implicit_eventid_warning_points_at_caller(self):
+        df = pd.DataFrame({"EventID": [1, 2], "user": ["a", "b"]})
+
+        for call in [
+            lambda: PyGraphistry.bind().hypergraph(df),
+            lambda: PyGraphistry.hypergraph(df),
+            lambda: hypergraph(PyGraphistry.bind(), df),
+        ]:
+            with pytest.warns(UserWarning, match="ignoring input column 'EventID'") as record:
+                call()
+            eventid_warnings = [w for w in record if "ignoring input column" in str(w.message)]
+            assert [w.filename for w in eventid_warnings] == [__file__]
 
     def test_hyper_evil(self):
         hypergraph(PyGraphistry.bind(), squareEvil)
@@ -1376,6 +1480,103 @@ class TestHypergraphDask(NoAuthTestCase):
             ).edges
             self.assertEqual(len(default_h_edges.compute()), len(expected_hits))
 
+    def test_implicit_eventid_uses_row_ids(self):
+        import dask
+        from dask.distributed import Client
+
+        with Client(processes=True):
+
+            df = pd.DataFrame({"EventID": [4624, 4624, 4625], "user": ["a", "b", "c"]})
+            expected = df.copy()
+
+            with pytest.warns(UserWarning, match="ignoring input column 'EventID'"):
+                hg = hypergraph(
+                    PyGraphistry.bind(),
+                    df,
+                    engine=Engine.DASK,
+                    npartitions=2,
+                    debug=DEBUG,
+                )
+
+            assert sorted(hg.events.compute()["EventID"].tolist()) == ["EventID::0", "EventID::1", "EventID::2"]
+            assert len(hg.graph._nodes.compute()) == 6
+            pd.testing.assert_frame_equal(df, expected)
+
+    def test_no_eventid_col_does_not_modify_input(self):
+        import dask
+        from dask.distributed import Client
+
+        with Client(processes=True):
+
+            df = pd.DataFrame({"user": ["a", "b"], "host": ["x", "y"]})
+            expected = df.copy()
+
+            hypergraph(PyGraphistry.bind(), df, engine=Engine.DASK, npartitions=1, debug=DEBUG)
+
+            pd.testing.assert_frame_equal(df, expected)
+
+    def test_partitioned_dask_input_uses_row_ids(self):
+        import dask
+        import dask.dataframe as dd
+        from dask.distributed import Client
+
+        with Client(processes=True):
+
+            pdf = pd.DataFrame({"EventID": [7, 8, 9], "user": ["a", "b", "c"], "host": ["x", "x", "y"]})
+            row_ids = ["EventID::0", "EventID::1", "EventID::2"]
+
+            for npartitions in [2, 3]:
+                for direct in [False, True]:
+                    for cols in [["EventID", "user", "host"], ["user", "host"]]:
+                        ddf = dd.from_pandas(pdf[cols], npartitions=npartitions)
+                        expected = ddf.compute()
+                        with warnings.catch_warnings(record=True) as caught:
+                            warnings.simplefilter("always", UserWarning)
+                            hg = hypergraph(
+                                PyGraphistry.bind(), ddf, engine=Engine.DASK, direct=direct, debug=DEBUG
+                            )
+                        warned = any("ignoring input column 'EventID'" in str(w.message) for w in caught)
+                        assert warned == ("EventID" in cols)
+
+                        if not direct:
+                            events = hg.events.compute()
+                            assert len(events) == 3
+                            assert sorted(events["EventID"].tolist()) == row_ids
+                        edges = hg.edges.compute()
+                        assert len(edges) == (3 if direct else 6)
+                        assert sorted(edges["EventID"].unique().tolist()) == row_ids
+                        assert list(ddf.columns) == cols
+                        pd.testing.assert_frame_equal(ddf.compute(), expected)
+
+    def test_partitioned_dask_input_explicit_eventid_is_honored(self):
+        import dask
+        import dask.dataframe as dd
+        from dask.distributed import Client
+
+        with Client(processes=True):
+
+            pdf = pd.DataFrame({"EventID": [7, 8, 9], "user": ["a", "b", "c"], "host": ["x", "x", "y"]})
+
+            for npartitions in [2, 3]:
+                for direct in [False, True]:
+                    ddf = dd.from_pandas(pdf, npartitions=npartitions)
+                    expected = ddf.compute()
+                    with warnings.catch_warnings():
+                        warnings.simplefilter("error", UserWarning)
+                        hg = hypergraph(
+                            PyGraphistry.bind(), ddf, engine=Engine.DASK, direct=direct,
+                            opts={"EVENTID": "EventID"}, debug=DEBUG
+                        )
+
+                    if not direct:
+                        events = hg.events.compute()
+                        assert len(events) == 3
+                        assert sorted(events["EventID"].tolist()) == ["EventID::7", "EventID::8", "EventID::9"]
+                    edges = hg.edges.compute()
+                    assert len(edges) == (3 if direct else 6)
+                    assert sorted(edges["EventID"].unique().tolist()) == ["EventID::7", "EventID::8", "EventID::9"]
+                    pd.testing.assert_frame_equal(ddf.compute(), expected)
+
     def test_hyper_evil(self):
         import dask
         from dask.distributed import Client
@@ -2130,6 +2331,234 @@ class TestHypergraphDaskCudf(NoAuthTestCase):
                 edges_err = hg.graph._edges.compute().to_arrow()
                 assert len(hg.graph._edges) == 9
                 assert len(edges_err) == 9
+
+    def test_implicit_eventid_uses_row_ids(self):
+        import cudf
+        import dask_cudf
+
+        cluster, client = make_cluster_client()
+        with cluster:
+            with client:
+                pdf = pd.DataFrame({"EventID": [4624, 4624, 4625], "user": ["a", "b", "c"]})
+                ddf = dask_cudf.from_cudf(cudf.from_pandas(pdf), npartitions=2)
+                expected = ddf.copy()
+
+                with pytest.warns(UserWarning, match="ignoring input column 'EventID'"):
+                    hg = hypergraph(
+                        PyGraphistry.bind(),
+                        ddf,
+                        engine=Engine.DASK_CUDF,
+                        npartitions=2,
+                        debug=DEBUG,
+                    )
+
+                events = hg.events.compute()
+                assert sorted(events["EventID"].to_arrow().to_pylist()) == [
+                    "EventID::0",
+                    "EventID::1",
+                    "EventID::2",
+                ]
+                assert len(hg.graph._nodes.compute()) == 6
+                assertFrameEqualDaskCudf(ddf, expected)
+
+    def test_no_eventid_col_does_not_modify_input(self):
+        import cudf
+        import dask_cudf
+
+        cluster, client = make_cluster_client()
+        with cluster:
+            with client:
+                pdf = pd.DataFrame({"user": ["a", "b"], "host": ["x", "y"]})
+                ddf = dask_cudf.from_cudf(cudf.from_pandas(pdf), npartitions=1)
+                before = ddf.compute().copy(deep=True)
+
+                hg = hypergraph(
+                    PyGraphistry.bind(),
+                    ddf,
+                    engine=Engine.DASK_CUDF,
+                    npartitions=1,
+                    debug=DEBUG,
+                )
+
+                after = ddf.compute()
+                assertFrameEqualCudf(before, after)
+                assert len(hg.events.compute()) == 2
+                assert len(hg.edges.compute()) == 4
+                assert len(hg.graph._nodes.compute()) == 6
+
+    def test_empty_partitions_use_positional_row_ids(self):
+        import cudf
+        import dask_cudf
+
+        cluster, client = make_cluster_client()
+        with cluster:
+            with client:
+                pdf = pd.DataFrame({"user": ["a", "b"]})
+                empty_pdf = pdf.iloc[:0]
+                ddf = dask_cudf.concat(
+                    [
+                        dask_cudf.from_cudf(cudf.from_pandas(pdf), npartitions=1),
+                        dask_cudf.from_cudf(cudf.from_pandas(empty_pdf), npartitions=1),
+                    ]
+                )
+                assert ddf.npartitions == 2
+                partition_lengths = ddf.map_partitions(len).compute().tolist()
+                assert partition_lengths == [2, 0]
+                assert ddf.dtypes["user"] == np.dtype("object")
+
+                hg = hypergraph(
+                    PyGraphistry.bind(),
+                    ddf,
+                    engine=Engine.DASK_CUDF,
+                    npartitions=2,
+                    debug=DEBUG,
+                )
+
+                events = hg.events.compute()
+                assert events["EventID"].to_arrow().to_pylist() == ["EventID::0", "EventID::1"]
+                assert len(hg.edges.compute()) == 2
+                assert len(hg.graph._nodes.compute()) == 4
+
+    def test_all_empty_input_produces_empty_hypergraph(self):
+        import cudf
+        import dask_cudf
+
+        cluster, client = make_cluster_client()
+        with cluster:
+            with client:
+                pdf = pd.DataFrame({"user": [], "host": []})
+                ddf = dask_cudf.from_cudf(cudf.from_pandas(pdf), npartitions=2)
+
+                hg = hypergraph(
+                    PyGraphistry.bind(),
+                    ddf,
+                    engine=Engine.DASK_CUDF,
+                    npartitions=2,
+                    debug=DEBUG,
+                )
+
+                assert len(hg.events.compute()) == 0
+                assert len(hg.edges.compute()) == 0
+                assert len(hg.graph._nodes.compute()) == 0
+
+    def test_duplicate_unknown_divisions_use_positional_row_ids(self):
+        import cudf
+        import dask_cudf
+
+        cluster, client = make_cluster_client()
+        with cluster:
+            with client:
+                gdf = cudf.from_pandas(
+                    pd.DataFrame(
+                        {"user": ["a", "b", "c"], "host": ["x", "y", "z"]},
+                        index=pd.Index([10, 10, 20], name="original"),
+                    )
+                )
+                ddf = dask_cudf.from_cudf(gdf, npartitions=2)
+                ddf = ddf.clear_divisions()
+                assert ddf.npartitions == 2
+                partition_lengths = ddf.map_partitions(len).compute().tolist()
+                assert partition_lengths == [2, 1]
+                assert ddf.divisions == (None, None, None)
+
+                hg = hypergraph(
+                    PyGraphistry.bind(),
+                    ddf,
+                    engine=Engine.DASK_CUDF,
+                    npartitions=2,
+                    debug=DEBUG,
+                )
+
+                events = hg.events.compute()
+                assert events["EventID"].to_arrow().to_pylist() == [
+                    "EventID::0",
+                    "EventID::1",
+                    "EventID::2",
+                ]
+                assert len(hg.edges.compute()) == 6
+                assert len(hg.graph._nodes.compute()) == 9
+
+    def test_partitioned_dask_input_uses_row_ids(self):
+        import cudf
+        import dask_cudf
+
+        cluster, client = make_cluster_client()
+        with cluster:
+            with client:
+                pdf = pd.DataFrame({"EventID": [7, 8, 9], "user": ["a", "b", "c"], "host": ["x", "x", "y"]})
+                row_ids = ["EventID::0", "EventID::1", "EventID::2"]
+
+                for npartitions in [2, 3]:
+                    for direct in [False, True]:
+                        for cols in [["EventID", "user", "host"], ["user", "host"]]:
+                            ddf = dask_cudf.from_cudf(cudf.from_pandas(pdf[cols]), npartitions=npartitions)
+                            expected = ddf.copy()
+                            with warnings.catch_warnings(record=True) as caught:
+                                warnings.simplefilter("always", UserWarning)
+                                hg = hypergraph(
+                                    PyGraphistry.bind(),
+                                    ddf,
+                                    engine=Engine.DASK_CUDF,
+                                    direct=direct,
+                                    debug=DEBUG,
+                                )
+
+                            warned = any(
+                                "ignoring input column 'EventID'" in str(warning.message)
+                                for warning in caught
+                            )
+                            assert warned == ("EventID" in cols)
+
+                            if not direct:
+                                events = hg.events.compute()
+                                assert len(events) == 3
+                                assert sorted(events["EventID"].to_arrow().to_pylist()) == row_ids
+                            edges = hg.edges.compute()
+                            assert len(edges) == (3 if direct else 6)
+                            assert sorted(edges["EventID"].unique().to_arrow().to_pylist()) == row_ids
+                            assert list(ddf.columns) == cols
+                            assertFrameEqualDaskCudf(ddf, expected)
+
+    def test_partitioned_dask_input_explicit_eventid_is_honored(self):
+        import cudf
+        import dask_cudf
+
+        cluster, client = make_cluster_client()
+        with cluster:
+            with client:
+                pdf = pd.DataFrame({"EventID": [7, 8, 9], "user": ["a", "b", "c"], "host": ["x", "x", "y"]})
+
+                for npartitions in [2, 3]:
+                    for direct in [False, True]:
+                        ddf = dask_cudf.from_cudf(cudf.from_pandas(pdf), npartitions=npartitions)
+                        expected = ddf.copy()
+                        with warnings.catch_warnings():
+                            warnings.simplefilter("error", UserWarning)
+                            hg = hypergraph(
+                                PyGraphistry.bind(),
+                                ddf,
+                                engine=Engine.DASK_CUDF,
+                                direct=direct,
+                                opts={"EVENTID": "EventID"},
+                                debug=DEBUG,
+                            )
+
+                        if not direct:
+                            events = hg.events.compute()
+                            assert len(events) == 3
+                            assert sorted(events["EventID"].to_arrow().to_pylist()) == [
+                                "EventID::7",
+                                "EventID::8",
+                                "EventID::9",
+                            ]
+                        edges = hg.edges.compute()
+                        assert len(edges) == (3 if direct else 6)
+                        assert sorted(edges["EventID"].unique().to_arrow().to_pylist()) == [
+                            "EventID::7",
+                            "EventID::8",
+                            "EventID::9",
+                        ]
+                        assertFrameEqualDaskCudf(ddf, expected)
 
     def test_hyperedges_import(self):
         from graphistry.pygraphistry import hypergraph as hypergraph_public

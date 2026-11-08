@@ -2,10 +2,11 @@
 # Like hypergraph(); adds engine = 'pandas' | 'cudf' | 'dask' | 'dask-cudf'
 #
 
+from types import FrameType
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union
 from typing_extensions import Literal
 from .Engine import Engine, EngineAbstractType, DataframeLike, DataframeLocalLike, resolve_input_engine, df_to_engine
-import numpy as np, pandas as pd, pyarrow as pa, sys
+import numpy as np, pandas as pd, pyarrow as pa, sys, warnings
 from .util import setup_logger
 logger = setup_logger(__name__)
 
@@ -17,7 +18,7 @@ class HyperBindings():
         DELIM: str = '::',
         NODEID: str = 'nodeID',
         ATTRIBID: str = 'attribID',
-        EVENTID: str = 'EventID',
+        EVENTID: Optional[str] = None,
         EVENTTYPE: str = 'event',
         SOURCE: str = 'src',
         DESTINATION: str = 'dst',
@@ -33,7 +34,8 @@ class HyperBindings():
         self.delim = DELIM
         self.node_id = NODEID
         self.attrib_id = ATTRIBID
-        self.event_id = EVENTID
+        self.event_id = EVENTID if EVENTID is not None else 'EventID'
+        self.event_id_explicit = EVENTID is not None
         self.event_type = EVENTTYPE
         self.source = SOURCE
         self.destination = DESTINATION
@@ -670,6 +672,19 @@ def df_coercion(  # noqa: C901
     return ValueError('Did not get a value Engine type: %s' % engine)
 
 
+def _caller_stacklevel() -> int:
+    # Public entrypoints reach clean_events() through different wrapper depths
+    level = 2
+    frame: Optional[FrameType] = sys._getframe(2)
+    while frame is not None:
+        module = frame.f_globals.get('__name__', '')
+        if module.startswith('graphistry.tests') or not (module == 'graphistry' or module.startswith('graphistry.')):
+            break
+        frame = frame.f_back
+        level += 1
+    return level
+
+
 def clean_events(
     events: DataframeLike,
     defs: HyperBindings,
@@ -684,12 +699,25 @@ def clean_events(
     """
     logger.debug('@clean: %s', events.dtypes)
 
-    # FIXME https://github.com/rapidsai/cudf/issues/7735
-    # None -> np.nan
+    # Implicit EventID input col would collide with row-keyed event nodes
+    if (not defs.event_id_explicit) and (defs.event_id in events.columns):
+        warnings.warn(
+            f"hypergraph(): ignoring input column '{defs.event_id}' and numbering events by row. "
+            f"To key events by this column, pass opts={{'EVENTID': '{defs.event_id}'}}; "
+            f"to keep its values as an attribute, rename the column.",
+            UserWarning,
+            stacklevel=_caller_stacklevel()
+        )
+        events = events.drop(columns=[defs.event_id])
+
     custom_event_id_flag = False
     if (engine in [Engine.DASK, Engine.DASK_CUDF]) and (defs.event_id not in events.columns):
-        events[defs.event_id] = range(0, len(events))
+        # A global range() is assigned per partition on dask inputs; cumsum carries row offsets across partitions lazily
+        events = events.assign(**{defs.event_id: 1})
+        events = events.assign(**{defs.event_id: events[defs.event_id].cumsum() - 1})
         custom_event_id_flag = True
+    # FIXME https://github.com/rapidsai/cudf/issues/7735
+    # None -> np.nan
     if dropna and (engine == Engine.DASK_CUDF):
         import cudf, numpy as np
         if isinstance(events, pd.DataFrame):  # or isinstance(events, cudf.DataFrame):
