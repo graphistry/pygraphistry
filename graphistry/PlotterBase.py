@@ -206,10 +206,10 @@ def maybe_polars():
 # #####################################
 
 
-def _reject_unused_nodes_edges_args(
+def _warn_unused_nodes_edges_args(
     method: str, arg_name: str, args: Tuple[object, ...], kwargs: Dict[str, object]
 ) -> None:
-    """Raise TypeError without positional values when nodes()/edges() would drop them.
+    """Warn without rendering values when nodes()/edges() ignore extra arguments.
 
     Extra positional and keyword arguments are only forwarded when the data argument is a callable.
     """
@@ -227,7 +227,8 @@ def _reject_unused_nodes_edges_args(
     bindings = [k for k in kwargs if k in _BIND_PARAMS]
     if bindings:
         msg += " To set bindings, use .bind(" + ", ".join(f"{k}=..." for k in bindings) + ")."
-    raise TypeError(msg)
+    msg += " These arguments are currently ignored; passing them is deprecated and will raise TypeError in a future release. See https://github.com/graphistry/pygraphistry/issues/2280."
+    warnings.warn(msg, FutureWarning, stacklevel=3)
 
 
 class PlotterBase(Plottable):
@@ -1910,7 +1911,7 @@ class PlotterBase(Plottable):
             nodes2 = nodes(base, *args, **kwargs)
             res = base.nodes(nodes2)
         else:
-            _reject_unused_nodes_edges_args('nodes', 'nodes', args, kwargs)
+            _warn_unused_nodes_edges_args('nodes', 'nodes', args, kwargs)
             res = copy.copy(base)
             res._nodes = nodes
         # for use in text_utils.py search index
@@ -2032,7 +2033,7 @@ class PlotterBase(Plottable):
             edges2 = edges(base, *args, **kwargs)
             res = base.edges(edges2)
         else:
-            _reject_unused_nodes_edges_args('edges', 'edges', args, kwargs)
+            _warn_unused_nodes_edges_args('edges', 'edges', args, kwargs)
             res = copy.copy(base)
             res._edges = edges
 

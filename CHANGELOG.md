@@ -8,9 +8,9 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [Development]
 <!-- Do Not Erase This Section - Used for tracking unreleased changes -->
 
-### Breaking 🔥
+### Deprecated
 
-- **`nodes()` / `edges()` reject extra arguments for non-callable data** (#398): extra positional or keyword arguments are only forwarded when `nodes` / `edges` is a callable. With a DataFrame (or other non-callable), they were silently dropped. These calls now raise `TypeError` with the positional count and unexpected keyword names only, without materializing or rendering dropped positional values, and suggest `.bind(...)` when a keyword is a binding name such as `point_title` or `edge_title`. Applies to `PlotterBase` and the module-level `graphistry.nodes()` / `graphistry.edges()`; callable forwarding and `bind()` are unchanged.
+- **Ignored extra arguments to `nodes()` / `edges()`** (#398, #2280): non-callable data with extra positional or keyword arguments now emits a `FutureWarning` while preserving the existing behavior of ignoring those arguments. Use `.bind(...)` for binding options. Formal arguments and callable forwarding are unchanged; warnings include positional counts and keyword names, never argument values. Strict `TypeError` rejection is targeted for May 2027, after at least six months of released deprecation notice.
 
 ### Documentation
 

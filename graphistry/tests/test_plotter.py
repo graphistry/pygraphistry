@@ -1463,6 +1463,7 @@ class TestPlotterMixins(NoAuthTestCase):
         ]
 
 
+@pytest.mark.filterwarnings("error::FutureWarning")
 class TestNodesEdgesExtraArgs:
     """nodes()/edges() with non-callable data must not silently drop extra arguments (#398)"""
 
@@ -1473,38 +1474,46 @@ class TestNodesEdgesExtraArgs:
         lambda df, *a, **kw: graphistry.nodes(df, *a, **kw),
         lambda df, *a, **kw: graphistry.bind().nodes(df, *a, **kw),
     ], ids=['module', 'plotter'])
-    def test_nodes_rejects_binding_kwarg(self, make_nodes):
-        with pytest.raises(TypeError, match=r"nodes\(\) got unexpected keyword argument\(s\) 'point_title'.*\.bind\(point_title=\.\.\.\)"):
-            make_nodes(self.nodes_df, 'id', point_title='c')
+    def test_nodes_warns_binding_kwarg(self, make_nodes):
+        with pytest.warns(FutureWarning, match=r"nodes\(\) got unexpected keyword argument\(s\) 'point_title'.*\.bind\(point_title=\.\.\.\)"):
+            result = make_nodes(self.nodes_df, 'id', point_title='c')
+        assert result._nodes is self.nodes_df
+        assert result._node == 'id'
+        assert result._point_title is None
 
     @pytest.mark.parametrize('make_edges', [
         lambda df, *a, **kw: graphistry.edges(df, *a, **kw),
         lambda df, *a, **kw: graphistry.bind().edges(df, *a, **kw),
     ], ids=['module', 'plotter'])
-    def test_edges_rejects_binding_kwarg(self, make_edges):
-        with pytest.raises(TypeError, match=r"edges\(\) got unexpected keyword argument\(s\) 'edge_title'.*\.bind\(edge_title=\.\.\.\)"):
-            make_edges(self.edges_df, 's', 'd', edge_title='w')
+    def test_edges_warns_binding_kwarg(self, make_edges):
+        with pytest.warns(FutureWarning, match=r"edges\(\) got unexpected keyword argument\(s\) 'edge_title'.*\.bind\(edge_title=\.\.\.\)"):
+            result = make_edges(self.edges_df, 's', 'd', edge_title='w')
+        assert result._edges is self.edges_df
+        assert (result._source, result._destination) == ('s', 'd')
+        assert result._edge_title is None
 
     @pytest.mark.parametrize('module', [True, False], ids=['module', 'plotter'])
-    def test_rejects_unknown_kwarg_without_bind_hint(self, module):
+    def test_warns_unknown_kwarg_without_bind_hint(self, module):
         g = graphistry if module else graphistry.bind()
-        with pytest.raises(TypeError, match=r"'src_renamed', 'dst_renamed'") as exc:
+        with pytest.warns(FutureWarning, match=r"'src_renamed', 'dst_renamed'") as exc:
             g.edges(self.edges_df, 's', 'd', src_renamed='id', dst_renamed='id')
-        assert 'bind(' not in str(exc.value)
-        with pytest.raises(TypeError, match=r"'typo'"):
+        assert 'bind(' not in str(exc[0].message)
+        with pytest.warns(FutureWarning, match=r"'typo'"):
             g.nodes(self.nodes_df, 'id', typo=1)
 
     @pytest.mark.parametrize('module', [True, False], ids=['module', 'plotter'])
-    def test_rejects_extra_positional(self, module):
+    def test_warns_extra_positional(self, module):
         g = graphistry if module else graphistry.bind()
-        with pytest.raises(TypeError, match=r"nodes\(\) got 1 unexpected positional argument\(s\)") as nodes_exc:
-            g.nodes(self.nodes_df, 'id', 'x')
-        assert "'x'" not in str(nodes_exc.value)
-        with pytest.raises(TypeError, match=r"edges\(\) got 1 unexpected positional argument\(s\)") as edges_exc:
-            g.bind().edges(self.edges_df, 's', 'd', 'w', 'x')
-        assert "'x'" not in str(edges_exc.value)
+        with pytest.warns(FutureWarning, match=r"nodes\(\) got 1 unexpected positional argument\(s\)") as nodes_exc:
+            result = g.nodes(self.nodes_df, 'id', 'x')
+        assert result._nodes is self.nodes_df and result._node == 'id'
+        assert "'x'" not in str(nodes_exc[0].message)
+        with pytest.warns(FutureWarning, match=r"edges\(\) got 1 unexpected positional argument\(s\)") as edges_exc:
+            result = g.bind().edges(self.edges_df, 's', 'd', 'w', 'x')
+        assert result._edges is self.edges_df and result._edge == 'w'
+        assert "'x'" not in str(edges_exc[0].message)
 
-    def test_error_does_not_expose_or_materialize_positional_args(self):
+    def test_warning_does_not_expose_or_materialize_positional_args(self):
         repr_calls = []
 
         class SecretRepr:
@@ -1512,14 +1521,14 @@ class TestNodesEdgesExtraArgs:
                 repr_calls.append(self)
                 return 'SECRET_REPR_MARKER'
 
-        with pytest.raises(TypeError, match=r"nodes\(\) got 1 unexpected positional argument\(s\)") as nodes_exc:
+        with pytest.warns(FutureWarning, match=r"nodes\(\) got 1 unexpected positional argument\(s\)") as nodes_exc:
             graphistry.nodes(self.nodes_df, 'id', SecretRepr())
         assert repr_calls == []
-        assert 'SECRET_REPR_MARKER' not in str(nodes_exc.value)
-        with pytest.raises(TypeError, match=r"edges\(\) got 1 unexpected positional argument\(s\)") as edges_exc:
+        assert 'SECRET_REPR_MARKER' not in str(nodes_exc[0].message)
+        with pytest.warns(FutureWarning, match=r"edges\(\) got 1 unexpected positional argument\(s\)") as edges_exc:
             graphistry.edges(self.edges_df, 's', 'd', 'w', SecretRepr())
         assert repr_calls == []
-        assert 'SECRET_REPR_MARKER' not in str(edges_exc.value)
+        assert 'SECRET_REPR_MARKER' not in str(edges_exc[0].message)
 
     def test_valid_calls_unchanged(self):
         g = graphistry.nodes(self.nodes_df, 'id').edges(self.edges_df, 's', 'd', 'w')
@@ -1545,6 +1554,7 @@ class TestNodesEdgesExtraArgs:
             graphistry.bind(point_titel='c')
 
 
+@pytest.mark.filterwarnings("error::FutureWarning")
 class TestNodesEdgesExtraArgsCudf:
     """The public extra-argument contract must also hold for real cuDF frames."""
 
@@ -1574,7 +1584,7 @@ class TestNodesEdgesExtraArgsCudf:
         not ("TEST_CUDF" in os.environ and os.environ["TEST_CUDF"] == "1"),
         reason="cudf tests need TEST_CUDF=1",
     )
-    def test_rejects_extra_positional_without_materializing(self):
+    def test_warns_extra_positional_without_materializing(self):
         import cudf
 
         class SecretRepr:
@@ -1585,9 +1595,11 @@ class TestNodesEdgesExtraArgsCudf:
         edges_gdf = cudf.from_pandas(pd.DataFrame({'s': [0], 'd': [0], 'w': [0]}))
         marker = SecretRepr()
 
-        with pytest.raises(TypeError, match=r"nodes\(\) got 1 unexpected positional argument\(s\)") as nodes_exc:
-            graphistry.nodes(nodes_gdf, 'id', marker)
-        assert 'SECRET_REPR_MARKER' not in str(nodes_exc.value)
-        with pytest.raises(TypeError, match=r"edges\(\) got 1 unexpected positional argument\(s\)") as edges_exc:
-            graphistry.bind().edges(edges_gdf, 's', 'd', 'w', marker)
-        assert 'SECRET_REPR_MARKER' not in str(edges_exc.value)
+        with pytest.warns(FutureWarning, match=r"nodes\(\) got 1 unexpected positional argument\(s\)") as nodes_exc:
+            result = graphistry.nodes(nodes_gdf, 'id', marker)
+        assert result._nodes is nodes_gdf and result._node == 'id'
+        assert 'SECRET_REPR_MARKER' not in str(nodes_exc[0].message)
+        with pytest.warns(FutureWarning, match=r"edges\(\) got 1 unexpected positional argument\(s\)") as edges_exc:
+            result = graphistry.bind().edges(edges_gdf, 's', 'd', 'w', marker)
+        assert result._edges is edges_gdf and result._edge == 'w'
+        assert 'SECRET_REPR_MARKER' not in str(edges_exc[0].message)
