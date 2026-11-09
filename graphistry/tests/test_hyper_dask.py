@@ -44,7 +44,7 @@ class TestCleanEventsEventID(NoAuthTestCase):
             assert [w.filename for w in eventid_warnings] == [__file__]
 
     def test_dask_events_receive_global_row_ids(self):
-        import dask.dataframe as dd
+        dd = pytest.importorskip("dask.dataframe")
 
         df = pd.DataFrame({"user": ["a", "b", "c"], "host": ["x", "x", "y"]})
         events = clean_events(dd.from_pandas(df, npartitions=2), HyperBindings(), Engine.DASK)
