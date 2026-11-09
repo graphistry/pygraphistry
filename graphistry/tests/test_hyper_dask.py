@@ -5,6 +5,7 @@ from pandas.api.types import is_datetime64_any_dtype
 
 from graphistry.pygraphistry import PyGraphistry
 from graphistry.Engine import Engine, DataframeLike
+from graphistry.compute.exceptions import GFQLTypeError
 from graphistry.hyper_dask import HyperBindings, clean_events, hypergraph
 from graphistry.tests.common import NoAuthTestCase
 from graphistry.tests.test_hypergraph import (
@@ -19,6 +20,37 @@ logger.setLevel(logging.DEBUG)
 
 
 class TestCleanEventsEventID(NoAuthTestCase):
+    def test_eventid_omission_uses_default_and_is_implicit(self):
+        bindings = HyperBindings()
+
+        assert bindings.event_id == "EventID"
+        assert bindings.event_id_explicit is False
+
+    def test_eventid_explicit_string_is_preserved(self):
+        class EventID(str):
+            pass
+
+        for event_id in ["EventID", "custom", "", EventID("subclass")]:
+            bindings = HyperBindings(EVENTID=event_id)
+
+            assert bindings.event_id == event_id
+            assert bindings.event_id_explicit is True
+
+    def test_eventid_null_and_invalid_scalars_are_rejected(self):
+        df = pd.DataFrame({"user": ["a", "b"]})
+
+        for value in [None, 7]:
+            with pytest.raises(TypeError, match="EVENTID must be a string when provided"):
+                HyperBindings(EVENTID=value)
+
+        for call in [
+            lambda: PyGraphistry.bind().hypergraph(df, opts={"EVENTID": None}),
+            lambda: PyGraphistry.hypergraph(df, opts={"EVENTID": 7}),
+        ]:
+            with pytest.raises((TypeError, GFQLTypeError), match="EVENTID"):
+                call()
+            pd.testing.assert_frame_equal(df, pd.DataFrame({"user": ["a", "b"]}))
+
     def test_implicit_eventid_is_dropped_with_caller_warning(self):
         df = pd.DataFrame({"EventID": [7, 8], "user": ["a", "b"]})
 

@@ -2,6 +2,7 @@
 # Like hypergraph(); adds engine = 'pandas' | 'cudf' | 'dask' | 'dask-cudf'
 #
 
+from enum import Enum
 from types import FrameType
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union
 from typing_extensions import Literal
@@ -9,6 +10,11 @@ from .Engine import Engine, EngineAbstractType, DataframeLike, DataframeLocalLik
 import numpy as np, pandas as pd, pyarrow as pa, sys, warnings
 from .util import setup_logger
 logger = setup_logger(__name__)
+
+
+class _EventIDOmission(Enum):
+    OMITTED = "OMITTED"
+
 
 # TODO: When Python 3.8+, switch to TypedDict
 class HyperBindings():
@@ -18,7 +24,7 @@ class HyperBindings():
         DELIM: str = '::',
         NODEID: str = 'nodeID',
         ATTRIBID: str = 'attribID',
-        EVENTID: Optional[str] = None,
+        EVENTID: Union[str, _EventIDOmission] = _EventIDOmission.OMITTED,
         EVENTTYPE: str = 'event',
         SOURCE: str = 'src',
         DESTINATION: str = 'dst',
@@ -34,8 +40,17 @@ class HyperBindings():
         self.delim = DELIM
         self.node_id = NODEID
         self.attrib_id = ATTRIBID
-        self.event_id = EVENTID if EVENTID is not None else 'EventID'
-        self.event_id_explicit = EVENTID is not None
+        if isinstance(EVENTID, _EventIDOmission):
+            event_id = 'EventID'
+            event_id_explicit = False
+        elif isinstance(EVENTID, str):
+            event_id = EVENTID
+            event_id_explicit = True
+        else:
+            raise TypeError('EVENTID must be a string when provided')
+
+        self.event_id = event_id
+        self.event_id_explicit = event_id_explicit
         self.event_type = EVENTTYPE
         self.source = SOURCE
         self.destination = DESTINATION
