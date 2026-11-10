@@ -78,6 +78,10 @@ NOT_POLARS_GATED: Dict[str, str] = {
         "the CPU Polars lane cannot serve either GPU route, so it belongs to the separately "
         "gated GPU lane rather than this CPU lane"
     ),
+    "graphistry/tests/compute/semantic/test_cudf.py": (
+        "cuDF only: the module is gated on TEST_CUDF, and its polars mentions cover the AUTO "
+        "polars-gpu route for cudf graphs, which needs a GPU; the CPU Polars lane cannot serve it"
+    ),
 }
 
 _POLARS_IMPORTORSKIP = re.compile(r"""importorskip\(\s*["']polars["']""")

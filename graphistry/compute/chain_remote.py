@@ -1,6 +1,6 @@
 from inspect import getmodule
 from io import BytesIO
-from typing import Any, Dict, List, Optional, Sequence, Union
+from typing import Any, Dict, List, Mapping, Optional, Sequence, Union
 from typing_extensions import Literal, Protocol, TypeGuard
 import json
 import pandas as pd
@@ -21,7 +21,7 @@ from graphistry.compute.gfql.strictness import (
 from graphistry.compute.gfql_validate import gfql_validate as gfql_preflight_validate
 from graphistry.io.metadata import deserialize_plottable_metadata
 from graphistry.compute.exceptions import (
-    ErrorCode, GFQLSyntaxError, GFQLTypeError, GFQLValidationError)
+    ErrorCode, GFQLSyntaxError, GFQLTypeError, GFQLUnsupportedError, GFQLValidationError)
 from graphistry.compute.remote_df_io import (
     require_supported_frame_library,
     resolve_csv_reader,
@@ -133,6 +133,39 @@ def _apply_persist_axis_defaults(g: Plottable) -> None:
         g._url_params = merged
 
 
+_SEMANTIC_CALLS = frozenset({"sem_decide", "sem_map"})
+
+
+def _semantic_calls_in(payload: object) -> List[str]:
+    """Names of semantic calls anywhere in a serialized query (Chain, Let, Ref or legacy dict)."""
+    found: List[str] = []
+    pending: List[object] = [payload]
+    while pending:
+        node = pending.pop()
+        if isinstance(node, ASTObject) or isinstance(node, (Chain, ASTLet)):
+            node = node.to_json(validate=False)
+        if isinstance(node, Mapping):
+            function = node.get("function")
+            if node.get("type") == "Call" and isinstance(function, str) and function in _SEMANTIC_CALLS:
+                found.append(function)
+            pending.extend(node.values())
+        elif isinstance(node, (list, tuple)):
+            pending.extend(node)
+    return found
+
+
+def _refuse_semantic_calls(chain_json: object) -> None:
+    names = _semantic_calls_in(chain_json)
+    if names:
+        raise GFQLUnsupportedError(
+            ErrorCode.E110,
+            f"Semantic calls ({', '.join(sorted(set(names)))}) run locally only; use g.gfql(...) with bind_providers",
+            field="function",
+            value=sorted(set(names)),
+            suggestion="Run the query locally with g.gfql(...); remote execution has no provider binding",
+        )
+
+
 def chain_remote_generic(
     self: Plottable,
     chain: Union[Chain, Dict[str, JSONVal], List[Any], 'ASTLet', str],
@@ -235,6 +268,8 @@ def chain_remote_generic(
             value=output,
             suggestion="Drop output=, or express the query as a Let/DAG (or Cypher with named graph bindings)",
         )
+
+    _refuse_semantic_calls(chain_json)
 
     if validate:
         declared = schema_declared_names(self)  # a declared schema is names without data (#1916)

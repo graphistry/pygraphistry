@@ -35,6 +35,7 @@ from graphistry.compute.gfql.same_path_types import (
     parse_where_json,
 )
 from graphistry.compute.exceptions import ErrorCode, GFQLValidationError
+from graphistry.compute.gfql.effects import effect_scope, raise_if_effects_since
 from graphistry.compute.engine_coercion import ensure_engine_match
 from graphistry.compute.gfql.cypher.ast import CypherParams
 from graphistry.compute.gfql.cypher.parser import parse_cypher
@@ -2725,14 +2726,17 @@ def _gfql_with_strictness(
         and policy is None
         and is_polars_df(self._edges) and (self._nodes is None or is_polars_df(self._nodes))
     ):
-        try:
-            return gfql(
-                self, query, engine=Engine.POLARS.value, output=output, policy=policy,
-                where=where, language=language, params=params, validate=validate,
-                shortest_path_backend=shortest_path_backend,
-            )
-        except NotImplementedError:
-            logger.debug('AUTO polars-native attempt declined; serving via pandas')
+        with effect_scope() as ledger:
+            effects_before = len(ledger)
+            try:
+                return gfql(
+                    self, query, engine=Engine.POLARS.value, output=output, policy=policy,
+                    where=where, language=language, params=params, validate=validate,
+                    shortest_path_backend=shortest_path_backend,
+                )
+            except NotImplementedError as error:
+                raise_if_effects_since(ledger, effects_before, error, "polars")
+                logger.debug('AUTO polars-native attempt declined; serving via pandas')
             from graphistry.compute.ComputeMixin import _coerce_input_formats
             return gfql(
                 _coerce_input_formats(self, Engine.PANDAS), query,
@@ -2761,14 +2765,17 @@ def _gfql_with_strictness(
         and _is_cudf_frame(self._edges) and (self._nodes is None or _is_cudf_frame(self._nodes))
         and _polars_gpu_probe()
     ):
-        try:
-            return _auto_cudf_polars_gpu_route(
-                self, query, output=output, where=where, language=language,
-                params=params, validate=validate,
-                shortest_path_backend=shortest_path_backend,
-            )
-        except NotImplementedError:
-            logger.debug('AUTO cudf polars-gpu attempt declined; falling back to legacy CUDF path')
+        with effect_scope() as ledger:
+            effects_before = len(ledger)
+            try:
+                return _auto_cudf_polars_gpu_route(
+                    self, query, output=output, where=where, language=language,
+                    params=params, validate=validate,
+                    shortest_path_backend=shortest_path_backend,
+                )
+            except NotImplementedError as error:
+                raise_if_effects_since(ledger, effects_before, error, "polars-gpu")
+                logger.debug('AUTO cudf polars-gpu attempt declined; falling back to legacy CUDF path')
 
     context = ExecutionContext()
 
