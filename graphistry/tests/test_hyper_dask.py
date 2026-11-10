@@ -2427,7 +2427,8 @@ class TestHypergraphDaskCudf(NoAuthTestCase):
                 ddf = dask_cudf.from_cudf(cudf.from_pandas(pdf), npartitions=2)
                 expected = ddf.copy()
 
-                with pytest.warns(UserWarning, match="using input column 'EventID'"):
+                with warnings.catch_warnings(record=True) as caught:
+                    warnings.simplefilter("always", UserWarning)
                     hg = hypergraph(
                         PyGraphistry.bind(),
                         ddf,
@@ -2436,6 +2437,11 @@ class TestHypergraphDaskCudf(NoAuthTestCase):
                         debug=DEBUG,
                     )
 
+                assert any(
+                    "using input column 'EventID'" in str(warning.message)
+                    for warning in caught
+                )
+
                 events = hg.events.compute()
                 assert sorted(events["EventID"].to_arrow().to_pylist()) == [
                     "EventID::4624",
@@ -2443,7 +2449,8 @@ class TestHypergraphDaskCudf(NoAuthTestCase):
                     "EventID::4625",
                 ]
                 assert len(hg.graph._nodes.compute()) == 6
-                assert not hg.graph._nodes["nodeID"].drop_duplicates().is_unique
+                node_ids = hg.graph._nodes["nodeID"].compute()
+                assert not node_ids.is_unique
                 assertFrameEqualDaskCudf(ddf, expected)
 
     def test_no_eventid_col_does_not_modify_input(self):
