@@ -423,6 +423,15 @@ WHERE context summary:
 {"type": "Call", "function": "group_by", "params": {"keys": ["category"], "aggregations": [["cnt", "count"], ["total", "sum", "amount"]]}}
 ```
 
+Semantic table operators name their provider by alias (bound locally with `bind_providers`); they serialize like
+any other call, but `gfql_remote()` refuses them before sending:
+
+```json
+{"type": "Call", "function": "sem_decide", "params": {
+  "questions": [{"id": "is_company", "kind": "predicate", "text": "Is this a company?"}],
+  "provider": "rules", "task_id": "companies", "evidence_cols": ["name"], "min_p": 0.8}}
+```
+
 `return_(...)` is serialized as `function: "select"` with equivalent `items`.
 
 #### Row-Call Validation Errors

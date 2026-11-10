@@ -8,6 +8,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [Development]
 <!-- Do Not Erase This Section - Used for tracking unreleased changes -->
 
+### Added
+
+- **GFQL semantic table operators `sem_decide` and `sem_map`**: ask a model provider typed questions (predicate, choice, score) or generate text for every node or edge row, as Plottable methods and GFQL `call()` operations. Each row keeps its position and gets an answer, status (`ok`/`uncertain`/`error`/`skipped`), probability, distribution, probability kind, error code and JSON metadata; provider faults become per-row errors. Includes a stdlib-only provider contract (`graphistry.compute.semantic`), execution-scoped provider binding (`bind_providers`), callable providers and an OpenAI Decisions API provider with caller-supplied per-token prices. Deadlines, request and cost limits and `max_rows` mark the rest `skipped`. Policy hooks fire on the GFQL path. Remote execution refuses these calls, and `engine='auto'` never re-runs a query after it called a provider.
+
 ### Deprecated
 
 - **Ignored extra arguments to `nodes()` / `edges()`** (#398, #2280): non-callable data with extra positional or keyword arguments now emits a `FutureWarning` while preserving the existing behavior of ignoring those arguments. Use `.bind(...)` for binding options. Formal arguments and callable forwarding are unchanged; warnings include positional counts and keyword names, never argument values. Strict `TypeError` rejection is targeted for May 2027, after at least six months of released deprecation notice.
