@@ -11,6 +11,7 @@ import pytest
 
 import graphistry
 from graphistry import call, e_forward, let, n, ref
+from graphistry.Plottable import Plottable
 from graphistry.compute.ast import ASTCall
 from graphistry.compute.chain import Chain
 from graphistry.compute.exceptions import (
@@ -48,7 +49,7 @@ class Counting(CallableDecisionProvider):
         return super().decide_batch(requests, deadline_s=deadline_s, budget=budget)
 
 
-def graph() -> graphistry.Plottable:
+def graph() -> Plottable:
     return graphistry.nodes(NODES, "id").edges(EDGES, "s", "d")
 
 
@@ -58,7 +59,7 @@ def decide_params(**overrides: object) -> Dict[str, object]:
     return params
 
 
-def run(provider: object, query: object, g: Optional[graphistry.Plottable] = None, **kwargs: object):
+def run(provider: object, query: object, g: Optional[Plottable] = None, **kwargs: object):
     with bind_providers({"p": provider}):  # type: ignore[dict-item]
         return (g or graph()).gfql(query, **kwargs)  # type: ignore[arg-type]
 
@@ -392,7 +393,7 @@ class TestAutoEffectBarrier:
 
     SEL = [call("rows", {"table": "nodes"}), call("select", {"items": [["out", "reverse(name)"]]})]
 
-    def _polars_graph(self) -> graphistry.Plottable:
+    def _polars_graph(self) -> Plottable:
         pl = pytest.importorskip("polars")
         return graphistry.nodes(pl.from_pandas(NODES), "id").edges(pl.from_pandas(EDGES), "s", "d")
 
@@ -494,7 +495,7 @@ class TestAutoEffectBarrier:
         results: List[object] = []
         graphs = [self._polars_graph() for _ in range(4)]
 
-        def worker(fail: bool, g: graphistry.Plottable) -> None:
+        def worker(fail: bool, g: Plottable) -> None:
             provider = Counting()
             query = [call("sem_decide", decide_params())] + (self.SEL if fail else [])
             try:
@@ -533,7 +534,8 @@ def test_declared_schema_effects_match_written_columns(kind: str) -> None:
         assert list(typed) == written
         for name, logical in typed.items():
             dtype = str(table[name].dtype)
-            assert {"bool": "boolean", "float64": "float64", "string": "object"}[logical.kind] == dtype
+            # text: object on pandas 2 (and for all-null columns), str on pandas 3
+            assert dtype in {"bool": ("boolean",), "float64": ("float64",), "string": ("object", "str")}[logical.kind]
 
 
 def test_safelist_entries_registered() -> None:

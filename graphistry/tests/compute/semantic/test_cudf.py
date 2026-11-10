@@ -7,6 +7,7 @@ import pytest
 
 import graphistry
 from graphistry import call
+from graphistry.Plottable import Plottable
 from graphistry.compute.ast import ASTObject
 from graphistry.compute.exceptions import ErrorCode, GFQLCallExecutionError
 from graphistry.compute.semantic import (
@@ -117,7 +118,7 @@ def test_direct_calls_keep_null_and_error_rows(monkeypatch: pytest.MonkeyPatch, 
 REVERSED = ["cni emca", "bob", "cni atez", "oloy"]
 
 
-def auto_case() -> Tuple[graphistry.Plottable, List[ASTObject], CallableDecisionProvider, List[str]]:
+def auto_case() -> Tuple[Plottable, List[ASTObject], CallableDecisionProvider, List[str]]:
     import cudf
     seen: List[str] = []
 

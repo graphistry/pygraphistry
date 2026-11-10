@@ -23,6 +23,8 @@ C = {"id": "c", "kind": "choice", "text": "Which group?", "options": ["a", "b", 
 S = {"id": "s", "kind": "score", "text": "How much?", "levels": ["low", "mid", "high"]}
 META_KEYS = {"model", "provider", "task_version", "input_hash", "latency_ms", "cost_usd", "cache_hit",
              "retry_count", "confidence", "status_reason", "extra"}
+# pandas' native text dtypes: object on pandas 2 (and for all-null columns), str on pandas 3
+TEXT_DTYPES = ("object", "str")
 
 
 def caps(native: bool = True, concurrency: int = 4, **kwargs: object) -> ProviderCapabilities:
@@ -119,7 +121,7 @@ class TestTypedOutputs:
         added = [col for col in out.columns if col not in ("name", "note")]
         assert len(added) == 21
         assert str(out["p"].dtype) == "boolean"
-        assert out["c"].dtype == object and out["s"].dtype == object
+        assert str(out["c"].dtype) in TEXT_DTYPES and str(out["s"].dtype) in TEXT_DTYPES
         assert out["p__p"].dtype == np.float64
         assert set(out["p__status"]) == {"ok"} and set(out["c__status"]) == {"ok"}
         assert out["p__p"].tolist() == [0.9] * 6
