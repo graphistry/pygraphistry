@@ -2,12 +2,14 @@
 # Like hypergraph(); adds engine = 'pandas' | 'cudf' | 'dask' | 'dask-cudf'
 #
 
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union
+from types import FrameType
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
 from typing_extensions import Literal
 from .Engine import Engine, EngineAbstractType, DataframeLike, DataframeLocalLike, resolve_input_engine, df_to_engine
-import numpy as np, pandas as pd, pyarrow as pa, sys
+import numpy as np, pandas as pd, pyarrow as pa, sys, warnings
 from .util import setup_logger
 logger = setup_logger(__name__)
+
 
 # TODO: When Python 3.8+, switch to TypedDict
 class HyperBindings():
@@ -33,6 +35,9 @@ class HyperBindings():
         self.delim = DELIM
         self.node_id = NODEID
         self.attrib_id = ATTRIBID
+        if not isinstance(EVENTID, str):
+            raise TypeError('EVENTID must be a string when provided')
+
         self.event_id = EVENTID
         self.event_type = EVENTTYPE
         self.source = SOURCE
@@ -670,6 +675,19 @@ def df_coercion(  # noqa: C901
     return ValueError('Did not get a value Engine type: %s' % engine)
 
 
+def _caller_stacklevel() -> int:
+    # Public entrypoints reach clean_events() through different wrapper depths
+    level = 2
+    frame: Optional[FrameType] = sys._getframe(2)
+    while frame is not None:
+        module = frame.f_globals.get('__name__', '')
+        if module.startswith('graphistry.tests') or not (module == 'graphistry' or module.startswith('graphistry.')):
+            break
+        frame = frame.f_back
+        level += 1
+    return level
+
+
 def clean_events(
     events: DataframeLike,
     defs: HyperBindings,
@@ -684,12 +702,14 @@ def clean_events(
     """
     logger.debug('@clean: %s', events.dtypes)
 
-    # FIXME https://github.com/rapidsai/cudf/issues/7735
-    # None -> np.nan
     custom_event_id_flag = False
     if (engine in [Engine.DASK, Engine.DASK_CUDF]) and (defs.event_id not in events.columns):
-        events[defs.event_id] = range(0, len(events))
+        # A global range() is assigned per partition on dask inputs; cumsum carries row offsets across partitions lazily
+        events = events.assign(**{defs.event_id: 1})
+        events = events.assign(**{defs.event_id: events[defs.event_id].cumsum() - 1})
         custom_event_id_flag = True
+    # FIXME https://github.com/rapidsai/cudf/issues/7735
+    # None -> np.nan
     if dropna and (engine == Engine.DASK_CUDF):
         import cudf, numpy as np
         if isinstance(events, pd.DataFrame):  # or isinstance(events, cudf.DataFrame):
@@ -821,7 +841,15 @@ def hypergraph(
     if raw_events is not None and engine_resolved == Engine.PANDAS and not isinstance(raw_events, pd.DataFrame):
         raw_events = df_to_engine(raw_events, Engine.PANDAS)
 
+    event_id_omitted = 'EVENTID' not in opts
     defs = HyperBindings(**opts)
+    if event_id_omitted and defs.event_id in raw_events.columns:
+        warnings.warn(
+            f"hypergraph(): using input column '{defs.event_id}' as the event key because EVENTID is omitted. "
+            f"Pass opts={{'EVENTID': '{defs.event_id}'}} to confirm keying, or rename the column to retain its values while events are numbered by row.",
+            UserWarning,
+            stacklevel=_caller_stacklevel()
+        )
     entity_types = [i for i in screen_entities(raw_events, entity_types, defs) if i != defs.event_id]
     events = clean_events(raw_events, defs, dropna=drop_na, engine=engine_resolved, npartitions=npartitions, chunksize=chunksize, debug=debug)  # type: ignore
     if debug and (engine in [ Engine.DASK, Engine.DASK_CUDF ]):
