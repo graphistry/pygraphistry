@@ -20,11 +20,10 @@ logger.setLevel(logging.DEBUG)
 
 
 class TestCleanEventsEventID(NoAuthTestCase):
-    def test_eventid_omission_uses_default_and_is_implicit(self):
+    def test_eventid_omission_uses_default_column_name(self):
         bindings = HyperBindings()
 
         assert bindings.event_id == "EventID"
-        assert bindings.event_id_explicit is False
 
     def test_eventid_explicit_string_is_preserved(self):
         class EventID(str):
@@ -34,7 +33,6 @@ class TestCleanEventsEventID(NoAuthTestCase):
             bindings = HyperBindings(EVENTID=event_id)
 
             assert bindings.event_id == event_id
-            assert bindings.event_id_explicit is True
 
     def test_eventid_null_and_invalid_scalars_are_rejected(self):
         df = pd.DataFrame({"user": ["a", "b"]})
@@ -51,16 +49,20 @@ class TestCleanEventsEventID(NoAuthTestCase):
                 call()
             pd.testing.assert_frame_equal(df, pd.DataFrame({"user": ["a", "b"]}))
 
-    def test_implicit_eventid_is_dropped_with_caller_warning(self):
+    def test_implicit_eventid_source_values_are_preserved(self):
         df = pd.DataFrame({"EventID": [7, 8], "user": ["a", "b"]})
 
-        with pytest.warns(UserWarning, match="ignoring input column 'EventID'") as record:
-            events = clean_events(df, HyperBindings(), Engine.PANDAS)
+        events = clean_events(df, HyperBindings(), Engine.PANDAS)
 
-        eventid_warnings = [w for w in record if "ignoring input column" in str(w.message)]
-        assert [w.filename for w in eventid_warnings] == [__file__]
-        assert events["EventID"].tolist() == ["EventID::0", "EventID::1"]
+        assert events["EventID"].tolist() == ["EventID::7", "EventID::8"]
         pd.testing.assert_frame_equal(df, pd.DataFrame({"EventID": [7, 8], "user": ["a", "b"]}))
+
+    def test_implicit_duplicate_eventid_source_values_are_preserved(self):
+        df = pd.DataFrame({"EventID": [7, 8, 8], "user": ["a", "b", "c"]})
+
+        events = clean_events(df, HyperBindings(), Engine.PANDAS)
+
+        assert events["EventID"].tolist() == ["EventID::7", "EventID::8", "EventID::8"]
 
     def test_warning_points_at_caller_across_public_entrypoints(self):
         df = pd.DataFrame({"EventID": [7, 8], "user": ["a", "b"]})
@@ -70,9 +72,9 @@ class TestCleanEventsEventID(NoAuthTestCase):
             lambda: PyGraphistry.hypergraph(df),
             lambda: hypergraph(PyGraphistry.bind(), df),
         ]:
-            with pytest.warns(UserWarning, match="ignoring input column 'EventID'") as record:
+            with pytest.warns(UserWarning, match="using input column 'EventID'") as record:
                 call()
-            eventid_warnings = [w for w in record if "ignoring input column" in str(w.message)]
+            eventid_warnings = [w for w in record if "using input column 'EventID'" in str(w.message)]
             assert [w.filename for w in eventid_warnings] == [__file__]
 
     def test_dask_events_receive_global_row_ids(self):
@@ -303,14 +305,13 @@ def test_HyperBindings_override():
 def test_HyperBindings_event_id_default():
     hb = HyperBindings()
     assert hb.event_id == "EventID"
-    assert hb.event_id_explicit is False
+    assert isinstance(hb.event_id, str)
 
 
 def test_HyperBindings_event_id_explicit():
-    assert HyperBindings(EVENTID="EventID").event_id_explicit is True
     hb = HyperBindings(EVENTID="row_id")
     assert hb.event_id == "row_id"
-    assert hb.event_id_explicit is True
+    assert isinstance(hb.event_id, str)
 
 
 # ###
@@ -568,34 +569,34 @@ class TestHypergraphPandas(NoAuthTestCase):
         default_h_edges = hypergraph(PyGraphistry.bind(), nans_df).edges
         self.assertEqual(len(default_h_edges), len(expected_hits))
 
-    def test_implicit_eventid_repeated_uses_row_ids(self):
+    def test_implicit_eventid_repeated_uses_source_ids(self):
         df = pd.DataFrame({"EventID": [4624, 4624, 4625], "user": ["a", "b", "c"]})
 
-        with pytest.warns(UserWarning, match="ignoring input column 'EventID'"):
+        with pytest.warns(UserWarning, match="using input column 'EventID'"):
             hg = hypergraph(PyGraphistry.bind(), df)
 
-        assert hg.events["EventID"].tolist() == ["EventID::0", "EventID::1", "EventID::2"]
-        assert sorted(hg.edges["EventID"].tolist()) == ["EventID::0", "EventID::1", "EventID::2"]
+        assert hg.events["EventID"].tolist() == ["EventID::4624", "EventID::4624", "EventID::4625"]
+        assert sorted(hg.edges["EventID"].tolist()) == ["EventID::4624", "EventID::4624", "EventID::4625"]
         assert len(hg.graph._nodes) == 6
-        assert hg.graph._nodes["nodeID"].is_unique
-        assert "EventID::4624" not in hg.graph._nodes["nodeID"].tolist()
+        assert not hg.graph._nodes["nodeID"].is_unique
+        assert "EventID::4624" in hg.graph._nodes["nodeID"].tolist()
 
-    def test_implicit_eventid_unique_uses_row_ids(self):
+    def test_implicit_eventid_unique_uses_source_ids(self):
         df = pd.DataFrame({"EventID": ["e1", "e2", "e3"], "user": ["a", "a", "b"]})
 
-        with pytest.warns(UserWarning, match="ignoring input column 'EventID'"):
+        with pytest.warns(UserWarning, match="using input column 'EventID'"):
             hg = hypergraph(PyGraphistry.bind(), df)
 
-        assert hg.events["EventID"].tolist() == ["EventID::0", "EventID::1", "EventID::2"]
+        assert hg.events["EventID"].tolist() == ["EventID::e1", "EventID::e2", "EventID::e3"]
         assert hg.graph._nodes["nodeID"].is_unique
 
-    def test_implicit_eventid_direct_uses_row_ids(self):
+    def test_implicit_eventid_direct_uses_source_ids(self):
         df = pd.DataFrame({"EventID": [7, 7], "user": ["a", "b"], "host": ["x", "y"]})
 
-        with pytest.warns(UserWarning, match="ignoring input column 'EventID'"):
+        with pytest.warns(UserWarning, match="using input column 'EventID'"):
             hg = hypergraph(PyGraphistry.bind(), df, direct=True)
 
-        assert sorted(hg.edges["EventID"].tolist()) == ["EventID::0", "EventID::1"]
+        assert sorted(hg.edges["EventID"].tolist()) == ["EventID::7", "EventID::7"]
         assert sorted(hg.edges["src"].tolist()) == ["user::a", "user::b"]
         assert sorted(hg.edges["dst"].tolist()) == ["host::x", "host::y"]
 
@@ -627,6 +628,18 @@ class TestHypergraphPandas(NoAuthTestCase):
         assert hg.events["row"].tolist() == ["row::r1", "row::r2"]
         assert "EventID::7" in hg.graph._nodes["nodeID"].tolist()
 
+    def test_implicit_eventid_rename_generates_ids_and_retains_attribute(self):
+        df = pd.DataFrame({"event_key": [7, 7, 8], "user": ["a", "b", "c"]})
+        expected = df.copy()
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", UserWarning)
+            hg = hypergraph(PyGraphistry.bind(), df)
+
+        assert hg.events["EventID"].tolist() == ["EventID::0", "EventID::1", "EventID::2"]
+        assert hg.events["event_key"].tolist() == [7, 7, 8]
+        pd.testing.assert_frame_equal(df, expected)
+
     def test_no_eventid_col_does_not_warn(self):
         df = pd.DataFrame({"user": ["a", "b"], "host": ["x", "y"]})
 
@@ -654,9 +667,9 @@ class TestHypergraphPandas(NoAuthTestCase):
             lambda: PyGraphistry.hypergraph(df),
             lambda: hypergraph(PyGraphistry.bind(), df),
         ]:
-            with pytest.warns(UserWarning, match="ignoring input column 'EventID'") as record:
+            with pytest.warns(UserWarning, match="using input column 'EventID'") as record:
                 call()
-            eventid_warnings = [w for w in record if "ignoring input column" in str(w.message)]
+            eventid_warnings = [w for w in record if "using input column 'EventID'" in str(w.message)]
             assert [w.filename for w in eventid_warnings] == [__file__]
 
     def test_hyper_evil(self):
@@ -1546,7 +1559,7 @@ class TestHypergraphDask(NoAuthTestCase):
             ).edges
             self.assertEqual(len(default_h_edges.compute()), len(expected_hits))
 
-    def test_implicit_eventid_uses_row_ids(self):
+    def test_implicit_eventid_uses_source_ids(self):
         import dask
         from dask.distributed import Client
 
@@ -1555,7 +1568,7 @@ class TestHypergraphDask(NoAuthTestCase):
             df = pd.DataFrame({"EventID": [4624, 4624, 4625], "user": ["a", "b", "c"]})
             expected = df.copy()
 
-            with pytest.warns(UserWarning, match="ignoring input column 'EventID'"):
+            with pytest.warns(UserWarning, match="using input column 'EventID'"):
                 hg = hypergraph(
                     PyGraphistry.bind(),
                     df,
@@ -1564,8 +1577,11 @@ class TestHypergraphDask(NoAuthTestCase):
                     debug=DEBUG,
                 )
 
-            assert sorted(hg.events.compute()["EventID"].tolist()) == ["EventID::0", "EventID::1", "EventID::2"]
+            assert sorted(hg.events.compute()["EventID"].tolist()) == [
+                "EventID::4624", "EventID::4624", "EventID::4625"
+            ]
             assert len(hg.graph._nodes.compute()) == 6
+            assert not hg.graph._nodes["nodeID"].is_unique
             pd.testing.assert_frame_equal(df, expected)
 
     def test_no_eventid_col_does_not_modify_input(self):
@@ -1589,7 +1605,8 @@ class TestHypergraphDask(NoAuthTestCase):
         with Client(processes=True):
 
             pdf = pd.DataFrame({"EventID": [7, 8, 9], "user": ["a", "b", "c"], "host": ["x", "x", "y"]})
-            row_ids = ["EventID::0", "EventID::1", "EventID::2"]
+            source_ids = ["EventID::7", "EventID::8", "EventID::9"]
+            generated_ids = ["EventID::0", "EventID::1", "EventID::2"]
 
             for npartitions in [2, 3]:
                 for direct in [False, True]:
@@ -1601,8 +1618,9 @@ class TestHypergraphDask(NoAuthTestCase):
                             hg = hypergraph(
                                 PyGraphistry.bind(), ddf, engine=Engine.DASK, direct=direct, debug=DEBUG
                             )
-                        warned = any("ignoring input column 'EventID'" in str(w.message) for w in caught)
+                        warned = any("using input column 'EventID'" in str(w.message) for w in caught)
                         assert warned == ("EventID" in cols)
+                        row_ids = source_ids if "EventID" in cols else generated_ids
 
                         if not direct:
                             events = hg.events.compute()
@@ -2398,7 +2416,7 @@ class TestHypergraphDaskCudf(NoAuthTestCase):
                 assert len(hg.graph._edges) == 9
                 assert len(edges_err) == 9
 
-    def test_implicit_eventid_uses_row_ids(self):
+    def test_implicit_eventid_uses_source_ids(self):
         import cudf
         import dask_cudf
 
@@ -2409,7 +2427,7 @@ class TestHypergraphDaskCudf(NoAuthTestCase):
                 ddf = dask_cudf.from_cudf(cudf.from_pandas(pdf), npartitions=2)
                 expected = ddf.copy()
 
-                with pytest.warns(UserWarning, match="ignoring input column 'EventID'"):
+                with pytest.warns(UserWarning, match="using input column 'EventID'"):
                     hg = hypergraph(
                         PyGraphistry.bind(),
                         ddf,
@@ -2420,11 +2438,12 @@ class TestHypergraphDaskCudf(NoAuthTestCase):
 
                 events = hg.events.compute()
                 assert sorted(events["EventID"].to_arrow().to_pylist()) == [
-                    "EventID::0",
-                    "EventID::1",
-                    "EventID::2",
+                    "EventID::4624",
+                    "EventID::4624",
+                    "EventID::4625",
                 ]
                 assert len(hg.graph._nodes.compute()) == 6
+                assert not hg.graph._nodes["nodeID"].drop_duplicates().is_unique
                 assertFrameEqualDaskCudf(ddf, expected)
 
     def test_no_eventid_col_does_not_modify_input(self):
@@ -2552,7 +2571,8 @@ class TestHypergraphDaskCudf(NoAuthTestCase):
         with cluster:
             with client:
                 pdf = pd.DataFrame({"EventID": [7, 8, 9], "user": ["a", "b", "c"], "host": ["x", "x", "y"]})
-                row_ids = ["EventID::0", "EventID::1", "EventID::2"]
+                source_ids = ["EventID::7", "EventID::8", "EventID::9"]
+                generated_ids = ["EventID::0", "EventID::1", "EventID::2"]
 
                 for npartitions in [2, 3]:
                     for direct in [False, True]:
@@ -2570,10 +2590,11 @@ class TestHypergraphDaskCudf(NoAuthTestCase):
                                 )
 
                             warned = any(
-                                "ignoring input column 'EventID'" in str(warning.message)
+                                "using input column 'EventID'" in str(warning.message)
                                 for warning in caught
                             )
                             assert warned == ("EventID" in cols)
+                            row_ids = source_ids if "EventID" in cols else generated_ids
 
                             if not direct:
                                 events = hg.events.compute()

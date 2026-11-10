@@ -2,18 +2,13 @@
 # Like hypergraph(); adds engine = 'pandas' | 'cudf' | 'dask' | 'dask-cudf'
 #
 
-from enum import Enum
 from types import FrameType
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
 from typing_extensions import Literal
 from .Engine import Engine, EngineAbstractType, DataframeLike, DataframeLocalLike, resolve_input_engine, df_to_engine
 import numpy as np, pandas as pd, pyarrow as pa, sys, warnings
 from .util import setup_logger
 logger = setup_logger(__name__)
-
-
-class _EventIDOmission(Enum):
-    OMITTED = "OMITTED"
 
 
 # TODO: When Python 3.8+, switch to TypedDict
@@ -24,7 +19,7 @@ class HyperBindings():
         DELIM: str = '::',
         NODEID: str = 'nodeID',
         ATTRIBID: str = 'attribID',
-        EVENTID: Union[str, _EventIDOmission] = _EventIDOmission.OMITTED,
+        EVENTID: str = 'EventID',
         EVENTTYPE: str = 'event',
         SOURCE: str = 'src',
         DESTINATION: str = 'dst',
@@ -40,17 +35,10 @@ class HyperBindings():
         self.delim = DELIM
         self.node_id = NODEID
         self.attrib_id = ATTRIBID
-        if isinstance(EVENTID, _EventIDOmission):
-            event_id = 'EventID'
-            event_id_explicit = False
-        elif isinstance(EVENTID, str):
-            event_id = EVENTID
-            event_id_explicit = True
-        else:
+        if not isinstance(EVENTID, str):
             raise TypeError('EVENTID must be a string when provided')
 
-        self.event_id = event_id
-        self.event_id_explicit = event_id_explicit
+        self.event_id = EVENTID
         self.event_type = EVENTTYPE
         self.source = SOURCE
         self.destination = DESTINATION
@@ -714,17 +702,6 @@ def clean_events(
     """
     logger.debug('@clean: %s', events.dtypes)
 
-    # Implicit EventID input col would collide with row-keyed event nodes
-    if (not defs.event_id_explicit) and (defs.event_id in events.columns):
-        warnings.warn(
-            f"hypergraph(): ignoring input column '{defs.event_id}' and numbering events by row. "
-            f"To key events by this column, pass opts={{'EVENTID': '{defs.event_id}'}}; "
-            f"to keep its values as an attribute, rename the column.",
-            UserWarning,
-            stacklevel=_caller_stacklevel()
-        )
-        events = events.drop(columns=[defs.event_id])
-
     custom_event_id_flag = False
     if (engine in [Engine.DASK, Engine.DASK_CUDF]) and (defs.event_id not in events.columns):
         # A global range() is assigned per partition on dask inputs; cumsum carries row offsets across partitions lazily
@@ -864,7 +841,15 @@ def hypergraph(
     if raw_events is not None and engine_resolved == Engine.PANDAS and not isinstance(raw_events, pd.DataFrame):
         raw_events = df_to_engine(raw_events, Engine.PANDAS)
 
+    event_id_omitted = 'EVENTID' not in opts
     defs = HyperBindings(**opts)
+    if event_id_omitted and defs.event_id in raw_events.columns:
+        warnings.warn(
+            f"hypergraph(): using input column '{defs.event_id}' as the event key because EVENTID is omitted. "
+            f"Pass opts={{'EVENTID': '{defs.event_id}'}} to confirm keying, or rename the column to retain its values while events are numbered by row.",
+            UserWarning,
+            stacklevel=_caller_stacklevel()
+        )
     entity_types = [i for i in screen_entities(raw_events, entity_types, defs) if i != defs.event_id]
     events = clean_events(raw_events, defs, dropna=drop_na, engine=engine_resolved, npartitions=npartitions, chunksize=chunksize, debug=debug)  # type: ignore
     if debug and (engine in [ Engine.DASK, Engine.DASK_CUDF ]):
