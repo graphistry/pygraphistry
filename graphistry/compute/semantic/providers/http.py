@@ -164,7 +164,7 @@ class HttpDecisionProvider(ABC):
     :param prices: :class:`TokenPrices` for ``cost_usd`` and the cost estimate; no defaults
     :param concurrency_limit: concurrent requests one operator run may send
     :param timeout_s: per-request timeout, capped by the remaining deadline
-    :param max_retries: retries on 408, 409, 429, 5xx and connection errors
+    :param max_retries: retries on 408, 409, 429, 5xx, connection errors and timeouts; each attempt may be billed
     :param retry_backoff_s: base delay between retries when the server sends no ``Retry-After``
     :param session: object with a ``requests``-style ``post``; default ``requests``
     :param name: provider name stamped on results; default the class's ``name``

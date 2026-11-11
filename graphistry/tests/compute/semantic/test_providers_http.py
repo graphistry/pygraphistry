@@ -62,6 +62,9 @@ class TestRetries:
         post(FakeSession([FakeResponse(429, headers={"Retry-After": "86400"}), FakeResponse(429, headers={"Retry-After": "2"}),
                           FakeResponse(429, headers={"Retry-After": "soon"}), OK]), backoff_s=0.5)
         assert slept == [60.0, 2.0, 2.0]
+        slept.clear()
+        post(FakeSession([FakeResponse(429, headers={"Retry-After": "-5"}), OK]), backoff_s=0.5)
+        assert slept == []
 
     def test_deadline_caps_timeouts_and_stops_retries(self) -> None:
         import time

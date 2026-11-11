@@ -143,6 +143,16 @@ class TestMapping:
         with pytest.raises(ValueError, match=next(iter(options))):
             OpenAIDecisionsProvider(**params)  # type: ignore[arg-type]
 
+    def test_a_provider_without_prices_answers_with_unknown_cost(self) -> None:
+        result = decide(OpenAIDecisionsProvider("k", "m", session=FakeSession([answers_for])), request((PRED,)))[0]
+        assert (result.status, result.cost_usd) == ("ok", None)
+
+    def test_each_row_is_its_own_call_so_request_limits_count_http_requests(self) -> None:
+        session = FakeSession([answers_for])
+        out = sem_decide(pd.DataFrame({"t": ["a", "b", "c"]}), questions=[PRED], provider=provider(session),
+                         evidence_cols=["t"], task_id="t", batch_size=3, budget={"max_requests": 2})
+        assert out["p__status"].tolist() == ["ok", "ok", "skipped"] and len(session.posts) == 2
+
     def test_a_bad_key_never_appears_in_the_error(self) -> None:
         with pytest.raises(ValueError) as info:
             OpenAIDecisionsProvider(b"sk-secret", "m")  # type: ignore[arg-type]

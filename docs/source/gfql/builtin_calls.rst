@@ -1904,13 +1904,13 @@ Answer typed questions per row: ``predicate`` (yes/no), ``choice`` (one of ``opt
    * - deadline_s
      - number
      - No
-     - Seconds for the whole call; unfinished rows become ``skipped``
+     - Seconds for the whole call; unfinished rows become ``skipped`` (an abandoned request may still finish and be billed)
    * - budget
      - dict
      - No
      - ``{max_cost_usd?, max_requests?}``: ``max_cost_usd`` caps the summed *estimated* cost of the provider calls
-       (billed cost can differ; it needs a provider that can estimate cost); ``max_requests`` caps the number of
-       provider calls
+       (billed cost can differ; it needs a provider that can estimate cost, and the callable provider estimates 0);
+       ``max_requests`` caps the number of provider calls
    * - max_rows
      - integer
      - No
