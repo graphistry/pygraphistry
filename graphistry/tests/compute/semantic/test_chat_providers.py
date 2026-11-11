@@ -479,3 +479,13 @@ class TestFallbacks:
         checked(openai(session, strategy="auto"), request((grades,)))
         assert session.posts == []
 
+    def test_end_of_turn_tokens_after_the_reply_are_skipped(self) -> None:
+        tokens = [{"token": "A", "logprob": math.log(0.6), "top_logprobs": top(A=0.6, B=0.3)},
+                  {"token": ".", "logprob": -0.01}, {"token": " yes", "logprob": -0.01},
+                  {"token": "<|eot_id|>", "logprob": -0.01}]
+        echoed = checked(openai(FakeSession([token_reply("A. yes", tokens)])), request((PRED,)))[0]
+        assert echoed.distribution == pytest.approx({"true": 0.6 / 0.9, "false": 0.3 / 0.9})
+        session = FakeSession([token_reply("A. yes", tokens), chat_reply("B", top(A=0.2, B=0.7))])
+        checked(openai(session, strategy="auto"), request((PRED,)))
+        assert len(session.posts) == 2 and "logprobs" in session.posts[1]["json"]  # type: ignore[operator]
+

@@ -33,6 +33,7 @@ PROBE_REQUEST = DecisionRequest(
     request_id="probe", evidence="The sky is blue.", task_id="probe", task_version="1",
     questions=(DecisionQuestion(id="probe", kind="predicate", text="Is the evidence about the sky?"),))
 _ECHO = re.compile(r"\s*(\S)\s*[.):]\s*(.+?)\s*\.?\s*")
+_SPECIAL_TOKEN = re.compile(r"<[^<>\s]+>")
 _probed: Dict[Tuple[str, ...], Tuple[float, str]] = {}
 _probe_locks: Dict[Tuple[str, ...], threading.Lock] = {}
 _probe_guard = threading.Lock()
@@ -111,9 +112,13 @@ def _spelled(token: object) -> str:
 
 
 def reply_tokens(tokens: object, text: object) -> Optional[List[Dict[str, object]]]:
-    """The trailing generated tokens that spell the reply (tokens before it, such as reasoning, are left out)."""
+    """The generated tokens that spell the reply: tokens before it, such as reasoning, and special tokens after it,
+    such as an end-of-turn marker, are left out."""
     entries = [token for token in tokens if isinstance(token, dict)] if isinstance(tokens, list) else []
     target = _spelled(text).strip()
+    while entries and _SPECIAL_TOKEN.fullmatch(_spelled(entries[-1].get("token")).strip()) \
+            and not target.endswith(_spelled(entries[-1].get("token")).strip()):
+        entries = entries[:-1]
     spelled = ""
     for start in range(len(entries) - 1, -1, -1):
         spelled = _spelled(entries[start].get("token")) + spelled
