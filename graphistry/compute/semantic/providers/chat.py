@@ -108,7 +108,8 @@ class _ChatDecisionProvider(HttpDecisionProvider):
     """Shared request shape and answer mapping for chat providers: one question per HTTP request.
 
     ``max_answer_tokens`` leaves room for models that emit a few tokens before the code; ``extra_body`` and
-    ``extra_headers`` add host fields (for example ``{"reasoning_effort": "none"}``).
+    ``extra_headers`` add host fields (for example ``{"reasoning_effort": "none"}``). Probabilities are conditional
+    on the answer being one of the codes; ``extra.label_mass`` is the codes' share of the answer token's probability.
     """
 
     def __init__(self, api_key: str, model: str, *, base_url: Optional[str] = None, max_answer_tokens: int = 16,
@@ -217,9 +218,10 @@ class OpenAIChatProvider(_ChatDecisionProvider):
         if not isinstance(usage, dict):
             return None
         details = usage.get("prompt_tokens_details")
-        cached = token_count(details.get("cached_tokens")) if isinstance(details, dict) else 0
-        return TokenUsage(uncached_input=max(0, token_count(usage.get("prompt_tokens")) - cached), cached_input=cached,
-                          cache_write=0, output=token_count(usage.get("completion_tokens")))
+        details = details if isinstance(details, dict) else {}
+        cached, written = token_count(details.get("cached_tokens")), token_count(details.get("cache_write_tokens"))
+        return TokenUsage(uncached_input=max(0, token_count(usage.get("prompt_tokens")) - cached - written),
+                          cached_input=cached, cache_write=written, output=token_count(usage.get("completion_tokens")))
 
     def reply(self, payload: Mapping[str, object]) -> Tuple[object, object, bool]:
         choices = payload.get("choices")

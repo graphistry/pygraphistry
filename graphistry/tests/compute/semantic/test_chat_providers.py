@@ -100,9 +100,17 @@ class TestOpenAIChat:
         assert session.posts[0]["headers"]["Authorization"] == "Bearer k-secret"  # type: ignore[index]
         assert session.posts[0]["url"] == "https://api.openai.com/v1/chat/completions" and len(session.posts) == 3
 
+    def test_cache_writes_are_priced_at_the_cache_write_rate(self) -> None:
+        usage = {"prompt_tokens": 100, "completion_tokens": 0,
+                 "prompt_tokens_details": {"cached_tokens": 40, "cache_write_tokens": 50}}
+        p = OpenAIChatProvider("k", "m", session=FakeSession([chat_reply("A", usage=usage)]),  # type: ignore[arg-type]
+                               prices=TokenPrices(input=1.0, cached_input=0.5, cache_write=2.0))
+        assert checked(p, request((PRED,)))[0].cost_usd == pytest.approx((10 + 20 + 100) / 1e6)
+
     @pytest.mark.parametrize("question,text,logprobs", [
         (PRED, "A", None), (PRED, "A", top(A=0.9)), (PRED, "A", top(Z=0.9)), (PRED, "A", []),
         (CHOICE, "B", [{"token": "B", "logprob": 0.0}]), (SCORE, "C", top(C=0.9, Z=0.1))])
+
     def test_one_or_no_observed_code_means_no_distribution_not_one_hot(self, question: DecisionQuestion, text: str,
                                                                         logprobs: object) -> None:
         result = checked(openai(FakeSession([chat_reply(text, logprobs)])), request((question,)))[0]  # type: ignore[arg-type]
