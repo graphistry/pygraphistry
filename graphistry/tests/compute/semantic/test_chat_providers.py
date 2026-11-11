@@ -20,7 +20,8 @@ def chat_reply(text: str, top_logprobs: Optional[List[Dict[str, object]]] = None
                usage: Optional[Dict[str, object]] = None) -> FakeResponse:
     choice: Dict[str, object] = {"message": {"role": "assistant", "content": text}}
     if top_logprobs is not None:
-        choice["logprobs"] = {"content": [{"token": text, "logprob": -0.1, "top_logprobs": top_logprobs}]}
+        choice["logprobs"] = {"content": [{"token": "We", "logprob": -0.1, "top_logprobs": top(We=0.9)},
+                                          {"token": text, "logprob": -0.1, "top_logprobs": top_logprobs}]}
     return FakeResponse(200, {"model": "served-m", "choices": [choice],
                               "usage": usage or {"prompt_tokens": 100, "completion_tokens": 1,
                                                  "prompt_tokens_details": {"cached_tokens": 40}}})
@@ -79,15 +80,18 @@ class TestOpenAIChat:
         assert p_result.probability_kind == "token_logprob" and p_result.extra["label_mass"] == pytest.approx(0.9)  # type: ignore[index]
         assert (p_result.model, p_result.cache_hit, p_result.cost_usd) == ("served-m", True, pytest.approx(80 / 1e6))
         body = session.posts[0]["json"]
-        assert body["max_completion_tokens"] == 1 and body["logprobs"] is True and body["top_logprobs"] == 20  # type: ignore[index]
+        assert body["max_completion_tokens"] == 16 and body["logprobs"] is True and body["top_logprobs"] == 5  # type: ignore[index]
         assert body["messages"][0]["role"] == "system" and "k-secret" not in str(body)  # type: ignore[index]
         assert session.posts[0]["headers"]["Authorization"] == "Bearer k-secret"  # type: ignore[index]
         assert session.posts[0]["url"] == "https://api.openai.com/v1/chat/completions" and len(session.posts) == 3
 
-    @pytest.mark.parametrize("logprobs", [None, top(A=0.9), top(Z=0.9), []])
-    def test_unobservable_predicate_distribution_is_none_not_invented(self, logprobs: object) -> None:
-        result = checked(openai(FakeSession([chat_reply("A", logprobs)])), request((PRED,)))[0]  # type: ignore[arg-type]
-        assert (result.value, result.distribution, result.probability_kind) == (True, None, "none")
+    @pytest.mark.parametrize("question,text,logprobs", [
+        (PRED, "A", None), (PRED, "A", top(A=0.9)), (PRED, "A", top(Z=0.9)), (PRED, "A", []),
+        (CHOICE, "B", [{"token": "B", "logprob": 0.0}]), (SCORE, "C", top(C=0.9, Z=0.1))])
+    def test_one_or_no_observed_code_means_no_distribution_not_one_hot(self, question: DecisionQuestion, text: str,
+                                                                        logprobs: object) -> None:
+        result = checked(openai(FakeSession([chat_reply(text, logprobs)])), request((question,)))[0]  # type: ignore[arg-type]
+        assert (result.distribution, result.probability_kind, result.status) == (None, "none", "ok")
 
     def test_partial_choice_distribution_when_options_exceed_top_k(self) -> None:
         many = DecisionQuestion(id="m", kind="choice", text="Which?", options=tuple(f"o{i}" for i in range(8)))
@@ -113,7 +117,7 @@ class TestOpenAIChat:
         assert post["headers"]["api-key"] == "k-secret" and post["headers"]["X-Project"] == "p"  # type: ignore[index]
         assert "Authorization" not in post["headers"]  # type: ignore[operator]
         body = post["json"]
-        assert body["max_tokens"] == 1 and body["reasoning_effort"] == "none" and "logprobs" not in body  # type: ignore[index,operator]
+        assert body["max_tokens"] == 16 and body["reasoning_effort"] == "none" and "logprobs" not in body  # type: ignore[index,operator]
 
     def test_through_the_kernel_one_request_per_row_and_question(self) -> None:
         session = FakeSession([chat_reply("A", top(A=0.8, B=0.2))])

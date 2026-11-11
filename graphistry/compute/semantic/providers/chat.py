@@ -43,11 +43,20 @@ def code_of(text: object) -> Optional[str]:
     return stripped if len(stripped) == 1 and stripped in CODES else None
 
 
+def answer_alternatives(tokens: object, code: str) -> object:
+    """The top logprobs at the last generated token that spells ``code`` (reasoning tokens may come first)."""
+    for token in reversed(tokens if isinstance(tokens, list) else []):
+        if isinstance(token, dict) and code_of(token.get("token")) == code:
+            return token.get("top_logprobs")
+    return None
+
+
 def label_distribution(entries: object, codes: int) -> Tuple[Optional[Dict[int, float]], float]:
     """``(probability by code index over the observed codes, observed code mass)`` from one token's top logprobs.
 
     Surface variants of a code (case, spaces, a trailing period) are summed; codes outside the top-K stay
-    unobserved rather than zero, and no observed code means no distribution.
+    unobserved rather than zero, and no observed code means no distribution. Callers also drop a distribution
+    with a single observed code: it would be one-hot, not a measurement.
     """
     mass: Dict[int, float] = {}
     for entry in entries if isinstance(entries, list) else []:
@@ -76,19 +85,19 @@ class _ChatDecisionProvider(HttpDecisionProvider):
         return [[question] for question in request.questions]
 
     def reply(self, payload: Mapping[str, object]) -> Tuple[object, object]:
-        """``(answer text, first-token top logprobs or None)``."""
+        """``(answer text, generated tokens with their top logprobs, or None)``."""
         raise NotImplementedError
 
     def results(self, request: DecisionRequest, questions: Sequence[DecisionQuestion], payload: Mapping[str, object],
                 meta: ResponseMeta) -> List[DecisionResult]:
         question = questions[0]
         labels = answer_labels(question)
-        text, top_logprobs = self.reply(payload)
+        text, tokens = self.reply(payload)
         code = code_of(text)
         if code is None or CODES.index(code) >= len(labels):
             return [self.invalid(request, question, meta)]
-        by_index, mass = label_distribution(top_logprobs, len(labels))
-        if by_index is not None and question.kind == "predicate" and len(by_index) < 2:
+        by_index, mass = label_distribution(answer_alternatives(tokens, code), len(labels))
+        if by_index is not None and len(by_index) < 2:
             by_index = None
         distribution = None if by_index is None else {
             str(labels[index]).lower() if question.kind == "predicate" else str(labels[index]): p
@@ -111,8 +120,9 @@ class _ChatDecisionProvider(HttpDecisionProvider):
 class OpenAIChatProvider(_ChatDecisionProvider):
     """OpenAI-compatible chat completions with token logprobs: OpenAI, Azure OpenAI, Fireworks, Mistral and others.
 
-    ``top_logprobs`` is how many alternatives the API returns for the answer token (OpenAI allows 20; some hosts
-    fewer, and 0 asks for none), so a choice with more options than that yields a partial distribution. ``extra_body`` adds
+    ``top_logprobs`` is how many alternatives the API returns for the answer token (OpenAI chat completions allow
+    at most 5; 0 asks for none, for hosts without logprobs), so a choice with more options than that yields a
+    partial distribution. ``max_answer_tokens`` leaves room for models that emit a few tokens before the letter. ``extra_body`` adds
     host-specific fields, such as ``{"reasoning_effort": "none"}`` for OpenAI models that only return logprobs
     without reasoning. A host that returns no logprobs still yields validated answers with no distribution.
 
@@ -129,7 +139,7 @@ class OpenAIChatProvider(_ChatDecisionProvider):
     path = "/chat/completions"
 
     def __init__(self, api_key: str, model: str, *, base_url: Optional[str] = None, auth_header: str = "Authorization",
-                 top_logprobs: int = 20, max_tokens_field: str = "max_completion_tokens",
+                 top_logprobs: int = 5, max_tokens_field: str = "max_completion_tokens", max_answer_tokens: int = 16,
                  extra_body: Optional[JSONObject] = None, extra_headers: Optional[Dict[str, str]] = None,
                  prices: Optional[TokenPrices] = None, concurrency_limit: int = 4, timeout_s: float = 60,
                  max_retries: int = 3, retry_backoff_s: float = 0.5, session: Optional[HttpPoster] = None,
@@ -140,6 +150,7 @@ class OpenAIChatProvider(_ChatDecisionProvider):
         self.auth_header = auth_header
         self.top_logprobs = top_logprobs
         self.max_tokens_field = max_tokens_field
+        self.max_answer_tokens = max_answer_tokens
         self.extra_body = dict(extra_body or {})
         self.extra_headers = dict(extra_headers or {})
 
@@ -152,7 +163,7 @@ class OpenAIChatProvider(_ChatDecisionProvider):
         return {"model": self.model, "messages": [
                     {"role": "system", "content": SYSTEM_PROMPT},
                     {"role": "user", "content": letter_prompt(request.evidence, questions[0])}],
-                self.max_tokens_field: 1, **logprobs, **self.extra_body}
+                self.max_tokens_field: self.max_answer_tokens, **logprobs, **self.extra_body}
 
     def usage(self, payload: Mapping[str, object]) -> Optional[TokenUsage]:
         usage = payload.get("usage")
@@ -168,9 +179,8 @@ class OpenAIChatProvider(_ChatDecisionProvider):
         choice = choices[0] if isinstance(choices, list) and choices and isinstance(choices[0], dict) else {}
         message = choice.get("message")
         logprobs = choice.get("logprobs")
-        content = logprobs.get("content") if isinstance(logprobs, dict) else None
-        first = content[0] if isinstance(content, list) and content and isinstance(content[0], dict) else {}
-        return (message.get("content") if isinstance(message, dict) else None), first.get("top_logprobs")
+        return (message.get("content") if isinstance(message, dict) else None), \
+            (logprobs.get("content") if isinstance(logprobs, dict) else None)
 
 
 class AnthropicMessagesProvider(_ChatDecisionProvider):
