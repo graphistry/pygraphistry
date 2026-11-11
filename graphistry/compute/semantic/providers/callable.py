@@ -1,13 +1,15 @@
-"""Decision provider backed by a plain Python function, for tests, rules and local models."""
+"""Providers backed by plain Python functions, for tests, rules and local models."""
 from typing import Callable, List, Mapping, Optional, Sequence, Tuple, Union
 
 from graphistry.compute.semantic.contract import (
-    PROBABILITY_KINDS, Budget, DecisionQuestion, DecisionRequest, DecisionResult, Evidence, ProbabilityKind,
-    ProviderCapabilities, canonicalize, compute_decision_hash, unanswered_result)
+    PROBABILITY_KINDS, Budget, DecisionQuestion, DecisionRequest, DecisionResult, Evidence, GenerationRequest,
+    GenerationResult, ProbabilityKind, ProviderCapabilities, canonicalize, compute_decision_hash, compute_generation_hash,
+    unanswered_generation_result, unanswered_result)
 
 
 CallableAnswer = Union[bool, str, None, Tuple[Union[bool, str, None], Optional[Mapping[str, float]]]]
 DecisionFn = Callable[[Evidence, DecisionQuestion], CallableAnswer]
+GenerationFn = Callable[[Evidence, str], Optional[str]]
 
 
 class CallableDecisionProvider:
@@ -64,6 +66,48 @@ class CallableDecisionProvider:
             status="ok" if value is not None else "uncertain", error_code=None, model=self.model,
             provider=self.name, task_version=request.task_version,
             input_hash=compute_decision_hash(request.evidence, question, request.task_version),
+            latency_ms=None, cost_usd=0.0, cache_hit=None, retry_count=0,
+            status_reason=None if value is not None else "null_answer",
+        )
+
+
+class CallableGenerationProvider:
+    """Generation provider that calls ``fn(evidence, instruction)`` once per row.
+
+    ``fn`` returns a string, or None for no answer (``uncertain``). An exception fails only that row
+    (``callable_exception``); a value that is not a string is ``invalid_provider_result``.
+    """
+
+    def __init__(self, fn: GenerationFn, *, name: str = "callable",
+                 capabilities: Optional[ProviderCapabilities] = None, model: Optional[str] = None) -> None:
+        if not callable(fn):
+            raise ValueError("fn must be callable")
+        self.fn = fn
+        self.name = name
+        self.model = model if model is not None else name
+        self._capabilities = capabilities or ProviderCapabilities(
+            supports_native_probabilities=False, max_questions_per_request=1, concurrency_limit=4)
+
+    def capabilities(self) -> ProviderCapabilities:
+        return self._capabilities
+
+    def generate_batch(self, requests: Sequence[GenerationRequest], *, deadline_s: Optional[float],
+                       budget: Optional[Budget]) -> List[GenerationResult]:
+        return [self._generate_one(request) for request in requests]
+
+    def _generate_one(self, request: GenerationRequest) -> GenerationResult:
+        try:
+            value = canonicalize(self.fn(request.evidence, request.instruction))
+        except Exception:
+            return unanswered_generation_result(request, provider=self.name, model=self.model,
+                                                error_code="callable_exception", retry_count=0)
+        if not isinstance(value, (str, type(None))):
+            return unanswered_generation_result(request, provider=self.name, model=self.model,
+                                                error_code="invalid_provider_result", retry_count=0)
+        return GenerationResult(
+            request_id=request.request_id, value=value, status="ok" if value is not None else "uncertain",
+            error_code=None, model=self.model, provider=self.name, task_version=request.task_version,
+            input_hash=compute_generation_hash(request.evidence, request.instruction, request.task_version),
             latency_ms=None, cost_usd=0.0, cache_hit=None, retry_count=0,
             status_reason=None if value is not None else "null_answer",
         )

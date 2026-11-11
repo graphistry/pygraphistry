@@ -1,15 +1,16 @@
-"""``sem_decide``: ask a model provider typed questions about every row of a table.
+"""Semantic row operators: ``sem_decide`` (typed questions) and ``sem_map`` (generated text) for every row.
 
 Every input row is kept, in order and with its index, and gets typed result columns. Provider faults become
 per-row ``error`` results; invalid parameters raise ``ValueError`` before any provider call.
 """
 import dataclasses
+import functools
 import json
 import math
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, wait
-from typing import Callable, Dict, List, Mapping, Optional, Sequence, Tuple, Union
+from typing import Callable, Dict, List, Mapping, Optional, Sequence, Tuple, Type, TypeVar, Union
 
 import numpy as np
 import pandas as pd
@@ -17,18 +18,21 @@ import pandas as pd
 from graphistry.compute.gfql.effects import record_effect
 from graphistry.compute.semantic.binding import resolve_provider
 from graphistry.compute.semantic.contract import (
-    Budget, DecisionProvider, DecisionQuestion, DecisionRequest, DecisionResult, Evidence, ProviderCapabilities,
-    SkippedReason, align_results, canonicalize, check_decision_result, compute_decision_hash, finite_float,
-    unanswered_result)
+    Budget, DecisionProvider, DecisionQuestion, DecisionRequest, DecisionResult, Evidence, GenerationProvider,
+    GenerationRequest, GenerationResult, ProviderCapabilities, ResultT, SkippedReason, align_results, canonicalize,
+    check_decision_result, check_generation_result, compute_decision_hash, compute_generation_hash, finite_float,
+    unanswered_generation_result, unanswered_result)
 from graphistry.compute.semantic.rules import (
-    DECISION_COLUMN_TYPES, BudgetSpec, QuestionLike, check_params, coerce_budget, coerce_questions, decision_columns,
-    evidence_columns)
+    DECISION_COLUMN_TYPES, MAP_COLUMN_TYPES, BudgetSpec, QuestionLike, check_params, coerce_budget, coerce_questions,
+    decision_columns, evidence_columns)
 from graphistry.compute.typing import DataFrameT
 
 
-DEFAULT_BATCH_SIZE = 32
+DEFAULT_DECIDE_BATCH_SIZE = 32
+DEFAULT_MAP_BATCH_SIZE = 16
 Cell = Tuple[int, str]
-Invoke = Callable[[Sequence[DecisionRequest], Optional[float], Optional[Budget]], object]
+RequestT = TypeVar("RequestT", DecisionRequest, GenerationRequest)
+Invoke = Callable[[Sequence[RequestT], Optional[float], Optional[Budget]], object]
 
 
 @dataclasses.dataclass(frozen=True)
@@ -112,7 +116,7 @@ def _check_existing_columns(names: Sequence[str], df: DataFrameT, overwrite: boo
         raise ValueError(f"output columns already exist: {existing}; pass overwrite=True to replace them")
 
 
-def _provider_capabilities(provider: DecisionProvider) -> ProviderCapabilities:
+def _provider_capabilities(provider: Union[DecisionProvider, GenerationProvider]) -> ProviderCapabilities:
     """Provider code is untrusted: a failing ``capabilities()`` is a ``ValueError`` before any call."""
     try:
         capabilities = provider.capabilities()
@@ -140,7 +144,7 @@ def _plan_calls(calls: int, budget: Optional[Budget]) -> List[Optional[Budget]]:
     return [Budget(max_requests=budget.max_requests - index) for index in range(min(calls, budget.max_requests))]
 
 
-def _call_provider(invoke: Invoke, batch: Sequence[DecisionRequest], remaining_s: Optional[float],
+def _call_provider(invoke: Invoke[RequestT], batch: Sequence[RequestT], remaining_s: Optional[float],
                    budget: Optional[Budget]) -> _CallOutcome:
     """Provider calls are the isolation boundary: any exception is that call's ``provider_exception``."""
     try:
@@ -149,7 +153,7 @@ def _call_provider(invoke: Invoke, batch: Sequence[DecisionRequest], remaining_s
         return _CallOutcome(raised=True)
 
 
-def _execute(batches: Sequence[Sequence[DecisionRequest]], budgets: Sequence[Optional[Budget]], invoke: Invoke,
+def _execute(batches: Sequence[Sequence[RequestT]], budgets: Sequence[Optional[Budget]], invoke: Invoke[RequestT],
              deadline_at: Optional[float], threads: int, effect_name: str) -> List[_CallOutcome]:
     """Run the planned calls in order on a thread pool; at the deadline, unstarted and running calls are skipped."""
     outcomes = [_CallOutcome(skipped="budget")] * len(batches)
@@ -196,81 +200,134 @@ def _nonnegative(value: object) -> Optional[float]:
     return number if number is not None and number >= 0 else None
 
 
-def _cell_result(request: DecisionRequest, question: DecisionQuestion, outcome: _CallOutcome,
-                 row: Optional[Dict[str, DecisionResult]], identity: Tuple[str, str],
-                 capabilities: ProviderCapabilities, min_p: Optional[float], input_hash: str) -> DecisionResult:
+Cells = List[Tuple[int, RequestT, "_CallOutcome", Optional[Dict[str, ResultT]]]]
+
+
+def _run_rows(rows: _Rows, requests_for: Callable[[List[int]], List[List[RequestT]]], invoke: Invoke[RequestT], *,
+              result_type: Type[ResultT], capabilities: ProviderCapabilities, batch_size: Optional[int],
+              default_batch_size: int, max_concurrency: Optional[int], budget: Optional[Budget],
+              deadline_at: Optional[float], effect_name: str) -> Cells[RequestT, ResultT]:
+    """The row driver: batch the attempted rows, run the calls under the limits, align each provider return, and
+    yield ``(position, request, outcome, aligned results of that request)`` for every request, sent or not."""
+    size = batch_size or capabilities.max_rows_per_request or default_batch_size
+    if capabilities.max_rows_per_request is not None:
+        size = min(size, capabilities.max_rows_per_request)
+    attempted = [position for position, reason in enumerate(rows.skip_reason) if reason is None]
+    calls = [requests for first in range(0, len(attempted), size)
+             for requests in requests_for(attempted[first:first + size])]
+    threads = max(1, min(capabilities.concurrency_limit, max_concurrency or capabilities.concurrency_limit, len(calls)))
+    outcomes = _execute(calls, _plan_calls(len(calls), budget), invoke, deadline_at, threads, effect_name)
+    never_sent = [(requests, _CallOutcome(skipped=reason)) for position, reason in enumerate(rows.skip_reason)
+                  if reason is not None for requests in requests_for([position])]
+    position_of = {request_id: position for position, request_id in enumerate(rows.request_ids)}
+    cells: Cells[RequestT, ResultT] = []
+    for requests, outcome in list(zip(calls, outcomes)) + never_sent:
+        aligned = None if outcome.skipped or outcome.raised else _aligned_or_none(requests, outcome.returned,
+                                                                                   result_type)
+        cells.extend((position_of[request.request_id], request, outcome,
+                      None if aligned is None else aligned[request.request_id]) for request in requests)
+    return cells
+
+
+def _aligned_or_none(requests: Sequence[RequestT], returned: object, result_type: Type[ResultT]
+                     ) -> Optional[Dict[str, Optional[Dict[str, ResultT]]]]:
+    """``align_results`` on untrusted provider output; a failure means the whole call is untrusted."""
+    try:
+        return align_results(requests, returned, result_type)
+    except Exception:
+        return None
+
+
+def _plain_result(result: ResultT, result_type: Type[ResultT]) -> Optional[ResultT]:
+    """The result as an exact ``result_type`` whose answer, distribution and status labels are plain Python values,
+    so what is checked is what is written; None when they cannot be read as such (provider values are untrusted)."""
+    try:
+        fields = {field.name: getattr(result, field.name) for field in dataclasses.fields(result_type)}
+        value, distribution = canonicalize(fields["value"]), canonicalize(fields.get("distribution"))
+        raw_size = len(fields["distribution"]) if isinstance(fields.get("distribution"), Mapping) else None
+        if not isinstance(value, (bool, str, type(None))) or not isinstance(distribution, (dict, type(None))) \
+                or (distribution is not None and raw_size != len(distribution)):
+            return None
+        fields.update({name: str.__str__(fields[name]) for name in (
+            "status", "status_reason", "probability_kind", "error_code") if isinstance(fields.get(name), str)})
+        fields["value"] = value
+        if "distribution" in fields:
+            fields["distribution"] = distribution
+        return result_type(**fields)
+    except Exception:
+        return None
+
+
+def _checked(outcome: _CallOutcome, result: Optional[ResultT], result_type: Type[ResultT],
+             problems: Callable[[ResultT], List[str]], finish: Callable[[ResultT], ResultT],
+             unanswered: Callable[..., ResultT], input_hash: str, task_version: str) -> ResultT:
     """The kernel's verdict on one cell. Provider data is untrusted: if reading it fails, or its metadata cannot
     become JSON, the cell is an error built from kernel fields. ``input_hash`` (taken before any call) and
     ``task_version`` come from the kernel, so a provider cannot change them."""
-    provider, model = identity
     if outcome.skipped is not None:
-        return unanswered_result(request, question, provider=provider, model=model, input_hash=input_hash,
-                                 status_reason=outcome.skipped)
+        return unanswered(status_reason=outcome.skipped, input_hash=input_hash)
     latency_ms: Optional[float] = None
     retry_count: Optional[int] = None
     try:
-        result = None if row is None else _plain_answer(row[question.id])
-        if result is not None and not check_decision_result(request, question, result, capabilities):
-            result = dataclasses.replace(result, input_hash=input_hash, task_version=request.task_version)
-            if min_p is not None and result.status == "ok":
-                probability = _probability_of_value(question, result)
-                if math.isnan(probability) or probability < min_p:
-                    result = dataclasses.replace(result, status="uncertain", status_reason="min_p")
-            if _meta_json_or_none(result) is not None:
-                return result
-        elif result is not None:
-            retries = result.retry_count
-            latency_ms = _nonnegative(result.latency_ms)
+        plain = None if result is None else _plain_result(result, result_type)
+        if plain is not None and not problems(plain):
+            final = finish(dataclasses.replace(plain, input_hash=input_hash, task_version=task_version))
+            if _meta_json_or_none(final) is not None:
+                return final
+        elif plain is not None:
+            retries = plain.retry_count
+            latency_ms = _nonnegative(plain.latency_ms)
             retry_count = retries if isinstance(retries, int) and not isinstance(retries, bool) \
                 and 0 <= retries < 2 ** 31 else None
     except Exception:
         latency_ms, retry_count = None, None
-    return unanswered_result(
-        request, question, provider=provider, model=model, input_hash=input_hash,
-        error_code="provider_exception" if outcome.raised else "invalid_provider_result",
-        latency_ms=latency_ms, retry_count=retry_count)
+    return unanswered(error_code="provider_exception" if outcome.raised else "invalid_provider_result",
+                      input_hash=input_hash, latency_ms=latency_ms, retry_count=retry_count)
 
 
-def _plain_answer(result: DecisionResult) -> Optional[DecisionResult]:
-    """The result as an exact ``DecisionResult`` whose answer, distribution and status labels are plain Python
-    values, so what is checked is what is written; None when they are not plain answer values. Reading provider
-    values may raise; the caller's boundary turns that into an error cell."""
-    value, distribution = canonicalize(result.value), canonicalize(result.distribution)
-    raw_size = len(result.distribution) if isinstance(result.distribution, Mapping) else None
-    if not isinstance(value, (bool, str, type(None))) or not isinstance(distribution, (dict, type(None))) \
-            or (distribution is not None and raw_size != len(distribution)):
-        return None
-    fields = {field.name: getattr(result, field.name) for field in dataclasses.fields(DecisionResult)}
-    labels = {name: str.__str__(fields[name]) for name in ("status", "status_reason", "probability_kind", "error_code")
-              if isinstance(fields[name], str)}
-    return DecisionResult(**dict(fields, value=value, distribution=distribution, **labels))
+def _with_min_p(question: DecisionQuestion, result: DecisionResult, min_p: Optional[float]) -> DecisionResult:
+    if min_p is None or result.status != "ok":
+        return result
+    probability = _probability_of_value(question, result)
+    if math.isnan(probability) or probability < min_p:
+        return dataclasses.replace(result, status="uncertain", status_reason="min_p")
+    return result
 
 
-def _aligned_or_none(requests: Sequence[DecisionRequest], returned: object
-                     ) -> Optional[Dict[str, Optional[Dict[str, DecisionResult]]]]:
-    """``align_results`` on untrusted provider output; a failure means the whole call is untrusted."""
-    try:
-        return align_results(requests, returned)
-    except Exception:
-        return None
+def _decision_cell(request: DecisionRequest, question: DecisionQuestion, outcome: _CallOutcome,
+                   row: Optional[Dict[str, DecisionResult]], identity: Tuple[str, str],
+                   capabilities: ProviderCapabilities, min_p: Optional[float], input_hash: str) -> DecisionResult:
+    return _checked(outcome, None if row is None else row[question.id], DecisionResult,
+                    lambda found: check_decision_result(request, question, found, capabilities),
+                    lambda found: _with_min_p(question, found, min_p),
+                    functools.partial(unanswered_result, request, question, provider=identity[0], model=identity[1]),
+                    input_hash, request.task_version)
 
 
-def _provider_identity(provider: DecisionProvider) -> Tuple[str, str]:
+def _generation_cell(request: GenerationRequest, outcome: _CallOutcome, row: Optional[Dict[str, GenerationResult]],
+                     identity: Tuple[str, str], input_hash: str) -> GenerationResult:
+    return _checked(outcome, None if row is None else row[""], GenerationResult,
+                    lambda found: check_generation_result(request, found), lambda found: found,
+                    functools.partial(unanswered_generation_result, request, provider=identity[0], model=identity[1]),
+                    input_hash, request.task_version)
+
+
+def _provider_identity(provider: Union[DecisionProvider, GenerationProvider]) -> Tuple[str, str]:
     """The provider name and model the kernel stamps on results it builds itself, always strings."""
     fallback = type(provider).__name__
     return (provider.name if isinstance(provider.name, str) else fallback,
             provider.model if isinstance(provider.model, str) else fallback)
 
 
-def _meta_json(result: DecisionResult) -> str:
+def _meta_json(result: Union[DecisionResult, GenerationResult]) -> str:
     meta = {name: getattr(result, name) for name in (
         "model", "provider", "task_version", "input_hash", "latency_ms", "cost_usd", "cache_hit", "retry_count",
-        "status_reason", "confidence")}
+        "status_reason") + (("confidence",) if isinstance(result, DecisionResult) else ())}
     meta["extra"] = None if result.extra is None else dict(result.extra)
     return json.dumps(_json_ready(meta), sort_keys=True, separators=(",", ":"))
 
 
-def _meta_json_or_none(result: DecisionResult) -> Optional[str]:
+def _meta_json_or_none(result: Union[DecisionResult, GenerationResult]) -> Optional[str]:
     """Provider metadata is untrusted: any that cannot become JSON (a non-mapping ``extra``, a cycle) is invalid."""
     try:
         return _meta_json(result)
@@ -413,31 +470,90 @@ def sem_decide(
                                questions=tuple(chunk), task_id=task_id, task_version=task_version)
 
     per_call = capabilities.max_questions_per_request
-    size = batch_size or capabilities.max_rows_per_request or DEFAULT_BATCH_SIZE
-    if capabilities.max_rows_per_request is not None:
-        size = min(size, capabilities.max_rows_per_request)
-    attempted = [position for position, reason in enumerate(rows.skip_reason) if reason is None]
-    calls: List[List[DecisionRequest]] = []
-    for first in range(0, len(attempted), size):
-        for start in range(0, len(coerced), per_call):
-            calls.append([request(position, coerced[start:start + per_call]) for position in attempted[first:first + size]])
     hashes = {(position, question.id): compute_decision_hash(evidence, question, task_version)
               for position, evidence in enumerate(rows.evidence) for question in coerced}
-    threads = max(1, min(capabilities.concurrency_limit, max_concurrency or capabilities.concurrency_limit, len(calls)))
-    outcomes = _execute(calls, _plan_calls(len(calls), run_budget),
-                        lambda batch, remaining, call_budget: resolved.decide_batch(
-                            batch, deadline_s=remaining, budget=call_budget),
-                        None if deadline is None else started + deadline, threads, "sem_decide")
-    never_sent = [([request(position, coerced)], _CallOutcome(skipped=reason))
-                  for position, reason in enumerate(rows.skip_reason) if reason is not None]
-    position_of = {request_id: position for position, request_id in enumerate(rows.request_ids)}
-    grid: Dict[Cell, DecisionResult] = {}
-    for requests, outcome in list(zip(calls, outcomes)) + never_sent:
-        aligned = None if outcome.skipped or outcome.raised else _aligned_or_none(requests, outcome.returned)
-        for request_ in requests:
-            row = None if aligned is None else aligned[request_.request_id]
-            position = position_of[request_.request_id]
-            for question in request_.questions:
-                grid[(position, question.id)] = _cell_result(request_, question, outcome, row, identity, capabilities,
-                                                             threshold, hashes[(position, question.id)])
+    cells = _run_rows(
+        rows, lambda positions: [[request(position, coerced[start:start + per_call]) for position in positions]
+                                 for start in range(0, len(coerced), per_call)],
+        lambda batch, remaining, call_budget: resolved.decide_batch(batch, deadline_s=remaining, budget=call_budget),
+        result_type=DecisionResult, capabilities=capabilities, batch_size=batch_size,
+        default_batch_size=DEFAULT_DECIDE_BATCH_SIZE, max_concurrency=max_concurrency, budget=run_budget,
+        deadline_at=None if deadline is None else started + deadline, effect_name="sem_decide")
+    grid = {(position, question.id): _decision_cell(request_, question, outcome, row, identity, capabilities,
+                                                    threshold, hashes[(position, question.id)])
+            for position, request_, outcome, row in cells for question in request_.questions}
     return _with_columns(df, _result_columns(coerced, grid, len(rows.request_ids)))
+
+
+def sem_map(
+    df: DataFrameT,
+    *,
+    instruction: str,
+    out_col: str,
+    provider: Union[str, GenerationProvider],
+    task_id: str,
+    evidence_cols: Optional[Sequence[str]] = None,
+    template: Optional[str] = None,
+    id_col: Optional[str] = None,
+    task_version: str = "1",
+    max_output_tokens: Optional[int] = None,
+    batch_size: Optional[int] = None,
+    max_concurrency: Optional[int] = None,
+    deadline_s: Optional[float] = None,
+    budget: BudgetSpec = None,
+    max_rows: Optional[int] = None,
+    column_max_chars: Optional[int] = None,
+    overwrite: bool = False,
+) -> DataFrameT:
+    """Generate one text value per row and append ``out_col`` plus its status, error code and meta columns.
+
+    Parameters, row identity, limits and failure handling match :func:`sem_decide`, except that ``batch_size``
+    defaults to the provider's ``max_rows_per_request``, else 16; ``instruction`` is the generation instruction
+    and ``max_output_tokens`` is passed to the provider as its bound on each generated value.
+
+    **Example**
+        ::
+
+            out = sem_map(df, instruction="Summarize the description in one sentence.",
+                          out_col="summary", provider=my_generator, evidence_cols=["description"],
+                          task_id="summaries")
+    """
+    started = time.monotonic()
+    check_params(dict(instruction=instruction, out_col=out_col, task_id=task_id, task_version=task_version,
+                      overwrite=overwrite),
+                 dict(max_output_tokens=max_output_tokens, batch_size=batch_size, max_concurrency=max_concurrency,
+                      deadline_s=deadline_s, max_rows=max_rows, column_max_chars=column_max_chars))
+    cols = evidence_columns(evidence_cols, template)
+    run_budget = coerce_budget(budget)
+    deadline = None if deadline_s is None else float(deadline_s)
+    output_tokens = None if max_output_tokens is None else int(max_output_tokens)
+    _check_existing_columns([out_col + suffix for suffix, _ in MAP_COLUMN_TYPES], df, overwrite)
+    resolved = resolve_provider(provider)
+    if not isinstance(resolved, GenerationProvider):
+        raise ValueError(f"semantic provider {provider if isinstance(provider, str) else type(provider).__name__!r} "
+                         "is not a GenerationProvider")
+    capabilities = _provider_capabilities(resolved)
+    identity = _provider_identity(resolved)
+    rows = _prepare_rows(df, cols, template, id_col, column_max_chars, max_rows)
+
+    def request(position: int) -> GenerationRequest:
+        return GenerationRequest(request_id=rows.request_ids[position], evidence=rows.evidence[position],
+                                 instruction=instruction, task_id=task_id, task_version=task_version,
+                                 max_output_tokens=output_tokens)
+
+    hashes = [compute_generation_hash(evidence, instruction, task_version) for evidence in rows.evidence]
+    cells = _run_rows(
+        rows, lambda positions: [[request(position) for position in positions]],
+        lambda batch, remaining, call_budget: resolved.generate_batch(batch, deadline_s=remaining, budget=call_budget),
+        result_type=GenerationResult, capabilities=capabilities, batch_size=batch_size,
+        default_batch_size=DEFAULT_MAP_BATCH_SIZE, max_concurrency=max_concurrency, budget=run_budget,
+        deadline_at=None if deadline is None else started + deadline, effect_name="sem_map")
+    results = {position: _generation_cell(request_, outcome, row, identity, hashes[position])
+               for position, request_, outcome, row in cells}
+    ordered = [results[position] for position in range(len(rows.request_ids))]
+    return _with_columns(df, {
+        out_col: np.array([result.value for result in ordered], dtype=object),
+        f"{out_col}__status": np.array([result.status for result in ordered], dtype=object),
+        f"{out_col}__error_code": np.array([result.error_code for result in ordered], dtype=object),
+        f"{out_col}__meta": np.array([_meta_json(result) for result in ordered], dtype=object),
+    })

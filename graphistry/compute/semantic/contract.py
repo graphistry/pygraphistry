@@ -1,7 +1,7 @@
 """Provider-neutral contract for semantic table operators.
 
-Requests, results, capabilities and the provider protocol shared by ``sem_decide`` and by any host that
-plugs in its own model provider. Standard library only: the file loads by path without pandas or graphistry.
+Requests, results, capabilities and the provider protocols shared by ``sem_decide``, ``sem_map`` and any host
+that plugs in its own model provider. Standard library only: the file loads by path without pandas or graphistry.
 """
 from __future__ import annotations
 
@@ -10,7 +10,8 @@ import json
 import math
 from dataclasses import dataclass
 from typing import (
-    Dict, FrozenSet, List, Literal, Mapping, Optional, Protocol, Sequence, Tuple, Union, get_args, runtime_checkable)
+    Dict, FrozenSet, List, Literal, Mapping, Optional, Protocol, Sequence, Tuple, Type, TypeVar, Union, get_args,
+    runtime_checkable)
 
 
 QuestionKind = Literal["predicate", "choice", "score"]
@@ -27,7 +28,6 @@ PROBABILITY_KINDS: Tuple[str, ...] = get_args(ProbabilityKind)
 RESULT_STATUSES: Tuple[str, ...] = get_args(ResultStatus)
 UNCERTAIN_REASONS: Tuple[str, ...] = get_args(UncertainReason)
 SKIPPED_REASONS: Tuple[str, ...] = get_args(SkippedReason)
-_REASONS_BY_STATUS: Dict[str, Tuple[str, ...]] = {"uncertain": UNCERTAIN_REASONS, "skipped": SKIPPED_REASONS}
 _EMPTY_FIELDS: Dict[str, Tuple[str, ...]] = {
     "error": ("value", "distribution", "confidence"), "skipped": ("value", "distribution", "confidence"),
     "refusal": ("value", "distribution"), "null_answer": ("value", "distribution"), "tie": ("value",)}
@@ -189,6 +189,19 @@ class DecisionRequest:
 
 
 @dataclass(frozen=True)
+class GenerationRequest:
+    """One row's evidence and the instruction to generate a value for it."""
+
+    request_id: str
+    evidence: Evidence
+    instruction: str
+    task_id: str
+    task_version: str
+    max_output_tokens: Optional[int] = None
+    deadline_s: Optional[float] = None
+
+
+@dataclass(frozen=True)
 class Budget:
     """Run limit on the number of provider calls."""
 
@@ -239,6 +252,30 @@ class DecisionResult:
     extra: Optional[Mapping[str, ExtraValue]] = None
 
 
+@dataclass(frozen=True)
+class GenerationResult:
+    """Exactly one result per request; status, metadata and ``extra`` as in ``DecisionResult``. The reason of an
+    ``uncertain`` result, when given, is ``refusal`` or ``null_answer``."""
+
+    request_id: str
+    value: Optional[str]
+    status: ResultStatus
+    error_code: Optional[str]
+    model: str
+    provider: str
+    task_version: str
+    input_hash: str
+    latency_ms: Optional[float]
+    cost_usd: Optional[float]
+    cache_hit: Optional[bool]
+    retry_count: Optional[int]
+    status_reason: Optional[StatusReason] = None
+    extra: Optional[Mapping[str, ExtraValue]] = None
+
+
+ResultT = TypeVar("ResultT", DecisionResult, GenerationResult)
+
+
 @runtime_checkable
 class DecisionProvider(Protocol):
     """A model backend for ``sem_decide``.
@@ -256,6 +293,21 @@ class DecisionProvider(Protocol):
 
     def decide_batch(self, requests: Sequence[DecisionRequest], *,
                      deadline_s: Optional[float], budget: Optional[Budget]) -> List[DecisionResult]:
+        ...
+
+
+@runtime_checkable
+class GenerationProvider(Protocol):
+    """A model backend for ``sem_map``; same calling rules as ``DecisionProvider``."""
+
+    name: str
+    model: str
+
+    def capabilities(self) -> ProviderCapabilities:
+        ...
+
+    def generate_batch(self, requests: Sequence[GenerationRequest], *,
+                       deadline_s: Optional[float], budget: Optional[Budget]) -> List[GenerationResult]:
         ...
 
 
@@ -290,36 +342,47 @@ def compute_decision_hash(evidence: Evidence, question: DecisionQuestion, task_v
                      "levels": question.levels},
         "task_version": task_version,
     }
+    return _sha256_json(payload)
+
+
+def compute_generation_hash(evidence: Evidence, instruction: str, task_version: str) -> str:
+    """Stable hash of what a generation depends on; excludes model and provider."""
+    return _sha256_json({"evidence": evidence, "instruction": instruction, "task_version": task_version})
+
+
+def _sha256_json(payload: Mapping[str, object]) -> str:
     text = json.dumps(canonicalize(payload), sort_keys=True, separators=(",", ":"), ensure_ascii=False, default=str)
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
-def align_results(requests: Sequence[DecisionRequest], results: object
-                  ) -> Optional[Dict[str, Optional[Dict[str, DecisionResult]]]]:
-    """Results of one provider call by request id, then question id.
+def align_results(requests: Sequence[Union[DecisionRequest, GenerationRequest]], results: object,
+                  result_type: Type[ResultT]) -> Optional[Dict[str, Optional[Dict[str, ResultT]]]]:
+    """Results of one provider call by request id, then question id (``""`` for a generation's single answer).
 
     None when the call as a whole cannot be trusted: not a list, a non-result entry, an unknown request id or
     a duplicate (request, question) key. A row maps to None when it misses a question or carries an unknown one.
     """
     if not isinstance(results, (list, tuple)):
         return None
-    expected = {request.request_id: {question.id for question in request.questions} for request in requests}
-    rows: Dict[str, Dict[str, DecisionResult]] = {request_id: {} for request_id in expected}
+    expected = {request.request_id: {question.id for question in request.questions}
+                if isinstance(request, DecisionRequest) else {""} for request in requests}
+    rows: Dict[str, Dict[str, ResultT]] = {request_id: {} for request_id in expected}
     broken_rows = set()
     seen = set()
     for result in results:
-        if not isinstance(result, DecisionResult) or not (
+        if not isinstance(result, result_type) or not (
                 isinstance(result.request_id, str) and result.request_id in expected):
             return None
-        if not isinstance(result.question_id, str):
+        question_id = result.question_id if isinstance(result, DecisionResult) else ""
+        if not isinstance(question_id, str):
             broken_rows.add(result.request_id)
             continue
-        key = (result.request_id, result.question_id)
+        key = (result.request_id, question_id)
         if key in seen:
             return None
         seen.add(key)
-        if result.question_id in expected[result.request_id]:
-            rows[result.request_id][result.question_id] = result
+        if question_id in expected[result.request_id]:
+            rows[result.request_id][question_id] = result
         else:
             broken_rows.add(result.request_id)
     return {request_id: None if request_id in broken_rows or len(found) < len(expected[request_id]) else found
@@ -347,30 +410,50 @@ def _distribution_problems(question: DecisionQuestion, distribution: object) -> 
     return problems
 
 
-def check_decision_result(request: DecisionRequest, question: DecisionQuestion, result: DecisionResult,
-                          capabilities: Optional[ProviderCapabilities] = None) -> List[str]:
-    """Content violations of one decision result against its request and question (empty when valid)."""
+def _status_problems(request_id: str, result: Union[DecisionResult, GenerationResult],
+                     uncertain_reasons: Sequence[str]) -> List[str]:
     status, reason = result.status, result.status_reason
-    if not _is_member(status, RESULT_STATUSES):
-        return [f"status must be a string in {RESULT_STATUSES}, got {status!r}"]
-    if not _is_member(result.probability_kind, PROBABILITY_KINDS):
-        return [f"probability_kind must be a string in {PROBABILITY_KINDS}, got {result.probability_kind!r}"]
-    problems = [f"{name} does not match {expected!r}" for name, got, expected in (
-        ("request_id", result.request_id, request.request_id), ("question_id", result.question_id, question.id))
-        if not _is_member(got, [expected])]
+    problems = [] if _is_member(result.request_id, [request_id]) else [f"request_id does not match {request_id!r}"]
     if status == "skipped" and not _is_member(reason, SKIPPED_REASONS):
         problems.append(f"a skipped result needs a status_reason in {SKIPPED_REASONS}")
-    elif reason is not None and not _is_member(reason, _REASONS_BY_STATUS.get(status, ())):
+    elif reason is not None and not _is_member(reason, {"uncertain": uncertain_reasons, "skipped": SKIPPED_REASONS}
+                                               .get(status, ())):
         problems.append(f"status_reason {reason!r} is not allowed with status {status!r}")
     if status == "error" and not (isinstance(result.error_code, str) and result.error_code != ""):
         problems.append("an error result needs a non-empty error_code")
     if status != "error" and result.error_code is not None:
         problems.append(f"error_code must be None unless status is error, got {result.error_code!r}")
     label = reason if isinstance(reason, str) and reason in _EMPTY_FIELDS else status
+    present: Dict[str, object] = {"value": result.value} if isinstance(result, GenerationResult) else {
+        "value": result.value, "distribution": result.distribution, "confidence": result.confidence}
     problems.extend(f"{label} results must have {name} None" for name in _EMPTY_FIELDS.get(label, ())
-                    if getattr(result, name) is not None)
+                    if present.get(name) is not None)
     if status == "ok" and result.value is None:
         problems.append("an ok result must carry a value")
+    return problems
+
+
+def check_generation_result(request: GenerationRequest, result: GenerationResult) -> List[str]:
+    """Content violations of one generation result against its request (empty when valid)."""
+    if not _is_member(result.status, RESULT_STATUSES):
+        return [f"status must be a string in {RESULT_STATUSES}, got {result.status!r}"]
+    problems = _status_problems(request.request_id, result, ("refusal", "null_answer"))
+    if result.value is not None and not isinstance(result.value, str):
+        problems.append(f"a generation value must be a string or None, got {result.value!r}")
+    return problems
+
+
+def check_decision_result(request: DecisionRequest, question: DecisionQuestion, result: DecisionResult,
+                          capabilities: Optional[ProviderCapabilities] = None) -> List[str]:
+    """Content violations of one decision result against its request and question (empty when valid)."""
+    status = result.status
+    if not _is_member(status, RESULT_STATUSES):
+        return [f"status must be a string in {RESULT_STATUSES}, got {status!r}"]
+    if not _is_member(result.probability_kind, PROBABILITY_KINDS):
+        return [f"probability_kind must be a string in {PROBABILITY_KINDS}, got {result.probability_kind!r}"]
+    problems = _status_problems(request.request_id, result, UNCERTAIN_REASONS)
+    if not _is_member(result.question_id, [question.id]):
+        problems.append(f"question_id does not match {question.id!r}")
     if (result.probability_kind == "none") != (result.distribution is None):
         problems.append("probability_kind must be 'none' exactly when distribution is None")
     labels = question.labels()
@@ -396,5 +479,18 @@ def unanswered_result(request: DecisionRequest, question: DecisionQuestion, *, p
         probability_kind="none", status="error" if error_code is not None else "skipped", error_code=error_code,
         model=model, provider=provider, task_version=request.task_version,
         input_hash=input_hash or compute_decision_hash(request.evidence, question, request.task_version),
+        latency_ms=latency_ms, cost_usd=None, cache_hit=None, retry_count=retry_count, status_reason=status_reason,
+    )
+
+
+def unanswered_generation_result(request: GenerationRequest, *, provider: str, model: str,
+                                 error_code: Optional[str] = None, status_reason: Optional[SkippedReason] = None,
+                                 latency_ms: Optional[float] = None, retry_count: Optional[int] = None,
+                                 input_hash: Optional[str] = None) -> GenerationResult:
+    """An ``error`` result when ``error_code`` is set, else a ``skipped`` result with ``status_reason``."""
+    return GenerationResult(
+        request_id=request.request_id, value=None, status="error" if error_code is not None else "skipped",
+        error_code=error_code, model=model, provider=provider, task_version=request.task_version,
+        input_hash=input_hash or compute_generation_hash(request.evidence, request.instruction, request.task_version),
         latency_ms=latency_ms, cost_usd=None, cache_hit=None, retry_count=retry_count, status_reason=status_reason,
     )

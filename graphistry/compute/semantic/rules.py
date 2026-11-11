@@ -1,4 +1,4 @@
-"""Parameter rules, evidence parsing and output columns of ``sem_decide``, shared by the kernel and GFQL.
+"""Parameter rules, evidence parsing and output columns of semantic operators, shared by the kernels and GFQL.
 
 A rule returns ``True`` or a problem message; the kernel raises ``ValueError`` on a message and the GFQL
 safelist reports it as E201.
@@ -19,6 +19,8 @@ DECISION_COLUMN_TYPES: Tuple[Tuple[str, str], ...] = (
     ("", "answer"), ("__status", "string"), ("__p", "float64"), ("__dist", "string"),
     ("__probability_kind", "string"), ("__error_code", "string"), ("__meta", "string"),
 )
+MAP_COLUMN_TYPES: Tuple[Tuple[str, str], ...] = (("", "string"), ("__status", "string"), ("__error_code", "string"),
+                                                 ("__meta", "string"))
 
 
 def non_empty_str(value: object) -> Union[bool, str]:
@@ -101,14 +103,20 @@ def _json_questions(value: object) -> object:
     return coerce_questions(value)
 
 
+def _output_column(value: object) -> object:
+    if not isinstance(value, str) or value == "":
+        raise ValueError("must be a non-empty string")
+    validate_column_name(value, "out_col")
+    return value
+
+
 def _json_budget(value: object) -> object:
     if not isinstance(value, dict):
         raise ValueError("must be a dict with max_requests")
     return Budget.from_mapping(value)
 
 
-RULES: Dict[str, Rule] = {
-    "questions": _message_of(_json_questions),
+COMMON_RULES: Dict[str, Rule] = {
     "provider": non_empty_str,
     "task_id": non_empty_str,
     "task_version": non_empty_str,
@@ -121,10 +129,13 @@ RULES: Dict[str, Rule] = {
     "deadline_s": positive_number,
     "budget": _message_of(_json_budget),
     "max_rows": positive_int,
-    "min_p": probability,
     "column_max_chars": positive_int,
     "overwrite": boolean,
 }
+SEM_DECIDE_RULES: Dict[str, Rule] = dict(COMMON_RULES, questions=_message_of(_json_questions), min_p=probability)
+SEM_MAP_RULES: Dict[str, Rule] = dict(COMMON_RULES, instruction=non_empty_str, out_col=_message_of(_output_column),
+                                      max_output_tokens=positive_int)
+RULES: Dict[str, Rule] = dict(SEM_DECIDE_RULES, **SEM_MAP_RULES)
 
 
 def check_params(required: Mapping[str, object], optional: Mapping[str, object]) -> None:
@@ -170,3 +181,8 @@ def decision_columns(questions: Sequence[Tuple[str, object]]) -> Dict[str, str]:
     """Output column -> logical type (``bool``, ``string``, ``float64``) for ``(question id, kind)`` pairs."""
     return {question_id + suffix: ("bool" if kind == "predicate" else "string") if logical == "answer" else logical
             for question_id, kind in questions for suffix, logical in DECISION_COLUMN_TYPES}
+
+
+def map_columns(out_col: str) -> Dict[str, str]:
+    """Output column -> logical type for ``sem_map``."""
+    return {out_col + suffix: logical for suffix, logical in MAP_COLUMN_TYPES}

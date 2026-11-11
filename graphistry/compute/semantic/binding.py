@@ -2,18 +2,18 @@
 from contextlib import contextmanager
 from contextvars import ContextVar
 from types import MappingProxyType
-from typing import Iterator, Mapping, Tuple
+from typing import Iterator, Mapping, Tuple, Union
 
-from graphistry.compute.semantic.contract import DecisionProvider
+from graphistry.compute.semantic.contract import DecisionProvider, GenerationProvider
 
 
-PROVIDER_PROTOCOLS: Tuple[type, ...] = (DecisionProvider,)
+PROVIDER_PROTOCOLS: Tuple[type, ...] = (DecisionProvider, GenerationProvider)
 _BOUND_PROVIDERS: "ContextVar[Mapping[str, object]]" = ContextVar("gfql_semantic_providers",
                                                                   default=MappingProxyType({}))
 
 
 @contextmanager
-def bind_providers(providers: Mapping[str, DecisionProvider]) -> Iterator[None]:
+def bind_providers(providers: Mapping[str, Union[DecisionProvider, GenerationProvider]]) -> Iterator[None]:
     """Bind provider aliases for semantic operators run inside this block.
 
     Inner blocks overlay outer ones alias by alias and restore them on exit. The mapping is copied on entry.

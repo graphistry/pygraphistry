@@ -18,7 +18,7 @@ from graphistry.compute.exceptions import (
     ErrorCode, GFQLCallExecutionError, GFQLSchemaError, GFQLTypeError, GFQLUnsupportedError)
 from graphistry.compute.gfql.call.validation import SAFELIST_V1
 from graphistry.compute.gfql.policy import PolicyContext, PolicyException
-from graphistry.compute.semantic import CallableDecisionProvider, bind_providers
+from graphistry.compute.semantic import CallableDecisionProvider, CallableGenerationProvider, bind_providers
 from graphistry.compute.semantic.binding import resolve_provider
 from graphistry.tests.compute.semantic.semantic_test_utils import Recording, caps
 
@@ -40,6 +40,9 @@ def graph() -> Plottable:
 def polars_graph() -> Plottable:
     pl = pytest.importorskip("polars")
     return graphistry.nodes(pl.from_pandas(NODES), "id").edges(pl.from_pandas(EDGES), "s", "d")
+
+
+MAP_PARAMS = {"instruction": "Shout it", "out_col": "loud", "provider": "p", "task_id": "t", "evidence_cols": ["name"]}
 
 
 def decide_params(**overrides: object) -> Dict[str, object]:
@@ -126,13 +129,16 @@ class TestCallMethodParity:
     def test_parameter_lists_agree_across_surfaces(self) -> None:
         import inspect
         from graphistry.compute.ComputeMixin import ComputeMixin
-        from graphistry.compute.semantic.ops import sem_decide
-        from graphistry.compute.semantic.rules import RULES
-        from graphistry.models.gfql.types.call import SemDecideParams
-        kernel = set(inspect.signature(sem_decide).parameters) - {"df"}
-        method = set(inspect.signature(ComputeMixin.sem_decide).parameters) - {"self", "kind"}
-        plottable = set(inspect.signature(Plottable.sem_decide).parameters) - {"self", "kind"}
-        assert kernel == method == plottable == set(RULES) - {"kind"} == set(SemDecideParams.__annotations__) - {"kind"}
+        from graphistry.compute.semantic.ops import sem_decide, sem_map
+        from graphistry.compute.semantic.rules import SEM_DECIDE_RULES, SEM_MAP_RULES
+        from graphistry.models.gfql.types.call import SemDecideParams, SemMapParams
+        for kernel, name, rules, typed in ((sem_decide, "sem_decide", SEM_DECIDE_RULES, SemDecideParams),
+                                           (sem_map, "sem_map", SEM_MAP_RULES, SemMapParams)):
+            surfaces = [set(inspect.signature(kernel).parameters) - {"df"}]
+            surfaces += [set(inspect.signature(getattr(cls, name)).parameters) - {"self", "kind"}
+                         for cls in (ComputeMixin, Plottable)]
+            surfaces += [set(rules) - {"kind"}, set(typed.__annotations__) - {"kind"}]
+            assert all(surface == surfaces[0] for surface in surfaces), (name, surfaces)
 
     def test_nodes_kind_on_edges_only_graph(self) -> None:
         g = graphistry.edges(EDGES, "s", "d")
@@ -153,6 +159,48 @@ class TestCallMethodParity:
         provider = counting()
         out = run(provider, [n(), e_forward(), n(), call("sem_decide", decide_params(kind="edges", evidence_cols=["w"]))], g=g)
         assert sorted(provider.request_ids) == ["0", "1", "2"] and set(out._edges["co__status"]) == {"ok"}
+
+
+class TestSemMap:
+
+    def test_parity_round_trip_and_remote_refusal(self) -> None:
+        gen = CallableGenerationProvider(lambda evidence, instruction: str(evidence["name"]).upper())  # type: ignore[index]
+        out = run(gen, [call("sem_map", MAP_PARAMS)])
+        direct = graph().sem_map("Shout it", "loud", gen, task_id="t", evidence_cols=["name"])
+        assert out._nodes["loud"].tolist() == ["ACME INC", "BOB", "ZETA INC"] == direct._nodes["loud"].tolist()
+        params = dict(MAP_PARAMS, max_output_tokens=20, budget={"max_requests": 3})
+        back = ASTCall.from_json(json.loads(json.dumps(call("sem_map", params).to_json(validate=True))), validate=True)
+        assert back.function == "sem_map" and back.params == params
+        with mock.patch("graphistry.compute.chain_remote.requests.post") as post:
+            for query in ([call("sem_map", MAP_PARAMS)], let({"a": call("sem_map", MAP_PARAMS)}),
+                          {"type": "Let", "bindings": {"a": {"type": "Chain", "chain": (
+                              {"type": "Call", "function": "sem_map", "params": {}},)}}}):
+                with pytest.raises(GFQLUnsupportedError, match="sem_map"):
+                    graph().gfql_remote(query, validate=False)
+            assert post.call_count == 0
+
+    @pytest.mark.parametrize("overrides", [dict(out_col="__gfql_x__"), dict(out_col=""), dict(instruction=""),
+                                           dict(max_output_tokens=0), dict(questions=[Q_PRED])])
+    def test_e201_before_the_kernel(self, overrides: Dict[str, object]) -> None:
+        with pytest.raises(GFQLTypeError):
+            run(CallableGenerationProvider(lambda e, i: "x"), [call("sem_map", dict(MAP_PARAMS, **overrides))])
+
+    def test_late_decline_raises_after_one_pass_and_protocol_mismatch(self) -> None:
+        gen = CallableGenerationProvider(lambda e, i: "x")
+        calls: List[int] = []
+        original = gen.generate_batch
+
+        def counted(requests, *, deadline_s, budget):  # type: ignore[no-untyped-def]
+            calls.append(len(requests))
+            return original(requests, deadline_s=deadline_s, budget=budget)
+
+        gen.generate_batch = counted  # type: ignore[method-assign]
+        with pytest.raises(GFQLCallExecutionError):
+            run(gen, [call("sem_map", MAP_PARAMS)] + SEL, g=polars_graph())
+        assert sum(calls) == 3
+        with bind_providers({"p": gen}):
+            with pytest.raises(ValueError, match="not a DecisionProvider"):
+                graph().sem_decide([Q_PRED], "p", task_id="t", evidence_cols=["name"])
 
 
 class TestJsonAndValidation:
@@ -436,6 +484,14 @@ def test_declared_schema_effects_match_written_columns(kind: str) -> None:
     for name, logical in typed.items():
         assert str(table[name].dtype) in {"bool": ("boolean",), "float64": ("float64",), "string": ("object", "str")}[logical.kind]
     assert SAFELIST_V1["sem_decide"]["required_params"] == {"questions", "provider", "task_id"}
+    gen_params = dict(MAP_PARAMS, kind=kind, evidence_cols=params["evidence_cols"], out_col="o")
+    out = run(CallableGenerationProvider(lambda e, i: "x"), [call("sem_map", gen_params)])
+    table = out._edges if kind == "edges" else out._nodes
+    written = [col for col in table.columns if col not in base.columns]
+    assert SAFELIST_V1["sem_map"]["schema_effects"][f"adds_{kind[:-1]}_cols"](gen_params) == written
+    effect = schema_effect_for_call("sem_map", gen_params)
+    assert list(effect.adds_edge_properties if kind == "edges" else effect.adds_node_properties) == written
+    assert SAFELIST_V1["sem_map"]["required_params"] == {"instruction", "out_col", "provider", "task_id"}
 
 
 def test_effect_ledgers_are_per_context_and_nest() -> None:

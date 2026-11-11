@@ -211,7 +211,7 @@ class TestAlignment:
     OK_C = make_result(CHOICE, value="a", distribution=None, probability_kind="none")
 
     def test_complete_return_is_keyed_by_request_and_question(self) -> None:
-        assert c.align_results([self.REQUEST], [self.OK_C, self.OK_P]) == {"r0": {"p": self.OK_P, "c": self.OK_C}}
+        assert c.align_results([self.REQUEST], [self.OK_C, self.OK_P], DecisionResult) == {"r0": {"p": self.OK_P, "c": self.OK_C}}
 
     @pytest.mark.parametrize("returned", [
         None, "x", [object()], [make_result(request_id="nope")], [make_result(request_id=["r0"])],
@@ -219,13 +219,13 @@ class TestAlignment:
         [make_result(question_id="zz"), make_result(question_id="zz")],
     ])
     def test_untrustworthy_call(self, returned: object) -> None:
-        assert c.align_results([self.REQUEST], returned) is None
+        assert c.align_results([self.REQUEST], returned, DecisionResult) is None
 
     @pytest.mark.parametrize("returned", [[OK_P], [OK_P, OK_C, make_result(question_id="zz")],
                                           [OK_P, OK_C, make_result(question_id=None)]])
     def test_incomplete_or_unknown_row(self, returned: List[DecisionResult]) -> None:
         other = make_request((PRED,), request_id="r1")
-        aligned = c.align_results([self.REQUEST, other], returned + [make_result(request_id="r1")])
+        aligned = c.align_results([self.REQUEST, other], returned + [make_result(request_id="r1")], DecisionResult)
         assert aligned == {"r0": None, "r1": {"p": make_result(request_id="r1")}}
 
 

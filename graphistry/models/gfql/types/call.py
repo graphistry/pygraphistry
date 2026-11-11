@@ -86,6 +86,7 @@ CallMethodName = Literal[
     'unwind',
     'group_by',
     'sem_decide',
+    'sem_map',
     'umap'
 ]
 
@@ -174,9 +175,8 @@ class SemBudget(TypedDict, total=False):
     max_requests: int
 
 
-class SemDecideParams(TypedDict, total=False):
-    """Parameters for sem_decide (``provider`` is an alias bound with ``bind_providers``)."""
-    questions: List[SemQuestion]
+class SemCommonParams(TypedDict, total=False):
+    """Parameters shared by semantic calls (``provider`` is an alias bound with ``bind_providers``)."""
     provider: str
     task_id: str
     kind: Literal['nodes', 'edges']
@@ -189,9 +189,21 @@ class SemDecideParams(TypedDict, total=False):
     deadline_s: float
     budget: SemBudget
     max_rows: int
-    min_p: float
     column_max_chars: int
     overwrite: bool
+
+
+class SemDecideParams(SemCommonParams, total=False):
+    """Parameters for sem_decide."""
+    questions: List[SemQuestion]
+    min_p: float
+
+
+class SemMapParams(SemCommonParams, total=False):
+    """Parameters for sem_map."""
+    instruction: str
+    out_col: str
+    max_output_tokens: int
 
 
 class HypergraphParams(TypedDict, total=False):
@@ -583,6 +595,7 @@ CallParams = Union[
     HopParams,
     UmapParams,
     SemDecideParams,
+    SemMapParams,
     HypergraphParams,
     GetDegreesParams,
     FilterEdgesByDictParams,
@@ -638,6 +651,10 @@ def call(function: Literal['umap'], params: UmapParams = ...) -> 'ASTCall':
 
 @overload
 def call(function: Literal['sem_decide'], params: SemDecideParams = ...) -> 'ASTCall':
+    ...
+
+@overload
+def call(function: Literal['sem_map'], params: SemMapParams = ...) -> 'ASTCall':
     ...
 
 @overload
