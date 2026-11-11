@@ -94,6 +94,23 @@ class TestCallMethodParity:
                                                                 evidence_cols=["w"])
         assert sorted(provider.request_ids) == ["e1", "e2"]
 
+    @pytest.mark.parametrize("surface", ["method", "gfql"])
+    def test_limits_and_the_id_binding_reach_the_kernel(self, surface: str) -> None:
+        provider = counting()
+        limits: Dict[str, object] = dict(max_rows=2, budget={"max_requests": 1}, deadline_s=30.0, batch_size=1,
+                                         min_p=0.5, task_version="7")
+        if surface == "method":
+            out = graph().sem_decide([Q_PRED], provider, task_id="t", evidence_cols=["name"],
+                                     **limits)  # type: ignore[arg-type]
+        else:
+            out = run(provider, [call("sem_decide", decide_params(**limits))])
+        metas = [json.loads(meta) for meta in out._nodes["co__meta"]]
+        assert out._nodes["co__status"].tolist() == ["uncertain", "skipped", "skipped"]
+        assert [(m["status_reason"], m["task_version"]) for m in metas] == [
+            ("min_p", "7"), ("budget", "7"), ("max_rows", "7")]
+        assert provider.request_ids == ["1"] and provider.budgets[0] is not None and provider.budgets[0].max_requests == 1
+        assert provider.deadlines[0] is not None and 0 < provider.deadlines[0] <= 30.0
+
     def test_parameter_lists_agree_across_surfaces(self) -> None:
         import inspect
         from graphistry.compute.ComputeMixin import ComputeMixin
