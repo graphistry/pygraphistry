@@ -8,6 +8,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [Development]
 <!-- Do Not Erase This Section - Used for tracking unreleased changes -->
 
+## [0.62.0] - 2026-11-10
+
 ### Deprecated
 
 - **Ignored extra arguments to `nodes()` / `edges()`** (#398, #2280): non-callable data with extra positional or keyword arguments now emits a `FutureWarning` while preserving the existing behavior of ignoring those arguments. Use `.bind(...)` for binding options. Formal arguments and callable forwarding are unchanged; warnings include positional counts and keyword names, never argument values. Strict `TypeError` rejection is targeted for May 2027, after at least six months of released deprecation notice.
