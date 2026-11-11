@@ -180,7 +180,19 @@ class TestSemMap:
         [[request]] = provider.calls
         deadline, budget = provider.limits[0]
         assert (request.request_id, request.max_output_tokens) == ("1", 7)
+        assert (request.instruction, request.task_id, request.task_version) == ("Shout it", "t", "7")
         assert budget is not None and budget.max_requests == 1 and deadline is not None and 0 < deadline <= 30.0
+
+    @pytest.mark.parametrize("surface", ["method", "gfql"])
+    def test_template_reaches_the_provider(self, surface: str) -> None:
+        provider = RecordingGenerator()
+        if surface == "method":
+            graph().sem_map("Shout it", "loud", provider, task_id="t", template="<{name}>")
+        else:
+            run(provider, [call("sem_map", {"instruction": "Shout it", "out_col": "loud", "provider": "p", "task_id": "t",
+                                            "template": "<{name}>"})])
+        assert sorted(r.evidence for c in provider.calls for r in c) == [  # type: ignore[type-var]
+            "<acme inc>", "<bob>", "<zeta inc>"]
 
     @pytest.mark.parametrize("surface", ["method", "gfql"])
     def test_concurrency_and_evidence_truncation_reach_the_kernel(self, surface: str) -> None:

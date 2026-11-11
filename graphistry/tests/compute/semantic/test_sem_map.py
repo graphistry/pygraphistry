@@ -71,6 +71,7 @@ class TestOutputs:
         assert metas[0]["input_hash"] == compute_generation_hash("<t>alpha</t>", "Shout", "1")
         assert sorted(r.evidence for call in provider.calls for r in call) == sorted(  # type: ignore[type-var]
             ["<t>alpha</t>", "<t>beta</t>", "<t>gamma</t>", "<t>delta</t>", "<t>zeta</t>"])
+        assert {(r.instruction, r.task_id) for call in provider.calls for r in call} == {("Shout", "t")}
 
     def test_batch_invariance_and_defaults(self) -> None:
         frames = [run(frame(), RecordingGenerator(shout), batch_size=size).drop(columns=["o__meta"]) for size in (1, 4, None)]
