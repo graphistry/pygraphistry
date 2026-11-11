@@ -1,10 +1,10 @@
-from typing import List, Optional, Sequence
+from typing import Optional
 
 import pytest
 
 from graphistry import call
-from graphistry.compute.semantic.contract import Budget, DecisionRequest
-from graphistry.tests.compute.semantic.semantic_test_utils import P, Recording, frame
+from graphistry.compute.semantic.contract import Budget
+from graphistry.tests.compute.semantic.semantic_test_utils import Recording, frame
 from graphistry.tests.compute.semantic.test_gfql_bindings import SEL, counting, decide_params, polars_graph, run
 from graphistry.tests.compute.semantic.test_sem_decide import decide, reasons
 
@@ -48,6 +48,11 @@ class TestCostCap:
         provider = priced(lambda requests: float("nan") if requests[0].request_id == "1" else 0.01)
         out = decide(frame(4), provider, batch_size=1, max_concurrency=1, budget={"max_cost_usd": 1.0})
         assert out["p__status"].tolist() == ["ok", "skipped", "skipped", "skipped"]
+
+    def test_request_limit_still_binds_under_a_cost_cap(self) -> None:
+        out = decide(frame(4), priced(per_request(0.01)), batch_size=1, max_concurrency=1,
+                     budget={"max_cost_usd": 1.0, "max_requests": 2})
+        assert out["p__status"].tolist() == ["ok", "ok", "skipped", "skipped"]
 
     def test_callable_provider_estimates_zero(self) -> None:
         assert set(decide(frame(2), Recording(), budget={"max_cost_usd": 0.0})["p__status"]) == {"ok"}

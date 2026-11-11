@@ -6,8 +6,8 @@ API reference: https://developers.openai.com/api/reference/resources/decisions/m
 from typing import Callable, Dict, List, Mapping, Optional, Sequence, Tuple, Union
 
 from graphistry.compute.semantic.contract import (
-    DecisionQuestion, DecisionRequest, DecisionResult, ExtraValue, ProviderCapabilities, StatusReason,
-    compute_decision_hash, finite_float)
+    DecisionQuestion, DecisionRequest, DecisionResult, ProviderCapabilities, StatusReason,
+    finite_float)
 from graphistry.compute.semantic.providers.http import (
     HttpDecisionProvider, JSONObject, ResponseMeta, TokenUsage, evidence_text, token_count)
 
@@ -91,7 +91,8 @@ MAPPERS = {"predicate": _predicate, "choice": _choice, "score": _score}
 class OpenAIDecisionsProvider(HttpDecisionProvider):
     """Calls the OpenAI Decisions API; one HTTP request per row carries all of that row's questions (≤ 400).
 
-    Prices come from ``prices`` (a ``TokenPrices``); there are no default prices or model.
+    Prices come from ``prices`` (a ``TokenPrices``); there are no default prices or model. The other constructor
+    parameters are those of :class:`~graphistry.compute.semantic.providers.http.HttpDecisionProvider`.
 
     **Example**
         ::

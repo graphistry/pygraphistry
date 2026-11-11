@@ -50,8 +50,8 @@ class TokenPrices:
 
     ``cost_usd`` comes from returned token usage and needs the input and cached-input rates (else None); it is a
     lower bound that ignores surcharges. ``cache_write`` defaults to the input rate; output is free when None.
-    The estimate (what a cost cap reserves) is ``per_question`` per question when set, else about four characters
-    per input token at the uncached rate, else None.
+    The estimate (what a cost cap reserves) is ``per_question`` per question when set, else (with both the input and
+    cached-input rates) about four characters per input token at the uncached rate, else None.
     """
 
     input: Optional[float] = None
@@ -178,6 +178,8 @@ class HttpDecisionProvider(ABC):
                  retry_backoff_s: float = 0.5, session: Optional[HttpPoster] = None, name: Optional[str] = None) -> None:
         if not (isinstance(api_key, str) and api_key and isinstance(model, str) and model):
             raise ValueError("api_key and model must be non-empty strings")
+        if not (prices is None or isinstance(prices, TokenPrices)) or not (session is None or callable(getattr(session, "post", None))):
+            raise ValueError("prices must be a TokenPrices and session must have a requests-style post")
         timeout, backoff = finite_float(timeout_s), finite_float(retry_backoff_s)
         if timeout is None or timeout <= 0 or backoff is None or backoff < 0 or not (
                 isinstance(max_retries, int) and not isinstance(max_retries, bool) and max_retries >= 0):

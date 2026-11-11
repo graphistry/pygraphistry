@@ -83,6 +83,10 @@ class TestTokenPrices:
         assert prices.cost_usd(self.USAGE) is None and prices.estimate_usd(["text"], 1) is None
         assert TokenPrices(input=1.0, cached_input=0.1).cost_usd(None) is None
 
+    def test_absurd_token_counts_count_as_zero(self) -> None:
+        from graphistry.compute.semantic.providers.http import token_count
+        assert (token_count(2 ** 53), token_count(2 ** 53 - 1), token_count(-1), token_count(True)) == (0, 2 ** 53 - 1, 0, 0)
+
     def test_estimate(self) -> None:
         prices = TokenPrices(input=1.0, cached_input=0.1)
         assert prices.estimate_usd(["x", "abcde"], 1) == pytest.approx(3 / 1e6)

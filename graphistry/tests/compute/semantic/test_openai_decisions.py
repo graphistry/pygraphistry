@@ -99,6 +99,7 @@ class TestMapping:
             {"value": 0, "label": "WRONG", "probability": 0.2}, {"value": 1, "label": "mid", "probability": 0.5},
             {"value": 2, "label": "high", "probability": 0.3}]}, SCORE),
         ({"type": "choice", "name": "p", "choice": "tech"}, PRED),
+        ({"type": "choice", "name": "p", "probability": 0.8}, PRED),
     ])
     def test_malformed_answers_are_errors_never_defaults(self, answer: dict, question: DecisionQuestion) -> None:
         result = decide(provider(FakeSession([reply(answer)])), request((question,)))[0]
@@ -131,11 +132,16 @@ class TestMapping:
         provider(session).decide_batch([req], deadline_s=2.0, budget=None)
         assert session.posts[0]["json"]["input"] == '{"a":"x","b":2}' and session.posts[0]["timeout"] <= 2.0  # type: ignore[index,operator]
 
-    @pytest.mark.parametrize("options", [dict(timeout_s=0), dict(timeout_s=-1), dict(max_retries=None),
-                                         dict(max_retries=1.5), dict(retry_backoff_s=None), dict(retry_backoff_s=-1)])
-    def test_constructor_rejects_unusable_transport_settings(self, options: dict) -> None:
+    @pytest.mark.parametrize("options", [dict(timeout_s=0), dict(timeout_s=-1), dict(timeout_s=float("inf")),
+                                         dict(max_retries=None), dict(max_retries=1.5), dict(max_retries=True),
+                                         dict(retry_backoff_s=None), dict(retry_backoff_s=-1),
+                                         dict(prices={"input": 1.0}), dict(session=object()), dict(api_key=5),
+                                         dict(model="")])
+    def test_constructor_rejects_unusable_settings(self, options: dict) -> None:
+        params: Dict[str, object] = dict(api_key="k", model="m")
+        params.update(options)
         with pytest.raises(ValueError):
-            OpenAIDecisionsProvider("k", "m", **options)  # type: ignore[arg-type]
+            OpenAIDecisionsProvider(**params)  # type: ignore[arg-type]
 
     def test_transport_failures_become_error_results(self) -> None:
         session = FakeSession([FakeResponse(429), FakeResponse(503)])
@@ -165,6 +171,9 @@ class TestCostAndPrivacy:
         p = provider(FakeSession([answers_for]))
         req = request((DecisionQuestion(id="q", kind="predicate", text="abcde"),), evidence="x")
         assert p.estimate_cost_usd([req]) == pytest.approx((1 + 2) * 1.0 / 1e6)
+        many = request(tuple(DecisionQuestion(id=f"q{i}", kind="predicate", text="abcd") for i in range(401)),
+                       evidence="y" * 400)
+        assert p.estimate_cost_usd([many]) == pytest.approx((2 * 100 + 401) * 1.0 / 1e6)
         no_cache = dict(USAGE, input_tokens_details={"cached_tokens": 0, "cache_write_tokens": 0})
         assert decide(p, request((PRED,)))[0].cache_hit is True
         p2 = provider(FakeSession([FakeResponse(200, {"model": "m", "usage": no_cache, "answers": [

@@ -156,7 +156,8 @@ def _plan_calls(batches: Sequence[Sequence[DecisionRequest]], budget: Optional[B
         if budget.max_requests is not None and index >= budget.max_requests:
             break
         cost = None if budget.max_cost_usd is None else estimate(batch)
-        if budget.max_cost_usd is not None and (cost is None or reserved + cost > budget.max_cost_usd * (1 + COST_SLACK) + COST_SLACK):
+        cap = None if budget.max_cost_usd is None else budget.max_cost_usd * (1 + COST_SLACK) + COST_SLACK
+        if cap is not None and (cost is None or reserved + cost > cap):
             break
         plans.append(Budget(max_cost_usd=None if budget.max_cost_usd is None else max(0.0, budget.max_cost_usd - reserved),
                             max_requests=None if budget.max_requests is None else budget.max_requests - index))
@@ -451,7 +452,8 @@ def sem_decide(
     threads = max(1, min(capabilities.concurrency_limit, max_concurrency or capabilities.concurrency_limit, len(calls)))
     if run_budget is not None and run_budget.max_cost_usd is not None and calls \
             and _estimate_cost(resolved, calls[0]) is None:
-        raise ValueError("budget.max_cost_usd is set but the provider cannot estimate cost; drop the cost cap")
+        raise ValueError("budget.max_cost_usd is set but the provider cannot estimate cost; give the provider prices "
+                         "it can estimate with, or drop the cost cap")
     outcomes = _execute(calls, _plan_calls(calls, run_budget, lambda batch: _estimate_cost(resolved, batch)),
                         lambda batch, remaining, call_budget: resolved.decide_batch(
                             batch, deadline_s=remaining, budget=call_budget),
