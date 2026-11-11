@@ -111,6 +111,17 @@ class TestCallMethodParity:
         assert provider.request_ids == ["1"] and provider.budgets[0] is not None and provider.budgets[0].max_requests == 1
         assert provider.deadlines[0] is not None and 0 < provider.deadlines[0] <= 30.0
 
+    @pytest.mark.parametrize("surface", ["method", "gfql"])
+    def test_concurrency_and_evidence_truncation_reach_the_kernel(self, surface: str) -> None:
+        seen: List[object] = []
+        provider = Recording(lambda evidence, q: seen.append(evidence) or True, delay=0.05)
+        limits: Dict[str, object] = dict(max_concurrency=1, batch_size=1, column_max_chars=3)
+        if surface == "method":
+            graph().sem_decide([Q_PRED], provider, task_id="t", evidence_cols=["name"], **limits)  # type: ignore[arg-type]
+        else:
+            run(provider, [call("sem_decide", decide_params(**limits))])
+        assert provider.peak == 1 and sorted(e["name"] for e in seen) == ["acm", "bob", "zet"]  # type: ignore[index]
+
     def test_parameter_lists_agree_across_surfaces(self) -> None:
         import inspect
         from graphistry.compute.ComputeMixin import ComputeMixin

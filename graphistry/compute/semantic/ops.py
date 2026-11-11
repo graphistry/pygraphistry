@@ -233,20 +233,17 @@ def _cell_result(request: DecisionRequest, question: DecisionQuestion, outcome: 
 
 def _plain_answer(result: DecisionResult) -> Optional[DecisionResult]:
     """The result as an exact ``DecisionResult`` whose answer, distribution and status labels are plain Python
-    values, so what is checked is what is written; None when they cannot be read as such (provider values are
-    untrusted)."""
-    try:
-        value, distribution = canonicalize(result.value), canonicalize(result.distribution)
-        raw_size = len(result.distribution) if isinstance(result.distribution, Mapping) else None
-        if not isinstance(value, (bool, str, type(None))) or not isinstance(distribution, (dict, type(None))) \
-                or (distribution is not None and raw_size != len(distribution)):
-            return None
-        fields = {field.name: getattr(result, field.name) for field in dataclasses.fields(DecisionResult)}
-        labels = {name: str.__str__(fields[name]) for name in ("status", "status_reason", "probability_kind", "error_code")
-                  if isinstance(fields[name], str)}
-        return DecisionResult(**dict(fields, value=value, distribution=distribution, **labels))
-    except Exception:
+    values, so what is checked is what is written; None when they are not plain answer values. Reading provider
+    values may raise; the caller's boundary turns that into an error cell."""
+    value, distribution = canonicalize(result.value), canonicalize(result.distribution)
+    raw_size = len(result.distribution) if isinstance(result.distribution, Mapping) else None
+    if not isinstance(value, (bool, str, type(None))) or not isinstance(distribution, (dict, type(None))) \
+            or (distribution is not None and raw_size != len(distribution)):
         return None
+    fields = {field.name: getattr(result, field.name) for field in dataclasses.fields(DecisionResult)}
+    labels = {name: str.__str__(fields[name]) for name in ("status", "status_reason", "probability_kind", "error_code")
+              if isinstance(fields[name], str)}
+    return DecisionResult(**dict(fields, value=value, distribution=distribution, **labels))
 
 
 def _aligned_or_none(requests: Sequence[DecisionRequest], returned: object
