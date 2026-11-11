@@ -355,6 +355,10 @@ def _sha256_json(payload: Mapping[str, object]) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
+def _question_key(result: Union[DecisionResult, GenerationResult]) -> object:
+    return result.question_id if isinstance(result, DecisionResult) else ""
+
+
 def align_results(requests: Sequence[Union[DecisionRequest, GenerationRequest]], results: object,
                   result_type: Type[ResultT]) -> Optional[Dict[str, Optional[Dict[str, ResultT]]]]:
     """Results of one provider call by request id, then question id (``""`` for a generation's single answer).
@@ -373,7 +377,7 @@ def align_results(requests: Sequence[Union[DecisionRequest, GenerationRequest]],
         if not isinstance(result, result_type) or not (
                 isinstance(result.request_id, str) and result.request_id in expected):
             return None
-        question_id = result.question_id if isinstance(result, DecisionResult) else ""
+        question_id = _question_key(result)
         if not isinstance(question_id, str):
             broken_rows.add(result.request_id)
             continue
