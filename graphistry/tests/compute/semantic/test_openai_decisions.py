@@ -136,12 +136,17 @@ class TestMapping:
                                          dict(max_retries=None), dict(max_retries=1.5), dict(max_retries=True),
                                          dict(retry_backoff_s=None), dict(retry_backoff_s=-1),
                                          dict(prices={"input": 1.0}), dict(session=object()), dict(api_key=5),
-                                         dict(model="")])
+                                         dict(model=""), dict(model=b"m")])
     def test_constructor_rejects_unusable_settings(self, options: dict) -> None:
         params: Dict[str, object] = dict(api_key="k", model="m")
         params.update(options)
         with pytest.raises(ValueError, match=next(iter(options))):
             OpenAIDecisionsProvider(**params)  # type: ignore[arg-type]
+
+    def test_a_bad_key_never_appears_in_the_error(self) -> None:
+        with pytest.raises(ValueError) as info:
+            OpenAIDecisionsProvider(b"sk-secret", "m")  # type: ignore[arg-type]
+        assert "secret" not in str(info.value)
 
     def test_the_http_base_is_abstract(self) -> None:
         from graphistry.compute.semantic.providers.http import HttpDecisionProvider

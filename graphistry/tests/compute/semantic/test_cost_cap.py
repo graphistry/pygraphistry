@@ -54,6 +54,22 @@ class TestCostCap:
                      budget={"max_cost_usd": 1.0, "max_requests": 2})
         assert out["p__status"].tolist() == ["ok", "ok", "skipped", "skipped"]
 
+    @pytest.mark.parametrize("cap", [float("nan"), float("inf"), -1.0, True, "1"])
+    def test_a_budget_built_directly_rejects_caps_that_mean_no_cap(self, cap: object) -> None:
+        with pytest.raises(ValueError):
+            Budget(max_cost_usd=cap)  # type: ignore[arg-type]
+
+    def test_a_free_call_after_the_cap_is_reached_still_runs(self) -> None:
+        provider = priced(lambda requests: 0.0 if requests[0].request_id == "3" else 0.1)
+        out = decide(frame(4), provider, batch_size=1, max_concurrency=1, budget={"max_cost_usd": 0.3})
+        assert out["p__status"].tolist() == ["ok"] * 4
+
+    def test_a_cap_on_a_table_with_nothing_to_send_is_not_an_error(self) -> None:
+        provider = priced(per_request(None))
+        assert decide(frame(0), provider, budget={"max_cost_usd": 1.0}).empty
+        nulls = decide(frame(2).assign(name=None), provider, budget={"max_cost_usd": 1.0})
+        assert set(reasons(nulls)) == {"null_evidence"} and provider.calls == []
+
     def test_callable_provider_estimates_zero(self) -> None:
         assert set(decide(frame(2), Recording(), budget={"max_cost_usd": 0.0})["p__status"]) == {"ok"}
 

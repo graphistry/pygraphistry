@@ -271,10 +271,10 @@ class DecisionProvider(Protocol):
     def capabilities(self) -> ProviderCapabilities:
         ...
 
-    def estimate_cost_usd(self, requests: Sequence[DecisionRequest]) -> Optional[float]:
+    def estimate_cost_usd(self, requests: Sequence[DecisionRequest], /) -> Optional[float]:
         ...
 
-    def decide_batch(self, requests: Sequence[DecisionRequest], *,
+    def decide_batch(self, requests: Sequence[DecisionRequest], /, *,
                      deadline_s: Optional[float], budget: Optional[Budget]) -> List[DecisionResult]:
         ...
 

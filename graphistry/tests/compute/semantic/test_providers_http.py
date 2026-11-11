@@ -38,7 +38,8 @@ class TestRetries:
         (FakeResponse(400), "http_400"), (requests.HTTPError("404", response=FakeResponse(404)), "http_404"),  # type: ignore[arg-type]
         (requests.exceptions.MissingSchema("x"), "request_error"), (requests.exceptions.InvalidURL("x"), "request_error"),
         (requests.exceptions.TooManyRedirects("x"), "request_error"), (requests.HTTPError("no response"), "request_error"),
-        (FakeResponse(200, text="{not json"), "invalid_provider_result"), (FakeResponse(200, [1, 2]), "invalid_provider_result"),
+        (FakeResponse(200, text="{not json"), "invalid_provider_result"),
+        (FakeResponse(200, [1, 2]), "invalid_provider_result"),
     ])
     def test_terminal_failures_are_not_retried(self, reply: object, code: str) -> None:
         session = FakeSession([reply])  # type: ignore[list-item]
@@ -50,6 +51,10 @@ class TestRetries:
         error = failure(session, max_retries=2)
         assert (error.error_code, error.retry_count, len(session.posts)) == ("http_503", 2, 3)
         assert failure(FakeSession([requests.exceptions.RetryError("x")]), max_retries=1).error_code == "transport_error"
+
+    def test_many_retries_without_retry_after_keep_the_last_code(self) -> None:
+        error = failure(FakeSession([FakeResponse(503)]), max_retries=1100)
+        assert (error.error_code, error.retry_count) == ("http_503", 1100)
 
     def test_retry_after_is_honoured_and_capped(self, monkeypatch: pytest.MonkeyPatch) -> None:
         slept: List[float] = []

@@ -134,7 +134,7 @@ def post_json(url: str, body: JSONObject, headers: Dict[str, str], *, deadline_a
             session, url, body, headers, timeout_s if remaining is None else min(timeout_s, remaining))
         if payload is not None:
             return payload, retries, (time.monotonic() - started) * 1000
-        delay = min(MAX_RETRY_DELAY_S, retry_after if retry_after is not None else backoff_s * 2 ** retries)
+        delay = min(MAX_RETRY_DELAY_S, retry_after if retry_after is not None else backoff_s * 2 ** min(retries, 16))
         remaining = None if deadline_at is None else deadline_at - time.monotonic()
         if not retryable or retries >= max_retries or (remaining is not None and delay >= remaining):
             raise RequestFailure(code, retries, (time.monotonic() - started) * 1000)
@@ -167,6 +167,7 @@ class HttpDecisionProvider(ABC):
     :param max_retries: retries on 408, 409, 429, 5xx and connection errors
     :param retry_backoff_s: base delay between retries when the server sends no ``Retry-After``
     :param session: object with a ``requests``-style ``post``; default ``requests``
+    :param name: provider name stamped on results; default the class's ``name``
     """
 
     name = "http"
