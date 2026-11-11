@@ -9,7 +9,8 @@ import hashlib
 import json
 import math
 from dataclasses import dataclass
-from typing import Dict, FrozenSet, List, Literal, Mapping, Optional, Protocol, Sequence, Tuple, Union, get_args, runtime_checkable
+from typing import (
+    Dict, FrozenSet, List, Literal, Mapping, Optional, Protocol, Sequence, Tuple, Union, get_args, runtime_checkable)
 
 
 QuestionKind = Literal["predicate", "choice", "score"]
@@ -261,14 +262,16 @@ class DecisionProvider(Protocol):
 def canonicalize(value: object) -> object:
     """Plain Python for hashing and evidence: mappings become dicts with string keys, sequences and arrays
     become lists, numpy scalars become Python scalars, and float NaN and pandas NA/NaT become None."""
-    if value is None or isinstance(value, (str, bool, int)):
+    if value is None or isinstance(value, (bool, int)):
         return value
+    if isinstance(value, str):
+        return str.__str__(value)
     if isinstance(value, float):
         return None if math.isnan(value) else value
     if type(value).__name__ in ("NAType", "NaTType") and type(value).__module__.startswith("pandas"):
         return None
     if isinstance(value, Mapping):
-        return {str(key): canonicalize(item) for key, item in value.items()}
+        return {str.__str__(key) if isinstance(key, str) else str(key): canonicalize(item) for key, item in value.items()}
     if isinstance(value, (list, tuple)):
         return [canonicalize(item) for item in value]
     to_python = getattr(value, "tolist", None)

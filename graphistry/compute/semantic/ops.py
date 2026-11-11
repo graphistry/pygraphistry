@@ -199,43 +199,63 @@ def _nonnegative(value: object) -> Optional[float]:
 def _cell_result(request: DecisionRequest, question: DecisionQuestion, outcome: _CallOutcome,
                  row: Optional[Dict[str, DecisionResult]], identity: Tuple[str, str],
                  capabilities: ProviderCapabilities, min_p: Optional[float], input_hash: str) -> DecisionResult:
-    """The kernel's verdict on one cell. ``input_hash`` is taken before any call, so a provider cannot change it,
-    and a result whose metadata cannot become JSON is replaced by an error built from kernel fields only."""
+    """The kernel's verdict on one cell. Provider data is untrusted: if reading it fails, or its metadata cannot
+    become JSON, the cell is an error built from kernel fields. ``input_hash`` (taken before any call) and
+    ``task_version`` come from the kernel, so a provider cannot change them."""
     provider, model = identity
     if outcome.skipped is not None:
         return unanswered_result(request, question, provider=provider, model=model, input_hash=input_hash,
                                  status_reason=outcome.skipped)
-    result = None if row is None else _plain_answer(row[question.id])
-    if result is not None and not check_decision_result(request, question, result, capabilities):
-        result = dataclasses.replace(result, input_hash=input_hash)
-        if min_p is not None and result.status == "ok":
-            probability = _probability_of_value(question, result)
-            if math.isnan(probability) or probability < min_p:
-                result = dataclasses.replace(result, status="uncertain", status_reason="min_p")
-        if _meta_json_or_none(result) is not None:
-            return result
-        result = None
-    retries = None if result is None else result.retry_count
+    latency_ms: Optional[float] = None
+    retry_count: Optional[int] = None
+    try:
+        result = None if row is None else _plain_answer(row[question.id])
+        if result is not None and not check_decision_result(request, question, result, capabilities):
+            result = dataclasses.replace(result, input_hash=input_hash, task_version=request.task_version)
+            if min_p is not None and result.status == "ok":
+                probability = _probability_of_value(question, result)
+                if math.isnan(probability) or probability < min_p:
+                    result = dataclasses.replace(result, status="uncertain", status_reason="min_p")
+            if _meta_json_or_none(result) is not None:
+                return result
+        elif result is not None:
+            retries = result.retry_count
+            latency_ms = _nonnegative(result.latency_ms)
+            retry_count = retries if isinstance(retries, int) and not isinstance(retries, bool) \
+                and 0 <= retries < 2 ** 31 else None
+    except Exception:
+        latency_ms, retry_count = None, None
     return unanswered_result(
         request, question, provider=provider, model=model, input_hash=input_hash,
         error_code="provider_exception" if outcome.raised else "invalid_provider_result",
-        latency_ms=None if result is None else _nonnegative(result.latency_ms),
-        retry_count=retries if isinstance(retries, int) and not isinstance(retries, bool) and 0 <= retries < 2 ** 31
-        else None)
+        latency_ms=latency_ms, retry_count=retry_count)
 
 
 def _plain_answer(result: DecisionResult) -> Optional[DecisionResult]:
-    """The result with its answer and distribution as plain Python values, so what is checked is what is written;
-    None when they cannot be read as such (provider values are untrusted)."""
+    """The result as an exact ``DecisionResult`` whose answer, distribution and status labels are plain Python
+    values, so what is checked is what is written; None when they cannot be read as such (provider values are
+    untrusted)."""
     try:
         value, distribution = canonicalize(result.value), canonicalize(result.distribution)
         raw_size = len(result.distribution) if isinstance(result.distribution, Mapping) else None
+        if not isinstance(value, (bool, str, type(None))) or not isinstance(distribution, (dict, type(None))) \
+                or (distribution is not None and raw_size != len(distribution)):
+            return None
+        fields = {field.name: getattr(result, field.name) for field in dataclasses.fields(DecisionResult)}
+        labels = {name: str.__str__(fields[name]) for name in ("status", "status_reason", "probability_kind", "error_code")
+                  if isinstance(fields[name], str)}
+        return DecisionResult(**dict(fields, value=value, distribution=distribution, **labels))
     except Exception:
         return None
-    if not isinstance(value, (bool, str, type(None))) or not isinstance(distribution, (dict, type(None))) \
-            or (distribution is not None and raw_size != len(distribution)):
+
+
+def _aligned_or_none(requests: Sequence[DecisionRequest], returned: object
+                     ) -> Optional[Dict[str, Optional[Dict[str, DecisionResult]]]]:
+    """``align_results`` on untrusted provider output; a failure means the whole call is untrusted."""
+    try:
+        return align_results(requests, returned)
+    except Exception:
         return None
-    return dataclasses.replace(result, value=value, distribution=distribution)
 
 
 def _provider_identity(provider: DecisionProvider) -> Tuple[str, str]:
@@ -413,7 +433,7 @@ def sem_decide(
     position_of = {request_id: position for position, request_id in enumerate(rows.request_ids)}
     grid: Dict[Cell, DecisionResult] = {}
     for requests, outcome in list(zip(calls, outcomes)) + never_sent:
-        aligned = None if outcome.skipped or outcome.raised else align_results(requests, outcome.returned)
+        aligned = None if outcome.skipped or outcome.raised else _aligned_or_none(requests, outcome.returned)
         for request_ in requests:
             row = None if aligned is None else aligned[request_.request_id]
             position = position_of[request_.request_id]

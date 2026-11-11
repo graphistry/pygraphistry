@@ -3,6 +3,7 @@ import threading
 from collections.abc import Mapping
 import time
 from dataclasses import replace
+from enum import Enum
 from typing import Dict, List, Sequence
 
 import numpy as np
@@ -245,6 +246,72 @@ class TestAnswers:
             out = decide(frame(1), Scripted(lambda i, reqs: [replace(result(r, "p", True), **overrides) for r in reqs]))
             assert out["p__error_code"].tolist() == ["invalid_provider_result"]
             assert json.loads(out["p__meta"].iloc[0])["retry_count"] in (None, 0)
+
+    @pytest.mark.parametrize("via", ["callable", "raw"])
+    @pytest.mark.parametrize("enum_keys", [False, True])
+    @pytest.mark.parametrize("min_p", [None, 0.5])
+    def test_str_enum_answers_are_plain_strings(self, via: str, enum_keys: bool, min_p: object) -> None:
+        class Label(str, Enum):
+            A = "a"
+            B = "b"
+            C = "c"
+
+        dist = {Label.A: 0.05, Label.B: 0.9, Label.C: 0.05} if enum_keys else {"a": 0.05, "b": 0.9, "c": 0.05}
+        provider = Recording(lambda e, q: (Label.B, dist), probability_kind="native_decision") if via == "callable" \
+            else Scripted(lambda i, reqs: [result(r, "c", Label.B, dist) for r in reqs])  # type: ignore[arg-type]
+        out = decide(frame(1), provider, [C], min_p=min_p)
+        assert (out["c__status"].tolist(), out["c__p"].tolist(), type(out["c"].iloc[0])) == (["ok"], [0.9], str)
+
+    def test_distribution_keys_that_collide_as_strings_are_invalid(self) -> None:
+        question = {"id": "c", "kind": "choice", "text": "Which?", "options": ["1", "2"]}
+        out = decide(frame(1), Scripted(lambda i, reqs: [result(r, "c", "1", {"1": 1.7, 1: 0.4}) for r in reqs]),
+                     [question])
+        assert out["c__error_code"].tolist() == ["invalid_provider_result"] and out["c__p"].isna().all()
+
+    def test_provider_objects_that_raise_when_read_error_their_cells(self) -> None:
+        class FloatRaises(float):
+            def __float__(self) -> float:
+                raise RuntimeError("no floats")
+
+        class HashRaises(str):
+            def __hash__(self) -> int:
+                raise RuntimeError("no hashing")
+
+        cell = decide(frame(1), Scripted(lambda i, reqs: [result(r, "p", True, {"true": FloatRaises(0.9), "false": 0.1})
+                                                         for r in reqs]))
+        call = decide(frame(2), Scripted(lambda i, reqs: [replace(result(r, "p", True), request_id=HashRaises(r.request_id))
+                                                         for r in reqs]))
+        assert cell["p__error_code"].tolist() == ["invalid_provider_result"]
+        assert call["p__error_code"].tolist() == ["invalid_provider_result"] * 2
+
+    def test_status_labels_are_checked_as_plain_strings(self) -> None:
+        class EqualsAnything(str):
+            def __eq__(self, other: object) -> bool:
+                return True
+
+            __hash__ = str.__hash__
+
+        def script(index: int, requests: Sequence[DecisionRequest]) -> List[DecisionResult]:
+            return [replace(result(r, "p", True, {"true": 0.9, "false": 0.1}), probability_kind=EqualsAnything(kind))
+                    for r, kind in zip(requests, ["x", "native_decision"])]
+
+        out = decide(frame(2), Scripted(script))
+        assert out["p__status"].tolist() == ["error", "ok"] and out["p__error_code"].iloc[0] == "invalid_provider_result"
+        assert [type(kind) for kind in out["p__probability_kind"]] == [str, str]
+
+    def test_result_subclasses_with_their_own_constructor_are_read_by_field(self) -> None:
+        class FromResponse(DecisionResult):
+            def __init__(self, base: DecisionResult) -> None:
+                super().__init__(**vars(base))
+
+        out = decide(frame(1), Scripted(lambda i, reqs: [
+            FromResponse(result(r, "p", True, {"true": 0.9, "false": 0.1})) for r in reqs]))
+        assert (out["p__status"].tolist(), out["p__p"].tolist()) == (["ok"], [0.9])
+
+    def test_kernel_stamps_its_own_task_version(self) -> None:
+        out = decide(frame(1), Scripted(lambda i, reqs: [replace(result(r, "p", True), task_version="999")
+                                                         for r in reqs]), task_version="2")
+        assert out["p__status"].tolist() == ["ok"] and json.loads(out["p__meta"].iloc[0])["task_version"] == "2"
 
     def test_numpy_answers_from_any_provider_are_accepted(self) -> None:
         out = decide(frame(2), Scripted(lambda i, reqs: [
