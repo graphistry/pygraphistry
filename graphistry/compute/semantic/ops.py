@@ -27,6 +27,7 @@ from graphistry.compute.typing import DataFrameT
 
 
 DEFAULT_BATCH_SIZE = 32
+COST_SLACK = 1e-9
 Cell = Tuple[int, str]
 Invoke = Callable[[Sequence[DecisionRequest], Optional[float], Optional[Budget]], object]
 
@@ -155,7 +156,7 @@ def _plan_calls(batches: Sequence[Sequence[DecisionRequest]], budget: Optional[B
         if budget.max_requests is not None and index >= budget.max_requests:
             break
         cost = None if budget.max_cost_usd is None else estimate(batch)
-        if budget.max_cost_usd is not None and (cost is None or reserved + cost > budget.max_cost_usd * (1 + 1e-9) + 1e-12):
+        if budget.max_cost_usd is not None and (cost is None or reserved + cost > budget.max_cost_usd * (1 + COST_SLACK) + COST_SLACK):
             break
         plans.append(Budget(max_cost_usd=None if budget.max_cost_usd is None else max(0.0, budget.max_cost_usd - reserved),
                             max_requests=None if budget.max_requests is None else budget.max_requests - index))

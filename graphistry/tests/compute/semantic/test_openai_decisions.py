@@ -69,6 +69,7 @@ class TestMapping:
     @pytest.mark.parametrize("answer,question,expected", [
         ({"type": "predicate", "name": "p", "probability": 0.5}, PRED, (None, "uncertain", "tie")),
         ({"type": "refusal", "name": "c"}, CHOICE, (None, "uncertain", "refusal")),
+        ({"type": "refusal", "name": "s", "score": 1.0}, SCORE, (None, "uncertain", "refusal")),
         ({"type": "score", "name": "s", "score": 1.0, "probabilities": [
             {"value": 0, "label": "low", "probability": 0.4}, {"value": 1, "label": "mid", "probability": 0.2},
             {"value": 2, "label": "high", "probability": 0.4}]}, SCORE, (None, "uncertain", "tie")),
@@ -83,6 +84,7 @@ class TestMapping:
             assert result.probability_kind == "none"
         if question.kind == "predicate":
             assert result.confidence is None
+        assert "score_index" not in (result.extra or {}) or result.status == "ok"
 
     @pytest.mark.parametrize("answer,question", [
         ({"type": "choice", "name": "c", "choice": "nope", "probabilities": []}, CHOICE),
@@ -118,6 +120,22 @@ class TestMapping:
         assert len(decide(provider(session), request(questions))) == 401
         assert [len(p["json"]["questions"]) for p in session.posts] == [400, 1]  # type: ignore[index,arg-type]
 
+    def test_a_retried_success_reports_its_retries(self) -> None:
+        result = decide(provider(FakeSession([FakeResponse(429), answers_for])), request((PRED,)))[0]
+        assert (result.status, result.retry_count) == ("ok", 1)
+
+    def test_evidence_mapping_is_sent_as_compact_sorted_json_and_the_deadline_caps_the_timeout(self) -> None:
+        session = FakeSession([answers_for])
+        req = request((PRED,), evidence={"b": 2, "a": "x"})
+        provider(session).decide_batch([req], deadline_s=2.0, budget=None)
+        assert session.posts[0]["json"]["input"] == '{"a":"x","b":2}' and session.posts[0]["timeout"] <= 2.0  # type: ignore[index,operator]
+
+    @pytest.mark.parametrize("options", [dict(timeout_s=0), dict(timeout_s=-1), dict(max_retries=None),
+                                         dict(max_retries=1.5), dict(retry_backoff_s=None), dict(retry_backoff_s=-1)])
+    def test_constructor_rejects_unusable_transport_settings(self, options: dict) -> None:
+        with pytest.raises(ValueError):
+            OpenAIDecisionsProvider("k", "m", **options)  # type: ignore[arg-type]
+
     def test_transport_failures_become_error_results(self) -> None:
         session = FakeSession([FakeResponse(429), FakeResponse(503)])
         results = decide(provider(session, max_retries=1), request((PRED, CHOICE)))
@@ -136,8 +154,21 @@ class TestCostAndPrivacy:
         assert (result.cache_hit, result.cost_usd, result.extra) == (None, None, {})
         unpriced = provider(FakeSession([answers_for]), prices=TokenPrices(input=1.0))
         assert decide(unpriced, request((PRED,)))[0].cost_usd is None and unpriced.estimate_cost_usd([request()]) is None
-        flat = provider(FakeSession([answers_for]), prices=TokenPrices(per_question=0.002))
+        flat = provider(FakeSession([answers_for]), prices=TokenPrices(input=1.0, cached_input=0.1, per_question=0.002))
         assert flat.estimate_cost_usd([request(), request(request_id="r1")]) == pytest.approx(0.012)
+        assert decide(flat, request((PRED,)))[0].cost_usd == pytest.approx((700 + 20 + 100) / 1e6)
+        only_flat = provider(FakeSession([answers_for]), prices=TokenPrices(per_question=0.002))
+        assert decide(only_flat, request((PRED,)))[0].cost_usd is None
+
+    def test_estimate_prices_evidence_and_question_texts_per_request(self) -> None:
+        p = provider(FakeSession([answers_for]))
+        req = request((DecisionQuestion(id="q", kind="predicate", text="abcde"),), evidence="x")
+        assert p.estimate_cost_usd([req]) == pytest.approx((1 + 2) * 1.0 / 1e6)
+        no_cache = dict(USAGE, input_tokens_details={"cached_tokens": 0, "cache_write_tokens": 0})
+        assert decide(p, request((PRED,)))[0].cache_hit is True
+        p2 = provider(FakeSession([FakeResponse(200, {"model": "m", "usage": no_cache, "answers": [
+            {"type": "predicate", "name": "p", "probability": 0.8}]})]))
+        assert decide(p2, request((PRED,)))[0].cache_hit is False
 
     def test_key_only_in_the_header(self) -> None:
         session = FakeSession([answers_for])

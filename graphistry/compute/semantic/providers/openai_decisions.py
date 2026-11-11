@@ -154,16 +154,7 @@ class OpenAIDecisionsProvider(HttpDecisionProvider):
         if mapped is None:
             return self.invalid(request, question, meta)
         value, distribution, confidence, reason = mapped
-        extra: Dict[str, ExtraValue] = {} if meta.cached_tokens is None else {"cached_input_tokens": meta.cached_tokens}
-        score_index = finite_float(answer.get("score")) if question.kind == "score" else None
-        if score_index is not None:
-            extra["score_index"] = score_index
-        return DecisionResult(
-            request_id=request.request_id, question_id=question.id, value=value, distribution=distribution,
-            confidence=confidence, probability_kind="native_decision" if distribution is not None else "none",
-            status="uncertain" if reason is not None else "ok", error_code=None, model=meta.model, provider=self.name,
-            task_version=request.task_version,
-            input_hash=compute_decision_hash(request.evidence, question, request.task_version),
-            latency_ms=meta.latency_ms, cost_usd=meta.cost_usd,
-            cache_hit=None if meta.cached_tokens is None else meta.cached_tokens > 0, retry_count=meta.retries,
-            status_reason=reason, extra=extra)
+        score_index = finite_float(answer.get("score")) if kind == "score" else None
+        return self.answered(request, question, meta, value=value, distribution=distribution, kind="native_decision",
+                             confidence=confidence, reason=reason,
+                             extra={} if score_index is None else {"score_index": score_index})

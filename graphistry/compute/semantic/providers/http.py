@@ -2,14 +2,15 @@
 import json
 import math
 import time
+from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Dict, List, Mapping, NamedTuple, Optional, Protocol, Sequence, Tuple
+from typing import Dict, List, Mapping, NamedTuple, Optional, Protocol, Sequence, Tuple, Union
 
 import requests
 
 from graphistry.compute.semantic.contract import (
-    Budget, DecisionQuestion, DecisionRequest, DecisionResult, Evidence, ProviderCapabilities, finite_float,
-    unanswered_result)
+    Budget, DecisionQuestion, DecisionRequest, DecisionResult, Evidence, ExtraValue, ProbabilityKind,
+    ProviderCapabilities, StatusReason, compute_decision_hash, finite_float, unanswered_result)
 
 
 RETRYABLE_STATUSES = frozenset({408, 409, 429})
@@ -40,16 +41,17 @@ class TokenUsage(NamedTuple):
 
 
 def token_count(value: object) -> int:
-    return value if isinstance(value, int) and not isinstance(value, bool) and value >= 0 else 0
+    return value if isinstance(value, int) and not isinstance(value, bool) and 0 <= value < 2 ** 53 else 0
 
 
 @dataclass(frozen=True)
 class TokenPrices:
     """Caller-supplied USD prices per million tokens; there are no defaults.
 
-    ``cost_usd`` needs the input and cached-input rates (else None, and a cost cap cannot be enforced); it is a
+    ``cost_usd`` comes from returned token usage and needs the input and cached-input rates (else None); it is a
     lower bound that ignores surcharges. ``cache_write`` defaults to the input rate; output is free when None.
-    The estimate is about four characters per input token at the uncached rate, or ``per_question`` when set.
+    The estimate (what a cost cap reserves) is ``per_question`` per question when set, else about four characters
+    per input token at the uncached rate, else None.
     """
 
     input: Optional[float] = None
@@ -149,12 +151,22 @@ class ResponseMeta(NamedTuple):
     cached_tokens: Optional[int]
 
 
-class HttpDecisionProvider:
+class HttpDecisionProvider(ABC):
     """Base for decision providers that answer over HTTP; subclasses build bodies and map responses.
 
     Transport failures after retries become ``error`` results with ``error_code`` ``http_<status>``,
     ``transport_error``, ``request_error`` (not retried), ``deadline_exceeded`` or ``invalid_provider_result``.
     The API key is read only from the constructor and never appears in the body or ``repr``.
+
+    :param api_key: API key, sent only in a request header
+    :param model: model id (a deployment name on Azure)
+    :param base_url: API base URL; default the provider's public endpoint
+    :param prices: :class:`TokenPrices` for ``cost_usd`` and the cost estimate; no defaults
+    :param concurrency_limit: concurrent requests one operator run may send
+    :param timeout_s: per-request timeout, capped by the remaining deadline
+    :param max_retries: retries on 408, 409, 429, 5xx and connection errors
+    :param retry_backoff_s: base delay between retries when the server sends no ``Retry-After``
+    :param session: object with a ``requests``-style ``post``; default ``requests``
     """
 
     name = "http"
@@ -164,29 +176,35 @@ class HttpDecisionProvider:
     def __init__(self, api_key: str, model: str, *, base_url: Optional[str] = None, prices: Optional[TokenPrices] = None,
                  concurrency_limit: int = 4, timeout_s: float = 60, max_retries: int = 3,
                  retry_backoff_s: float = 0.5, session: Optional[HttpPoster] = None, name: Optional[str] = None) -> None:
-        if not api_key or not model:
+        if not (isinstance(api_key, str) and api_key and isinstance(model, str) and model):
             raise ValueError("api_key and model must be non-empty strings")
+        timeout, backoff = finite_float(timeout_s), finite_float(retry_backoff_s)
+        if timeout is None or timeout <= 0 or backoff is None or backoff < 0 or not (
+                isinstance(max_retries, int) and not isinstance(max_retries, bool) and max_retries >= 0):
+            raise ValueError("timeout_s must be > 0, retry_backoff_s >= 0 and max_retries an int >= 0")
         self._api_key = api_key
         self.model = model
         self.base_url = (base_url or self.default_base_url).rstrip("/")
         self.prices = prices or TokenPrices()
         self.concurrency_limit = concurrency_limit
-        self.timeout_s = timeout_s
+        self.timeout_s = timeout
         self.max_retries = max_retries
-        self.retry_backoff_s = retry_backoff_s
+        self.retry_backoff_s = backoff
         self._session = session
         self.name = name or self.name
 
     def __repr__(self) -> str:
         return f"{type(self).__name__}(model={self.model!r}, base_url={self.base_url!r})"
 
-    def capabilities(self) -> ProviderCapabilities:
-        raise NotImplementedError
-
     def estimate_cost_usd(self, requests_: Sequence[DecisionRequest]) -> Optional[float]:
-        texts = [text for request in requests_ for text in
-                 [evidence_text(request.evidence)] + [question.text for question in request.questions]]
+        """Prices the text of every HTTP request a batch sends: one per question group of each row."""
+        texts = [text for request in requests_ for questions in self.question_groups(request)
+                 for text in self.prompt_texts(request, questions)]
         return self.prices.estimate_usd(texts, sum(len(request.questions) for request in requests_))
+
+    def prompt_texts(self, request: DecisionRequest, questions: Sequence[DecisionQuestion]) -> List[str]:
+        """The input texts one HTTP request carries, for the cost estimate."""
+        return [evidence_text(request.evidence)] + [question.text for question in questions]
 
     def decide_batch(self, requests_: Sequence[DecisionRequest], *, deadline_s: Optional[float],
                      budget: Optional[Budget]) -> List[DecisionResult]:
@@ -214,24 +232,50 @@ class HttpDecisionProvider:
                             cached_tokens=None if usage is None else usage.cached_input)
         return self.results(request, questions, payload, meta)
 
+    def answered(self, request: DecisionRequest, question: DecisionQuestion, meta: ResponseMeta, *,
+                 value: Union[bool, str, None], distribution: Optional[Dict[str, float]], kind: ProbabilityKind,
+                 confidence: Optional[float] = None, reason: Optional[StatusReason] = None,
+                 extra: Optional[Dict[str, ExtraValue]] = None) -> DecisionResult:
+        """A result for one answered question, with the request's shared metadata."""
+        extra = dict(extra or {})
+        if meta.cached_tokens is not None:
+            extra["cached_input_tokens"] = meta.cached_tokens
+        return DecisionResult(
+            request_id=request.request_id, question_id=question.id, value=value, distribution=distribution,
+            confidence=confidence, probability_kind=kind if distribution is not None else "none",
+            status="uncertain" if reason is not None else "ok", error_code=None, model=meta.model, provider=self.name,
+            task_version=request.task_version,
+            input_hash=compute_decision_hash(request.evidence, question, request.task_version),
+            latency_ms=meta.latency_ms, cost_usd=meta.cost_usd,
+            cache_hit=None if meta.cached_tokens is None else meta.cached_tokens > 0, retry_count=meta.retries,
+            status_reason=reason, extra=extra)
+
     def invalid(self, request: DecisionRequest, question: DecisionQuestion, meta: ResponseMeta) -> DecisionResult:
         return unanswered_result(request, question, provider=self.name, model=meta.model,
                                  error_code="invalid_provider_result", latency_ms=meta.latency_ms,
                                  retry_count=meta.retries)
 
+    @abstractmethod
+    def capabilities(self) -> ProviderCapabilities:
+        ...
+
+    @abstractmethod
     def question_groups(self, request: DecisionRequest) -> List[Sequence[DecisionQuestion]]:
         """Questions answered by one HTTP request."""
-        raise NotImplementedError
 
+    @abstractmethod
     def headers(self) -> Dict[str, str]:
-        raise NotImplementedError
+        ...
 
+    @abstractmethod
     def body(self, request: DecisionRequest, questions: Sequence[DecisionQuestion]) -> JSONObject:
-        raise NotImplementedError
+        ...
 
+    @abstractmethod
     def usage(self, payload: Mapping[str, object]) -> Optional[TokenUsage]:
-        raise NotImplementedError
+        ...
 
+    @abstractmethod
     def results(self, request: DecisionRequest, questions: Sequence[DecisionQuestion], payload: Mapping[str, object],
                 meta: ResponseMeta) -> List[DecisionResult]:
-        raise NotImplementedError
+        ...
