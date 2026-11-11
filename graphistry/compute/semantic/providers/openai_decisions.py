@@ -145,17 +145,18 @@ class OpenAIDecisionsProvider(HttpDecisionProvider):
 
     def _result(self, request: DecisionRequest, question: DecisionQuestion, answer: Mapping[str, object],
                 meta: ResponseMeta) -> DecisionResult:
-        kind = answer.get("type")
-        if kind == "refusal":
+        answer_type = answer.get("type")
+        if answer_type == "refusal":
             mapped: Optional[Answer] = (None, None, None, "refusal")
-        elif kind == question.kind:
+        elif answer_type == question.kind:
             mapped = MAPPERS[question.kind](question, answer)
         else:
             mapped = None
         if mapped is None:
             return self.invalid(request, question, meta)
         value, distribution, confidence, reason = mapped
-        score_index = finite_float(answer.get("score")) if kind == "score" else None
-        return self.answered(request, question, meta, value=value, distribution=distribution, kind="native_decision",
+        score_index = finite_float(answer.get("score")) if answer_type == "score" else None
+        return self.answered(request, question, meta, value=value, distribution=distribution,
+                             probability_kind="native_decision",
                              confidence=confidence, reason=reason,
                              extra={} if score_index is None else {"score_index": score_index})

@@ -140,8 +140,13 @@ class TestMapping:
     def test_constructor_rejects_unusable_settings(self, options: dict) -> None:
         params: Dict[str, object] = dict(api_key="k", model="m")
         params.update(options)
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match=next(iter(options))):
             OpenAIDecisionsProvider(**params)  # type: ignore[arg-type]
+
+    def test_the_http_base_is_abstract(self) -> None:
+        from graphistry.compute.semantic.providers.http import HttpDecisionProvider
+        with pytest.raises(TypeError):
+            HttpDecisionProvider("k", "m")  # type: ignore[abstract]
 
     def test_transport_failures_become_error_results(self) -> None:
         session = FakeSession([FakeResponse(429), FakeResponse(503)])
@@ -174,11 +179,18 @@ class TestCostAndPrivacy:
         many = request(tuple(DecisionQuestion(id=f"q{i}", kind="predicate", text="abcd") for i in range(401)),
                        evidence="y" * 400)
         assert p.estimate_cost_usd([many]) == pytest.approx((2 * 100 + 401) * 1.0 / 1e6)
-        no_cache = dict(USAGE, input_tokens_details={"cached_tokens": 0, "cache_write_tokens": 0})
-        assert decide(p, request((PRED,)))[0].cache_hit is True
-        p2 = provider(FakeSession([FakeResponse(200, {"model": "m", "usage": no_cache, "answers": [
+
+    @pytest.mark.parametrize("details,cache_hit,cost", [
+        ({"cached_tokens": 200, "cache_write_tokens": 100}, True, (700 + 20 + 100) / 1e6),
+        ({"cached_tokens": 0, "cache_write_tokens": 0}, False, 1000 / 1e6),
+        ({"cached_tokens": 5000, "cache_write_tokens": 0}, True, 5000 * 0.1 / 1e6),
+    ])
+    def test_cache_hit_and_cached_tokens_beyond_the_input_count(self, details: dict, cache_hit: bool, cost: float) -> None:
+        usage = dict(USAGE, input_tokens_details=details)
+        p = provider(FakeSession([FakeResponse(200, {"model": "m", "usage": usage, "answers": [
             {"type": "predicate", "name": "p", "probability": 0.8}]})]))
-        assert decide(p2, request((PRED,)))[0].cache_hit is False
+        result = decide(p, request((PRED,)))[0]
+        assert (result.cache_hit, result.cost_usd) == (cache_hit, pytest.approx(cost))
 
     def test_key_only_in_the_header(self) -> None:
         session = FakeSession([answers_for])

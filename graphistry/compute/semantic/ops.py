@@ -150,17 +150,18 @@ def _plan_calls(batches: Sequence[Sequence[DecisionRequest]], budget: Optional[B
     """
     if budget is None:
         return [None] * len(batches)
+    max_cost, max_requests = budget.max_cost_usd, budget.max_requests
+    cap = None if max_cost is None else max_cost * (1 + COST_SLACK) + COST_SLACK
     plans: List[Optional[Budget]] = []
     reserved = 0.0
     for index, batch in enumerate(batches):
-        if budget.max_requests is not None and index >= budget.max_requests:
+        if max_requests is not None and index >= max_requests:
             break
-        cost = None if budget.max_cost_usd is None else estimate(batch)
-        cap = None if budget.max_cost_usd is None else budget.max_cost_usd * (1 + COST_SLACK) + COST_SLACK
+        cost = None if cap is None else estimate(batch)
         if cap is not None and (cost is None or reserved + cost > cap):
             break
-        plans.append(Budget(max_cost_usd=None if budget.max_cost_usd is None else max(0.0, budget.max_cost_usd - reserved),
-                            max_requests=None if budget.max_requests is None else budget.max_requests - index))
+        plans.append(Budget(max_cost_usd=None if max_cost is None else max(0.0, max_cost - reserved),
+                            max_requests=None if max_requests is None else max_requests - index))
         reserved += cost or 0.0
     return plans
 
