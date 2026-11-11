@@ -230,7 +230,7 @@ class DecisionResult:
     score) to probabilities and is None exactly when ``probability_kind`` is ``"none"``; distributions are never
     fabricated. ``confidence`` is the
     provider's own number, verbatim, else None. ``retry_count`` None means unknown. ``extra`` holds scalar
-    metadata such as ``probability_mechanism``, ``score_index``, ``evidence_truncated`` and
+    metadata such as ``probability_mechanism``, ``score_index``, ``evidence_truncated``, ``answer_strategy`` and
     ``cached_input_tokens``; it never carries evidence, credentials or tenant identifiers.
     """
 

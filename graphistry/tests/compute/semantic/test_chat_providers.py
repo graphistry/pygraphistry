@@ -321,16 +321,17 @@ class TestFallbacks:
 
     @pytest.mark.parametrize("question,text,value", [
         (PRED, "A. yes", True), (PRED, "B: no", False), (CHOICE, "B) tech", "tech"), (SCORE, "C. high (highest)", "high"),
-        (SCORE, "a. LOW.", "low")])
+        (SCORE, "a. LOW.", "low"), (PRED, "A.", True), (PRED, "A. yes.", True),
+        (DecisionQuestion(id="c", kind="choice", text="Which?", options=("Acme Inc.", "Other")), "A. Acme Inc.", "Acme Inc.")])
     def test_a_code_followed_by_its_own_label_is_an_answer(self, question: DecisionQuestion, text: str,
                                                            value: object) -> None:
         result = checked(openai(FakeSession([chat_reply(text)])), request((question,)))[0]
         assert (result.status, result.value) == ("ok", value)
 
-    @pytest.mark.parametrize("text", ["A. no", "A box arrived", "A. yes\nbecause it is", "A yes", "Z. yes", "A."])
+    @pytest.mark.parametrize("text", ["A. no", "A box arrived", "A. yes\nbecause it is", "A yes", "Z. yes", "A:"])
     def test_other_replies_with_more_than_a_code_are_errors(self, text: str) -> None:
         result = checked(openai(FakeSession([chat_reply(text)])), request((PRED,)))[0]
-        assert (result.status, result.error_code) == (("ok", None) if text == "A." else ("error", "invalid_provider_result"))
+        assert (result.status, result.error_code) == ("error", "invalid_provider_result")
 
     def test_an_echoed_answer_is_read_at_the_code_token_not_a_label_word(self) -> None:
         plans = DecisionQuestion(id="c", kind="choice", text="Which plan?", options=("Plan A", "Plan B"))
@@ -425,8 +426,8 @@ class TestFallbacks:
         result = checked(openai(FakeSession([chat_reply("1")])), request((echoes,)))[0]
         assert result.value == "A. Yes"
 
-    @pytest.mark.parametrize("failure,code", [(FakeResponse(401), "http_401"), (FakeResponse(429), "http_429"),
-                                              (FakeResponse(503), "http_503")])
+    @pytest.mark.parametrize("failure,code", [(FakeResponse(401), "http_401"), (FakeResponse(403), "http_403"),
+                                              (FakeResponse(429), "http_429"), (FakeResponse(503), "http_503")])
     def test_auth_rate_and_server_failures_keep_no_probe(self, failure: FakeResponse, code: str) -> None:
         session = FakeSession([failure])
         result = checked(openai(session, strategy="auto", max_retries=0), request((PRED,)))[0]
@@ -468,7 +469,7 @@ class TestFallbacks:
             started = clock.monotonic()
             threading.Thread(target=lambda: (provider.decide_batch([request((PRED,))], deadline_s=0.05, budget=None),
                                              finished.set()), daemon=True).start()
-            assert finished.wait(2.0) and clock.monotonic() - started < 2.0 and len(session.posts) <= 1
+            assert finished.wait(2.0) and clock.monotonic() - started < 2.0 and session.posts == []
         finally:
             lock.release()
 
@@ -489,3 +490,126 @@ class TestFallbacks:
         checked(openai(session, strategy="auto"), request((PRED,)))
         assert len(session.posts) == 2 and "logprobs" in session.posts[1]["json"]  # type: ignore[operator]
 
+    def test_kept_probes_follow_model_endpoint_and_auth_header(self) -> None:
+        def provider(session: FakeSession, **options: object) -> OpenAIChatProvider:
+            params: Dict[str, object] = dict(api_key="k", model="m", base_url="https://key.test/v1", session=session,
+                                             retry_backoff_s=0.0, strategy="auto")
+            params.update(options)
+            return OpenAIChatProvider(**params)  # type: ignore[arg-type]
+
+        checked(provider(FakeSession([chat_reply("A", top(A=0.8, B=0.1))])), request((PRED,)))
+        for options in (dict(model="m2"), dict(base_url="https://other.test/v1"), dict(auth_header="api-key")):
+            session = FakeSession([chat_reply("A", top(A=0.8, B=0.1))])
+            checked(provider(session, **options), request((PRED,)))
+            assert len(session.posts) == 2, options
+
+    def test_tool_replies_never_yield_probabilities(self) -> None:
+        reply = tool_reply('{"answer": "C"}')
+        reply._body["choices"][0]["logprobs"] = {"content": [  # type: ignore[index]
+            {"token": "C", "logprob": math.log(0.8), "top_logprobs": top(C=0.8, A=0.1)}]}
+        result = checked(openai(FakeSession([reply]), strategy="tool"), request((CHOICE,)))[0]
+        assert (result.value, result.distribution) == ("other", None)
+
+    def test_disagreeing_tool_calls_are_not_an_answer(self) -> None:
+        def calls(*answers: str) -> FakeResponse:
+            reply = tool_reply(answers[0])
+            reply._body["choices"][0]["message"]["tool_calls"] = [  # type: ignore[index]
+                {"type": "function", "function": {"name": "answer", "arguments": arguments}} for arguments in answers]
+            return reply
+
+        session = FakeSession([calls('{"answer": "B"}', '{"answer": "C"}'), calls('{"answer": "B"}', '{"answer": "B"}')])
+        provider = openai(session, strategy="tool")
+        assert checked(provider, request((CHOICE,)))[0].error_code == "invalid_provider_result"
+        assert checked(provider, request((CHOICE,)))[0].value == "tech"
+
+    def test_a_host_that_rejects_every_rung_keeps_no_probe(self) -> None:
+        rejected = FakeSession([FakeResponse(400)])
+        assert checked(openai(rejected, strategy="auto"), request((PRED,)))[0].error_code == "http_400"
+        again = FakeSession([chat_reply("A", top(A=0.8, B=0.1))])
+        checked(openai(again, strategy="auto"), request((PRED,)))
+        assert len(again.posts) == 2
+
+    def test_plain_chat_that_answers_off_code_still_keeps_text(self) -> None:
+        session = FakeSession([FakeResponse(400), FakeResponse(400), FakeResponse(400), chat_reply("I cannot say"),
+                               chat_reply("A")])
+        result = checked(openai(session, strategy="auto"), request((PRED,)))[0]
+        assert result.value is True and not {"logprobs", "response_format", "tools"} & set(session.posts[-1]["json"])  # type: ignore[arg-type]
+        cached = FakeSession([chat_reply("A")])
+        checked(openai(cached, strategy="auto"), request((PRED,)))
+        assert len(cached.posts) == 1
+
+    @pytest.mark.parametrize("alternatives,kept", [(top(A=0.9), "text"), (top(A=0.9, B=0.05), "logprobs")])
+    def test_logprobs_needs_two_alternatives_at_the_answer_token(self, alternatives: List[Dict[str, object]],
+                                                                 kept: str) -> None:
+        session = FakeSession([chat_reply("A", alternatives), FakeResponse(400), FakeResponse(400), chat_reply("A"),
+                               chat_reply("A")])
+        provider = openai(session, strategy="auto")
+        checked(provider, request((PRED,)))
+        assert provider.strategy_in_use == kept
+
+    def test_probes_ignore_codes_outside_the_labels(self) -> None:
+        session = FakeSession([FakeResponse(400), chat_reply('{"answer": "C"}'), FakeResponse(400), chat_reply("A"),
+                               chat_reply("A")])
+        provider = openai(session, strategy="auto")
+        checked(provider, request((PRED,)))
+        assert provider.strategy_in_use == "text"
+
+    def test_a_call_that_waited_for_a_probe_uses_its_result(self) -> None:
+        import threading
+        import time as clock
+
+        def slow(body: Dict[str, object]) -> FakeResponse:
+            clock.sleep(0.3)
+            return chat_reply("A", top(A=0.8, B=0.1))
+
+        first, second = FakeSession([slow, chat_reply("A", top(A=0.8, B=0.1))]), FakeSession([chat_reply("B", top(A=0.2, B=0.7))])
+        worker = threading.Thread(target=lambda: openai(first, strategy="auto").decide_batch(
+            [request((PRED,))], deadline_s=None, budget=None))
+        worker.start()
+        clock.sleep(0.1)
+        openai(second, strategy="auto").decide_batch([request((PRED,))], deadline_s=None, budget=None)
+        worker.join(5)
+        assert (len(first.posts), len(second.posts)) == (2, 1)
+
+    def test_forgetting_during_a_probe_keeps_nothing(self) -> None:
+        import threading
+        import time as clock
+
+        def slow(body: Dict[str, object]) -> FakeResponse:
+            clock.sleep(0.3)
+            return chat_reply("A", top(A=0.8, B=0.1))
+
+        worker = threading.Thread(target=lambda: openai(FakeSession([slow]), strategy="auto").decide_batch(
+            [request((PRED,))], deadline_s=None, budget=None))
+        worker.start()
+        clock.sleep(0.1)
+        forget_probes()
+        worker.join(5)
+        again = FakeSession([chat_reply("A", top(A=0.8, B=0.1))])
+        checked(openai(again, strategy="auto"), request((PRED,)))
+        assert len(again.posts) == 2
+
+    def test_a_spent_deadline_sends_neither_probe_nor_row(self) -> None:
+        session = FakeSession([chat_reply("A", top(A=0.8, B=0.1))])
+        result = openai(session, strategy="auto").decide_batch([request((PRED,))], deadline_s=0.0, budget=None)[0]
+        assert session.posts == [] and result.error_code == "deadline_exceeded"
+
+    def test_bpe_space_markers_spell_the_reply(self) -> None:
+        tokens = [{"token": "A", "logprob": math.log(0.6), "top_logprobs": top(A=0.6, B=0.3)},
+                  {"token": ".", "logprob": -0.01}, {"token": "\u0120yes", "logprob": -0.01}]
+        result = checked(openai(FakeSession([token_reply("A. yes", tokens)])), request((PRED,)))[0]
+        assert result.distribution == pytest.approx({"true": 0.6 / 0.9, "false": 0.3 / 0.9})
+
+    def test_long_whitespace_runs_are_read_in_linear_time(self) -> None:
+        import time as clock
+        started = clock.monotonic()
+        replies = ["A." + " " * 20000 + "yes", "A" + " " * 20000, "A. " + "x" * 20000, " " * 20000 + "A. yes" + " " * 20000]
+        results = [checked(openai(FakeSession([chat_reply(text)])), request((PRED,)))[0] for text in replies]
+        assert clock.monotonic() - started < 1.0
+        assert [result.status for result in results] == ["ok", "ok", "error", "ok"]
+
+
+    def test_the_estimate_includes_the_schema_or_tool_a_strategy_sends(self) -> None:
+        plain = openai(FakeSession([]), strategy="text").estimate_cost_usd([request((CHOICE,))])
+        for strategy in ("json_schema", "tool"):
+            assert openai(FakeSession([]), strategy=strategy).estimate_cost_usd([request((CHOICE,))]) > plain  # type: ignore[operator]
