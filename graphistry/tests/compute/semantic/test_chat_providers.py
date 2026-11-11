@@ -427,7 +427,8 @@ class TestFallbacks:
         assert result.value == "A. Yes"
 
     @pytest.mark.parametrize("failure,code", [(FakeResponse(401), "http_401"), (FakeResponse(403), "http_403"),
-                                              (FakeResponse(429), "http_429"), (FakeResponse(503), "http_503")])
+                                              (FakeResponse(408), "http_408"), (FakeResponse(429), "http_429"),
+                                              (FakeResponse(503), "http_503")])
     def test_auth_rate_and_server_failures_keep_no_probe(self, failure: FakeResponse, code: str) -> None:
         session = FakeSession([failure])
         result = checked(openai(session, strategy="auto", max_retries=0), request((PRED,)))[0]
@@ -656,3 +657,32 @@ class TestFallbacks:
                   {"token": ".", "logprob": -0.01}, {"token": " <none>", "logprob": -0.01}]
         result = checked(openai(FakeSession([token_reply("A. <none>", tokens)])), request((marked,)))[0]
         assert result.distribution == pytest.approx({"<none>": 0.6 / 0.9, "other": 0.3 / 0.9})
+
+    @pytest.mark.parametrize("body", [{"error": {"message": "down"}}, {"choices": []},
+                                      {"choices": [{"message": {"content": None}, "finish_reason": "stop"}]},
+                                      {"choices": [{"message": {"content": "A"}, "finish_reason": "error"}]}])
+    def test_a_text_rung_that_returns_no_chat_message_keeps_no_probe(self, body: Dict[str, object]) -> None:
+        session = FakeSession([FakeResponse(400), FakeResponse(400), FakeResponse(400), FakeResponse(200, body)])
+        checked(openai(session, strategy="auto"), request((PRED,)))
+        again = FakeSession([chat_reply("A", top(A=0.8, B=0.1))])
+        checked(openai(again, strategy="auto"), request((PRED,)))
+        assert len(again.posts) == 2
+
+    def test_after_a_probe_the_estimate_follows_the_kept_strategy(self) -> None:
+        provider = openai(FakeSession([chat_reply("A", top(A=0.8, B=0.1))]), strategy="auto")
+        before = provider.estimate_cost_usd([request((CHOICE,))])
+        checked(provider, request((PRED,)))
+        after = provider.estimate_cost_usd([request((CHOICE,))])
+        assert after == openai(FakeSession([]), strategy="logprobs").estimate_cost_usd([request((CHOICE,))])
+        assert before > after  # type: ignore[operator]
+
+    @pytest.mark.parametrize("options,text", [(("yes", "Yes"), "A. Yes"), (("Inc", "Inc."), "A. Inc.")])
+    def test_an_echo_that_could_name_two_options_is_an_error(self, options: tuple, text: str) -> None:
+        twins = DecisionQuestion(id="c", kind="choice", text="Which?", options=options)
+        assert checked(openai(FakeSession([chat_reply(text)])), request((twins,)))[0].error_code == \
+            "invalid_provider_result"
+
+    def test_json_replies_with_leading_whitespace_are_read(self) -> None:
+        session = FakeSession([chat_reply('  \n {"answer": "B"}')])
+        assert checked(openai(session, strategy="json_schema"), request((CHOICE,)))[0].value == "tech"
+

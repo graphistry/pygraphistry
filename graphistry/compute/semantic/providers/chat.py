@@ -88,7 +88,8 @@ def shown_labels(question: DecisionQuestion) -> List[str]:
 
 
 def reply_index(text: object, codes: str, question: DecisionQuestion) -> Optional[int]:
-    """The answer index of a reply: a code alone, or a code followed by its own label (``"A. yes"``); else None."""
+    """The answer index of a reply: a code alone, or a code followed by its own label (``"A. yes"``) when that label
+    names no other option (case and a trailing dot are ignored); else None."""
     index = code_index(text, codes)
     if index is not None or not isinstance(text, str):
         return index
@@ -101,8 +102,12 @@ def reply_index(text: object, codes: str, question: DecisionQuestion) -> Optiona
     if index is None or index >= len(shown):
         return None
     echoed = rest[1:].strip().lower()
-    labels = (shown[index].lower(), bare[index].lower())
-    return index if echoed in labels or (echoed.endswith(".") and echoed[:-1].rstrip() in labels) else None
+
+    def names(position: int) -> bool:
+        labels = (shown[position].lower(), bare[position].lower())
+        return echoed in labels or (echoed.endswith(".") and echoed[:-1].rstrip() in labels)
+
+    return index if [position for position in range(len(shown)) if names(position)] == [index] else None
 
 
 def code_index(text: object, codes: str) -> Optional[int]:
@@ -340,6 +345,12 @@ class OpenAIChatProvider(_ChatDecisionProvider):
         return (type(self).__name__, self.base_url, self.model, self.auth_header.lower(), self.max_tokens_field,
                 str(self.max_answer_tokens), str(self.top_logprobs), digest(self.extra_body), digest(self.extra_headers))
 
+    def kept_strategy(self) -> Optional[Strategy]:
+        """The strategy a fresh probe kept for these settings, else None."""
+        with _probe_guard:
+            found = _probed.get(self.probe_key())
+        return found[1] if found is not None and time.monotonic() - found[0] < PROBE_TTL_S else None
+
     def resolve_strategy(self, deadline_at: Optional[float]) -> Strategy:
         """The strategy this host supports, probed once per ``probe_key`` and kept for ``PROBE_TTL_S``. Probes of one
         key run one at a time; waiting for one ends at the deadline. A probe that fails on transport or auth is not
@@ -375,6 +386,7 @@ class OpenAIChatProvider(_ChatDecisionProvider):
         question = PROBE_REQUEST.questions[0]
         codes = answer_codes(question) or LETTERS
         rungs: Tuple[Strategy, ...] = ("logprobs", "json_schema", "tool", "text")
+        payload: Optional[JSONObject] = None
         for strategy in rungs:
             try:
                 payload, _, _ = post_json(
@@ -392,7 +404,7 @@ class OpenAIChatProvider(_ChatDecisionProvider):
             if index is not None and index < len(answer_labels(question)) and (strategy != "logprobs"
                                       or len(answer_alternatives(found.tokens, codes, index, found.text)) >= 3):
                 return strategy
-        return "text"
+        return "text" if payload is not None and _plain_chat(payload) else None
 
     def headers(self) -> Dict[str, str]:
         bearer = self.auth_header.lower() == "authorization"
@@ -405,7 +417,7 @@ class OpenAIChatProvider(_ChatDecisionProvider):
     def prompt_texts(self, request: DecisionRequest, questions: Sequence[DecisionQuestion]) -> List[str]:
         """The prompt, plus the JSON schema or tool definition a constrained strategy sends; before ``auto`` has
         probed, the largest of them, so the estimate does not fall short."""
-        unprobed = self.strategy == "auto" and self.strategy_in_use == "logprobs"
+        unprobed = self.strategy == "auto" and self.kept_strategy() is None
         sent = self.strategy_body(request, questions[0], "tool" if unprobed else self.strategy_in_use)
         extras = {name: sent[name] for name in ("response_format", "tools", "tool_choice") if name in sent}
         return super().prompt_texts(request, questions) + ([json.dumps(extras)] if extras else [])
@@ -454,6 +466,15 @@ class OpenAIChatProvider(_ChatDecisionProvider):
         if isinstance(content, str) and content.lstrip().startswith("{"):
             return Reply(_json_answer(content), None, refused, unfinished, "json_schema")
         return Reply(content, logprobs.get("content") if isinstance(logprobs, dict) else None, refused, unfinished)
+
+
+def _plain_chat(payload: Mapping[str, object]) -> bool:
+    """Whether a reply is a chat message with text that the host did not end with an error."""
+    choices = payload.get("choices")
+    choice = choices[0] if isinstance(choices, list) and choices and isinstance(choices[0], dict) else {}
+    message = choice.get("message")
+    content = message.get("content") if isinstance(message, dict) else None
+    return isinstance(content, str) and content.strip() != "" and choice.get("finish_reason") != "error"
 
 
 def _tool_answer(call: object) -> object:
