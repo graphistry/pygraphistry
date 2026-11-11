@@ -1,0 +1,139 @@
+import math
+from typing import Dict, List, Optional
+
+import pandas as pd
+import pytest
+
+from graphistry.compute.semantic.contract import DecisionQuestion, DecisionRequest, DecisionResult, check_decision_result
+from graphistry.compute.semantic.ops import sem_decide
+from graphistry.compute.semantic.providers.chat import (
+    AnthropicMessagesProvider, OpenAIChatProvider, code_of, label_distribution, letter_prompt)
+from graphistry.compute.semantic.providers.http import TokenPrices
+from graphistry.tests.compute.semantic.http_test_utils import CHOICE, PRED, SCORE, FakeResponse, FakeSession, request
+
+
+def top(**probabilities: float) -> List[Dict[str, object]]:
+    return [{"token": token, "logprob": math.log(p) if p > 0 else -9999.0} for token, p in probabilities.items()]
+
+
+def chat_reply(text: str, top_logprobs: Optional[List[Dict[str, object]]] = None,
+               usage: Optional[Dict[str, object]] = None) -> FakeResponse:
+    choice: Dict[str, object] = {"message": {"role": "assistant", "content": text}}
+    if top_logprobs is not None:
+        choice["logprobs"] = {"content": [{"token": text, "logprob": -0.1, "top_logprobs": top_logprobs}]}
+    return FakeResponse(200, {"model": "served-m", "choices": [choice],
+                              "usage": usage or {"prompt_tokens": 100, "completion_tokens": 1,
+                                                 "prompt_tokens_details": {"cached_tokens": 40}}})
+
+
+def anthropic_reply(text: str) -> FakeResponse:
+    return FakeResponse(200, {"model": "claude-x", "content": [{"type": "text", "text": text}],
+                              "usage": {"input_tokens": 60, "cache_read_input_tokens": 40,
+                                        "cache_creation_input_tokens": 0, "output_tokens": 1}})
+
+
+def checked(provider: object, req: DecisionRequest) -> List[DecisionResult]:
+    results = provider.decide_batch([req], deadline_s=None, budget=None)  # type: ignore[attr-defined]
+    by_id = {question.id: question for question in req.questions}
+    caps = provider.capabilities()  # type: ignore[attr-defined]
+    assert [check_decision_result(req, by_id[r.question_id], r, caps) for r in results] == [[]] * len(results)
+    return results
+
+
+def openai(session: FakeSession, **options: object) -> OpenAIChatProvider:
+    return OpenAIChatProvider("k-secret", "m", session=session, retry_backoff_s=0.0,  # type: ignore[arg-type]
+                              prices=TokenPrices(input=1.0, cached_input=0.5), **options)
+
+
+class TestLetterCodes:
+
+    def test_prompt_lists_codes_and_wraps_evidence(self) -> None:
+        text = letter_prompt({"b": 1, "a": "x"}, SCORE)
+        assert text.startswith('<evidence>\n{"a":"x","b":1}\n</evidence>')
+        assert "A. low (lowest)\nB. mid (level 1)\nC. high (highest)" in text
+        assert "A. yes\nB. no" in letter_prompt("e", PRED)
+
+    @pytest.mark.parametrize("text,code", [("B", "B"), (" b", "B"), ("B.", "B"), ("C)", "C"), ("BB", None),
+                                           ("", None), (None, None), ("yes", None), ("é", None)])
+    def test_code_of(self, text: object, code: Optional[str]) -> None:
+        assert code_of(text) == code
+
+    def test_label_distribution_sums_variants_and_keeps_unobserved_codes_out(self) -> None:
+        entries = top(A=0.5, a=0.1, **{" B": 0.2, "C": 0.05, "Z": 0.1}) + [{"token": "B", "logprob": -9999.0},
+                                                                         {"token": "A"}, "junk"]
+        by_index, mass = label_distribution(entries, 3)
+        assert mass == pytest.approx(0.85)
+        assert by_index == pytest.approx({0: 0.6 / 0.85, 1: 0.2 / 0.85, 2: 0.05 / 0.85})
+        assert label_distribution(top(Z=0.9), 3) == (None, 0.0) and label_distribution(None, 3) == (None, 0.0)
+
+
+class TestOpenAIChat:
+
+    def test_one_request_per_question_with_logprob_distributions(self) -> None:
+        session = FakeSession([chat_reply("A", top(A=0.7, B=0.2)), chat_reply("B", top(A=0.1, B=0.6, C=0.1)),
+                               chat_reply("C", top(C=0.5, B=0.3, A=0.1))])
+        p_result, c_result, s_result = checked(openai(session), request())
+        assert (p_result.value, c_result.value, s_result.value) == (True, "tech", "high")
+        assert p_result.distribution == pytest.approx({"true": 0.7 / 0.9, "false": 0.2 / 0.9})
+        assert c_result.distribution == pytest.approx({"billing": 0.125, "tech": 0.75, "other": 0.125})
+        assert p_result.probability_kind == "token_logprob" and p_result.extra["label_mass"] == pytest.approx(0.9)  # type: ignore[index]
+        assert (p_result.model, p_result.cache_hit, p_result.cost_usd) == ("served-m", True, pytest.approx(80 / 1e6))
+        body = session.posts[0]["json"]
+        assert body["max_completion_tokens"] == 1 and body["logprobs"] is True and body["top_logprobs"] == 20  # type: ignore[index]
+        assert body["messages"][0]["role"] == "system" and "k-secret" not in str(body)  # type: ignore[index]
+        assert session.posts[0]["headers"]["Authorization"] == "Bearer k-secret"  # type: ignore[index]
+        assert session.posts[0]["url"] == "https://api.openai.com/v1/chat/completions" and len(session.posts) == 3
+
+    @pytest.mark.parametrize("logprobs", [None, top(A=0.9), top(Z=0.9), []])
+    def test_unobservable_predicate_distribution_is_none_not_invented(self, logprobs: object) -> None:
+        result = checked(openai(FakeSession([chat_reply("A", logprobs)])), request((PRED,)))[0]  # type: ignore[arg-type]
+        assert (result.value, result.distribution, result.probability_kind) == (True, None, "none")
+
+    def test_partial_choice_distribution_when_options_exceed_top_k(self) -> None:
+        many = DecisionQuestion(id="m", kind="choice", text="Which?", options=tuple(f"o{i}" for i in range(8)))
+        result = checked(openai(FakeSession([chat_reply("B", top(B=0.6, A=0.2))]), top_logprobs=2), request((many,)))[0]
+        assert result.distribution == pytest.approx({"o0": 0.25, "o1": 0.75})
+
+    @pytest.mark.parametrize("text", ["E", "maybe", "", None])
+    def test_answers_outside_the_codes_are_errors(self, text: Optional[str]) -> None:
+        reply = chat_reply("x") if text is None else chat_reply(text, top(A=0.5))
+        if text is None:
+            reply._body["choices"][0]["message"] = None  # type: ignore[index]
+        result = checked(openai(FakeSession([reply])), request((CHOICE,)))[0]
+        assert (result.status, result.error_code) == ("error", "invalid_provider_result")
+
+    def test_host_options_azure_fireworks_and_no_logprobs(self) -> None:
+        session = FakeSession([chat_reply("A")])
+        azure = openai(session, base_url="https://x.openai.azure.com/openai/v1", auth_header="api-key",
+                       extra_headers={"X-Project": "p"}, extra_body={"reasoning_effort": "none"}, top_logprobs=0,
+                       max_tokens_field="max_tokens")
+        checked(azure, request((PRED,)))
+        post = session.posts[0]
+        assert post["url"] == "https://x.openai.azure.com/openai/v1/chat/completions"
+        assert post["headers"]["api-key"] == "k-secret" and post["headers"]["X-Project"] == "p"  # type: ignore[index]
+        assert "Authorization" not in post["headers"]  # type: ignore[operator]
+        body = post["json"]
+        assert body["max_tokens"] == 1 and body["reasoning_effort"] == "none" and "logprobs" not in body  # type: ignore[index,operator]
+
+    def test_through_the_kernel_one_request_per_row_and_question(self) -> None:
+        session = FakeSession([chat_reply("A", top(A=0.8, B=0.2))])
+        out = sem_decide(pd.DataFrame({"text": ["a", "b"]}), questions=[{"id": "p", "kind": "predicate", "text": "t"},
+                                                                        {"id": "q", "kind": "predicate", "text": "u"}],
+                         provider=openai(session), evidence_cols=["text"], task_id="t", min_p=0.7)
+        assert len(session.posts) == 4 and set(out["p__status"]) == {"ok"} and out["p__p"].tolist() == [0.8, 0.8]
+
+
+class TestAnthropic:
+
+    def test_validated_answers_without_distributions(self) -> None:
+        session = FakeSession([anthropic_reply("A"), anthropic_reply(" b"), anthropic_reply("nonsense")])
+        provider = AnthropicMessagesProvider("k-secret", "claude-x", session=session, retry_backoff_s=0.0,
+                                             prices=TokenPrices(input=1.0, cached_input=0.1, output=5.0))
+        p_result, c_result, s_result = checked(provider, request())
+        assert (p_result.value, p_result.distribution, p_result.probability_kind) == (True, None, "none")
+        assert c_result.value == "tech" and s_result.error_code == "invalid_provider_result"
+        assert p_result.cost_usd == pytest.approx((60 + 4 + 5) / 1e6) and p_result.cache_hit is True
+        post = session.posts[0]
+        assert post["url"] == "https://api.anthropic.com/v1/messages" and post["headers"]["x-api-key"] == "k-secret"  # type: ignore[index]
+        assert post["json"]["system"] and "k-secret" not in str(post["json"])  # type: ignore[index]
+        assert not provider.capabilities().supports_native_probabilities
