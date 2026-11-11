@@ -1,11 +1,13 @@
 from functools import lru_cache
 from collections import Counter
 import graphistry, logging, os, pandas as pd, pytest
+import pyarrow as pa
 from graphistry.tests.common import NoAuthTestCase
 from graphistry.constants import SRC, DST, NODE
 from graphistry.plugins.cugraph import (
     SRC_CUGRAPH, DST_CUGRAPH, NODE_CUGRAPH,
     _restore_graph_edge_attrs, _restore_graph_return_edge_attrs,
+    _preserve_graph_edge_orientation,
     from_cugraph, to_cugraph,
     compute_cugraph, layout_cugraph,
     compute_algs,
@@ -15,6 +17,12 @@ from graphistry.plugins.cugraph import (
 
 logger = logging.getLogger()
 logger.setLevel(logging.DEBUG)
+
+
+def _assert_arrow_safe_range_index(restored: pd.DataFrame) -> None:
+    assert isinstance(restored.index, pd.RangeIndex)
+    assert list(restored.index) == list(range(len(restored)))
+    assert pa.Table.from_pandas(restored).column_names == list(restored.columns)
 
 
 test_cugraph = "TEST_CUGRAPH" in os.environ and os.environ["TEST_CUGRAPH"] == "1"
@@ -802,6 +810,7 @@ class Test_restore_graph_edge_attrs:
 
         restored = _restore_graph_edge_attrs(returned, original, "s", "d")
 
+        _assert_arrow_safe_range_index(restored)
         assert restored.to_dict("records") == [
             {"s": "a", "d": "b", "label": "ab", "weight": 2.0},
             {"s": "b", "d": "a", "label": "ab", "weight": 2.0},
@@ -815,6 +824,7 @@ class Test_restore_graph_edge_attrs:
 
         restored = _restore_graph_edge_attrs(returned, original, "s", "d")
 
+        _assert_arrow_safe_range_index(restored)
         assert list(zip(restored["s"], restored["d"], restored["label"])) == [
             ("a", "b", "ab"), ("b", "a", "ba")
         ]
@@ -853,6 +863,7 @@ class Test_restore_graph_edge_attrs:
 
         restored = _restore_graph_edge_attrs(returned, original, "s", "d")
 
+        _assert_arrow_safe_range_index(restored)
         assert restored.shape == (1, 3)
         assert restored["label"].tolist() == ["same"]
 
@@ -943,6 +954,94 @@ class Test_restore_graph_edge_attrs:
         assert restored._edges.shape == (1, 4)
         assert restored._edges["__cugraph_returned_edge_id__"].tolist() == ["user"]
         assert restored._edges["label"].tolist() == ["ab"]
+
+
+class Test_preserve_graph_edge_orientation:
+    def test_returns_unchanged_on_positional_fast_path(self, monkeypatch):
+        def fail_merge(*args, **kwargs):
+            raise AssertionError("positionally oriented edges should not merge")
+
+        returned = pd.DataFrame(
+            {"s": ["a", "b"], "d": ["b", "c"], "weight": [1, 2]},
+            index=[7, 8],
+        )
+        original = pd.DataFrame({"s": ["a", "b"], "d": ["b", "c"]})
+        monkeypatch.setattr(pd.DataFrame, "merge", fail_merge)
+
+        restored = _preserve_graph_edge_orientation(returned, original, "s", "d")
+
+        assert restored is returned
+        assert list(restored.columns) == ["s", "d", "weight"]
+
+    def test_fast_path_keeps_duplicate_endpoint_pairs(self, monkeypatch):
+        def fail_merge(*args, **kwargs):
+            raise AssertionError("positionally oriented edges should not merge")
+
+        returned = pd.DataFrame({"s": ["a", "a"], "d": ["b", "b"]})
+        original = pd.DataFrame({"s": ["a", "a"], "d": ["b", "b"]})
+        monkeypatch.setattr(pd.DataFrame, "merge", fail_merge)
+
+        restored = _preserve_graph_edge_orientation(returned, original, "s", "d")
+
+        assert restored is returned
+
+    def test_restores_reverse_endpoint_pairs(self):
+        returned = pd.DataFrame({"s": ["a", "c"], "d": ["b", "d"]})
+        original = pd.DataFrame({"s": ["a", "d"], "d": ["b", "c"]})
+
+        restored = _preserve_graph_edge_orientation(returned, original, "s", "d")
+
+        _assert_arrow_safe_range_index(restored)
+        assert list(zip(restored["s"], restored["d"])) == [("a", "b"), ("d", "c")]
+
+    def test_restores_duplicate_reversed_endpoint_pairs(self):
+        returned = pd.DataFrame({"s": ["b", "b"], "d": ["a", "a"]})
+        original = pd.DataFrame({"s": ["a", "a"], "d": ["b", "b"]})
+
+        restored = _preserve_graph_edge_orientation(returned, original, "s", "d")
+
+        _assert_arrow_safe_range_index(restored)
+        assert list(zip(restored["s"], restored["d"])) == [("a", "b"), ("a", "b")]
+
+    def test_preserves_forward_endpoint_pairs(self):
+        returned = pd.DataFrame({"s": ["a", "b"], "d": ["b", "c"]})
+        original = pd.DataFrame({"s": ["a", "b"], "d": ["b", "c"]})
+
+        restored = _preserve_graph_edge_orientation(returned, original, "s", "d")
+
+        _assert_arrow_safe_range_index(restored)
+        assert list(zip(restored["s"], restored["d"])) == [("a", "b"), ("b", "c")]
+
+    def test_declines_unmatched_returned_edges(self):
+        returned = pd.DataFrame({"s": ["a"], "d": ["z"]})
+        original = pd.DataFrame({"s": ["a"], "d": ["b"]})
+
+        with pytest.raises(ValueError, match="absent from the original graph"):
+            _preserve_graph_edge_orientation(returned, original, "s", "d")
+
+
+@pytest.mark.skipif(not test_cugraph, reason="Requires TEST_CUGRAPH=1")
+class Test_preserve_graph_edge_orientation_gpu:
+    def test_returns_unchanged_on_cudf_positional_fast_path(self):
+        import cudf
+
+        returned = cudf.DataFrame({"s": ["a", "b"], "d": ["b", "c"]})
+        original = cudf.DataFrame({"s": ["a", "b"], "d": ["b", "c"]})
+
+        restored = _preserve_graph_edge_orientation(returned, original, "s", "d")
+
+        assert restored is returned
+
+    def test_restores_cudf_reverse_endpoint_pairs(self):
+        import cudf
+
+        returned = cudf.DataFrame({"s": ["b"], "d": ["a"]})
+        original = cudf.DataFrame({"s": ["a"], "d": ["b"]})
+
+        restored = _preserve_graph_edge_orientation(returned, original, "s", "d")
+
+        assert restored["s"].to_arrow().to_pylist() == ["a"]
+        assert restored["d"].to_arrow().to_pylist() == ["b"]
 
 
 @pytest.mark.skipif(not test_cugraph, reason="Requires TEST_CUGRAPH=1")

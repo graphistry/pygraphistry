@@ -8,12 +8,20 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [Development]
 <!-- Do Not Erase This Section - Used for tracking unreleased changes -->
 
+## [0.62.0] - 2026-11-11
+
+### Deprecated
+
+- **Ignored extra arguments to `nodes()` / `edges()`** (#398, #2280): non-callable data with extra positional or keyword arguments now emits a `FutureWarning` while preserving the existing behavior of ignoring those arguments. Use `.bind(...)` for binding options. Formal arguments and callable forwarding are unchanged; warnings include positional counts and keyword names, never argument values. Strict `TypeError` rejection is targeted for May 2027, after at least six months of released deprecation notice.
+
 ### Documentation
 
 - **Stale benchmark results stay published**: age or compute-drift staleness is now rendered as a caveat with its measurement date and a linked re-measure issue instead of refusing or withdrawing the number. Removal of a published benchmark result requires explicit maintainer approval upstream.
 
 ### Fixed
 
+- **Hypergraph `EventID` selection ambiguity** (#228): `hypergraph()` uses the default `EventID` input column as the event key when `EVENTID` is omitted. It now emits a `UserWarning` identifying that selection and explaining how to confirm it with `opts={'EVENTID': ...}` or rename the source column to retain its values as an attribute while row IDs are generated. Explicit `EVENTID` strings and existing missing-column row numbering remain unchanged. This is a partial mitigation, not a change to implicit selection semantics. Native Dask inputs with more than one partition now get distinct generated row IDs across partitions instead of raising a length mismatch.
+- **GFQL Cypher AST evaluation on cuDF**: row-expression results built on the host no longer force a cuDF index through implicit NumPy conversion. They retain positional alignment on the table's labels, so supported list, subscript, map, and dynamic-property expressions match the pandas result instead of failing with `TypeError` or an opaque `E306` wrapper (#2269).
 - **GFQL Cypher carried scalars through collected reentry**: a scalar carried alongside `collect(...)` survives the shared `WITH collect ... UNWIND ... MATCH` reentry path for plain and aggregate projections, without being mistaken for a node property. The Polars empty-prefix path uses native empty-frame handling instead of `AttributeError` (#2267).
 - **GFQL Cypher boolean node properties**: a node alias that shadows a real Boolean user property now restores that property on cuDF like pandas and Polars, instead of returning null for `kind.kind` (#2271).
 - **GFQL Cypher missing relationship properties**: `RETURN r.r` now resolves to null when `r` is the relationship alias and the edge table has no `r` property, matching `WHERE r.r IS NULL`. The internal alias marker no longer leaks as the property value on pandas or Polars (#2262).
@@ -83,7 +91,6 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ### Documentation
 
 - **Added planner and worker coordination skills**: these internal `.agents` workflows describe implementation planning, focused evidence, review handoffs, and lightweight heartbeat coordination (#2206).
-
 ## [0.61.0] - 2026-10-18
 
 ### Added
@@ -100,6 +107,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - **GFQL comparison predicates and typed wire inputs reject numeric-versus-datetime comparisons**: a bare integer no longer silently compares as an opaque unitless value against a datetime column. Use a typed ISO datetime value or explicit `DateTimeValue.from_epoch` UTC epoch units. There is no default epoch unit, and `epoch_ms` predicate flags are rejected (#2197). This boundary does not change all mixed-type Cypher `EQ`/`NE` semantics.
 - **GFQL Call runtime failures use structured `E306`**: exceptions from safelisted handlers are wrapped as `GFQLCallExecutionError` with the handler name, requested engine, original exception type, and original exception as `__cause__`; input/reference validation retains its existing structured codes (#2199).
 - **GFQL index byte reporting is engine-aware** (#2201): `show_indexes()` reports Polars and cuDF sidecar/segment bytes without assuming a pandas-only Series interface.
+
 - **GFQL Polars indexed connected bindings**: the default planner gate now admits moderately sized key frontiers and edge gathers. Measured on LDBC SF1 IC4; other families showed no regression, and the relaxation is not claimed to generalize. Explicit cost-gate overrides still take precedence; other index paths and engines retain their defaults.
 
 - **GFQL indexed traversal uses faster sorted uniqueness**: integer index arrays with at least 128 entries and Boolean arrays with more than one entry use sorted deduplication, avoiding the slower `numpy.unique` path. Measured on NumPy 2.4; applies on all versions. Tiny integer arrays retain native `unique` because the extra sort/mask setup can cost more there; tiny Boolean arrays favor sorting. Other dtypes and cuPy retain their existing uniqueness semantics. IC4 benchmark evidence and follow-up are tracked in graphistry/pyg-bench#303.

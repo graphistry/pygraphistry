@@ -9,8 +9,10 @@ values, tri-valued masks, list comparison, quantifiers, list comprehensions, ran
 slice, concatenation -- agrees with the label-aligned builders on any frame.
 """
 import numpy as np
+import os
 import pandas as pd
 import pytest
+from types import SimpleNamespace
 
 import graphistry
 from graphistry.compute.gfql.row.pipeline import RowPipelineMixin, _gfql_expr_runtime_parser_bundle
@@ -124,6 +126,55 @@ def test_on_table_index_leaves_unalignable_values_alone():
     assert list(RowPipelineMixin._gfql_on_table_index(table, short).index) == [0, 1]  # length mismatch: untouched
     full = pd.Series([True, False, True])
     assert list(RowPipelineMixin._gfql_on_table_index(table, full).index) == [0, 2, 7]
+
+
+@pytest.mark.skipif(os.environ.get("TEST_CUDF") != "1", reason="cuDF lane: set TEST_CUDF=1 (e.g. dgx-spark)")
+@pytest.mark.parametrize("labels", [[], [0, 2, 7], [7, 0, 2]])
+def test_on_table_index_does_not_convert_a_host_series_for_a_cudf_index(labels):
+    cudf = pytest.importorskip("cudf")
+
+    table = SimpleNamespace(index=cudf.Index(labels))
+    input_labels = [10, 11, 12][:len(labels)]
+    input_values = [True, False, True][:len(labels)]
+    host_series = pd.Series(input_values, index=input_labels, name="mask")
+
+    out = RowPipelineMixin._gfql_on_table_index(table, host_series)
+
+    assert not out.__class__.__module__.startswith("cudf")
+    assert isinstance(out, pd.Series)
+    assert out.index.tolist() == labels
+    assert out.tolist() == input_values
+    assert out.name == "mask"
+    assert out.dtype == host_series.dtype
+    assert host_series.index.tolist() == input_labels
+    assert host_series.tolist() == input_values
+    assert table.index.to_pandas().tolist() == labels
+
+
+@pytest.mark.skipif(os.environ.get("TEST_CUDF") != "1", reason="cuDF lane: set TEST_CUDF=1 (e.g. dgx-spark)")
+def test_on_table_index_leaves_a_length_mismatched_host_series_untouched_for_a_cudf_index():
+    cudf = pytest.importorskip("cudf")
+
+    table = SimpleNamespace(index=cudf.Index([0, 2, 7]))
+    host_series = pd.Series([True, False], index=[0, 1], name="mask")
+
+    out = RowPipelineMixin._gfql_on_table_index(table, host_series)
+
+    assert out is host_series
+
+
+@pytest.mark.skipif(os.environ.get("TEST_CUDF") != "1", reason="cuDF lane: set TEST_CUDF=1 (e.g. dgx-spark)")
+@pytest.mark.parametrize("length", [0, 3])
+def test_on_table_index_preserves_cudf_series_for_a_cudf_table(length):
+    cudf = pytest.importorskip("cudf")
+
+    table = cudf.from_pandas(pd.DataFrame({"x": list(range(length))}, index=range(length)))
+    native_series = table["x"].copy()
+
+    out = RowPipelineMixin._gfql_on_table_index(table, native_series)
+
+    assert out.__class__.__module__.startswith("cudf")
+    assert list(out.index.to_pandas()) == list(range(length))
 
 
 @pytest.mark.parametrize("expr,truth", [
