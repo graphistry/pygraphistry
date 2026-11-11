@@ -1392,7 +1392,6 @@ class ASTCall(ASTObject):
             'layout_cugraph': ['x_out_col', 'y_out_col'],
             'layout_graphviz': ['x_out_col', 'y_out_col'],
             'collapse': ['column'],
-            'sem_map': ['out_col'],
         }
 
         if self.function in output_col_params:

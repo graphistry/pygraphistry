@@ -5,14 +5,7 @@ from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Set, Tupl
 
 from graphistry.compute.exceptions import ErrorCode, GFQLSyntaxError, GFQLTypeError
 from graphistry.compute.gfql.identifiers import render_cypher_identifier
-from graphistry.compute.semantic.gfql_support import (
-    SEM_DECIDE_PARAMS,
-    SEM_DECIDE_SCHEMA_EFFECTS,
-    SEM_DECIDE_VALIDATORS,
-    SEM_MAP_PARAMS,
-    SEM_MAP_SCHEMA_EFFECTS,
-    SEM_MAP_VALIDATORS,
-)
+from graphistry.compute.semantic.gfql_support import SEM_DECIDE_PARAMS, SEM_DECIDE_SCHEMA_EFFECTS, SEM_DECIDE_VALIDATORS
 from graphistry.compute.gfql.call.support import (
     EDGE_COLUMN_SCHEMA_EFFECTS,
     NODE_COLUMN_SCHEMA_EFFECTS,
@@ -1296,14 +1289,6 @@ SAFELIST_V1: Dict[str, Dict[str, Any]] = {
         param_validators=SEM_DECIDE_VALIDATORS,
         description='Ask a bound model provider typed questions about every node or edge row',
         schema_effects=SEM_DECIDE_SCHEMA_EFFECTS,
-    ),
-
-    'sem_map': _safelist_entry(
-        set(SEM_MAP_PARAMS),
-        required_params={'instruction', 'out_col', 'provider', 'task_id'},
-        param_validators=SEM_MAP_VALIDATORS,
-        description='Generate one text value per node or edge row with a bound model provider',
-        schema_effects=SEM_MAP_SCHEMA_EFFECTS,
     ),
 }
 

@@ -133,35 +133,28 @@ def _apply_persist_axis_defaults(g: Plottable) -> None:
         g._url_params = merged
 
 
-_SEMANTIC_CALLS = frozenset({"sem_decide", "sem_map"})
-
-
-def _semantic_calls_in(payload: object) -> List[str]:
-    """Names of semantic calls anywhere in a serialized query (Chain, Let, Ref or legacy dict)."""
-    found: List[str] = []
+def _refuse_semantic_calls(payload: object) -> None:
+    """Semantic calls need a locally bound provider, so a serialized query that holds one is refused before upload."""
+    from graphistry.compute.semantic.gfql_support import SEMANTIC_CALLS
+    found = set()
     pending: List[object] = [payload]
     while pending:
         node = pending.pop()
-        if isinstance(node, ASTObject) or isinstance(node, (Chain, ASTLet)):
+        if isinstance(node, (ASTObject, Chain, ASTLet)):
             node = node.to_json(validate=False)
         if isinstance(node, Mapping):
             function = node.get("function")
-            if node.get("type") == "Call" and isinstance(function, str) and function in _SEMANTIC_CALLS:
-                found.append(function)
+            if node.get("type") == "Call" and isinstance(function, str) and function in SEMANTIC_CALLS:
+                found.add(function)
             pending.extend(node.values())
         elif isinstance(node, (list, tuple)):
             pending.extend(node)
-    return found
-
-
-def _refuse_semantic_calls(chain_json: object) -> None:
-    names = _semantic_calls_in(chain_json)
-    if names:
+    if found:
         raise GFQLUnsupportedError(
             ErrorCode.E110,
-            f"Semantic calls ({', '.join(sorted(set(names)))}) run locally only; use g.gfql(...) with bind_providers",
+            f"Semantic calls ({', '.join(sorted(found))}) run locally only; use g.gfql(...) with bind_providers",
             field="function",
-            value=sorted(set(names)),
+            value=sorted(found),
             suggestion="Run the query locally with g.gfql(...); remote execution has no provider binding",
         )
 

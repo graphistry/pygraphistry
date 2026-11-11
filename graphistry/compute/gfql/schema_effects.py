@@ -196,7 +196,7 @@ def schema_effect_for_call(function: str, params: Mapping[str, Any]) -> Optional
         if algorithm == "hits":
             properties["authorities"] = _FLOAT64
         return SchemaEffect(adds_node_properties=properties, confidence="declared")
-    if function in ("sem_decide", "sem_map"):
+    if function == "sem_decide":
         return _semantic_call_effect(function, params)
     if function == "compute_igraph":
         algorithm = params.get("alg")

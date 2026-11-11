@@ -535,7 +535,6 @@ behavior matches direct Plotter calls.
 
 **Semantic Table Operators** (local only; providers bound with `bind_providers`)
 - `sem_decide`: Ask a model provider typed questions about every node or edge row
-- `sem_map`: Generate one text value per node or edge row
 
 ### Validation
 

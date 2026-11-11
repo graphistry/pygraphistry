@@ -10,9 +10,8 @@ from graphistry import call
 from graphistry.Plottable import Plottable
 from graphistry.compute.ast import ASTObject
 from graphistry.compute.exceptions import ErrorCode, GFQLCallExecutionError
-from graphistry.compute.semantic import (
-    CallableDecisionProvider, CallableGenerationProvider, DecisionQuestion, bind_providers)
-from graphistry.compute.semantic.ops import sem_decide, sem_map
+from graphistry.compute.semantic import CallableDecisionProvider, DecisionQuestion, bind_providers
+from graphistry.compute.semantic.ops import sem_decide
 
 pytestmark = pytest.mark.skipif(
     not ("TEST_CUDF" in os.environ and os.environ["TEST_CUDF"] == "1"),
@@ -57,7 +56,7 @@ def test_kernel_matches_pandas_and_keeps_engine() -> None:
         assert str(got[col].dtype) == "object", (col, got[col].dtype)
 
 
-def test_gfql_cudf_engine_and_sem_map() -> None:
+def test_gfql_cudf_engine() -> None:
     import cudf
     g = graphistry.nodes(cudf.from_pandas(NODES), "id")
     with bind_providers({"p": provider()}):
@@ -65,11 +64,6 @@ def test_gfql_cudf_engine_and_sem_map() -> None:
                                           "evidence_cols": ["name"]})], engine="cudf")
     assert isinstance(out._nodes, cudf.DataFrame)
     assert out._nodes.to_pandas()["p"].tolist() == [True, False, True, False]
-    gen = CallableGenerationProvider(lambda e, i: str(e).upper())
-    mapped = sem_map(cudf.from_pandas(NODES), instruction="i", out_col="o", provider=gen, evidence_cols=["name"],
-                     task_id="t")
-    assert isinstance(mapped, cudf.DataFrame) and mapped.to_pandas()["o__status"].tolist() == ["ok"] * 4
-    assert mapped.to_pandas()["o"].tolist() == [str({"name": n}).upper() for n in NODES["name"]]
 
 
 def remove_from_pandas_shim(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -99,12 +93,9 @@ def test_direct_calls_keep_null_and_error_rows(monkeypatch: pytest.MonkeyPatch, 
     with cudf.option_context("mode.pandas_compatible", pandas_compatible):
         got = sem_decide(cudf.from_pandas(NODES), questions=QUESTIONS, provider=CallableDecisionProvider(answer),
                          evidence_cols=["name"], task_id="t")
-        mapped = sem_map(cudf.from_pandas(NODES), instruction="i", out_col="o",
-                         provider=CallableGenerationProvider(lambda e, i: "x"), evidence_cols=["name"], task_id="t")
-        host, mapped_host = got.to_pandas(), mapped.to_pandas()
+        host = got.to_pandas()
         dtypes = {col: str(got[col].dtype) for col in text}
-        dtypes.update({col: str(mapped[col].dtype) for col in ("o", "o__status", "o__error_code", "o__meta")})
-    assert isinstance(got, cudf.DataFrame) and isinstance(mapped, cudf.DataFrame)
+    assert isinstance(got, cudf.DataFrame)
     assert set(dtypes.values()) == {"object"}, dtypes
     assert host["p__status"].tolist() == ["ok", "error", "ok", "uncertain"]
     assert host["p"].isna().tolist() == [False, True, False, True] and host["p__p"].isna().all()
@@ -112,7 +103,6 @@ def test_direct_calls_keep_null_and_error_rows(monkeypatch: pytest.MonkeyPatch, 
         if not col.endswith("__meta"):
             assert host[col].tolist() == expected[col].tolist(), col
     pd.testing.assert_frame_equal(normalized(host), normalized(expected), check_dtype=False)
-    assert mapped_host["o__status"].tolist() == ["ok"] * 4 and mapped_host["o__error_code"].tolist() == [None] * 4
 
 
 REVERSED = ["cni emca", "bob", "cni atez", "oloy"]

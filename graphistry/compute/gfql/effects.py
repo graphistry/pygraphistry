@@ -1,9 +1,5 @@
-"""Execution-scoped ledger of side effects, so engine fallback never repeats them.
-
-An ``engine='auto'`` attempt that declines with ``NotImplementedError`` re-runs the whole query
-on another engine. Operations with external side effects (model provider calls) record
-themselves here first; an attempt whose ledger grew raises instead of re-running.
-"""
+"""Execution-scoped ledger of side effects (model provider calls), so an ``engine='auto'`` fallback that would
+re-run the whole query on another engine raises instead of repeating them."""
 from contextlib import contextmanager
 from contextvars import ContextVar
 from typing import Iterator, List, Optional

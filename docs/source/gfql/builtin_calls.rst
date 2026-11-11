@@ -1831,7 +1831,7 @@ Map node attributes to icons.
 Semantic Table Operators
 ------------------------
 
-``sem_decide`` and ``sem_map`` ask a model provider about every row of the node (or edge) table and append
+``sem_decide`` asks a model provider typed questions about every row of the node (or edge) table and appends
 typed result columns. Every input row is kept, in order and with its index; provider failures become per-row
 ``error`` results instead of exceptions. Providers are bound per execution with
 ``graphistry.compute.semantic.bind_providers``; a GFQL ``call()`` names the provider by alias, so queries stay
@@ -1908,7 +1908,7 @@ Answer typed questions per row: ``predicate`` (yes/no), ``choice`` (one of ``opt
    * - budget
      - dict
      - No
-     - ``{max_cost_usd?, max_requests?}``; a cost cap requires a provider that can estimate cost
+     - ``{max_requests?}``: the number of provider calls
    * - max_rows
      - integer
      - No
@@ -1940,19 +1940,8 @@ stay polars. Called directly as ``g.sem_decide(...)`` on a polars-bound graph, t
 then reaches a step that engine cannot run raises ``GFQLCallExecutionError`` instead of re-running the whole
 query on another engine; rerun with ``engine='pandas'`` (or ``'cudf'``).
 
-sem_map
-~~~~~~~
-
-Generate one text value per row. Takes ``instruction`` (string, required), ``out_col`` (string, required) and
-``max_output_tokens`` (optional), plus the same ``provider``, ``task_id``, evidence, ``kind``, ``id_col`` and limit
-parameters as ``sem_decide`` (no ``min_p``; ``batch_size`` falls back to 16 rather than 32). Adds ``out_col``, ``{out_col}__status``, ``{out_col}__error_code`` and
-``{out_col}__meta``.
-
-**Providers:** ``CallableDecisionProvider`` / ``CallableGenerationProvider`` wrap Python functions;
-``OpenAIDecisionsProvider`` calls the public `OpenAI Decisions API <https://developers.openai.com/api/docs/guides/decisions>`_
-(`API reference <https://developers.openai.com/api/reference/resources/decisions/methods/create>`_)
-with caller-supplied model and per-token prices. Any object implementing the ``DecisionProvider`` or
-``GenerationProvider`` protocol in ``graphistry.compute.semantic`` can be bound.
+**Providers:** ``CallableDecisionProvider`` wraps a Python function. Any object implementing the
+``DecisionProvider`` protocol in ``graphistry.compute.semantic`` can be bound.
 
 Utility Methods
 ---------------

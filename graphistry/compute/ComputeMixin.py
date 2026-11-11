@@ -33,7 +33,7 @@ from .filter_by_dict import (
 )
 
 if TYPE_CHECKING:
-    from graphistry.compute.semantic.contract import Budget, DecisionProvider, DecisionQuestion, GenerationProvider
+    from graphistry.compute.semantic.contract import Budget, DecisionProvider, DecisionQuestion
     from graphistry.compute.gfql.index.types import IndexKind
     from graphistry.compute.gfql.index.registry import PartitionValue
     from graphistry.compute.gfql.index.explain import GfqlExplainReport
@@ -418,9 +418,7 @@ class ComputeMixin(Plottable):
     ) -> Plottable:
         """Ask a model provider typed questions about every node (or edge) row; see :func:`graphistry.compute.semantic.sem_decide`.
 
-        Returns a graph whose node (or edge) table has, per question ``q``: ``q``, ``q__status``,
-        ``q__p``, ``q__dist``, ``q__probability_kind``, ``q__error_code`` and ``q__meta``. Rows, order,
-        index and the other table are unchanged. ``id_col`` defaults to the node (or edge) id binding.
+        Rows, order, index and the other table are unchanged; ``id_col`` defaults to the node (or edge) id binding.
 
         **Example**
             ::
@@ -441,50 +439,6 @@ class ComputeMixin(Plottable):
             )
 
         return _apply_to_graph_table(self, kind, id_col, run, "sem_decide")
-
-    def sem_map(
-        self,
-        instruction: str,
-        out_col: str,
-        provider: "Union[str, GenerationProvider]",
-        *,
-        task_id: str,
-        kind: GraphEntityKind = "nodes",
-        evidence_cols: Optional[List[str]] = None,
-        template: Optional[str] = None,
-        id_col: Optional[str] = None,
-        task_version: str = "1",
-        max_output_tokens: Optional[int] = None,
-        batch_size: Optional[int] = None,
-        max_concurrency: Optional[int] = None,
-        deadline_s: Optional[float] = None,
-        budget: "Union[Budget, Dict[str, object], None]" = None,
-        max_rows: Optional[int] = None,
-        column_max_chars: Optional[int] = None,
-        overwrite: bool = False,
-    ) -> Plottable:
-        """Generate one text value per node (or edge) row; see :func:`graphistry.compute.semantic.sem_map`.
-
-        Adds ``out_col``, ``{out_col}__status``, ``{out_col}__error_code`` and ``{out_col}__meta``.
-
-        **Example**
-            ::
-
-                g2 = g.sem_map("Summarize in one sentence.", "summary", provider, task_id="summaries",
-                               evidence_cols=["description"])
-        """
-        from graphistry.compute.semantic.ops import sem_map as sem_map_kernel
-
-        def run(df: DataFrameT, rows_id: Optional[str]) -> DataFrameT:
-            return sem_map_kernel(
-                df, instruction=instruction, out_col=out_col, provider=provider, task_id=task_id,
-                evidence_cols=evidence_cols, template=template, id_col=rows_id, task_version=task_version,
-                max_output_tokens=max_output_tokens, batch_size=batch_size, max_concurrency=max_concurrency,
-                deadline_s=deadline_s, budget=budget, max_rows=max_rows, column_max_chars=column_max_chars,
-                overwrite=overwrite,
-            )
-
-        return _apply_to_graph_table(self, kind, id_col, run, "sem_map")
 
     def drop_nodes(self, nodes):
         """

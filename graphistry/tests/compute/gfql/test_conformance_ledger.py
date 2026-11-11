@@ -130,7 +130,6 @@ def _exercised_function_names() -> set:
 CALL_KNOWN_UNCOVERED: dict[str, str] = {
     # semantic table operators call a bound model provider; the polars matrix runs calls without one
     "sem_decide": "needs a bound provider; covered by graphistry/tests/compute/semantic/",
-    "sem_map": "needs a bound provider; covered by graphistry/tests/compute/semantic/",
     # row-pipeline ops native under polars via the call()/DAG executor; not yet asserted via call()
     "rows": "native polars row-pipeline op; exercised via call() only in test_engine_polars_row_pipeline.py, not this matrix. TODO.",
     "skip": "native polars row-pipeline op; not yet asserted via a matrix call() case. TODO.",
