@@ -8,6 +8,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [Development]
 <!-- Do Not Erase This Section - Used for tracking unreleased changes -->
 
+### Documentation
+
+- **Re-vendor SNB benchmark evidence** at PyGraphistry `426ce518a` from PyG-Bench `0d3731e6`: refresh the SNB Interactive boards and provenance for the shipped release candidate while preserving existing graph-benchmark figures.
+
 ## [0.62.0] - 2026-11-11
 
 ### Deprecated
