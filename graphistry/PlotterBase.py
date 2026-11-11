@@ -17,7 +17,7 @@ from graphistry.plugins_types.hypergraph import HypergraphResult
 from graphistry.render.resolve_render_mode import resolve_render_mode
 from graphistry.Engine import Engine, EngineAbstractType, df_to_engine
 from graphistry.graph_bridge import bridge_polars_graph
-import copy, hashlib, numpy as np, pandas as pd, pyarrow as pa, requests, sys, uuid, warnings
+import copy, hashlib, inspect, numpy as np, pandas as pd, pyarrow as pa, requests, sys, uuid, warnings
 from functools import lru_cache, partialmethod
 from weakref import WeakValueDictionary
 
@@ -204,6 +204,31 @@ def maybe_polars():
     return None
 
 # #####################################
+
+
+def _warn_unused_nodes_edges_args(
+    method: str, arg_name: str, args: Tuple[object, ...], kwargs: Dict[str, object]
+) -> None:
+    """Warn without rendering values when nodes()/edges() ignore extra arguments.
+
+    Extra positional and keyword arguments are only forwarded when the data argument is a callable.
+    """
+    if not args and not kwargs:
+        return
+    problems: List[str] = []
+    if args:
+        problems.append(f"{len(args)} unexpected positional argument(s)")
+    if kwargs:
+        problems.append("unexpected keyword argument(s) " + ", ".join(f"'{k}'" for k in kwargs))
+    msg = (
+        f"{method}() got {' and '.join(problems)}. "
+        f"Extra arguments are only forwarded when {arg_name} is a callable."
+    )
+    bindings = [k for k in kwargs if k in _BIND_PARAMS]
+    if bindings:
+        msg += " To set bindings, use .bind(" + ", ".join(f"{k}=..." for k in bindings) + ")."
+    msg += " These arguments are currently ignored; passing them is deprecated and will raise TypeError in a future release. See https://github.com/graphistry/pygraphistry/issues/2280."
+    warnings.warn(msg, FutureWarning, stacklevel=3)
 
 
 class PlotterBase(Plottable):
@@ -1886,6 +1911,7 @@ class PlotterBase(Plottable):
             nodes2 = nodes(base, *args, **kwargs)
             res = base.nodes(nodes2)
         else:
+            _warn_unused_nodes_edges_args('nodes', 'nodes', args, kwargs)
             res = copy.copy(base)
             res._nodes = nodes
         # for use in text_utils.py search index
@@ -2007,6 +2033,7 @@ class PlotterBase(Plottable):
             edges2 = edges(base, *args, **kwargs)
             res = base.edges(edges2)
         else:
+            _warn_unused_nodes_edges_args('edges', 'edges', args, kwargs)
             res = copy.copy(base)
             res._edges = edges
 
@@ -4158,7 +4185,7 @@ class PlotterBase(Plottable):
 
         The optional ``opts={...}`` configuration options are:
 
-        * 'EVENTID': Column name to inspect for a row ID. By default, uses the row index.
+        * 'EVENTID': Column name to inspect for event IDs. If omitted, the default 'EventID' column is used when present; otherwise row numbers are used. Omitted implicit selection emits a warning.
         * 'CATEGORIES': Dictionary mapping a category name to inhabiting columns. E.g., {'IP': ['srcAddress', 'dstAddress']}.  If the same IP appears in both columns, this makes the transform generate one node for it, instead of one for each column.
         * 'DELIM': When creating node IDs, defines the separator used between the column name and node value
         * 'SKIP': List of column names to not turn into nodes. For example, dates and numbers are often skipped.
@@ -4351,3 +4378,7 @@ class PlotterBase(Plottable):
             return self.settings(url_params={**self._url_params, **settings})
         else:
             return self
+
+
+# Binding names accepted by PlotterBase.bind(), used to hint at bind() in nodes()/edges() errors
+_BIND_PARAMS = frozenset(inspect.signature(PlotterBase.bind).parameters) - {'self'}
