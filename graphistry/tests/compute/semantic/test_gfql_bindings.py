@@ -109,6 +109,7 @@ class TestCallMethodParity:
         assert [(m["status_reason"], m["task_version"]) for m in metas] == [
             ("min_p", "7"), ("budget", "7"), ("max_rows", "7")]
         assert provider.request_ids == ["1"] and provider.budgets[0] is not None and provider.budgets[0].max_requests == 1
+        assert provider.task_ids == ["t"]
         assert provider.deadlines[0] is not None and 0 < provider.deadlines[0] <= 30.0
 
     @pytest.mark.parametrize("surface", ["method", "gfql"])

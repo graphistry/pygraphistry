@@ -4,7 +4,7 @@ from collections.abc import Mapping
 import time
 from dataclasses import replace
 from enum import Enum
-from typing import Dict, List, Sequence
+from typing import Dict, List, Optional, Sequence
 
 import numpy as np
 import pandas as pd
@@ -118,10 +118,13 @@ class TestRowIdentity:
 
 class TestBatching:
 
-    @pytest.mark.parametrize("limits,rows,sizes", [(dict(max_rows_per_request=2), 5, [1, 2, 2]), ({}, 40, [8, 32])])
-    def test_default_batch_size(self, limits: dict, rows: int, sizes: List[int]) -> None:
+    @pytest.mark.parametrize("limits,batch_size,rows,sizes", [
+        (dict(max_rows_per_request=2), None, 5, [1, 2, 2]), ({}, None, 40, [8, 32]),
+        (dict(max_rows_per_request=2), 5, 5, [1, 2, 2]), ({}, 5, 7, [2, 5])])
+    def test_batch_size_defaults_to_and_never_exceeds_the_provider_row_limit(
+            self, limits: dict, batch_size: Optional[int], rows: int, sizes: List[int]) -> None:
         provider = Recording(capabilities=caps(**limits))
-        decide(frame(rows), provider)
+        decide(frame(rows), provider, batch_size=batch_size)
         assert sorted(len(call) for call in provider.calls) == sizes
 
     def test_questions_beyond_the_cap_go_in_separate_calls(self) -> None:

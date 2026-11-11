@@ -1900,7 +1900,7 @@ Answer typed questions per row: ``predicate`` (yes/no), ``choice`` (one of ``opt
    * - batch_size, max_concurrency
      - integer
      - No
-     - Rows per provider call (default: the provider's ``max_rows_per_request``, else 32) and concurrent calls
+     - Rows per provider call, at most the provider's ``max_rows_per_request`` (default: that limit, else 32), and concurrent calls
    * - deadline_s
      - number
      - No

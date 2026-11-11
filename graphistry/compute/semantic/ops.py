@@ -368,7 +368,8 @@ def sem_decide(
     :param id_col: column whose ``str`` values identify rows; default the index when its labels are unique (also
         after ``str()``, and non-empty), else row positions
     :param task_version: version label included in the input hash
-    :param batch_size: rows per provider call; default the provider's ``max_rows_per_request``, else 32
+    :param batch_size: rows per provider call, at most the provider's ``max_rows_per_request``; default that
+        limit, else 32
     :param max_concurrency: upper bound on concurrent provider calls within this run
     :param deadline_s: seconds for the whole run; unfinished rows become ``skipped`` (calls already sent are
         abandoned, not cancelled: they may still finish, and keep the process alive, in the background)
@@ -413,6 +414,8 @@ def sem_decide(
 
     per_call = capabilities.max_questions_per_request
     size = batch_size or capabilities.max_rows_per_request or DEFAULT_BATCH_SIZE
+    if capabilities.max_rows_per_request is not None:
+        size = min(size, capabilities.max_rows_per_request)
     attempted = [position for position, reason in enumerate(rows.skip_reason) if reason is None]
     calls: List[List[DecisionRequest]] = []
     for first in range(0, len(attempted), size):

@@ -45,6 +45,7 @@ class Recording(CallableDecisionProvider):
     def __init__(self, fn: Callable = value_only, delay: float = 0.0, **kwargs: object) -> None:
         super().__init__(fn, **kwargs)  # type: ignore[arg-type]
         self.calls: List[List[str]] = []
+        self.task_ids: List[str] = []
         self.question_sets: List[List[str]] = []
         self.budgets: List[Optional[Budget]] = []
         self.deadlines: List[Optional[float]] = []
@@ -57,6 +58,7 @@ class Recording(CallableDecisionProvider):
                      budget: Optional[Budget]) -> List[DecisionResult]:
         with self.lock:
             self.calls.append([request.request_id for request in requests])
+            self.task_ids.extend(request.task_id for request in requests)
             self.question_sets.append([question.id for question in requests[0].questions])
             self.budgets.append(budget)
             self.deadlines.append(deadline_s)
