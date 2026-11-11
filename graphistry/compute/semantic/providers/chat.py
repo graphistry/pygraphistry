@@ -143,7 +143,7 @@ class _ChatDecisionProvider(HttpDecisionProvider):
         question = questions[0]
         text, tokens, refused = self.reply(payload)
         if refused:
-            return [self.answered(request, question, meta, value=None, distribution=None, kind="none",
+            return [self.answered(request, question, meta, value=None, distribution=None, probability_kind="none",
                                   reason="refusal")]
         labels, codes = answer_labels(question), answer_codes(question)
         answer = code_index(text, codes)
@@ -151,7 +151,7 @@ class _ChatDecisionProvider(HttpDecisionProvider):
             return [self.invalid(request, question, meta)]
         by_index, mass = label_distribution(answer_alternatives(tokens, codes, answer), codes, len(labels))
         if by_index is None:
-            return [self.answered(request, question, meta, value=labels[answer], distribution=None, kind="none")]
+            return [self.answered(request, question, meta, value=labels[answer], distribution=None, probability_kind="none")]
         keys = question.distribution_keys()
         distribution = {keys[index]: probability for index, probability in sorted(by_index.items())}
         value: Union[bool, str, None] = labels[answer]
@@ -162,8 +162,8 @@ class _ChatDecisionProvider(HttpDecisionProvider):
             value = labels[leaders[0]] if len(leaders) == 1 else None
             reason = None if value is not None else "tie"
         extra: Dict[str, ExtraValue] = {"probability_mechanism": "answer_token_top_logprobs", "label_mass": mass}
-        return [self.answered(request, question, meta, value=value, distribution=distribution, kind="token_logprob",
-                              reason=reason, extra=extra)]
+        return [self.answered(request, question, meta, value=value, distribution=distribution,
+                              probability_kind="token_logprob", reason=reason, extra=extra)]
 
 
 class OpenAIChatProvider(_ChatDecisionProvider):
