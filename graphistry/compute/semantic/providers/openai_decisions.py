@@ -9,7 +9,7 @@ from graphistry.compute.semantic.contract import (
     DecisionQuestion, DecisionRequest, DecisionResult, ProviderCapabilities, StatusReason,
     finite_float)
 from graphistry.compute.semantic.providers.http import (
-    HttpDecisionProvider, JSONObject, ResponseMeta, TokenUsage, evidence_text, token_count)
+    HttpDecisionProvider, HttpPoster, JSONObject, ResponseMeta, TokenPrices, TokenUsage, evidence_text, token_count)
 
 
 MAX_QUESTIONS_PER_REQUEST = 400
@@ -89,10 +89,13 @@ MAPPERS = {"predicate": _predicate, "choice": _choice, "score": _score}
 
 
 class OpenAIDecisionsProvider(HttpDecisionProvider):
-    """Calls the OpenAI Decisions API; one HTTP request per row carries all of that row's questions (≤ 400).
+    """Calls the OpenAI Decisions API; one HTTP request per row carries that row's questions (up to
+    ``max_questions_per_request``, default 400).
 
-    Prices come from ``prices`` (a ``TokenPrices``); there are no default prices or model. The other constructor
-    parameters are those of :class:`~graphistry.compute.semantic.providers.http.HttpDecisionProvider`.
+    Prices come from ``prices`` (a ``TokenPrices``); there are no default prices or model. Servers with the same
+    API and smaller limits (for example a self-hosted engine at ``base_url``) set ``max_questions_per_request``,
+    ``max_choice_options`` and ``max_levels``. The other constructor parameters are those of
+    :class:`~graphistry.compute.semantic.providers.http.HttpDecisionProvider`.
 
     **Example**
         ::
@@ -107,15 +110,30 @@ class OpenAIDecisionsProvider(HttpDecisionProvider):
     default_base_url = "https://api.openai.com/v1"
     path = "/decisions"
 
+    def __init__(self, api_key: str, model: str, *, base_url: Optional[str] = None, prices: Optional[TokenPrices] = None,
+                 max_questions_per_request: int = MAX_QUESTIONS_PER_REQUEST, max_choice_options: int = 255,
+                 max_levels: int = 10, concurrency_limit: int = 4, timeout_s: float = 60, max_retries: int = 3,
+                 retry_backoff_s: float = 0.5, session: Optional[HttpPoster] = None, name: Optional[str] = None) -> None:
+        super().__init__(api_key, model, base_url=base_url, prices=prices, concurrency_limit=concurrency_limit,
+                         timeout_s=timeout_s, max_retries=max_retries, retry_backoff_s=retry_backoff_s,
+                         session=session, name=name)
+        for setting, value, least in (("max_questions_per_request", max_questions_per_request, 1),
+                                      ("max_choice_options", max_choice_options, 2), ("max_levels", max_levels, 2)):
+            if isinstance(value, bool) or not isinstance(value, int) or value < least:
+                raise ValueError(f"{setting} must be an int >= {least}, got {value!r}")
+        self.max_questions_per_request = max_questions_per_request
+        self.max_choice_options = max_choice_options
+        self.max_levels = max_levels
+
     def capabilities(self) -> ProviderCapabilities:
-        return ProviderCapabilities(supports_native_probabilities=True, max_questions_per_request=MAX_QUESTIONS_PER_REQUEST,
+        return ProviderCapabilities(supports_native_probabilities=True,
+                                    max_questions_per_request=self.max_questions_per_request,
                                     concurrency_limit=self.concurrency_limit, max_rows_per_request=1,
-                                    max_choice_options=255, max_levels=10)
+                                    max_choice_options=self.max_choice_options, max_levels=self.max_levels)
 
     def question_groups(self, request: DecisionRequest) -> List[Sequence[DecisionQuestion]]:
-        questions = request.questions
-        return [questions[start:start + MAX_QUESTIONS_PER_REQUEST]
-                for start in range(0, len(questions), MAX_QUESTIONS_PER_REQUEST)]
+        questions, size = request.questions, self.max_questions_per_request
+        return [questions[start:start + size] for start in range(0, len(questions), size)]
 
     def headers(self) -> Dict[str, str]:
         return {"Authorization": f"Bearer {self._api_key}", "Content-Type": "application/json"}

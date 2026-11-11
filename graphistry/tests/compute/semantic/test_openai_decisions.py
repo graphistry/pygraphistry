@@ -153,6 +153,19 @@ class TestMapping:
                          evidence_cols=["t"], task_id="t", batch_size=3, budget={"max_requests": 2})
         assert out["p__status"].tolist() == ["ok", "ok", "skipped"] and len(session.posts) == 2
 
+    def test_limits_for_servers_with_the_same_api(self) -> None:
+        p = OpenAIDecisionsProvider("k", "m", base_url="http://engine.test/v1", max_questions_per_request=2,
+                                    max_choice_options=26, max_levels=10, session=FakeSession([answers_for]))
+        caps = p.capabilities()
+        assert (caps.max_questions_per_request, caps.max_choice_options, caps.max_levels) == (2, 26, 10)
+        assert [len(group) for group in p.question_groups(request((PRED, CHOICE, SCORE)))] == [2, 1]
+
+    @pytest.mark.parametrize("options", [dict(max_questions_per_request=0), dict(max_choice_options=1),
+                                         dict(max_levels=True), dict(max_levels=2.5)])
+    def test_limit_settings_are_checked(self, options: dict) -> None:
+        with pytest.raises(ValueError, match=next(iter(options))):
+            OpenAIDecisionsProvider("k", "m", **options)  # type: ignore[arg-type]
+
     def test_a_bad_key_never_appears_in_the_error(self) -> None:
         with pytest.raises(ValueError) as info:
             OpenAIDecisionsProvider(b"sk-secret", "m")  # type: ignore[arg-type]

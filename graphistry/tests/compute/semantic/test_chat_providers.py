@@ -1,6 +1,8 @@
 import math
 from typing import Dict, List, Optional
 
+import requests
+
 import pandas as pd
 import pytest
 
@@ -293,3 +295,96 @@ class TestAnthropic:
         body, headers = session.posts[0]["json"], session.posts[0]["headers"]
         assert (body["model"], body["max_tokens"], body["temperature"]) == ("claude-x", 16, 0)  # type: ignore[index]
         assert headers["anthropic-version"] == "v2"  # type: ignore[index]
+
+
+def tool_reply(arguments: object) -> FakeResponse:
+    call = {"type": "function", "function": {"name": "answer", "arguments": arguments}}
+    return FakeResponse(200, {"model": "served-m", "choices": [
+        {"message": {"role": "assistant", "content": None, "tool_calls": [call]}, "finish_reason": "stop"}],
+        "usage": {"prompt_tokens": 10, "completion_tokens": 3}})
+
+
+def token_reply(text: str, tokens: List[Dict[str, object]]) -> FakeResponse:
+    return FakeResponse(200, {"model": "served-m", "choices": [
+        {"message": {"role": "assistant", "content": text}, "logprobs": {"content": tokens}, "finish_reason": "stop"}],
+        "usage": {"prompt_tokens": 10, "completion_tokens": 3}})
+
+
+class TestFallbacks:
+
+    @pytest.mark.parametrize("question,text,value", [
+        (PRED, "A. yes", True), (PRED, "B: no", False), (CHOICE, "B) tech", "tech"), (SCORE, "C. high (highest)", "high"),
+        (SCORE, "a. LOW.", "low")])
+    def test_a_code_followed_by_its_own_label_is_an_answer(self, question: DecisionQuestion, text: str,
+                                                           value: object) -> None:
+        result = checked(openai(FakeSession([chat_reply(text)])), request((question,)))[0]
+        assert (result.status, result.value) == ("ok", value)
+
+    @pytest.mark.parametrize("text", ["A. no", "A box arrived", "A. yes\nbecause it is", "A yes", "Z. yes", "A."])
+    def test_other_replies_with_more_than_a_code_are_errors(self, text: str) -> None:
+        result = checked(openai(FakeSession([chat_reply(text)])), request((PRED,)))[0]
+        assert (result.status, result.error_code) == (("ok", None) if text == "A." else ("error", "invalid_provider_result"))
+
+    def test_an_echoed_answer_is_read_at_the_code_token_not_a_label_word(self) -> None:
+        plans = DecisionQuestion(id="c", kind="choice", text="Which plan?", options=("Plan A", "Plan B"))
+        tokens = [{"token": "Thinking", "logprob": -0.1, "top_logprobs": top(A=0.9)},
+                  {"token": "A", "logprob": math.log(0.7), "top_logprobs": top(A=0.7, B=0.2)},
+                  {"token": ".", "logprob": -0.01}, {"token": " Plan", "logprob": -0.01},
+                  {"token": " A", "logprob": -0.001, "top_logprobs": top(A=0.99, B=0.01)}]
+        result = checked(openai(FakeSession([token_reply("A. Plan A", tokens)])), request((plans,)))[0]
+        assert result.distribution == pytest.approx({"Plan A": 0.7 / 0.9, "Plan B": 0.2 / 0.9})
+        unspelled = checked(openai(FakeSession([token_reply("A. Plan A", tokens[:2])])), request((plans,)))[0]
+        assert (unspelled.value, unspelled.distribution, unspelled.probability_kind) == ("Plan A", None, "none")
+
+    def test_json_schema_strategy_constrains_the_answer_and_reads_no_probabilities(self) -> None:
+        session = FakeSession([chat_reply('{"answer": "C"}', top(A=0.1, C=0.8)), chat_reply('{"answer": "Z"}'),
+                               chat_reply('{"answer"'), chat_reply('{"other": "A"}')])
+        provider = openai(session, strategy="json_schema")
+        result = checked(provider, request((CHOICE,)))[0]
+        body = session.posts[0]["json"]
+        assert body["response_format"]["json_schema"]["schema"]["properties"]["answer"]["enum"] == ["A", "B", "C"]  # type: ignore[index]
+        assert "logprobs" not in body and "tools" not in body
+        assert (result.value, result.distribution, result.probability_kind) == ("other", None, "none")
+        assert result.extra["answer_strategy"] == "json_schema"  # type: ignore[index]
+        for _ in range(3):
+            assert checked(provider, request((CHOICE,)))[0].error_code == "invalid_provider_result"
+
+    def test_tool_strategy_forces_an_enum_argument(self) -> None:
+        session = FakeSession([tool_reply('{"answer": "B"}'), tool_reply("not json"), tool_reply(5)])
+        provider = openai(session, strategy="tool")
+        result = checked(provider, request((CHOICE,)))[0]
+        body = session.posts[0]["json"]
+        assert body["tool_choice"] == {"type": "function", "function": {"name": "answer"}}  # type: ignore[index]
+        assert body["tools"][0]["function"]["parameters"]["properties"]["answer"]["enum"] == ["A", "B", "C"]  # type: ignore[index]
+        assert (result.value, result.probability_kind, result.extra["answer_strategy"]) == ("tech", "none", "tool")  # type: ignore[index]
+        assert [checked(provider, request((CHOICE,)))[0].error_code for _ in range(2)] == ["invalid_provider_result"] * 2
+
+    def test_auto_probes_once_and_keeps_the_first_strategy_that_works(self) -> None:
+        session = FakeSession([chat_reply("A"), FakeResponse(400), tool_reply('{"answer": "A"}'),
+                               tool_reply('{"answer": "B"}')])
+        result = checked(openai(session, strategy="auto", base_url="https://auto-1.test/v1"), request((CHOICE,)))[0]
+        shapes = [("logprobs" in p["json"], "response_format" in p["json"], "tools" in p["json"]) for p in session.posts]  # type: ignore[operator]
+        assert shapes == [(True, False, False), (False, True, False), (False, False, True), (False, False, True)]
+        assert (result.value, result.extra["answer_strategy"]) == ("tech", "tool")  # type: ignore[index]
+        cached = FakeSession([tool_reply('{"answer": "A"}')])
+        checked(openai(cached, strategy="auto", base_url="https://auto-1.test/v1"), request((CHOICE,)))
+        assert len(cached.posts) == 1
+
+    def test_auto_keeps_logprobs_when_the_host_returns_label_alternatives(self) -> None:
+        session = FakeSession([chat_reply("A", top(A=0.8, B=0.1)), chat_reply("B", top(A=0.2, B=0.7))])
+        result = checked(openai(session, strategy="auto", base_url="https://auto-2.test/v1"), request((PRED,)))[0]
+        assert len(session.posts) == 2 and result.probability_kind == "token_logprob" and result.value is False
+
+    def test_auto_does_not_keep_a_probe_that_failed_on_transport(self) -> None:
+        down = FakeSession([requests.ConnectionError("down")])
+        failed = checked(openai(down, strategy="auto", max_retries=0, base_url="https://auto-3.test/v1"),
+                         request((PRED,)))[0]
+        assert failed.error_code == "transport_error" and "logprobs" in down.posts[-1]["json"]  # type: ignore[operator]
+        up = FakeSession([chat_reply("A", top(A=0.8, B=0.1))])
+        checked(openai(up, strategy="auto", base_url="https://auto-3.test/v1"), request((PRED,)))
+        assert len(up.posts) == 2
+
+    def test_unknown_strategies_are_rejected(self) -> None:
+        with pytest.raises(ValueError, match="strategy"):
+            openai(FakeSession([]), strategy="guess")
+

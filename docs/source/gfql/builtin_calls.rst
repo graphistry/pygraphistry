@@ -1950,7 +1950,12 @@ and other hosts) and ``AnthropicMessagesProvider`` ask each question with a one-
 the host returns token logprobs, read a label distribution from the answer token (``probability_kind``
 ``token_logprob``, conditional on the answer being a code; the codes' share of the answer token's probability is
 ``extra.label_mass``); without logprobs the answer has no distribution. A question whose labels cannot be given
-unambiguous codes is an ``unsupported_question`` error and is not sent. Any object implementing the
+unambiguous codes is an ``unsupported_question`` error and is not sent. A reply may also echo its code's label
+(``A. yes``). For hosts whose free-text replies cannot be read, ``OpenAIChatProvider(strategy='json_schema')`` or
+``strategy='tool'`` constrains the answer to the codes (no distribution); ``strategy='auto'`` probes the host once
+per endpoint and model (billed, outside the run's budget) and keeps the first strategy that works. Servers with the
+OpenAI Decisions API and smaller limits set ``max_questions_per_request``, ``max_choice_options`` and ``max_levels``
+on ``OpenAIDecisionsProvider``. Any object implementing the
 ``DecisionProvider`` protocol in ``graphistry.compute.semantic`` can be bound.
 
 Utility Methods
