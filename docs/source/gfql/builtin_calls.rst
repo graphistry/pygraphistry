@@ -1831,7 +1831,7 @@ Map node attributes to icons.
 Semantic Table Operators
 ------------------------
 
-``sem_decide`` asks a model provider typed questions about every row of the node (or edge) table and appends
+``sem_decide`` and ``sem_map`` ask a model provider about every row of the node (or edge) table and append
 typed result columns. Every input row is kept, in order and with its index; provider failures become per-row
 ``error`` results instead of exceptions. Providers are bound per execution with
 ``graphistry.compute.semantic.bind_providers``; a GFQL ``call()`` names the provider by alias, so queries stay
@@ -1941,8 +1941,18 @@ stay polars. Called directly as ``g.sem_decide(...)`` on a polars-bound graph, t
 then reaches a step that engine cannot run raises ``GFQLCallExecutionError`` instead of re-running the whole
 query on another engine; rerun with ``engine='pandas'`` (or ``'cudf'``).
 
-**Providers:** ``CallableDecisionProvider`` wraps a Python function. Any object implementing the
-``DecisionProvider`` protocol in ``graphistry.compute.semantic`` can be bound.
+sem_map
+~~~~~~~
+
+Generate one text value per row. Takes ``instruction`` (string, required), ``out_col`` (string, required) and
+``max_output_tokens`` (optional; passed to the provider as its bound on each value), plus every other ``sem_decide``
+parameter except ``questions`` and ``min_p`` (``batch_size`` falls back to 16 rather than 32). Adds ``out_col``,
+``{out_col}__status``, ``{out_col}__error_code`` and ``{out_col}__meta`` (no ``confidence`` in the metadata). Engines,
+limits, provider-fault handling, remote refusal and the ``engine='auto'`` rule are the same as for ``sem_decide``.
+
+**Providers:** ``CallableDecisionProvider`` and ``CallableGenerationProvider`` wrap Python functions. Any object
+implementing the ``DecisionProvider`` or ``GenerationProvider`` protocol in ``graphistry.compute.semantic`` can be
+bound.
 
 Utility Methods
 ---------------
