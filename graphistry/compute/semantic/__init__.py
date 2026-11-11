@@ -4,16 +4,19 @@ from graphistry.compute.semantic.contract import (
     Budget, DecisionProvider, DecisionQuestion, DecisionRequest, DecisionResult, ProviderCapabilities)
 from graphistry.compute.semantic.ops import sem_decide
 from graphistry.compute.semantic.providers.callable import CallableDecisionProvider
+from graphistry.compute.semantic.providers.chat import AnthropicMessagesProvider, OpenAIChatProvider
 from graphistry.compute.semantic.providers.http import TokenPrices
 from graphistry.compute.semantic.providers.openai_decisions import OpenAIDecisionsProvider
 
 __all__ = [
+    "AnthropicMessagesProvider",
     "Budget",
     "CallableDecisionProvider",
     "DecisionProvider",
     "DecisionQuestion",
     "DecisionRequest",
     "DecisionResult",
+    "OpenAIChatProvider",
     "OpenAIDecisionsProvider",
     "ProviderCapabilities",
     "TokenPrices",

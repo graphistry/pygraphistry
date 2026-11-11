@@ -1945,8 +1945,11 @@ query on another engine; rerun with ``engine='pandas'`` (or ``'cudf'``).
 
 **Providers:** ``CallableDecisionProvider`` wraps a Python function; ``OpenAIDecisionsProvider`` calls the public
 `OpenAI Decisions API <https://developers.openai.com/api/docs/guides/decisions>`_ with a caller-supplied model and
-``TokenPrices``. Any object implementing the ``DecisionProvider`` protocol in ``graphistry.compute.semantic`` can be
-bound.
+``TokenPrices``; ``OpenAIChatProvider`` (OpenAI-compatible chat completions: OpenAI, Azure OpenAI, Fireworks, Mistral
+and other hosts) and ``AnthropicMessagesProvider`` ask each question as a lettered choice and, when the host returns
+token logprobs, read a label distribution from the answer token (``probability_kind`` ``token_logprob``, observed label
+mass in ``extra.label_mass``); without logprobs the answer has no distribution. Any object implementing the
+``DecisionProvider`` protocol in ``graphistry.compute.semantic`` can be bound.
 
 Utility Methods
 ---------------
