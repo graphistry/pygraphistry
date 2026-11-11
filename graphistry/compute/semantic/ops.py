@@ -250,25 +250,23 @@ def _aligned_or_none(requests: Sequence[RequestT], returned: object, result_type
 
 def _plain_result(result: ResultT, result_type: Type[ResultT]) -> Optional[ResultT]:
     """The result as an exact ``result_type`` whose answer, distribution and status labels are plain Python values,
-    so what is checked is what is written; None when they cannot be read as such (provider values are untrusted)."""
-    try:
-        fields = {field.name: getattr(result, field.name) for field in dataclasses.fields(result_type)}
-        value, distribution = canonicalize(fields["value"]), canonicalize(fields.get("distribution"))
-        raw_size = len(fields["distribution"]) if isinstance(fields.get("distribution"), Mapping) else None
-        if not isinstance(value, (bool, str, type(None))) or not isinstance(distribution, (dict, type(None))) \
-                or (distribution is not None and raw_size != len(distribution)):
-            return None
-        fields.update({name: str.__str__(fields[name]) for name in (
-            "status", "status_reason", "probability_kind", "error_code") if isinstance(fields.get(name), str)})
-        fields["value"] = value
-        if "distribution" in fields:
-            fields["distribution"] = distribution
-        return result_type(**fields)
-    except Exception:
+    so what is checked is what is written; None when they are not plain answer values. Reading provider values may
+    raise; ``_checked`` turns that into an error cell."""
+    fields = {field.name: getattr(result, field.name) for field in dataclasses.fields(result_type)}
+    value, distribution = canonicalize(fields["value"]), canonicalize(fields.get("distribution"))
+    raw_size = len(fields["distribution"]) if isinstance(fields.get("distribution"), Mapping) else None
+    if not isinstance(value, (bool, str, type(None))) or not isinstance(distribution, (dict, type(None))) \
+            or (distribution is not None and raw_size != len(distribution)):
         return None
+    fields.update({name: str.__str__(fields[name]) for name in (
+        "status", "status_reason", "probability_kind", "error_code") if isinstance(fields.get(name), str)})
+    fields["value"] = value
+    if "distribution" in fields:
+        fields["distribution"] = distribution
+    return result_type(**fields)
 
 
-def _checked(outcome: _CallOutcome, result: Optional[ResultT], result_type: Type[ResultT],
+def _checked(outcome: _CallOutcome, row: Optional[Dict[str, ResultT]], key: str, result_type: Type[ResultT],
              problems: Callable[[ResultT], List[str]], finish: Callable[[ResultT], ResultT],
              unanswered: _Unanswered[ResultT], input_hash: str, task_version: str) -> ResultT:
     """The kernel's verdict on one cell. Provider data is untrusted: if reading it fails, or its metadata cannot
@@ -279,7 +277,7 @@ def _checked(outcome: _CallOutcome, result: Optional[ResultT], result_type: Type
     latency_ms: Optional[float] = None
     retry_count: Optional[int] = None
     try:
-        plain = None if result is None else _plain_result(result, result_type)
+        plain = None if row is None else _plain_result(row[key], result_type)
         if plain is not None and not problems(plain):
             final = finish(dataclasses.replace(plain, input_hash=input_hash, task_version=task_version))
             if _meta_json_or_none(final) is not None:
@@ -307,7 +305,7 @@ def _with_min_p(question: DecisionQuestion, result: DecisionResult, min_p: Optio
 def _decision_cell(request: DecisionRequest, question: DecisionQuestion, outcome: _CallOutcome,
                    row: Optional[Dict[str, DecisionResult]], identity: Tuple[str, str],
                    capabilities: ProviderCapabilities, min_p: Optional[float], input_hash: str) -> DecisionResult:
-    return _checked(outcome, None if row is None else row[question.id], DecisionResult,
+    return _checked(outcome, row, question.id, DecisionResult,
                     lambda found: check_decision_result(request, question, found, capabilities),
                     lambda found: _with_min_p(question, found, min_p),
                     functools.partial(unanswered_result, request, question, provider=identity[0], model=identity[1]),
@@ -316,7 +314,7 @@ def _decision_cell(request: DecisionRequest, question: DecisionQuestion, outcome
 
 def _generation_cell(request: GenerationRequest, outcome: _CallOutcome, row: Optional[Dict[str, GenerationResult]],
                      identity: Tuple[str, str], input_hash: str) -> GenerationResult:
-    return _checked(outcome, None if row is None else row[""], GenerationResult,
+    return _checked(outcome, row, "", GenerationResult,
                     lambda found: check_generation_result(request, found), lambda found: found,
                     functools.partial(unanswered_generation_result, request, provider=identity[0], model=identity[1]),
                     input_hash, request.task_version)

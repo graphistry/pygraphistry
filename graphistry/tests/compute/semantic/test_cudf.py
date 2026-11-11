@@ -10,8 +10,9 @@ from graphistry import call
 from graphistry.Plottable import Plottable
 from graphistry.compute.ast import ASTObject
 from graphistry.compute.exceptions import ErrorCode, GFQLCallExecutionError
-from graphistry.compute.semantic import CallableDecisionProvider, DecisionQuestion, bind_providers
-from graphistry.compute.semantic.ops import sem_decide
+from graphistry.compute.semantic import (
+    CallableDecisionProvider, CallableGenerationProvider, DecisionQuestion, bind_providers)
+from graphistry.compute.semantic.ops import sem_decide, sem_map
 
 pytestmark = pytest.mark.skipif(
     not ("TEST_CUDF" in os.environ and os.environ["TEST_CUDF"] == "1"),
@@ -64,6 +65,28 @@ def test_gfql_cudf_engine() -> None:
                                           "evidence_cols": ["name"]})], engine="cudf")
     assert isinstance(out._nodes, cudf.DataFrame)
     assert out._nodes.to_pandas()["p"].tolist() == [True, False, True, False]
+
+
+def test_sem_map_matches_pandas_and_keeps_engine() -> None:
+    import cudf
+    shout = CallableGenerationProvider(lambda evidence, instruction: str(evidence).upper() if "inc" in str(evidence) else None)
+    params: dict = dict(instruction="Shout", out_col="o", provider=shout, evidence_cols=["name"], task_id="t")
+    expected = sem_map(NODES, **params)
+    got = sem_map(cudf.from_pandas(NODES), **params)
+    assert isinstance(got, cudf.DataFrame)
+    host = got.to_pandas()
+    assert host.index.tolist() == [30, 10, 20, 40]
+    assert [None if pd.isna(value) else value for value in host["o"]] == [None if pd.isna(value) else value
+                                                                          for value in expected["o"]]
+    assert host["o__status"].tolist() == ["ok", "uncertain", "ok", "uncertain"]
+    assert host["o__meta"].tolist() == expected["o__meta"].tolist()
+    for col in ("o", "o__status", "o__error_code", "o__meta"):
+        assert str(got[col].dtype) == "object", (col, got[col].dtype)
+    with bind_providers({"g": shout}):
+        out = graphistry.nodes(cudf.from_pandas(NODES), "id").gfql(
+            [call("sem_map", dict(params, provider="g"))], engine="cudf")
+    assert isinstance(out._nodes, cudf.DataFrame)
+    assert out._nodes.to_pandas()["o__status"].tolist() == ["ok", "uncertain", "ok", "uncertain"]
 
 
 def remove_from_pandas_shim(monkeypatch: pytest.MonkeyPatch) -> None:

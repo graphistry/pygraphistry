@@ -186,7 +186,7 @@ class TestLimitsAndValidation:
     @pytest.mark.parametrize("kwargs", [
         dict(out_col="text"), dict(out_col="__gfql_x__"), dict(out_col=""), dict(instruction=""),
         dict(max_output_tokens=0), dict(template="{0}", evidence_cols=None), dict(deadline_s=0), dict(overwrite="yes"),
-        dict(provider=Recording()),
+        dict(provider=Recording()), dict(batch_size=0), dict(max_rows=True), dict(task_id=""), dict(column_max_chars=0),
     ])
     def test_raises_before_any_call(self, kwargs: dict) -> None:
         provider = RecordingGenerator()
@@ -195,6 +195,15 @@ class TestLimitsAndValidation:
         with pytest.raises(ValueError):
             run(frame(), **params)  # type: ignore[arg-type]
         assert provider.calls == []
+
+    def test_existing_output_columns_need_overwrite_and_evidence_is_truncated(self) -> None:
+        with pytest.raises(ValueError, match="overwrite"):
+            run(frame().assign(o__meta="x"), RecordingGenerator())
+        provider = RecordingGenerator()
+        out = run(frame().assign(o__meta="x"), provider, overwrite=True, column_max_chars=2)
+        assert out["o__meta"].iloc[0] != "x"
+        assert sorted(r.evidence["text"] for call in provider.calls for r in call) == [  # type: ignore[index]
+            "al", "be", "de", "ga", "ze"]
 
 
 class TestGenerationContract:

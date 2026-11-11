@@ -78,7 +78,7 @@ class Recording(CallableDecisionProvider):
 
 
 class RecordingGenerator(CallableGenerationProvider):
-    """Callable generation provider that records every request and the limits each call received."""
+    """Callable generation provider that records every request, the limits each call received and peak concurrency."""
 
     def __init__(self, fn: Callable[[object, str], object] = lambda evidence, instruction: "x", delay: float = 0.0,
                  **kwargs: object) -> None:
@@ -86,6 +86,7 @@ class RecordingGenerator(CallableGenerationProvider):
         self.calls: List[List[GenerationRequest]] = []
         self.limits: List[Tuple[Optional[float], Optional[Budget]]] = []
         self.delay = delay
+        self.active = self.peak = 0
         self.lock = threading.Lock()
 
     def generate_batch(self, requests: Sequence[GenerationRequest], *, deadline_s: Optional[float],
@@ -93,8 +94,14 @@ class RecordingGenerator(CallableGenerationProvider):
         with self.lock:
             self.calls.append(list(requests))
             self.limits.append((deadline_s, budget))
-        time.sleep(self.delay)
-        return super().generate_batch(requests, deadline_s=deadline_s, budget=budget)
+            self.active += 1
+            self.peak = max(self.peak, self.active)
+        try:
+            time.sleep(self.delay)
+            return super().generate_batch(requests, deadline_s=deadline_s, budget=budget)
+        finally:
+            with self.lock:
+                self.active -= 1
 
 
 class Scripted:

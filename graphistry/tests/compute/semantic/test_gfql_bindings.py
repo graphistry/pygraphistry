@@ -182,6 +182,18 @@ class TestSemMap:
         assert (request.request_id, request.max_output_tokens) == ("1", 7)
         assert budget is not None and budget.max_requests == 1 and deadline is not None and 0 < deadline <= 30.0
 
+    @pytest.mark.parametrize("surface", ["method", "gfql"])
+    def test_concurrency_and_evidence_truncation_reach_the_kernel(self, surface: str) -> None:
+        provider = RecordingGenerator(delay=0.05)
+        limits: Dict[str, object] = dict(max_concurrency=1, batch_size=1, column_max_chars=3)
+        if surface == "method":
+            graph().sem_map("Shout it", "loud", provider, task_id="t", evidence_cols=["name"],
+                            **limits)  # type: ignore[arg-type]
+        else:
+            run(provider, [call("sem_map", dict(MAP_PARAMS, **limits))])
+        assert provider.peak == 1 and sorted(r.evidence["name"] for c in provider.calls for r in c) == [  # type: ignore[index]
+            "acm", "bob", "zet"]
+
     def test_parity_round_trip_and_remote_refusal(self) -> None:
         gen = CallableGenerationProvider(lambda evidence, instruction: str(evidence["name"]).upper())  # type: ignore[index]
         out = run(gen, [call("sem_map", MAP_PARAMS)])
@@ -198,11 +210,15 @@ class TestSemMap:
                     graph().gfql_remote(query, validate=False)
             assert post.call_count == 0
 
-    @pytest.mark.parametrize("overrides", [dict(out_col="__gfql_x__"), dict(out_col=""), dict(instruction=""),
-                                           dict(max_output_tokens=0), dict(questions=[Q_PRED])])
-    def test_e201_before_the_kernel(self, overrides: Dict[str, object]) -> None:
-        with pytest.raises(GFQLTypeError):
-            run(CallableGenerationProvider(lambda e, i: "x"), [call("sem_map", dict(MAP_PARAMS, **overrides))])
+    @pytest.mark.parametrize("overrides,code", [
+        (dict(out_col="__gfql_x__"), ErrorCode.E201), (dict(out_col=""), ErrorCode.E201),
+        (dict(instruction=""), ErrorCode.E201), (dict(max_output_tokens=0), ErrorCode.E201),
+        (dict(questions=[Q_PRED]), ErrorCode.E303)])
+    def test_validation_errors_before_the_kernel(self, overrides: Dict[str, object], code: ErrorCode) -> None:
+        provider = RecordingGenerator()
+        with pytest.raises(GFQLTypeError) as info:
+            run(provider, [call("sem_map", dict(MAP_PARAMS, **overrides))])
+        assert info.value.code == code and provider.calls == []
 
     def test_late_decline_raises_after_one_pass_and_protocol_mismatch(self) -> None:
         gen = CallableGenerationProvider(lambda e, i: "x")
