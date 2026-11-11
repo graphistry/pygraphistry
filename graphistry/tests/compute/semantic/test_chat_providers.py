@@ -8,9 +8,10 @@ import pytest
 
 from graphistry.compute.semantic.contract import DecisionQuestion, DecisionRequest, DecisionResult, check_decision_result
 from graphistry.compute.semantic.ops import sem_decide
+from graphistry.compute.semantic.providers import chat
 from graphistry.compute.semantic.providers.chat import (
-    LETTERS, SYSTEM_PROMPT, AnthropicMessagesProvider, OpenAIChatProvider, answer_codes, code_index, label_distribution,
-    letter_prompt)
+    DIGITS, LETTERS, SYSTEM_PROMPT, AnthropicMessagesProvider, OpenAIChatProvider, answer_codes, code_index,
+    forget_probes, label_distribution, letter_prompt)
 from graphistry.compute.semantic.providers.http import TokenPrices
 from graphistry.tests.compute.semantic.http_test_utils import CHOICE, PRED, SCORE, FakeResponse, FakeSession, request
 
@@ -312,6 +313,12 @@ def token_reply(text: str, tokens: List[Dict[str, object]]) -> FakeResponse:
 
 class TestFallbacks:
 
+    @pytest.fixture(autouse=True)
+    def fresh_probes(self):  # type: ignore[no-untyped-def]
+        forget_probes()
+        yield
+        forget_probes()
+
     @pytest.mark.parametrize("question,text,value", [
         (PRED, "A. yes", True), (PRED, "B: no", False), (CHOICE, "B) tech", "tech"), (SCORE, "C. high (highest)", "high"),
         (SCORE, "a. LOW.", "low")])
@@ -387,4 +394,88 @@ class TestFallbacks:
     def test_unknown_strategies_are_rejected(self) -> None:
         with pytest.raises(ValueError, match="strategy"):
             openai(FakeSession([]), strategy="guess")
+
+    def test_json_replies_never_yield_probabilities(self) -> None:
+        tokens = [{"token": '{"answer": "', "logprob": -0.01},
+                  {"token": "C", "logprob": math.log(0.8), "top_logprobs": top(C=0.8, A=0.1)}, {"token": '"}', "logprob": -0.01}]
+        result = checked(openai(FakeSession([token_reply('{"answer": "C"}', tokens)]), strategy="json_schema"),
+                         request((CHOICE,)))[0]
+        assert (result.value, result.distribution, result.probability_kind) == ("other", None, "none")
+
+    def test_a_tool_call_to_another_function_is_an_error(self) -> None:
+        reply = tool_reply('{"answer": "B"}')
+        reply._body["choices"][0]["message"]["tool_calls"][0]["function"]["name"] = "other"  # type: ignore[index]
+        assert checked(openai(FakeSession([reply]), strategy="tool"), request((CHOICE,)))[0].error_code == \
+            "invalid_provider_result"
+
+    def test_echo_probabilities_come_only_from_the_first_reply_token(self) -> None:
+        plans = DecisionQuestion(id="c", kind="choice", text="Which plan?", options=("Plan A", "Plan B"))
+        merged = [{"token": "A:", "logprob": -0.5, "top_logprobs": [{"token": "A:", "logprob": -0.5}]},
+                  {"token": " Plan", "logprob": -0.01}, {"token": " A", "logprob": -0.001, "top_logprobs": top(A=0.99, B=0.01)}]
+        result = checked(openai(FakeSession([token_reply("A: Plan A", merged)])), request((plans,)))[0]
+        assert (result.value, result.distribution) == ("Plan A", None)
+        marked = [{"token": "\u2581A", "logprob": math.log(0.6), "top_logprobs": top(**{"\u2581A": 0.6, "\u2581B": 0.3})},
+                  {"token": ".", "logprob": -0.01}, {"token": "\u2581yes", "logprob": -0.01}]
+        spelled = checked(openai(FakeSession([token_reply("A. yes", marked)])), request((PRED,)))[0]
+        assert spelled.distribution == pytest.approx({"true": 0.6 / 0.9, "false": 0.3 / 0.9})
+
+    def test_options_that_echo_another_option_get_other_codes(self) -> None:
+        echoes = DecisionQuestion(id="c", kind="choice", text="Which?", options=("Yes", "A. Yes"))
+        assert answer_codes(echoes) == DIGITS
+        result = checked(openai(FakeSession([chat_reply("1")])), request((echoes,)))[0]
+        assert result.value == "A. Yes"
+
+    @pytest.mark.parametrize("failure,code", [(FakeResponse(401), "http_401"), (FakeResponse(429), "http_429"),
+                                              (FakeResponse(503), "http_503")])
+    def test_auth_rate_and_server_failures_keep_no_probe(self, failure: FakeResponse, code: str) -> None:
+        session = FakeSession([failure])
+        result = checked(openai(session, strategy="auto", max_retries=0), request((PRED,)))[0]
+        assert result.error_code == code and len(session.posts) == 2 and "logprobs" in session.posts[1]["json"]  # type: ignore[operator]
+        again = FakeSession([chat_reply("A", top(A=0.8, B=0.1))])
+        checked(openai(again, strategy="auto"), request((PRED,)))
+        assert len(again.posts) == 2
+
+    def test_unusable_probe_replies_fall_through_to_text(self) -> None:
+        cut = chat_reply("A", top(A=0.8, B=0.1))
+        cut._body["choices"][0]["finish_reason"] = "length"  # type: ignore[index]
+        session = FakeSession([cut, chat_reply("A"), FakeResponse(400), chat_reply("A"), chat_reply("B")])
+        result = checked(openai(session, strategy="auto"), request((PRED,)))[0]
+        real = session.posts[-1]["json"]
+        assert len(session.posts) == 5 and result.value is False
+        assert not {"logprobs", "response_format", "tools"} & set(real)  # type: ignore[arg-type]
+
+    def test_kept_probes_follow_every_setting_and_expire(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        checked(openai(FakeSession([chat_reply("A", top(A=0.8, B=0.1))]), strategy="auto"), request((PRED,)))
+        for options in (dict(top_logprobs=10), dict(max_answer_tokens=8), dict(max_tokens_field="max_tokens"),
+                        dict(extra_headers={"x": "1"}), dict(extra_body={"seed": 1})):
+            session = FakeSession([chat_reply("A", top(A=0.8, B=0.1))])
+            checked(openai(session, strategy="auto", **options), request((PRED,)))
+            assert len(session.posts) == 2, options
+        monkeypatch.setattr(chat, "PROBE_TTL_S", -1.0)
+        expired = FakeSession([chat_reply("A", top(A=0.8, B=0.1))])
+        checked(openai(expired, strategy="auto"), request((PRED,)))
+        assert len(expired.posts) == 2
+
+    def test_waiting_for_a_probe_ends_at_the_deadline(self) -> None:
+        import threading
+        import time as clock
+        session = FakeSession([chat_reply("A", top(A=0.8, B=0.1))])
+        provider = openai(session, strategy="auto")
+        lock = chat._probe_locks.setdefault(provider.probe_key(), threading.Lock())
+        finished = threading.Event()
+        lock.acquire()
+        try:
+            started = clock.monotonic()
+            threading.Thread(target=lambda: (provider.decide_batch([request((PRED,))], deadline_s=0.05, budget=None),
+                                             finished.set()), daemon=True).start()
+            assert finished.wait(2.0) and clock.monotonic() - started < 2.0 and len(session.posts) <= 1
+        finally:
+            lock.release()
+
+    def test_no_probe_when_nothing_can_be_sent(self) -> None:
+        grades = DecisionQuestion(id="g", kind="score", text="Grade?",
+                                  levels=("F", "D", "C", "B", "A", "A+", "A-", "B+", "B-", "C+", "C-"))
+        session = FakeSession([chat_reply("A")])
+        checked(openai(session, strategy="auto"), request((grades,)))
+        assert session.posts == []
 

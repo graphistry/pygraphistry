@@ -160,7 +160,8 @@ class TestMapping:
         assert (caps.max_questions_per_request, caps.max_choice_options, caps.max_levels) == (2, 26, 10)
         assert [len(group) for group in p.question_groups(request((PRED, CHOICE, SCORE)))] == [2, 1]
 
-    @pytest.mark.parametrize("options", [dict(max_questions_per_request=0), dict(max_choice_options=1),
+    @pytest.mark.parametrize("options", [dict(max_questions_per_request=0), dict(max_questions_per_request=True),
+                                         dict(max_choice_options=1), dict(max_choice_options=2.5), dict(max_levels=1),
                                          dict(max_levels=True), dict(max_levels=2.5)])
     def test_limit_settings_are_checked(self, options: dict) -> None:
         with pytest.raises(ValueError, match=next(iter(options))):
