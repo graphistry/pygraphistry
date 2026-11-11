@@ -6,8 +6,8 @@ from typing import Callable, Dict, List, Optional, Sequence, Tuple
 import pandas as pd
 
 from graphistry.compute.semantic.contract import (
-    Budget, DecisionQuestion, DecisionRequest, DecisionResult, ProviderCapabilities)
-from graphistry.compute.semantic.providers.callable import CallableDecisionProvider
+    Budget, DecisionQuestion, DecisionRequest, DecisionResult, GenerationRequest, GenerationResult, ProviderCapabilities)
+from graphistry.compute.semantic.providers.callable import CallableDecisionProvider, CallableGenerationProvider
 
 
 P = {"id": "p", "kind": "predicate", "text": "Is it notable?"}
@@ -75,6 +75,26 @@ class Recording(CallableDecisionProvider):
     @property
     def request_ids(self) -> List[str]:
         return [request_id for call in self.calls for request_id in call]
+
+
+class RecordingGenerator(CallableGenerationProvider):
+    """Callable generation provider that records every request and the limits each call received."""
+
+    def __init__(self, fn: Callable[[object, str], object] = lambda evidence, instruction: "x", delay: float = 0.0,
+                 **kwargs: object) -> None:
+        super().__init__(fn, **kwargs)  # type: ignore[arg-type]
+        self.calls: List[List[GenerationRequest]] = []
+        self.limits: List[Tuple[Optional[float], Optional[Budget]]] = []
+        self.delay = delay
+        self.lock = threading.Lock()
+
+    def generate_batch(self, requests: Sequence[GenerationRequest], *, deadline_s: Optional[float],
+                       budget: Optional[Budget]) -> List[GenerationResult]:
+        with self.lock:
+            self.calls.append(list(requests))
+            self.limits.append((deadline_s, budget))
+        time.sleep(self.delay)
+        return super().generate_batch(requests, deadline_s=deadline_s, budget=budget)
 
 
 class Scripted:

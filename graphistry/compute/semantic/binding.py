@@ -17,8 +17,8 @@ def bind_providers(providers: Mapping[str, Union[DecisionProvider, GenerationPro
     """Bind provider aliases for semantic operators run inside this block.
 
     Inner blocks overlay outer ones alias by alias and restore them on exit. The mapping is copied on entry.
-    Bindings follow ``contextvars`` rules: enter the block in the thread that calls ``g.gfql`` or
-    ``g.sem_decide``.
+    Bindings follow ``contextvars`` rules: enter the block in the thread that calls ``g.gfql``,
+    ``g.sem_decide`` or ``g.sem_map``.
 
     **Example**
         ::

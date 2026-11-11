@@ -1,34 +1,17 @@
 import json
 import threading
 from dataclasses import replace
-import time
-from typing import Dict, List, Optional, Sequence, Tuple
+from enum import Enum
+from typing import Dict, Optional, Sequence
 
 import numpy as np
 import pandas as pd
 import pytest
 
-from graphistry.compute.semantic.contract import Budget, GenerationRequest, GenerationResult, compute_generation_hash
+from graphistry.compute.semantic.contract import GenerationRequest, GenerationResult, compute_generation_hash
 from graphistry.compute.semantic.ops import sem_map
 from graphistry.compute.semantic.providers.callable import CallableGenerationProvider
-from graphistry.tests.compute.semantic.semantic_test_utils import TEXT_DTYPES, Recording, caps
-
-
-class RecordingGenerator(CallableGenerationProvider):
-    def __init__(self, fn=lambda evidence, instruction: "x", delay: float = 0.0, **kwargs: object) -> None:  # type: ignore[no-untyped-def]
-        super().__init__(fn, **kwargs)  # type: ignore[arg-type]
-        self.calls: List[List[GenerationRequest]] = []
-        self.limits: List[Tuple[Optional[float], Optional[Budget]]] = []
-        self.delay = delay
-        self.lock = threading.Lock()
-
-    def generate_batch(self, requests: Sequence[GenerationRequest], *, deadline_s: Optional[float],
-                       budget: Optional[Budget]) -> List[GenerationResult]:
-        with self.lock:
-            self.calls.append(list(requests))
-            self.limits.append((deadline_s, budget))
-        time.sleep(self.delay)
-        return super().generate_batch(requests, deadline_s=deadline_s, budget=budget)
+from graphistry.tests.compute.semantic.semantic_test_utils import TEXT_DTYPES, Recording, RecordingGenerator, caps
 
 
 class ScriptedGenerator:
@@ -125,6 +108,47 @@ class TestFailures:
         out = run(pd.DataFrame({"text": ["a"]}), RecordingGenerator(lambda e, i: 5))
         assert out["o__error_code"].tolist() == ["invalid_provider_result"]
 
+    def test_callable_values_are_read_as_plain_python(self) -> None:
+        out = run(pd.DataFrame({"text": ["a", "b"]}), RecordingGenerator(
+            lambda e, i: float("nan") if e["text"] == "a" else np.str_("x")))  # type: ignore[arg-type]
+        assert out["o__status"].tolist() == ["uncertain", "ok"] and out["o"].isna().tolist() == [True, False]
+        assert type(out["o"].iloc[1]) is str
+
+    def test_provider_values_that_raise_when_read_error_only_their_row(self) -> None:
+        class Unreadable:
+            def tolist(self) -> object:
+                raise TypeError("cannot read")
+
+        class FloatRaises(float):
+            def __float__(self) -> float:
+                raise RuntimeError("no floats")
+
+        hostile = {"b": dict(value=Unreadable()),
+                   "c": dict(value=None, status="uncertain", status_reason="tie", latency_ms=FloatRaises(1.0))}
+        out = run(pd.DataFrame({"text": ["a", "b", "c", "d"]}), ScriptedGenerator(lambda i, reqs: [
+            generated(r, **hostile.get(r.evidence["text"], {})) for r in reqs]))  # type: ignore[index]
+        assert out["o__status"].tolist() == ["ok", "error", "error", "ok"]
+        assert out["o__error_code"].tolist()[1:3] == ["invalid_provider_result"] * 2
+
+    def test_answers_are_plain_strings_and_kernel_fields_win(self) -> None:
+        class Label(str, Enum):
+            B = "b"
+
+        class FromResponse(GenerationResult):
+            def __init__(self, base: GenerationResult) -> None:
+                super().__init__(**vars(base))
+
+        out = run(pd.DataFrame({"text": ["a"]}), ScriptedGenerator(lambda i, reqs: [
+            FromResponse(generated(r, Label.B, task_version="999")) for r in reqs]), task_version="2")
+        meta = json.loads(out["o__meta"].iloc[0])
+        assert (out["o__status"].tolist(), out["o"].tolist(), type(out["o"].iloc[0])) == (["ok"], ["b"], str)
+        assert (meta["task_version"], meta["input_hash"]) == ("2", compute_generation_hash({"text": "a"}, "Shout", "2"))
+
+    def test_kernel_built_errors_carry_the_provider_name_and_model(self) -> None:
+        meta = json.loads(run(pd.DataFrame({"text": ["a"]}), ScriptedGenerator(
+            lambda i, reqs: [generated(r, 5) for r in reqs]))["o__meta"].iloc[0])
+        assert (meta["provider"], meta["model"]) == ("raw", "raw-m")
+
 
 class TestLimitsAndValidation:
 
@@ -191,6 +215,9 @@ class TestGenerationContract:
         failed = unanswered_generation_result(req, provider="p", model="m", error_code="x")
         skipped = unanswered_generation_result(req, provider="p", model="m", status_reason="deadline")
         assert check_generation_result(req, failed) == check_generation_result(req, skipped) == []
+        assert check_generation_result(req, generated(req, None, status="uncertain")) == []
+        with pytest.raises(ValueError, match="callable"):
+            CallableGenerationProvider(5)  # type: ignore[arg-type]
         assert failed.input_hash == compute_generation_hash("e", "i", "1")
         assert align_results([req], [good], GenerationResult) == {"r0": {"": good}}
         assert align_results([req], [good, good], GenerationResult) is None

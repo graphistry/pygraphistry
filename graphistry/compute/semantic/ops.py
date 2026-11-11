@@ -10,7 +10,7 @@ import math
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, wait
-from typing import Callable, Dict, List, Mapping, Optional, Sequence, Tuple, Type, TypeVar, Union
+from typing import Callable, Dict, List, Mapping, Optional, Protocol, Sequence, Tuple, Type, TypeVar, Union
 
 import numpy as np
 import pandas as pd
@@ -33,6 +33,16 @@ DEFAULT_MAP_BATCH_SIZE = 16
 Cell = Tuple[int, str]
 RequestT = TypeVar("RequestT", DecisionRequest, GenerationRequest)
 Invoke = Callable[[Sequence[RequestT], Optional[float], Optional[Budget]], object]
+UnansweredT = TypeVar("UnansweredT", DecisionResult, GenerationResult, covariant=True)
+
+
+class _Unanswered(Protocol[UnansweredT]):
+    """Builds the kernel's own ``error`` or ``skipped`` result for one cell."""
+
+    def __call__(self, *, input_hash: Optional[str] = None, error_code: Optional[str] = None,
+                 status_reason: Optional[SkippedReason] = None, latency_ms: Optional[float] = None,
+                 retry_count: Optional[int] = None) -> UnansweredT:
+        ...
 
 
 @dataclasses.dataclass(frozen=True)
@@ -200,15 +210,15 @@ def _nonnegative(value: object) -> Optional[float]:
     return number if number is not None and number >= 0 else None
 
 
-Cells = List[Tuple[int, RequestT, "_CallOutcome", Optional[Dict[str, ResultT]]]]
+RequestOutcomes = List[Tuple[int, RequestT, _CallOutcome, Optional[Dict[str, ResultT]]]]
 
 
 def _run_rows(rows: _Rows, requests_for: Callable[[List[int]], List[List[RequestT]]], invoke: Invoke[RequestT], *,
               result_type: Type[ResultT], capabilities: ProviderCapabilities, batch_size: Optional[int],
               default_batch_size: int, max_concurrency: Optional[int], budget: Optional[Budget],
-              deadline_at: Optional[float], effect_name: str) -> Cells[RequestT, ResultT]:
+              deadline_at: Optional[float], effect_name: str) -> RequestOutcomes[RequestT, ResultT]:
     """The row driver: batch the attempted rows, run the calls under the limits, align each provider return, and
-    yield ``(position, request, outcome, aligned results of that request)`` for every request, sent or not."""
+    return ``(position, request, outcome, aligned results of that request)`` for every request, sent or not."""
     size = batch_size or capabilities.max_rows_per_request or default_batch_size
     if capabilities.max_rows_per_request is not None:
         size = min(size, capabilities.max_rows_per_request)
@@ -220,7 +230,7 @@ def _run_rows(rows: _Rows, requests_for: Callable[[List[int]], List[List[Request
     never_sent = [(requests, _CallOutcome(skipped=reason)) for position, reason in enumerate(rows.skip_reason)
                   if reason is not None for requests in requests_for([position])]
     position_of = {request_id: position for position, request_id in enumerate(rows.request_ids)}
-    cells: Cells[RequestT, ResultT] = []
+    cells: RequestOutcomes[RequestT, ResultT] = []
     for requests, outcome in list(zip(calls, outcomes)) + never_sent:
         aligned = None if outcome.skipped or outcome.raised else _aligned_or_none(requests, outcome.returned,
                                                                                    result_type)
@@ -260,7 +270,7 @@ def _plain_result(result: ResultT, result_type: Type[ResultT]) -> Optional[Resul
 
 def _checked(outcome: _CallOutcome, result: Optional[ResultT], result_type: Type[ResultT],
              problems: Callable[[ResultT], List[str]], finish: Callable[[ResultT], ResultT],
-             unanswered: Callable[..., ResultT], input_hash: str, task_version: str) -> ResultT:
+             unanswered: _Unanswered[ResultT], input_hash: str, task_version: str) -> ResultT:
     """The kernel's verdict on one cell. Provider data is untrusted: if reading it fails, or its metadata cannot
     become JSON, the cell is an error built from kernel fields. ``input_hash`` (taken before any call) and
     ``task_version`` come from the kernel, so a provider cannot change them."""

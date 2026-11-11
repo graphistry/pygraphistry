@@ -20,7 +20,7 @@ from graphistry.compute.gfql.call.validation import SAFELIST_V1
 from graphistry.compute.gfql.policy import PolicyContext, PolicyException
 from graphistry.compute.semantic import CallableDecisionProvider, CallableGenerationProvider, bind_providers
 from graphistry.compute.semantic.binding import resolve_provider
-from graphistry.tests.compute.semantic.semantic_test_utils import Recording, caps
+from graphistry.tests.compute.semantic.semantic_test_utils import Recording, RecordingGenerator, caps
 
 
 Q_PRED = {"id": "co", "kind": "predicate", "text": "Is this a company?"}
@@ -162,6 +162,25 @@ class TestCallMethodParity:
 
 
 class TestSemMap:
+
+    @pytest.mark.parametrize("surface", ["method", "gfql"])
+    def test_limits_and_the_id_binding_reach_the_kernel(self, surface: str) -> None:
+        provider = RecordingGenerator(lambda evidence, instruction: "x")
+        limits: Dict[str, object] = dict(max_rows=2, budget={"max_requests": 1}, deadline_s=30.0, batch_size=1,
+                                         max_output_tokens=7, task_version="7")
+        if surface == "method":
+            out = graph().sem_map("Shout it", "loud", provider, task_id="t", evidence_cols=["name"],
+                                  **limits)  # type: ignore[arg-type]
+        else:
+            out = run(provider, [call("sem_map", dict(MAP_PARAMS, **limits))])
+        metas = [json.loads(meta) for meta in out._nodes["loud__meta"]]
+        assert out._nodes["loud__status"].tolist() == ["ok", "skipped", "skipped"]
+        assert [(m["status_reason"], m["task_version"]) for m in metas] == [
+            (None, "7"), ("budget", "7"), ("max_rows", "7")]
+        [[request]] = provider.calls
+        deadline, budget = provider.limits[0]
+        assert (request.request_id, request.max_output_tokens) == ("1", 7)
+        assert budget is not None and budget.max_requests == 1 and deadline is not None and 0 < deadline <= 30.0
 
     def test_parity_round_trip_and_remote_refusal(self) -> None:
         gen = CallableGenerationProvider(lambda evidence, instruction: str(evidence["name"]).upper())  # type: ignore[index]
