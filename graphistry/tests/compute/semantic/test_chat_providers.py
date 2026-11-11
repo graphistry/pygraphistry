@@ -328,7 +328,7 @@ class TestFallbacks:
         result = checked(openai(FakeSession([chat_reply(text)])), request((question,)))[0]
         assert (result.status, result.value) == ("ok", value)
 
-    @pytest.mark.parametrize("text", ["A. no", "A box arrived", "A. yes\nbecause it is", "A yes", "Z. yes", "A:"])
+    @pytest.mark.parametrize("text", ["A. no", "A box arrived", "A. yes\nbecause it is", "A yes", "Z. yes", "A:", "C. yes"])
     def test_other_replies_with_more_than_a_code_are_errors(self, text: str) -> None:
         result = checked(openai(FakeSession([chat_reply(text)])), request((PRED,)))[0]
         assert (result.status, result.error_code) == ("error", "invalid_provider_result")
@@ -558,7 +558,10 @@ class TestFallbacks:
         import threading
         import time as clock
 
+        probing = threading.Event()
+
         def slow(body: Dict[str, object]) -> FakeResponse:
+            probing.set()
             clock.sleep(0.3)
             return chat_reply("A", top(A=0.8, B=0.1))
 
@@ -566,7 +569,7 @@ class TestFallbacks:
         worker = threading.Thread(target=lambda: openai(first, strategy="auto").decide_batch(
             [request((PRED,))], deadline_s=None, budget=None))
         worker.start()
-        clock.sleep(0.1)
+        assert probing.wait(5)
         openai(second, strategy="auto").decide_batch([request((PRED,))], deadline_s=None, budget=None)
         worker.join(5)
         assert (len(first.posts), len(second.posts)) == (2, 1)
@@ -575,14 +578,17 @@ class TestFallbacks:
         import threading
         import time as clock
 
+        probing = threading.Event()
+
         def slow(body: Dict[str, object]) -> FakeResponse:
+            probing.set()
             clock.sleep(0.3)
             return chat_reply("A", top(A=0.8, B=0.1))
 
         worker = threading.Thread(target=lambda: openai(FakeSession([slow]), strategy="auto").decide_batch(
             [request((PRED,))], deadline_s=None, budget=None))
         worker.start()
-        clock.sleep(0.1)
+        assert probing.wait(5)
         forget_probes()
         worker.join(5)
         again = FakeSession([chat_reply("A", top(A=0.8, B=0.1))])
@@ -613,3 +619,40 @@ class TestFallbacks:
         plain = openai(FakeSession([]), strategy="text").estimate_cost_usd([request((CHOICE,))])
         for strategy in ("json_schema", "tool"):
             assert openai(FakeSession([]), strategy=strategy).estimate_cost_usd([request((CHOICE,))]) > plain  # type: ignore[operator]
+
+    def test_huge_deadlines_work_under_auto(self) -> None:
+        session = FakeSession([chat_reply("A", top(A=0.8, B=0.1))])
+        result = openai(session, strategy="auto").decide_batch([request((PRED,))], deadline_s=1e10, budget=None)[0]
+        assert (result.status, result.value) == ("ok", True)
+
+    def test_auto_estimates_with_the_largest_strategy_before_probing(self) -> None:
+        req = request((CHOICE,))
+        auto = openai(FakeSession([]), strategy="auto").estimate_cost_usd([req])
+        assert auto == openai(FakeSession([]), strategy="tool").estimate_cost_usd([req])
+
+    def test_json_replies_with_duplicate_keys_are_errors(self) -> None:
+        session = FakeSession([chat_reply('{"answer": "A", "answer": "B"}')])
+        assert checked(openai(session, strategy="json_schema"), request((CHOICE,)))[0].error_code == \
+            "invalid_provider_result"
+
+    @pytest.mark.parametrize("tail", [["<\uff5cend\u2581of\u2581sentence\uff5c>"], ["[EOS]"], ["</s>", "<|endoftext|>"]])
+    def test_end_of_sequence_token_forms_are_skipped(self, tail: List[str]) -> None:
+        tokens = [{"token": "A", "logprob": math.log(0.6), "top_logprobs": top(A=0.6, B=0.3)},
+                  {"token": ".", "logprob": -0.01}, {"token": " yes", "logprob": -0.01}]
+        tokens += [{"token": token, "logprob": -0.01} for token in tail]
+        result = checked(openai(FakeSession([token_reply("A. yes", tokens)])), request((PRED,)))[0]
+        assert result.distribution == pytest.approx({"true": 0.6 / 0.9, "false": 0.3 / 0.9})
+
+    def test_newline_markers_spell_the_reply(self) -> None:
+        tokens = [{"token": "A", "logprob": math.log(0.6), "top_logprobs": top(A=0.6, B=0.3)},
+                  {"token": ".", "logprob": -0.01}, {"token": "\u010a", "logprob": -0.01}, {"token": "yes", "logprob": -0.01}]
+        result = checked(openai(FakeSession([token_reply("A.\nyes", tokens)])), request((PRED,)))[0]
+        assert result.distribution == pytest.approx({"true": 0.6 / 0.9, "false": 0.3 / 0.9})
+
+
+    def test_a_label_that_looks_like_a_special_token_stays_in_the_reply(self) -> None:
+        marked = DecisionQuestion(id="c", kind="choice", text="Which?", options=("<none>", "other"))
+        tokens = [{"token": "A", "logprob": math.log(0.6), "top_logprobs": top(A=0.6, B=0.3)},
+                  {"token": ".", "logprob": -0.01}, {"token": " <none>", "logprob": -0.01}]
+        result = checked(openai(FakeSession([token_reply("A. <none>", tokens)])), request((marked,)))[0]
+        assert result.distribution == pytest.approx({"<none>": 0.6 / 0.9, "other": 0.3 / 0.9})

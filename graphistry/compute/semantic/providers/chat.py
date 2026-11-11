@@ -34,7 +34,7 @@ PROBE_TTL_S = 3600.0
 PROBE_REQUEST = DecisionRequest(
     request_id="probe", evidence="The sky is blue.", task_id="probe", task_version="1",
     questions=(DecisionQuestion(id="probe", kind="predicate", text="Is the evidence about the sky?"),))
-_SPECIAL_TOKEN = re.compile(r"<[^<>\s]+>")
+_SPECIAL_TOKEN = re.compile(r"<[^<>]+>|\[[^\[\]\s]+\]")
 _probed: Dict[Tuple[str, ...], Tuple[float, Strategy]] = {}
 _probe_locks: Dict[Tuple[str, ...], threading.Lock] = {}
 _probe_guard = threading.Lock()
@@ -116,7 +116,7 @@ def code_index(text: object, codes: str) -> Optional[int]:
 
 
 def _spelled(token: object) -> str:
-    return token.replace("\u2581", " ").replace("\u0120", " ") if isinstance(token, str) else ""
+    return token.replace("\u2581", " ").replace("\u0120", " ").replace("\u010a", "\n") if isinstance(token, str) else ""
 
 
 def reply_tokens(tokens: object, text: object) -> Optional[List[Dict[str, object]]]:
@@ -124,7 +124,8 @@ def reply_tokens(tokens: object, text: object) -> Optional[List[Dict[str, object
     such as an end-of-turn marker, are left out."""
     entries = [token for token in tokens if isinstance(token, dict)] if isinstance(tokens, list) else []
     target = _spelled(text).strip()
-    while entries and _SPECIAL_TOKEN.fullmatch(_spelled(entries[-1].get("token")).strip()) \
+    while entries and isinstance(entries[-1].get("token"), str) \
+            and _SPECIAL_TOKEN.fullmatch(str(entries[-1].get("token")).strip()) \
             and not target.endswith(_spelled(entries[-1].get("token")).strip()):
         entries = entries[:-1]
     spelled = ""
@@ -350,7 +351,8 @@ class OpenAIChatProvider(_ChatDecisionProvider):
                 return found[1]
             lock = _probe_locks.setdefault(key, threading.Lock())
             epoch = _probe_epoch[0]
-        if not lock.acquire(timeout=-1 if deadline_at is None else max(0.0, deadline_at - time.monotonic())):
+        wait = -1 if deadline_at is None else min(threading.TIMEOUT_MAX, max(0.0, deadline_at - time.monotonic()))
+        if not lock.acquire(timeout=wait):
             return self.strategy_in_use
         try:
             with _probe_guard:
@@ -401,8 +403,10 @@ class OpenAIChatProvider(_ChatDecisionProvider):
         return self.strategy_body(request, questions[0], self.strategy_in_use)
 
     def prompt_texts(self, request: DecisionRequest, questions: Sequence[DecisionQuestion]) -> List[str]:
-        """The prompt, plus the JSON schema or tool definition a constrained strategy sends."""
-        sent = self.strategy_body(request, questions[0], self.strategy_in_use)
+        """The prompt, plus the JSON schema or tool definition a constrained strategy sends; before ``auto`` has
+        probed, the largest of them, so the estimate does not fall short."""
+        unprobed = self.strategy == "auto" and self.strategy_in_use == "logprobs"
+        sent = self.strategy_body(request, questions[0], "tool" if unprobed else self.strategy_in_use)
         extras = {name: sent[name] for name in ("response_format", "tools", "tool_choice") if name in sent}
         return super().prompt_texts(request, questions) + ([json.dumps(extras)] if extras else [])
 
@@ -462,10 +466,16 @@ def _tool_answer(call: object) -> object:
 def _json_answer(text: object) -> object:
     """The ``answer`` field of a JSON object reply, else None."""
     try:
-        value = json.loads(text) if isinstance(text, str) else None
+        value = json.loads(text, object_pairs_hook=_unique_keys) if isinstance(text, str) else None
     except (ValueError, RecursionError):
         return None
     return value.get("answer") if isinstance(value, dict) else None
+
+
+def _unique_keys(pairs: List[Tuple[str, object]]) -> Dict[str, object]:
+    if len({key for key, _ in pairs}) != len(pairs):
+        raise ValueError("duplicate keys")
+    return dict(pairs)
 
 
 class AnthropicMessagesProvider(_ChatDecisionProvider):
