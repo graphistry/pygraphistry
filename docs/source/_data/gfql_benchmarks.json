@@ -4373,14 +4373,713 @@
       "unit": "ms",
       "value": 3.082,
       "workload": "LDBC SNB-derived aligned queries sf1 seed-lookup"
+    },
+    "snb426.sf01.message_content.gfql_polars": {
+      "board_quotable": true,
+      "comparison_allowed": true,
+      "decimals": 3,
+      "disclosures": [
+        "Mixed harness provenance: 11 runs at 684c0b40945b181d4a1504d1e297db5907694415 and the pandas SF1 repetitions at PR #344 head 9b9e3f3c514b007ca3f188c18f9fbe699f2a95ca; final-assembly.json records per-run harness IDs and all raw-run receipts remain clean."
+      ],
+      "engine": "gfql_polars",
+      "measurement_profile": "snb-interactive-warm-repeated-query-v2",
+      "run": "snb426-aligned-shipped-426ce518a-20261112-h684",
+      "status": "ok",
+      "unit": "ms",
+      "value": 0.156,
+      "workload": "LDBC SNB-derived aligned queries sf0.1 message-content"
+    },
+    "snb426.sf01.message_content.kuzu": {
+      "board_quotable": true,
+      "comparison_allowed": true,
+      "competitor": "kuzu",
+      "decimals": 3,
+      "disclosures": [
+        "Mixed harness provenance: 11 runs at 684c0b40945b181d4a1504d1e297db5907694415 and the pandas SF1 repetitions at PR #344 head 9b9e3f3c514b007ca3f188c18f9fbe699f2a95ca; final-assembly.json records per-run harness IDs and all raw-run receipts remain clean."
+      ],
+      "engine": "kuzu",
+      "measurement_profile": "snb-interactive-warm-repeated-query-v2",
+      "run": "snb426-aligned-shipped-426ce518a-20261112-h684",
+      "status": "ok",
+      "unit": "ms",
+      "value": 0.658,
+      "workload": "LDBC SNB-derived aligned queries sf0.1 message-content"
+    },
+    "snb426.sf01.message_content.memgraph": {
+      "board_quotable": true,
+      "comparison_allowed": true,
+      "competitor": "memgraph",
+      "decimals": 3,
+      "disclosures": [
+        "Mixed harness provenance: 11 runs at 684c0b40945b181d4a1504d1e297db5907694415 and the pandas SF1 repetitions at PR #344 head 9b9e3f3c514b007ca3f188c18f9fbe699f2a95ca; final-assembly.json records per-run harness IDs and all raw-run receipts remain clean."
+      ],
+      "engine": "memgraph",
+      "measurement_profile": "snb-interactive-warm-repeated-query-v2",
+      "run": "snb426-aligned-shipped-426ce518a-20261112-h684",
+      "status": "ok",
+      "unit": "ms",
+      "value": 0.489,
+      "workload": "LDBC SNB-derived aligned queries sf0.1 message-content"
+    },
+    "snb426.sf01.message_content.neo4j": {
+      "board_quotable": true,
+      "comparison_allowed": true,
+      "competitor": "neo4j",
+      "decimals": 3,
+      "disclosures": [
+        "Mixed harness provenance: 11 runs at 684c0b40945b181d4a1504d1e297db5907694415 and the pandas SF1 repetitions at PR #344 head 9b9e3f3c514b007ca3f188c18f9fbe699f2a95ca; final-assembly.json records per-run harness IDs and all raw-run receipts remain clean."
+      ],
+      "engine": "neo4j",
+      "measurement_profile": "snb-interactive-warm-repeated-query-v2",
+      "run": "snb426-aligned-shipped-426ce518a-20261112-h684",
+      "status": "ok",
+      "unit": "ms",
+      "value": 1.445,
+      "workload": "LDBC SNB-derived aligned queries sf0.1 message-content"
+    },
+    "snb426.sf01.message_creator.gfql_polars": {
+      "board_quotable": true,
+      "comparison_allowed": true,
+      "decimals": 3,
+      "disclosures": [
+        "Mixed harness provenance: 11 runs at 684c0b40945b181d4a1504d1e297db5907694415 and the pandas SF1 repetitions at PR #344 head 9b9e3f3c514b007ca3f188c18f9fbe699f2a95ca; final-assembly.json records per-run harness IDs and all raw-run receipts remain clean."
+      ],
+      "engine": "gfql_polars",
+      "measurement_profile": "snb-interactive-warm-repeated-query-v2",
+      "run": "snb426-aligned-shipped-426ce518a-20261112-h684",
+      "status": "ok",
+      "unit": "ms",
+      "value": 0.228,
+      "workload": "LDBC SNB-derived aligned queries sf0.1 message-creator"
+    },
+    "snb426.sf01.message_creator.kuzu": {
+      "board_quotable": true,
+      "comparison_allowed": true,
+      "competitor": "kuzu",
+      "decimals": 3,
+      "disclosures": [
+        "Mixed harness provenance: 11 runs at 684c0b40945b181d4a1504d1e297db5907694415 and the pandas SF1 repetitions at PR #344 head 9b9e3f3c514b007ca3f188c18f9fbe699f2a95ca; final-assembly.json records per-run harness IDs and all raw-run receipts remain clean."
+      ],
+      "engine": "kuzu",
+      "measurement_profile": "snb-interactive-warm-repeated-query-v2",
+      "run": "snb426-aligned-shipped-426ce518a-20261112-h684",
+      "status": "ok",
+      "unit": "ms",
+      "value": 1.318,
+      "workload": "LDBC SNB-derived aligned queries sf0.1 message-creator"
+    },
+    "snb426.sf01.message_creator.memgraph": {
+      "board_quotable": true,
+      "comparison_allowed": true,
+      "competitor": "memgraph",
+      "decimals": 3,
+      "disclosures": [
+        "Mixed harness provenance: 11 runs at 684c0b40945b181d4a1504d1e297db5907694415 and the pandas SF1 repetitions at PR #344 head 9b9e3f3c514b007ca3f188c18f9fbe699f2a95ca; final-assembly.json records per-run harness IDs and all raw-run receipts remain clean."
+      ],
+      "engine": "memgraph",
+      "measurement_profile": "snb-interactive-warm-repeated-query-v2",
+      "run": "snb426-aligned-shipped-426ce518a-20261112-h684",
+      "status": "ok",
+      "unit": "ms",
+      "value": 0.462,
+      "workload": "LDBC SNB-derived aligned queries sf0.1 message-creator"
+    },
+    "snb426.sf01.message_creator.neo4j": {
+      "board_quotable": true,
+      "comparison_allowed": true,
+      "competitor": "neo4j",
+      "decimals": 3,
+      "disclosures": [
+        "Mixed harness provenance: 11 runs at 684c0b40945b181d4a1504d1e297db5907694415 and the pandas SF1 repetitions at PR #344 head 9b9e3f3c514b007ca3f188c18f9fbe699f2a95ca; final-assembly.json records per-run harness IDs and all raw-run receipts remain clean."
+      ],
+      "engine": "neo4j",
+      "measurement_profile": "snb-interactive-warm-repeated-query-v2",
+      "run": "snb426-aligned-shipped-426ce518a-20261112-h684",
+      "status": "ok",
+      "unit": "ms",
+      "value": 1.339,
+      "workload": "LDBC SNB-derived aligned queries sf0.1 message-creator"
+    },
+    "snb426.sf01.message_replies.gfql_polars": {
+      "board_quotable": true,
+      "comparison_allowed": true,
+      "decimals": 3,
+      "disclosures": [
+        "Mixed harness provenance: 11 runs at 684c0b40945b181d4a1504d1e297db5907694415 and the pandas SF1 repetitions at PR #344 head 9b9e3f3c514b007ca3f188c18f9fbe699f2a95ca; final-assembly.json records per-run harness IDs and all raw-run receipts remain clean."
+      ],
+      "engine": "gfql_polars",
+      "measurement_profile": "snb-interactive-warm-repeated-query-v2",
+      "run": "snb426-aligned-shipped-426ce518a-20261112-h684",
+      "status": "ok",
+      "unit": "ms",
+      "value": 1.335,
+      "workload": "LDBC SNB-derived aligned queries sf0.1 message-replies"
+    },
+    "snb426.sf01.message_replies.kuzu": {
+      "board_quotable": true,
+      "comparison_allowed": true,
+      "competitor": "kuzu",
+      "decimals": 3,
+      "disclosures": [
+        "Mixed harness provenance: 11 runs at 684c0b40945b181d4a1504d1e297db5907694415 and the pandas SF1 repetitions at PR #344 head 9b9e3f3c514b007ca3f188c18f9fbe699f2a95ca; final-assembly.json records per-run harness IDs and all raw-run receipts remain clean."
+      ],
+      "engine": "kuzu",
+      "measurement_profile": "snb-interactive-warm-repeated-query-v2",
+      "run": "snb426-aligned-shipped-426ce518a-20261112-h684",
+      "status": "ok",
+      "unit": "ms",
+      "value": 23.712,
+      "workload": "LDBC SNB-derived aligned queries sf0.1 message-replies"
+    },
+    "snb426.sf01.new_topics.gfql_polars": {
+      "board_quotable": true,
+      "comparison_allowed": true,
+      "decimals": 3,
+      "disclosures": [
+        "Mixed harness provenance: 11 runs at 684c0b40945b181d4a1504d1e297db5907694415 and the pandas SF1 repetitions at PR #344 head 9b9e3f3c514b007ca3f188c18f9fbe699f2a95ca; final-assembly.json records per-run harness IDs and all raw-run receipts remain clean."
+      ],
+      "engine": "gfql_polars",
+      "measurement_profile": "snb-interactive-warm-repeated-query-v2",
+      "run": "snb426-aligned-shipped-426ce518a-20261112-h684",
+      "status": "ok",
+      "unit": "ms",
+      "value": 34.828,
+      "workload": "LDBC SNB-derived aligned queries sf0.1 new-topics"
+    },
+    "snb426.sf01.new_topics.kuzu": {
+      "board_quotable": true,
+      "comparison_allowed": true,
+      "competitor": "kuzu",
+      "decimals": 3,
+      "disclosures": [
+        "Mixed harness provenance: 11 runs at 684c0b40945b181d4a1504d1e297db5907694415 and the pandas SF1 repetitions at PR #344 head 9b9e3f3c514b007ca3f188c18f9fbe699f2a95ca; final-assembly.json records per-run harness IDs and all raw-run receipts remain clean."
+      ],
+      "engine": "kuzu",
+      "measurement_profile": "snb-interactive-warm-repeated-query-v2",
+      "run": "snb426-aligned-shipped-426ce518a-20261112-h684",
+      "status": "ok",
+      "unit": "ms",
+      "value": 48.082,
+      "workload": "LDBC SNB-derived aligned queries sf0.1 new-topics"
+    },
+    "snb426.sf01.recent_replies.gfql_polars": {
+      "board_quotable": true,
+      "comparison_allowed": true,
+      "decimals": 3,
+      "disclosures": [
+        "Mixed harness provenance: 11 runs at 684c0b40945b181d4a1504d1e297db5907694415 and the pandas SF1 repetitions at PR #344 head 9b9e3f3c514b007ca3f188c18f9fbe699f2a95ca; final-assembly.json records per-run harness IDs and all raw-run receipts remain clean."
+      ],
+      "engine": "gfql_polars",
+      "measurement_profile": "snb-interactive-warm-repeated-query-v2",
+      "run": "snb426-aligned-shipped-426ce518a-20261112-h684",
+      "status": "ok",
+      "unit": "ms",
+      "value": 2.984,
+      "workload": "LDBC SNB-derived aligned queries sf0.1 recent-replies"
+    },
+    "snb426.sf01.recent_replies.kuzu": {
+      "board_quotable": true,
+      "comparison_allowed": true,
+      "competitor": "kuzu",
+      "decimals": 3,
+      "disclosures": [
+        "Mixed harness provenance: 11 runs at 684c0b40945b181d4a1504d1e297db5907694415 and the pandas SF1 repetitions at PR #344 head 9b9e3f3c514b007ca3f188c18f9fbe699f2a95ca; final-assembly.json records per-run harness IDs and all raw-run receipts remain clean."
+      ],
+      "engine": "kuzu",
+      "measurement_profile": "snb-interactive-warm-repeated-query-v2",
+      "run": "snb426-aligned-shipped-426ce518a-20261112-h684",
+      "status": "ok",
+      "unit": "ms",
+      "value": 32.884,
+      "workload": "LDBC SNB-derived aligned queries sf0.1 recent-replies"
+    },
+    "snb426.sf01.recent_replies.memgraph": {
+      "board_quotable": true,
+      "comparison_allowed": true,
+      "competitor": "memgraph",
+      "decimals": 3,
+      "disclosures": [
+        "Mixed harness provenance: 11 runs at 684c0b40945b181d4a1504d1e297db5907694415 and the pandas SF1 repetitions at PR #344 head 9b9e3f3c514b007ca3f188c18f9fbe699f2a95ca; final-assembly.json records per-run harness IDs and all raw-run receipts remain clean."
+      ],
+      "engine": "memgraph",
+      "measurement_profile": "snb-interactive-warm-repeated-query-v2",
+      "run": "snb426-aligned-shipped-426ce518a-20261112-h684",
+      "status": "ok",
+      "unit": "ms",
+      "value": 6.333,
+      "workload": "LDBC SNB-derived aligned queries sf0.1 recent-replies"
+    },
+    "snb426.sf01.recent_replies.neo4j": {
+      "board_quotable": true,
+      "comparison_allowed": true,
+      "competitor": "neo4j",
+      "decimals": 3,
+      "disclosures": [
+        "Mixed harness provenance: 11 runs at 684c0b40945b181d4a1504d1e297db5907694415 and the pandas SF1 repetitions at PR #344 head 9b9e3f3c514b007ca3f188c18f9fbe699f2a95ca; final-assembly.json records per-run harness IDs and all raw-run receipts remain clean."
+      ],
+      "engine": "neo4j",
+      "measurement_profile": "snb-interactive-warm-repeated-query-v2",
+      "run": "snb426-aligned-shipped-426ce518a-20261112-h684",
+      "status": "ok",
+      "unit": "ms",
+      "value": 5.425,
+      "workload": "LDBC SNB-derived aligned queries sf0.1 recent-replies"
+    },
+    "snb426.sf01.seed_lookup.gfql_polars": {
+      "board_quotable": true,
+      "comparison_allowed": true,
+      "decimals": 3,
+      "disclosures": [
+        "Mixed harness provenance: 11 runs at 684c0b40945b181d4a1504d1e297db5907694415 and the pandas SF1 repetitions at PR #344 head 9b9e3f3c514b007ca3f188c18f9fbe699f2a95ca; final-assembly.json records per-run harness IDs and all raw-run receipts remain clean."
+      ],
+      "engine": "gfql_polars",
+      "measurement_profile": "snb-interactive-warm-repeated-query-v2",
+      "run": "snb426-aligned-shipped-426ce518a-20261112-h684",
+      "status": "ok",
+      "unit": "ms",
+      "value": 0.223,
+      "workload": "LDBC SNB-derived aligned queries sf0.1 seed-lookup"
+    },
+    "snb426.sf01.seed_lookup.kuzu": {
+      "board_quotable": true,
+      "comparison_allowed": true,
+      "competitor": "kuzu",
+      "decimals": 3,
+      "disclosures": [
+        "Mixed harness provenance: 11 runs at 684c0b40945b181d4a1504d1e297db5907694415 and the pandas SF1 repetitions at PR #344 head 9b9e3f3c514b007ca3f188c18f9fbe699f2a95ca; final-assembly.json records per-run harness IDs and all raw-run receipts remain clean."
+      ],
+      "engine": "kuzu",
+      "measurement_profile": "snb-interactive-warm-repeated-query-v2",
+      "run": "snb426-aligned-shipped-426ce518a-20261112-h684",
+      "status": "ok",
+      "unit": "ms",
+      "value": 2.277,
+      "workload": "LDBC SNB-derived aligned queries sf0.1 seed-lookup"
+    },
+    "snb426.sf01.seed_lookup.memgraph": {
+      "board_quotable": true,
+      "comparison_allowed": true,
+      "competitor": "memgraph",
+      "decimals": 3,
+      "disclosures": [
+        "Mixed harness provenance: 11 runs at 684c0b40945b181d4a1504d1e297db5907694415 and the pandas SF1 repetitions at PR #344 head 9b9e3f3c514b007ca3f188c18f9fbe699f2a95ca; final-assembly.json records per-run harness IDs and all raw-run receipts remain clean."
+      ],
+      "engine": "memgraph",
+      "measurement_profile": "snb-interactive-warm-repeated-query-v2",
+      "run": "snb426-aligned-shipped-426ce518a-20261112-h684",
+      "status": "ok",
+      "unit": "ms",
+      "value": 0.46,
+      "workload": "LDBC SNB-derived aligned queries sf0.1 seed-lookup"
+    },
+    "snb426.sf01.seed_lookup.neo4j": {
+      "board_quotable": true,
+      "comparison_allowed": true,
+      "competitor": "neo4j",
+      "decimals": 3,
+      "disclosures": [
+        "Mixed harness provenance: 11 runs at 684c0b40945b181d4a1504d1e297db5907694415 and the pandas SF1 repetitions at PR #344 head 9b9e3f3c514b007ca3f188c18f9fbe699f2a95ca; final-assembly.json records per-run harness IDs and all raw-run receipts remain clean."
+      ],
+      "engine": "neo4j",
+      "measurement_profile": "snb-interactive-warm-repeated-query-v2",
+      "run": "snb426-aligned-shipped-426ce518a-20261112-h684",
+      "status": "ok",
+      "unit": "ms",
+      "value": 3.166,
+      "workload": "LDBC SNB-derived aligned queries sf0.1 seed-lookup"
+    },
+    "snb426.sf1.message_content.gfql_polars": {
+      "board_quotable": true,
+      "comparison_allowed": true,
+      "decimals": 3,
+      "disclosures": [
+        "Mixed harness provenance: 11 runs at 684c0b40945b181d4a1504d1e297db5907694415 and the pandas SF1 repetitions at PR #344 head 9b9e3f3c514b007ca3f188c18f9fbe699f2a95ca; final-assembly.json records per-run harness IDs and all raw-run receipts remain clean."
+      ],
+      "engine": "gfql_polars",
+      "measurement_profile": "snb-interactive-warm-repeated-query-v2",
+      "run": "snb426-aligned-shipped-426ce518a-20261112-h684",
+      "status": "ok",
+      "unit": "ms",
+      "value": 0.154,
+      "workload": "LDBC SNB-derived aligned queries sf1 message-content"
+    },
+    "snb426.sf1.message_content.kuzu": {
+      "board_quotable": true,
+      "comparison_allowed": true,
+      "competitor": "kuzu",
+      "decimals": 3,
+      "disclosures": [
+        "Mixed harness provenance: 11 runs at 684c0b40945b181d4a1504d1e297db5907694415 and the pandas SF1 repetitions at PR #344 head 9b9e3f3c514b007ca3f188c18f9fbe699f2a95ca; final-assembly.json records per-run harness IDs and all raw-run receipts remain clean."
+      ],
+      "engine": "kuzu",
+      "measurement_profile": "snb-interactive-warm-repeated-query-v2",
+      "run": "snb426-aligned-shipped-426ce518a-20261112-h684",
+      "status": "ok",
+      "unit": "ms",
+      "value": 0.336,
+      "workload": "LDBC SNB-derived aligned queries sf1 message-content"
+    },
+    "snb426.sf1.message_content.memgraph": {
+      "board_quotable": true,
+      "comparison_allowed": true,
+      "competitor": "memgraph",
+      "decimals": 3,
+      "disclosures": [
+        "Mixed harness provenance: 11 runs at 684c0b40945b181d4a1504d1e297db5907694415 and the pandas SF1 repetitions at PR #344 head 9b9e3f3c514b007ca3f188c18f9fbe699f2a95ca; final-assembly.json records per-run harness IDs and all raw-run receipts remain clean."
+      ],
+      "engine": "memgraph",
+      "measurement_profile": "snb-interactive-warm-repeated-query-v2",
+      "run": "snb426-aligned-shipped-426ce518a-20261112-h684",
+      "status": "ok",
+      "unit": "ms",
+      "value": 0.527,
+      "workload": "LDBC SNB-derived aligned queries sf1 message-content"
+    },
+    "snb426.sf1.message_content.neo4j": {
+      "board_quotable": true,
+      "comparison_allowed": true,
+      "competitor": "neo4j",
+      "decimals": 3,
+      "disclosures": [
+        "Mixed harness provenance: 11 runs at 684c0b40945b181d4a1504d1e297db5907694415 and the pandas SF1 repetitions at PR #344 head 9b9e3f3c514b007ca3f188c18f9fbe699f2a95ca; final-assembly.json records per-run harness IDs and all raw-run receipts remain clean."
+      ],
+      "engine": "neo4j",
+      "measurement_profile": "snb-interactive-warm-repeated-query-v2",
+      "run": "snb426-aligned-shipped-426ce518a-20261112-h684",
+      "status": "ok",
+      "unit": "ms",
+      "value": 2.06,
+      "workload": "LDBC SNB-derived aligned queries sf1 message-content"
+    },
+    "snb426.sf1.message_creator.gfql_polars": {
+      "board_quotable": true,
+      "comparison_allowed": true,
+      "decimals": 3,
+      "disclosures": [
+        "Mixed harness provenance: 11 runs at 684c0b40945b181d4a1504d1e297db5907694415 and the pandas SF1 repetitions at PR #344 head 9b9e3f3c514b007ca3f188c18f9fbe699f2a95ca; final-assembly.json records per-run harness IDs and all raw-run receipts remain clean."
+      ],
+      "engine": "gfql_polars",
+      "measurement_profile": "snb-interactive-warm-repeated-query-v2",
+      "run": "snb426-aligned-shipped-426ce518a-20261112-h684",
+      "status": "ok",
+      "unit": "ms",
+      "value": 0.227,
+      "workload": "LDBC SNB-derived aligned queries sf1 message-creator"
+    },
+    "snb426.sf1.message_creator.kuzu": {
+      "board_quotable": true,
+      "comparison_allowed": true,
+      "competitor": "kuzu",
+      "decimals": 3,
+      "disclosures": [
+        "Mixed harness provenance: 11 runs at 684c0b40945b181d4a1504d1e297db5907694415 and the pandas SF1 repetitions at PR #344 head 9b9e3f3c514b007ca3f188c18f9fbe699f2a95ca; final-assembly.json records per-run harness IDs and all raw-run receipts remain clean."
+      ],
+      "engine": "kuzu",
+      "measurement_profile": "snb-interactive-warm-repeated-query-v2",
+      "run": "snb426-aligned-shipped-426ce518a-20261112-h684",
+      "status": "ok",
+      "unit": "ms",
+      "value": 1.49,
+      "workload": "LDBC SNB-derived aligned queries sf1 message-creator"
+    },
+    "snb426.sf1.message_creator.memgraph": {
+      "board_quotable": true,
+      "comparison_allowed": true,
+      "competitor": "memgraph",
+      "decimals": 3,
+      "disclosures": [
+        "Mixed harness provenance: 11 runs at 684c0b40945b181d4a1504d1e297db5907694415 and the pandas SF1 repetitions at PR #344 head 9b9e3f3c514b007ca3f188c18f9fbe699f2a95ca; final-assembly.json records per-run harness IDs and all raw-run receipts remain clean."
+      ],
+      "engine": "memgraph",
+      "measurement_profile": "snb-interactive-warm-repeated-query-v2",
+      "run": "snb426-aligned-shipped-426ce518a-20261112-h684",
+      "status": "ok",
+      "unit": "ms",
+      "value": 0.516,
+      "workload": "LDBC SNB-derived aligned queries sf1 message-creator"
+    },
+    "snb426.sf1.message_creator.neo4j": {
+      "board_quotable": true,
+      "comparison_allowed": true,
+      "competitor": "neo4j",
+      "decimals": 3,
+      "disclosures": [
+        "Mixed harness provenance: 11 runs at 684c0b40945b181d4a1504d1e297db5907694415 and the pandas SF1 repetitions at PR #344 head 9b9e3f3c514b007ca3f188c18f9fbe699f2a95ca; final-assembly.json records per-run harness IDs and all raw-run receipts remain clean."
+      ],
+      "engine": "neo4j",
+      "measurement_profile": "snb-interactive-warm-repeated-query-v2",
+      "run": "snb426-aligned-shipped-426ce518a-20261112-h684",
+      "status": "ok",
+      "unit": "ms",
+      "value": 1.871,
+      "workload": "LDBC SNB-derived aligned queries sf1 message-creator"
+    },
+    "snb426.sf1.new_topics.gfql_polars": {
+      "board_quotable": true,
+      "comparison_allowed": true,
+      "decimals": 3,
+      "disclosures": [
+        "Mixed harness provenance: 11 runs at 684c0b40945b181d4a1504d1e297db5907694415 and the pandas SF1 repetitions at PR #344 head 9b9e3f3c514b007ca3f188c18f9fbe699f2a95ca; final-assembly.json records per-run harness IDs and all raw-run receipts remain clean."
+      ],
+      "engine": "gfql_polars",
+      "measurement_profile": "snb-interactive-warm-repeated-query-v2",
+      "run": "snb426-aligned-shipped-426ce518a-20261112-h684",
+      "status": "ok",
+      "unit": "ms",
+      "value": 154.167,
+      "workload": "LDBC SNB-derived aligned queries sf1 new-topics"
+    },
+    "snb426.sf1.new_topics.kuzu": {
+      "board_quotable": true,
+      "comparison_allowed": true,
+      "competitor": "kuzu",
+      "decimals": 3,
+      "disclosures": [
+        "Mixed harness provenance: 11 runs at 684c0b40945b181d4a1504d1e297db5907694415 and the pandas SF1 repetitions at PR #344 head 9b9e3f3c514b007ca3f188c18f9fbe699f2a95ca; final-assembly.json records per-run harness IDs and all raw-run receipts remain clean."
+      ],
+      "engine": "kuzu",
+      "measurement_profile": "snb-interactive-warm-repeated-query-v2",
+      "run": "snb426-aligned-shipped-426ce518a-20261112-h684",
+      "status": "ok",
+      "unit": "ms",
+      "value": 217.133,
+      "workload": "LDBC SNB-derived aligned queries sf1 new-topics"
+    },
+    "snb426.sf1.seed_lookup.gfql_polars": {
+      "board_quotable": true,
+      "comparison_allowed": true,
+      "decimals": 3,
+      "disclosures": [
+        "Mixed harness provenance: 11 runs at 684c0b40945b181d4a1504d1e297db5907694415 and the pandas SF1 repetitions at PR #344 head 9b9e3f3c514b007ca3f188c18f9fbe699f2a95ca; final-assembly.json records per-run harness IDs and all raw-run receipts remain clean."
+      ],
+      "engine": "gfql_polars",
+      "measurement_profile": "snb-interactive-warm-repeated-query-v2",
+      "run": "snb426-aligned-shipped-426ce518a-20261112-h684",
+      "status": "ok",
+      "unit": "ms",
+      "value": 0.278,
+      "workload": "LDBC SNB-derived aligned queries sf1 seed-lookup"
+    },
+    "snb426.sf1.seed_lookup.kuzu": {
+      "board_quotable": true,
+      "comparison_allowed": true,
+      "competitor": "kuzu",
+      "decimals": 3,
+      "disclosures": [
+        "Mixed harness provenance: 11 runs at 684c0b40945b181d4a1504d1e297db5907694415 and the pandas SF1 repetitions at PR #344 head 9b9e3f3c514b007ca3f188c18f9fbe699f2a95ca; final-assembly.json records per-run harness IDs and all raw-run receipts remain clean."
+      ],
+      "engine": "kuzu",
+      "measurement_profile": "snb-interactive-warm-repeated-query-v2",
+      "run": "snb426-aligned-shipped-426ce518a-20261112-h684",
+      "status": "ok",
+      "unit": "ms",
+      "value": 1.956,
+      "workload": "LDBC SNB-derived aligned queries sf1 seed-lookup"
+    },
+    "snb426.sf1.seed_lookup.memgraph": {
+      "board_quotable": true,
+      "comparison_allowed": true,
+      "competitor": "memgraph",
+      "decimals": 3,
+      "disclosures": [
+        "Mixed harness provenance: 11 runs at 684c0b40945b181d4a1504d1e297db5907694415 and the pandas SF1 repetitions at PR #344 head 9b9e3f3c514b007ca3f188c18f9fbe699f2a95ca; final-assembly.json records per-run harness IDs and all raw-run receipts remain clean."
+      ],
+      "engine": "memgraph",
+      "measurement_profile": "snb-interactive-warm-repeated-query-v2",
+      "run": "snb426-aligned-shipped-426ce518a-20261112-h684",
+      "status": "ok",
+      "unit": "ms",
+      "value": 0.453,
+      "workload": "LDBC SNB-derived aligned queries sf1 seed-lookup"
+    },
+    "snb426.sf1.seed_lookup.neo4j": {
+      "board_quotable": true,
+      "comparison_allowed": true,
+      "competitor": "neo4j",
+      "decimals": 3,
+      "disclosures": [
+        "Mixed harness provenance: 11 runs at 684c0b40945b181d4a1504d1e297db5907694415 and the pandas SF1 repetitions at PR #344 head 9b9e3f3c514b007ca3f188c18f9fbe699f2a95ca; final-assembly.json records per-run harness IDs and all raw-run receipts remain clean."
+      ],
+      "engine": "neo4j",
+      "measurement_profile": "snb-interactive-warm-repeated-query-v2",
+      "run": "snb426-aligned-shipped-426ce518a-20261112-h684",
+      "status": "ok",
+      "unit": "ms",
+      "value": 3.082,
+      "workload": "LDBC SNB-derived aligned queries sf1 seed-lookup"
+    },
+    "snb426extra.sf01.message_content.pandas": {
+      "board_quotable": true,
+      "comparison_allowed": true,
+      "decimals": 3,
+      "disclosures": [
+        "Mixed harness provenance: 11 runs at 684c0b40945b181d4a1504d1e297db5907694415 and the pandas SF1 repetitions at PR #344 head 9b9e3f3c514b007ca3f188c18f9fbe699f2a95ca; final-assembly.json records per-run harness IDs and all raw-run receipts remain clean."
+      ],
+      "engine": "pandas",
+      "measurement_profile": "snb-interactive-warm-repeated-query-v2",
+      "run": "snb426-extra-shipped-426ce518a-20261112-h684",
+      "status": "ok",
+      "unit": "ms",
+      "value": 0.426,
+      "workload": "SNB-derived matched queries (GFQL, resident indexes) sf0.1 message-content"
+    },
+    "snb426extra.sf01.message_creator.pandas": {
+      "board_quotable": true,
+      "comparison_allowed": true,
+      "decimals": 3,
+      "disclosures": [
+        "Mixed harness provenance: 11 runs at 684c0b40945b181d4a1504d1e297db5907694415 and the pandas SF1 repetitions at PR #344 head 9b9e3f3c514b007ca3f188c18f9fbe699f2a95ca; final-assembly.json records per-run harness IDs and all raw-run receipts remain clean."
+      ],
+      "engine": "pandas",
+      "measurement_profile": "snb-interactive-warm-repeated-query-v2",
+      "run": "snb426-extra-shipped-426ce518a-20261112-h684",
+      "status": "ok",
+      "unit": "ms",
+      "value": 0.666,
+      "workload": "SNB-derived matched queries (GFQL, resident indexes) sf0.1 message-creator"
+    },
+    "snb426extra.sf01.message_replies.pandas": {
+      "board_quotable": true,
+      "comparison_allowed": true,
+      "decimals": 3,
+      "disclosures": [
+        "Mixed harness provenance: 11 runs at 684c0b40945b181d4a1504d1e297db5907694415 and the pandas SF1 repetitions at PR #344 head 9b9e3f3c514b007ca3f188c18f9fbe699f2a95ca; final-assembly.json records per-run harness IDs and all raw-run receipts remain clean."
+      ],
+      "engine": "pandas",
+      "measurement_profile": "snb-interactive-warm-repeated-query-v2",
+      "run": "snb426-extra-shipped-426ce518a-20261112-h684",
+      "status": "ok",
+      "unit": "ms",
+      "value": 11.259,
+      "workload": "SNB-derived matched queries (GFQL, resident indexes) sf0.1 message-replies"
+    },
+    "snb426extra.sf01.new_topics.pandas": {
+      "board_quotable": true,
+      "comparison_allowed": true,
+      "decimals": 3,
+      "disclosures": [
+        "Mixed harness provenance: 11 runs at 684c0b40945b181d4a1504d1e297db5907694415 and the pandas SF1 repetitions at PR #344 head 9b9e3f3c514b007ca3f188c18f9fbe699f2a95ca; final-assembly.json records per-run harness IDs and all raw-run receipts remain clean."
+      ],
+      "engine": "pandas",
+      "measurement_profile": "snb-interactive-warm-repeated-query-v2",
+      "run": "snb426-extra-shipped-426ce518a-20261112-h684",
+      "status": "ok",
+      "unit": "ms",
+      "value": 66.058,
+      "workload": "SNB-derived matched queries (GFQL, resident indexes) sf0.1 new-topics"
+    },
+    "snb426extra.sf01.recent_replies.pandas": {
+      "board_quotable": true,
+      "comparison_allowed": true,
+      "decimals": 3,
+      "disclosures": [
+        "Mixed harness provenance: 11 runs at 684c0b40945b181d4a1504d1e297db5907694415 and the pandas SF1 repetitions at PR #344 head 9b9e3f3c514b007ca3f188c18f9fbe699f2a95ca; final-assembly.json records per-run harness IDs and all raw-run receipts remain clean."
+      ],
+      "engine": "pandas",
+      "measurement_profile": "snb-interactive-warm-repeated-query-v2",
+      "run": "snb426-extra-shipped-426ce518a-20261112-h684",
+      "status": "ok",
+      "unit": "ms",
+      "value": 24.871,
+      "workload": "SNB-derived matched queries (GFQL, resident indexes) sf0.1 recent-replies"
+    },
+    "snb426extra.sf01.seed_lookup.pandas": {
+      "board_quotable": true,
+      "comparison_allowed": true,
+      "decimals": 3,
+      "disclosures": [
+        "Mixed harness provenance: 11 runs at 684c0b40945b181d4a1504d1e297db5907694415 and the pandas SF1 repetitions at PR #344 head 9b9e3f3c514b007ca3f188c18f9fbe699f2a95ca; final-assembly.json records per-run harness IDs and all raw-run receipts remain clean."
+      ],
+      "engine": "pandas",
+      "measurement_profile": "snb-interactive-warm-repeated-query-v2",
+      "run": "snb426-extra-shipped-426ce518a-20261112-h684",
+      "status": "ok",
+      "unit": "ms",
+      "value": 0.958,
+      "workload": "SNB-derived matched queries (GFQL, resident indexes) sf0.1 seed-lookup"
+    },
+    "snb426extra.sf01.tag_cooccurrence.pandas": {
+      "board_quotable": false,
+      "comparison_allowed": false,
+      "decimals": 3,
+      "disclosures": [
+        "Mixed harness provenance: 11 runs at 684c0b40945b181d4a1504d1e297db5907694415 and the pandas SF1 repetitions at PR #344 head 9b9e3f3c514b007ca3f188c18f9fbe699f2a95ca; final-assembly.json records per-run harness IDs and all raw-run receipts remain clean.",
+        "tag-cooccurrence: not comparable with the four-engine board (parity, eligibility, or cardinality differs from the release GFQL arm)."
+      ],
+      "engine": "pandas",
+      "measurement_profile": "snb-interactive-warm-repeated-query-v2",
+      "run": "snb426-extra-shipped-426ce518a-20261112-h684",
+      "status": "result_mismatch",
+      "unit": "ms",
+      "value": 56.173,
+      "workload": "SNB-derived matched queries (GFQL, resident indexes) sf0.1 tag-cooccurrence"
+    },
+    "snb426extra.sf1.message_content.pandas": {
+      "board_quotable": true,
+      "comparison_allowed": true,
+      "decimals": 3,
+      "disclosures": [
+        "Mixed harness provenance: 11 runs at 684c0b40945b181d4a1504d1e297db5907694415 and the pandas SF1 repetitions at PR #344 head 9b9e3f3c514b007ca3f188c18f9fbe699f2a95ca; final-assembly.json records per-run harness IDs and all raw-run receipts remain clean."
+      ],
+      "engine": "pandas",
+      "measurement_profile": "snb-interactive-warm-repeated-query-v2",
+      "run": "snb426-extra-shipped-426ce518a-20261112-h684",
+      "status": "ok",
+      "unit": "ms",
+      "value": 0.433,
+      "workload": "SNB-derived matched queries (GFQL, resident indexes) sf1 message-content"
+    },
+    "snb426extra.sf1.message_creator.pandas": {
+      "board_quotable": true,
+      "comparison_allowed": true,
+      "decimals": 3,
+      "disclosures": [
+        "Mixed harness provenance: 11 runs at 684c0b40945b181d4a1504d1e297db5907694415 and the pandas SF1 repetitions at PR #344 head 9b9e3f3c514b007ca3f188c18f9fbe699f2a95ca; final-assembly.json records per-run harness IDs and all raw-run receipts remain clean."
+      ],
+      "engine": "pandas",
+      "measurement_profile": "snb-interactive-warm-repeated-query-v2",
+      "run": "snb426-extra-shipped-426ce518a-20261112-h684",
+      "status": "ok",
+      "unit": "ms",
+      "value": 0.682,
+      "workload": "SNB-derived matched queries (GFQL, resident indexes) sf1 message-creator"
+    },
+    "snb426extra.sf1.new_topics.pandas": {
+      "board_quotable": true,
+      "comparison_allowed": true,
+      "decimals": 3,
+      "disclosures": [
+        "Mixed harness provenance: 11 runs at 684c0b40945b181d4a1504d1e297db5907694415 and the pandas SF1 repetitions at PR #344 head 9b9e3f3c514b007ca3f188c18f9fbe699f2a95ca; final-assembly.json records per-run harness IDs and all raw-run receipts remain clean."
+      ],
+      "engine": "pandas",
+      "measurement_profile": "snb-interactive-warm-repeated-query-v2",
+      "run": "snb426-extra-shipped-426ce518a-20261112-h684",
+      "status": "ok",
+      "unit": "ms",
+      "value": 554.146,
+      "workload": "SNB-derived matched queries (GFQL, resident indexes) sf1 new-topics"
+    },
+    "snb426extra.sf1.seed_lookup.pandas": {
+      "board_quotable": true,
+      "comparison_allowed": true,
+      "decimals": 3,
+      "disclosures": [
+        "Mixed harness provenance: 11 runs at 684c0b40945b181d4a1504d1e297db5907694415 and the pandas SF1 repetitions at PR #344 head 9b9e3f3c514b007ca3f188c18f9fbe699f2a95ca; final-assembly.json records per-run harness IDs and all raw-run receipts remain clean."
+      ],
+      "engine": "pandas",
+      "measurement_profile": "snb-interactive-warm-repeated-query-v2",
+      "run": "snb426-extra-shipped-426ce518a-20261112-h684",
+      "status": "ok",
+      "unit": "ms",
+      "value": 1.182,
+      "workload": "SNB-derived matched queries (GFQL, resident indexes) sf1 seed-lookup"
     }
   },
   "contract_version": 4,
-  "generated_at": "2026-10-04T12:53:58Z",
-  "generated_by": "graphistry/pyg-bench 2f7d574a scripts/export_docs_numbers.py",
+  "generated_at": "2026-11-11T19:16:08Z",
+  "generated_by": "graphistry/pyg-bench 9b9e3f3c scripts/export_docs_numbers.py",
   "policy": {
     "accepted_regressions": [],
-    "remeasure_issue": "https://github.com/graphistry/pyg-bench/issues/338",
     "drift_waivers": {
       "filter-pagerank-059-20260904": "Measured at the 0.59.0-era heads (pygraphistry 3fb216dd); the 0.60 stack landed since (#2055 #2056 #2054 #2062) changes chain RESULT contracts (binding-name alias declines, duplicate-id collapse, internal-column scoping) and the route dispatch layout, not the hop/PageRank kernels these rungs time; its perf receipts (sentinel at every head, q1-q9 and SNB re-measured at master 1a4107924 on 2026-09-07) moved within run-to-run spread. The GraphFrames/Spark ladder and the GPlus/Twitter PageRank pipelines are multi-hour dgx campaigns not re-run in this close-out; re-measure scheduled for the 0.60 release board.",
       "filter-pagerank-gplus-locked-20260830": "Competitor-only cells: this run publishes the Neo4j + GDS GPlus pipeline time (pagerank.gplus.neo4j_gds), which does not depend on graphistry/compute; the GFQL GPlus arms are re-measured at 0.59.0 in filter-pagerank-059-20260904. Re-measure Neo4j only when its own version or the pipeline contract changes.",
@@ -4409,7 +5108,8 @@
     ],
     "max_age_days": 60,
     "max_compute_commit_drift": 12,
-    "max_unexplained_regression_pct": 25
+    "max_unexplained_regression_pct": 25,
+    "remeasure_issue": "https://github.com/graphistry/pyg-bench/issues/338"
   },
   "runs": {
     "filter-pagerank-059-20260904": {
@@ -4529,6 +5229,74 @@
       "perf_lock_held": true,
       "pyg_bench_commit": "684c0b40945b181d4a1504d1e297db5907694415",
       "pygraphistry_commit": "2d64913b56a07ce68db5a010e2cc1fec14188e3e",
+      "quiet_host": true,
+      "reps": "8 discarded warmups, 31 timed executions with full result materialization, 3 independent process runs; median of the three run medians",
+      "row_validation": "Exact canonical result hashes and row counts verified in every run and across eligible GFQL, Kuzu, Neo4j, and Memgraph comparisons; pandas also matches Polars.",
+      "runtime": "GFQL Polars 1.35.2 (explicit runner pin) and pandas on CPU in Python 3.12.12; GFQL/Kuzu runner image ghcr.io/astral-sh/uv:python3.12-bookworm-slim@sha256:e5b65587bce7de595f299855d7385fe7fca39b8a74baa261ba1b7147afa78e58; Kuzu 0.11.3 embedded CPU; Memgraph 2.18.1 and Neo4j 5 community in pinned Docker images. Memgraph SF0.1: 4 GiB container / 3072 MiB engine; SF1: 16 GiB / 12288 MiB. Per-run records retain exact image digests and execution guards."
+    },
+    "snb426-aligned-shipped-426ce518a-20261112-h684": {
+      "artifact": "results/snb-master-f7a7253bc",
+      "competitor": "Kuzu, Neo4j, Memgraph",
+      "competitor_version": "Kuzu 0.11.3; Neo4j 5 community; Memgraph 2.18.1; pinned image digests in run records",
+      "dataset": "LDBC SNB Interactive SF0.1 and SF1, derived matched query shapes (SF10 is a capability boundary and is excluded)",
+      "harness_by_run": {
+        "snb-shipped-ship-426ce518a-pandas-sf0.1-r1": "684c0b40945b181d4a1504d1e297db5907694415",
+        "snb-shipped-ship-426ce518a-pandas-sf0.1-r2": "684c0b40945b181d4a1504d1e297db5907694415",
+        "snb-shipped-ship-426ce518a-pandas-sf0.1-r3": "684c0b40945b181d4a1504d1e297db5907694415",
+        "snb-shipped-ship-426ce518a-pandas-sf1-r1": "684c0b40945b181d4a1504d1e297db5907694415",
+        "snb-shipped-ship-426ce518a-pandas-sf1-r2": "684c0b40945b181d4a1504d1e297db5907694415",
+        "snb-shipped-ship-426ce518a-pandas-sf1-r3": "9b9e3f3c514b007ca3f188c18f9fbe699f2a95ca",
+        "snb-shipped-ship-426ce518a-polars-sf0.1-r1": "684c0b40945b181d4a1504d1e297db5907694415",
+        "snb-shipped-ship-426ce518a-polars-sf0.1-r2": "684c0b40945b181d4a1504d1e297db5907694415",
+        "snb-shipped-ship-426ce518a-polars-sf0.1-r3": "684c0b40945b181d4a1504d1e297db5907694415",
+        "snb-shipped-ship-426ce518a-polars-sf1-r1": "684c0b40945b181d4a1504d1e297db5907694415",
+        "snb-shipped-ship-426ce518a-polars-sf1-r2": "684c0b40945b181d4a1504d1e297db5907694415",
+        "snb-shipped-ship-426ce518a-polars-sf1-r3": "684c0b40945b181d4a1504d1e297db5907694415"
+      },
+      "host": "dgx-spark (NVIDIA GB10), 20 CPU",
+      "measured_at": "2026-11-12",
+      "mixed_harness_disclosure": "Mixed harness provenance: 11 runs at 684c0b40945b181d4a1504d1e297db5907694415 and the pandas SF1 repetitions at PR #344 head 9b9e3f3c514b007ca3f188c18f9fbe699f2a95ca; final-assembly.json records per-run harness IDs and all raw-run receipts remain clean.",
+      "perf_lock_held": true,
+      "pyg_bench_commit": "684c0b40945b181d4a1504d1e297db5907694415",
+      "pyg_bench_commit_by_run": [
+        "684c0b40945b181d4a1504d1e297db5907694415",
+        "9b9e3f3c514b007ca3f188c18f9fbe699f2a95ca"
+      ],
+      "pygraphistry_commit": "426ce518acb9b9e380f9b66bd13011bc789861c1",
+      "quiet_host": true,
+      "reps": "8 discarded warmups, 31 timed executions with full result materialization, 3 independent process runs; median of the three run medians",
+      "row_validation": "Exact canonical result hashes and row counts verified in every run and across eligible GFQL, Kuzu, Neo4j, and Memgraph comparisons; pandas also matches Polars.",
+      "runtime": "GFQL Polars 1.35.2 (explicit runner pin) and pandas on CPU in Python 3.12.12; GFQL/Kuzu runner image ghcr.io/astral-sh/uv:python3.12-bookworm-slim@sha256:e5b65587bce7de595f299855d7385fe7fca39b8a74baa261ba1b7147afa78e58; Kuzu 0.11.3 embedded CPU; Memgraph 2.18.1 and Neo4j 5 community in pinned Docker images. Memgraph SF0.1: 4 GiB container / 3072 MiB engine; SF1: 16 GiB / 12288 MiB. Per-run records retain exact image digests and execution guards."
+    },
+    "snb426-extra-shipped-426ce518a-20261112-h684": {
+      "artifact": "results/snb-master-f7a7253bc",
+      "competitor": "Kuzu, Neo4j, Memgraph",
+      "competitor_version": "Kuzu 0.11.3; Neo4j 5 community; Memgraph 2.18.1; pinned image digests in run records",
+      "dataset": "LDBC SNB Interactive SF0.1 and SF1, derived matched query shapes (the release board's parameters)",
+      "harness_by_run": {
+        "snb-shipped-ship-426ce518a-pandas-sf0.1-r1": "684c0b40945b181d4a1504d1e297db5907694415",
+        "snb-shipped-ship-426ce518a-pandas-sf0.1-r2": "684c0b40945b181d4a1504d1e297db5907694415",
+        "snb-shipped-ship-426ce518a-pandas-sf0.1-r3": "684c0b40945b181d4a1504d1e297db5907694415",
+        "snb-shipped-ship-426ce518a-pandas-sf1-r1": "684c0b40945b181d4a1504d1e297db5907694415",
+        "snb-shipped-ship-426ce518a-pandas-sf1-r2": "684c0b40945b181d4a1504d1e297db5907694415",
+        "snb-shipped-ship-426ce518a-pandas-sf1-r3": "9b9e3f3c514b007ca3f188c18f9fbe699f2a95ca",
+        "snb-shipped-ship-426ce518a-polars-sf0.1-r1": "684c0b40945b181d4a1504d1e297db5907694415",
+        "snb-shipped-ship-426ce518a-polars-sf0.1-r2": "684c0b40945b181d4a1504d1e297db5907694415",
+        "snb-shipped-ship-426ce518a-polars-sf0.1-r3": "684c0b40945b181d4a1504d1e297db5907694415",
+        "snb-shipped-ship-426ce518a-polars-sf1-r1": "684c0b40945b181d4a1504d1e297db5907694415",
+        "snb-shipped-ship-426ce518a-polars-sf1-r2": "684c0b40945b181d4a1504d1e297db5907694415",
+        "snb-shipped-ship-426ce518a-polars-sf1-r3": "684c0b40945b181d4a1504d1e297db5907694415"
+      },
+      "host": "dgx-spark (NVIDIA GB10), 20 CPU",
+      "measured_at": "2026-11-12",
+      "mixed_harness_disclosure": "Mixed harness provenance: 11 runs at 684c0b40945b181d4a1504d1e297db5907694415 and the pandas SF1 repetitions at PR #344 head 9b9e3f3c514b007ca3f188c18f9fbe699f2a95ca; final-assembly.json records per-run harness IDs and all raw-run receipts remain clean.",
+      "perf_lock_held": true,
+      "pyg_bench_commit": "684c0b40945b181d4a1504d1e297db5907694415",
+      "pyg_bench_commit_by_run": [
+        "684c0b40945b181d4a1504d1e297db5907694415",
+        "9b9e3f3c514b007ca3f188c18f9fbe699f2a95ca"
+      ],
+      "pygraphistry_commit": "426ce518acb9b9e380f9b66bd13011bc789861c1",
       "quiet_host": true,
       "reps": "8 discarded warmups, 31 timed executions with full result materialization, 3 independent process runs; median of the three run medians",
       "row_validation": "Exact canonical result hashes and row counts verified in every run and across eligible GFQL, Kuzu, Neo4j, and Memgraph comparisons; pandas also matches Polars.",

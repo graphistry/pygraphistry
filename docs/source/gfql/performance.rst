@@ -66,29 +66,27 @@ SNB Interactive
 These queries come from the LDBC Social Network Benchmark Interactive workload.
 They run on SF0.1 and SF1 datasets.
 
-GFQL outperforms Kuzu, Memgraph, and Neo4j across the SNB Interactive tables at
-both SF 0.1 and SF 1; the one exception is recent replies at SF 0.1, where GFQL and
-Neo4j are level. At SF1, message content and creator lookups take
-:bench:`snb.sf1.message_content.gfql_polars_idx` and
-:bench:`snb.sf1.message_creator.gfql_polars_idx`, respectively.
-Polars is also faster than Kuzu on every eligible query in these tables, including
-message replies and new topics. The tables show each engine's result for the
-profile lookup and recent replies as well.
+GFQL outperforms Kuzu, Memgraph, and Neo4j across the rendered SNB Interactive
+tables at both SF 0.1 and SF 1. At SF1, message content and creator lookups take
+:bench:`snb426.sf1.message_content.gfql_polars` and
+:bench:`snb426.sf1.message_creator.gfql_polars`, respectively. Polars is faster
+than Kuzu on every eligible query in these tables, including message replies and
+new topics.
 
 SF0.1
 ~~~~~
 
-.. bench-board:: snb.sf01
+.. bench-board:: snb426.sf01
    :rows: seed_lookup,message_content,message_creator,recent_replies,message_replies,new_topics
-   :columns: gfql_polars_idx=GFQL polars, gfql_pandas_idx=GFQL pandas, kuzu=Kuzu, neo4j=Neo4j, memgraph=Memgraph
-   :row-labels: seed_lookup=seed lookup; message_content=message content; message_creator=message creator; recent_replies=recent replies; message_replies=message replies (GFQL and Kuzu only); new_topics=new topics (GFQL and Kuzu only)
+   :columns: gfql_polars=GFQL polars, kuzu=Kuzu, memgraph=Memgraph, neo4j=Neo4j
+   :row-labels: seed_lookup=seed lookup; message_content=message content; message_creator=message creator; new_topics=new topics
 
 SF1
 ~~~
 
-.. bench-board:: snb.sf1
+.. bench-board:: snb426.sf1
    :rows: seed_lookup,message_content,message_creator,new_topics
-   :columns: gfql_polars_idx=GFQL polars, gfql_pandas_idx=GFQL pandas, kuzu=Kuzu, neo4j=Neo4j, memgraph=Memgraph
+   :columns: gfql_polars=GFQL polars, kuzu=Kuzu, memgraph=Memgraph, neo4j=Neo4j
    :row-labels: seed_lookup=seed lookup; message_content=message content; message_creator=message creator; recent_replies=recent replies; message_replies=message replies (GFQL and Kuzu only); new_topics=new topics (GFQL and Kuzu only)
 
 How GFQL is fast, and when it is not
@@ -117,7 +115,7 @@ Provenance
 
 Run dates and hardware.
 
-.. bench-provenance:: graphbench-q1q9-20k-master-2d64913b5-20261003 graphbench-q1q9-100k-master-2d64913b5-20261003 snb-aligned-ship-2d64913b5-20261003 snb-ship-2d64913b5-20261003
+.. bench-provenance:: graphbench-q1q9-20k-master-2d64913b5-20261003 graphbench-q1q9-100k-master-2d64913b5-20261003 snb426-aligned-shipped-426ce518a-20261112-h684 snb426-extra-shipped-426ce518a-20261112-h684
    :fields: measured_at,host
    :disclosures:
 
