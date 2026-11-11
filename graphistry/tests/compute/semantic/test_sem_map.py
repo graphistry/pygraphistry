@@ -87,6 +87,12 @@ class TestOutputs:
         assert {type(r.max_output_tokens) for call in limited.calls for r in call} == {int}
 
 
+    def test_batch_size_never_exceeds_the_provider_row_limit(self) -> None:
+        provider = RecordingGenerator(capabilities=caps(max_rows_per_request=2))
+        run(pd.DataFrame({"text": list("abcde")}), provider, batch_size=5)
+        assert sorted(len(call) for call in provider.calls) == [1, 2, 2]
+
+
 class TestFailures:
 
     def test_whole_call_faults_and_invalid_results(self) -> None:
