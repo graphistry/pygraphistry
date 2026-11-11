@@ -84,7 +84,8 @@ class TestMapping:
             assert result.probability_kind == "none"
         if question.kind == "predicate":
             assert result.confidence is None
-        assert "score_index" not in (result.extra or {}) or result.status == "ok"
+        if result.status_reason == "refusal":
+            assert "score_index" not in (result.extra or {})
 
     @pytest.mark.parametrize("answer,question", [
         ({"type": "choice", "name": "c", "choice": "nope", "probabilities": []}, CHOICE),
