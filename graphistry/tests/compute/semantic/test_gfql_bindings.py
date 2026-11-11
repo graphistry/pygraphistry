@@ -74,13 +74,18 @@ class TestCallMethodParity:
 
     def test_kind_must_name_a_table(self) -> None:
         provider = counting()
-        with pytest.raises(ValueError, match="kind"):
-            graph().sem_decide([Q_PRED], provider, kind="both", task_id="t", evidence_cols=["name"])  # type: ignore[arg-type]
+        for kind in ("both", pd.NA):
+            with pytest.raises(ValueError, match="kind"):
+                graph().sem_decide([Q_PRED], provider, kind=kind, task_id="t", evidence_cols=["name"])  # type: ignore[arg-type]
         for params in (decide_params(kind=pd.NA), decide_params(questions=[dict(Q_PRED, kind=pd.NA)])):
             with pytest.raises(GFQLTypeError) as info:
                 ASTCall("sem_decide", params).validate()
             assert info.value.code == ErrorCode.E201
         assert provider.answers == 0
+
+    def test_direct_method_on_a_polars_graph_returns_pandas_tables(self) -> None:
+        out = polars_graph().sem_decide([Q_PRED], counting(), task_id="t", evidence_cols=["name"])
+        assert type(out._nodes).__module__.startswith("pandas") and out._nodes["co"].tolist() == [True, False, True]
 
     def test_edge_id_binding_is_the_default_row_id(self) -> None:
         provider = counting()

@@ -140,7 +140,7 @@ def _apply_to_graph_table(g: Plottable, kind: GraphEntityKind, id_col: Optional[
                           run: "Callable[[DataFrameT, Optional[str]], DataFrameT]", op_name: str) -> Plottable:
     """Run a row-table operator on the node or edge table and return the graph with that table replaced."""
     from graphistry.compute.gfql.identifiers import is_internal_column
-    if kind not in ("nodes", "edges"):
+    if not (isinstance(kind, str) and kind in ("nodes", "edges")):
         raise ValueError(f"{op_name}: kind must be 'nodes' or 'edges', got {kind!r}")
     engine_concrete = resolve_input_engine(EngineAbstract.AUTO, g)
     g2 = _coerce_input_formats(g, engine_concrete)

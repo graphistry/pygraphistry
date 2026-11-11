@@ -1,5 +1,6 @@
 import json
 import threading
+from collections.abc import Mapping
 import time
 from dataclasses import replace
 from typing import Dict, List, Sequence
@@ -206,6 +207,44 @@ class TestAnswers:
         metas = [json.loads(meta) for meta in out["p__meta"]]
         assert out["p__error_code"].tolist() == ["invalid_provider_result"] * 2
         assert {(m["model"], m["provider"], m["retry_count"]) for m in metas} == {("Scripted", "raw", None)}
+
+    @pytest.mark.parametrize("value,dist,status", [
+        (np.array(True), {"true": 0.9, "false": 0.1}, "ok"), (np.bool_(False), None, "ok"),
+        (pd.NA, {"true": 0.3, "false": 0.7}, "uncertain"), (float("nan"), {"true": 0.3, "false": 0.7}, "uncertain"),
+        (True, {"true": 0.9, 1: 0.1, "false": 0.0}, "ok")])
+    def test_answers_are_checked_and_written_as_the_same_plain_values(self, value: object, dist: object,
+                                                                      status: str) -> None:
+        def script(index: int, requests: Sequence[DecisionRequest]) -> List[DecisionResult]:
+            return [result(r, "p", value, dist, status=status,  # type: ignore[arg-type]
+                           status_reason="null_answer" if status == "uncertain" else None) for r in requests]
+
+        out = decide(frame(1), Scripted(script))
+        if isinstance(dist, dict) and 1 in dist:
+            assert out["p__error_code"].tolist() == ["invalid_provider_result"]
+        elif status == "uncertain":
+            assert out["p__error_code"].tolist() == ["invalid_provider_result"] and out["p__p"].isna().all()
+        else:
+            assert out["p__status"].tolist() == ["ok"] and str(out["p"].dtype) == "boolean"
+
+    def test_unreadable_answers_and_metadata_are_invalid_not_a_crash(self) -> None:
+        class Unreadable:
+            def tolist(self) -> object:
+                raise RuntimeError("cannot read")
+
+        class BrokenMapping(Mapping):
+            def __getitem__(self, key: str) -> object:
+                raise LookupError(key)
+
+            def __len__(self) -> int:
+                return 1
+
+            def __iter__(self):  # type: ignore[no-untyped-def]
+                raise LookupError("broken")
+
+        for overrides in (dict(value=Unreadable()), dict(extra=BrokenMapping()), dict(value="yes", retry_count=2 ** 40)):
+            out = decide(frame(1), Scripted(lambda i, reqs: [replace(result(r, "p", True), **overrides) for r in reqs]))
+            assert out["p__error_code"].tolist() == ["invalid_provider_result"]
+            assert json.loads(out["p__meta"].iloc[0])["retry_count"] in (None, 0)
 
     def test_numpy_answers_from_any_provider_are_accepted(self) -> None:
         out = decide(frame(2), Scripted(lambda i, reqs: [

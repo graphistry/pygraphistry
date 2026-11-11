@@ -17,7 +17,8 @@ class CallableDecisionProvider:
     ``(answer, distribution)`` pair. No answer is ``uncertain`` and drops any distribution. An exception
     from ``fn`` fails only that answer (``callable_exception``); the operator rejects answers that break
     the contract (``invalid_provider_result``), such as a distribution while ``probability_kind="none"``.
-    ``fn`` may run on up to ``capabilities.concurrency_limit`` threads at once (default 4).
+    ``fn`` may run on up to ``capabilities.concurrency_limit`` threads at once within one operator run (default 4).
+    A predicate distribution needs both ``"true"`` and ``"false"``.
 
     **Example**
         ::

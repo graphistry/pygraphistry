@@ -242,8 +242,9 @@ class DecisionResult:
 class DecisionProvider(Protocol):
     """A model backend for ``sem_decide``.
 
-    ``decide_batch`` is synchronous and may be called from up to ``concurrency_limit`` threads at once;
-    ``deadline_s`` and ``budget`` are what remains of the run.
+    ``decide_batch`` is synchronous; one operator run calls it from up to ``concurrency_limit`` threads at once
+    (calls a run abandoned at its deadline may still be running when the next run starts). ``deadline_s`` and
+    ``budget`` are what remains of the run. The kernel reads answers and distributions as plain Python values.
     """
 
     name: str
@@ -347,7 +348,6 @@ def check_decision_result(request: DecisionRequest, question: DecisionQuestion, 
                           capabilities: Optional[ProviderCapabilities] = None) -> List[str]:
     """Content violations of one decision result against its request and question (empty when valid)."""
     status, reason = result.status, result.status_reason
-    value, distribution = canonicalize(result.value), canonicalize(result.distribution)
     if not _is_member(status, RESULT_STATUSES):
         return [f"status must be a string in {RESULT_STATUSES}, got {status!r}"]
     if not _is_member(result.probability_kind, PROBABILITY_KINDS):
@@ -366,17 +366,17 @@ def check_decision_result(request: DecisionRequest, question: DecisionQuestion, 
     label = reason if isinstance(reason, str) and reason in _EMPTY_FIELDS else status
     problems.extend(f"{label} results must have {name} None" for name in _EMPTY_FIELDS.get(label, ())
                     if getattr(result, name) is not None)
-    if status == "ok" and value is None:
+    if status == "ok" and result.value is None:
         problems.append("an ok result must carry a value")
-    if (result.probability_kind == "none") != (distribution is None):
+    if (result.probability_kind == "none") != (result.distribution is None):
         problems.append("probability_kind must be 'none' exactly when distribution is None")
     labels = question.labels()
-    if value is not None and labels is None and not isinstance(value, bool):
+    if result.value is not None and labels is None and not isinstance(result.value, bool):
         problems.append(f"a predicate value must be a bool or None, got {result.value!r}")
-    if value is not None and labels is not None and not _is_member(value, labels):
+    if result.value is not None and labels is not None and not _is_member(result.value, labels):
         problems.append(f"value {result.value!r} is not one of {labels}")
-    if distribution is not None:
-        problems.extend(_distribution_problems(question, distribution))
+    if result.distribution is not None:
+        problems.extend(_distribution_problems(question, result.distribution))
     if capabilities is not None and result.probability_kind == "native_decision" \
             and not capabilities.supports_native_probabilities:
         problems.append("native_decision reported by a provider without native probabilities")

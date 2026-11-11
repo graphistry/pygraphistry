@@ -205,7 +205,7 @@ def _cell_result(request: DecisionRequest, question: DecisionQuestion, outcome: 
     if outcome.skipped is not None:
         return unanswered_result(request, question, provider=provider, model=model, input_hash=input_hash,
                                  status_reason=outcome.skipped)
-    result = None if row is None else row[question.id]
+    result = None if row is None else _plain_answer(row[question.id])
     if result is not None and not check_decision_result(request, question, result, capabilities):
         result = dataclasses.replace(result, input_hash=input_hash)
         if min_p is not None and result.status == "ok":
@@ -222,6 +222,20 @@ def _cell_result(request: DecisionRequest, question: DecisionQuestion, outcome: 
         latency_ms=None if result is None else _nonnegative(result.latency_ms),
         retry_count=retries if isinstance(retries, int) and not isinstance(retries, bool) and 0 <= retries < 2 ** 31
         else None)
+
+
+def _plain_answer(result: DecisionResult) -> Optional[DecisionResult]:
+    """The result with its answer and distribution as plain Python values, so what is checked is what is written;
+    None when they cannot be read as such (provider values are untrusted)."""
+    try:
+        value, distribution = canonicalize(result.value), canonicalize(result.distribution)
+        raw_size = len(result.distribution) if isinstance(result.distribution, Mapping) else None
+    except Exception:
+        return None
+    if not isinstance(value, (bool, str, type(None))) or not isinstance(distribution, (dict, type(None))) \
+            or (distribution is not None and raw_size != len(distribution)):
+        return None
+    return dataclasses.replace(result, value=value, distribution=distribution)
 
 
 def _provider_identity(provider: DecisionProvider) -> Tuple[str, str]:
