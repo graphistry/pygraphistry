@@ -1946,9 +1946,11 @@ query on another engine; rerun with ``engine='pandas'`` (or ``'cudf'``).
 **Providers:** ``CallableDecisionProvider`` wraps a Python function; ``OpenAIDecisionsProvider`` calls the public
 `OpenAI Decisions API <https://developers.openai.com/api/docs/guides/decisions>`_ with a caller-supplied model and
 ``TokenPrices``; ``OpenAIChatProvider`` (OpenAI-compatible chat completions: OpenAI, Azure OpenAI, Fireworks, Mistral
-and other hosts) and ``AnthropicMessagesProvider`` ask each question as a lettered choice and, when the host returns
-token logprobs, read a label distribution from the answer token (``probability_kind`` ``token_logprob``, observed label
-mass in ``extra.label_mass``); without logprobs the answer has no distribution. Any object implementing the
+and other hosts) and ``AnthropicMessagesProvider`` ask each question with a one-character code per label and, when
+the host returns token logprobs, read a label distribution from the answer token (``probability_kind``
+``token_logprob``, conditional on the answer being a code; the codes' share of the answer token's probability is
+``extra.label_mass``); without logprobs the answer has no distribution. A question whose labels cannot be given
+unambiguous codes is an ``unsupported_question`` error and is not sent. Any object implementing the
 ``DecisionProvider`` protocol in ``graphistry.compute.semantic`` can be bound.
 
 Utility Methods

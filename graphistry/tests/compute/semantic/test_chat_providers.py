@@ -71,6 +71,25 @@ class TestLetterCodes:
         result = checked(openai(FakeSession([chat_reply("3", top(**{"3": 0.8, "2": 0.1}))])), request((grades,)))[0]
         assert result.value == "A"
 
+    @pytest.mark.parametrize("labels,codes", [
+        (("A", "B", "C", "D"), LETTERS), (("1", "X", "2"), LETTERS), (("B)", "A)", "C)"), "0123456789"),
+        (("b", "a"), "0123456789"), ((" B", "A"), "0123456789"), (("0", "1", "Q"), LETTERS),
+        (("A+", "A", "A-", "B+", "B", "B-", "C+", "C", "C-", "D+", "D", "D-", "F"), None),
+        (("B", "A", "C", "1", "0", "2"), None)])
+    def test_codes_never_mean_another_label(self, labels: tuple, codes: Optional[str]) -> None:
+        question = DecisionQuestion(id="q", kind="choice", text="Which?", options=labels)
+        assert answer_codes(question) == codes
+
+    def test_questions_whose_labels_cannot_be_coded_are_not_sent(self) -> None:
+        grades = DecisionQuestion(id="g", kind="score", text="Grade?",
+                                  levels=("F", "D", "C", "B", "A", "A+", "A-", "B+", "B-", "C+", "C-"))
+        session = FakeSession([chat_reply("A", top(A=0.7, B=0.2))])
+        by_id = {result.question_id: result for result in checked(openai(session), request((PRED, grades)))}
+        p_result, g_result = by_id["p"], by_id["g"]
+        assert (g_result.status, g_result.error_code, p_result.status) == ("error", "unsupported_question", "ok")
+        assert len(session.posts) == 1 and "Grade?" not in str(session.posts[0]["json"])  # type: ignore[index]
+        assert openai(FakeSession([])).estimate_cost_usd([request((grades,))]) == 0.0
+
     def test_label_distribution_normalizes_full_sets_and_bounds_partial_ones(self) -> None:
         entries = top(A=0.5, a=0.1, **{" B": 0.2, "Z": 0.05}) + [{"token": "C", "logprob": 1000.0}, {"token": "A"},
                                                                 "junk", {"token": "A", "logprob": -0.1}]
@@ -109,7 +128,8 @@ class TestOpenAIChat:
 
     @pytest.mark.parametrize("question,text,logprobs", [
         (PRED, "A", None), (PRED, "A", top(A=0.9)), (PRED, "A", top(Z=0.9)), (PRED, "A", []),
-        (CHOICE, "B", [{"token": "B", "logprob": 0.0}]), (SCORE, "C", top(C=0.9, Z=0.1))])
+        (CHOICE, "B", [{"token": "B", "logprob": 0.0}]), (SCORE, "C", top(C=0.9, Z=0.1)),
+        (PRED, "A", top(A=0.9, B=0.0)), (PRED, "A", [{"token": "A", "logprob": -0.1}, {"token": "B", "logprob": -800.0}])])
 
     def test_one_or_no_observed_code_means_no_distribution_not_one_hot(self, question: DecisionQuestion, text: str,
                                                                         logprobs: object) -> None:
@@ -141,6 +161,28 @@ class TestOpenAIChat:
         reply._body["choices"][0]["logprobs"]["content"][-1]["logprob"] = math.log(0.05)  # type: ignore[index]
         result = checked(openai(FakeSession([reply])), request((PRED,)))[0]
         assert result.value is True and result.distribution == pytest.approx({"true": 0.9 / 0.95, "false": 0.05 / 0.95})
+
+    def test_replies_cut_off_at_the_token_limit_are_not_answers(self) -> None:
+        cut = chat_reply("A", top(A=0.9, B=0.1))
+        cut._body["choices"][0]["finish_reason"] = "length"  # type: ignore[index]
+        assert checked(openai(FakeSession([cut])), request((PRED,)))[0].error_code == "invalid_provider_result"
+
+    @pytest.mark.parametrize("options", [dict(max_answer_tokens=1), dict(max_answer_tokens=True),
+                                         dict(max_answer_tokens=2.5), dict(top_logprobs=-1), dict(top_logprobs=True)])
+    def test_unusable_answer_settings_are_rejected(self, options: dict) -> None:
+        with pytest.raises(ValueError, match=next(iter(options))):
+            openai(FakeSession([]), **options)
+
+    def test_a_certain_code_counts_as_observed(self) -> None:
+        sure = [{"token": "A", "logprob": 0.0}, {"token": "B", "logprob": math.log(0.01)}]
+        result = checked(openai(FakeSession([chat_reply("A", sure)])), request((PRED,)))[0]
+        assert result.distribution == pytest.approx({"true": 1 / 1.01, "false": 0.01 / 1.01})
+
+    def test_extra_body_adds_fields_but_cannot_replace_the_prompt(self) -> None:
+        session = FakeSession([chat_reply("A")])
+        checked(openai(session, extra_body={"model": "other", "messages": [], "seed": 7}), request((PRED,)))
+        body = session.posts[0]["json"]
+        assert (body["model"], body["seed"], len(body["messages"])) == ("m", 7, 2)  # type: ignore[index]
 
     def test_content_filter_stops_are_refusals(self) -> None:
         reply = chat_reply("A", top(A=0.5, B=0.5))
@@ -223,3 +265,16 @@ class TestAnthropic:
         assert post["json"]["max_tokens"] == 64 and post["json"]["temperature"] == 0  # type: ignore[index]
         assert post["headers"]["anthropic-beta"] == "x"  # type: ignore[index]
         assert not provider.capabilities().supports_native_probabilities
+
+    def test_text_blocks_cache_writes_and_cut_off_replies(self) -> None:
+        thinking = anthropic_reply("B")
+        thinking._body["content"].insert(0, {"type": "thinking", "thinking": "A"})  # type: ignore[index]
+        thinking._body["usage"]["cache_creation_input_tokens"] = 20  # type: ignore[index]
+        cut = anthropic_reply("A")
+        cut._body["stop_reason"] = "max_tokens"  # type: ignore[index]
+        provider = AnthropicMessagesProvider("k", "claude-x", session=FakeSession([thinking, cut]),
+                                             prices=TokenPrices(input=1.0, cached_input=0.1, cache_write=2.0))
+        read, cut_off = provider.decide_batch([request((PRED,)), request((PRED,), request_id="r1")], deadline_s=None,
+                                              budget=None)
+        assert (read.value, read.cost_usd) == (False, pytest.approx((60 + 4 + 40) / 1e6))
+        assert cut_off.error_code == "invalid_provider_result"

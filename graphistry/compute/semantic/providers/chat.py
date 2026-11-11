@@ -1,17 +1,18 @@
 """Decision providers over chat APIs: OpenAI-compatible chat completions (with token logprobs) and Anthropic Messages.
 
-Each question becomes one chat request whose answer is a single letter code (``A``, ``B``, ...), so a provider that
-returns token logprobs yields a label distribution read at the answer token, and one that does not still yields a
-validated label. A provider never turns generated text into a probability.
+Each question becomes one chat request whose answer is a one-character code (``A``, ``B``, ... or ``0``, ``1``, ...),
+so a provider that returns token logprobs yields a label distribution read at the answer token, and one that does not
+still yields a validated label. A provider never turns generated text into a probability.
 """
 import hashlib
 import math
 import string
 from abc import abstractmethod
-from typing import Dict, List, Mapping, Optional, Sequence, Tuple, Union
+from typing import Dict, List, Mapping, NamedTuple, Optional, Sequence, Tuple, Union
 
 from graphistry.compute.semantic.contract import (
-    DecisionQuestion, DecisionRequest, DecisionResult, Evidence, ExtraValue, ProviderCapabilities, StatusReason)
+    Budget, DecisionQuestion, DecisionRequest, DecisionResult, Evidence, ExtraValue, ProviderCapabilities, StatusReason,
+    unanswered_result)
 from graphistry.compute.semantic.providers.http import (
     HttpDecisionProvider, HttpPoster, JSONObject, ResponseMeta, TokenPrices, TokenUsage, evidence_text, token_count)
 
@@ -28,11 +29,16 @@ def answer_labels(question: DecisionQuestion) -> Tuple[Union[bool, str], ...]:
     return (True, False) if labels is None else labels
 
 
-def answer_codes(question: DecisionQuestion) -> str:
-    """Letter codes, or digit codes when a label is itself one letter (an answer "A" must not mean two things)."""
+def answer_codes(question: DecisionQuestion) -> Optional[str]:
+    """Letter codes, else digit codes: the first alphabet in which no label reads as another label's code (an answer
+    must not mean two things). None when neither fits; such a question is not sent."""
     labels = question.labels() or ()
-    letter_labels = any(len(label.strip()) == 1 and label.strip().upper() in LETTERS for label in labels)
-    return DIGITS if letter_labels and len(labels) <= len(DIGITS) else LETTERS
+    count = len(labels) or 2
+    for alphabet in (LETTERS, DIGITS):
+        if len(alphabet) >= count and all(code_index(label, alphabet[:count]) in (None, position)
+                                          for position, label in enumerate(labels)):
+            return alphabet
+    return None
 
 
 def letter_prompt(evidence: Evidence, question: DecisionQuestion) -> str:
@@ -45,6 +51,8 @@ def letter_prompt(evidence: Evidence, question: DecisionQuestion) -> str:
         shown = [f"{level} ({'lowest' if i == 0 else 'highest' if i == len(shown) - 1 else 'level ' + str(i)})"
                  for i, level in enumerate(shown)]
     codes = answer_codes(question)
+    if codes is None:
+        raise ValueError(f"question {question.id!r} has labels that cannot be coded unambiguously")
     choices = "\n".join(f"{codes[i]}. {label}" for i, label in enumerate(shown))
     return f"<{tag}>\n{text}\n</{tag}>\n\nQuestion: {question.text}\n{choices}"
 
@@ -104,12 +112,17 @@ def label_distribution(entries: Sequence[object], codes: str, labels: int) -> Tu
     return {index: value / denominator for index, value in mass.items()}, observed
 
 
+class Reply(NamedTuple):
+    text: object
+    tokens: object
+    refused: bool
+    cut_off: bool
+
+
 class _ChatDecisionProvider(HttpDecisionProvider):
     """Shared request shape and answer mapping for chat providers: one question per HTTP request.
 
-    ``max_answer_tokens`` leaves room for models that emit a few tokens before the code; ``extra_body`` and
-    ``extra_headers`` add host fields (for example ``{"reasoning_effort": "none"}``). Probabilities are conditional
-    on the answer being one of the codes; ``extra.label_mass`` is the codes' share of the answer token's probability.
+    A reply cut off at ``max_answer_tokens`` is not an answer, so the limit is at least 2.
     """
 
     def __init__(self, api_key: str, model: str, *, base_url: Optional[str] = None, max_answer_tokens: int = 16,
@@ -120,6 +133,8 @@ class _ChatDecisionProvider(HttpDecisionProvider):
         super().__init__(api_key, model, base_url=base_url, prices=prices, concurrency_limit=concurrency_limit,
                          timeout_s=timeout_s, max_retries=max_retries, retry_backoff_s=retry_backoff_s,
                          session=session, name=name)
+        if isinstance(max_answer_tokens, bool) or not isinstance(max_answer_tokens, int) or max_answer_tokens < 2:
+            raise ValueError(f"max_answer_tokens must be an int >= 2, got {max_answer_tokens!r}")
         self.max_answer_tokens = max_answer_tokens
         self.extra_body = dict(extra_body or {})
         self.extra_headers = dict(extra_headers or {})
@@ -130,25 +145,33 @@ class _ChatDecisionProvider(HttpDecisionProvider):
                                     max_choice_options=len(LETTERS), max_levels=len(LETTERS))
 
     def question_groups(self, request: DecisionRequest) -> List[Sequence[DecisionQuestion]]:
-        return [[question] for question in request.questions]
+        return [[question] for question in request.questions if answer_codes(question) is not None]
+
+    def decide_batch(self, requests_: Sequence[DecisionRequest], *, deadline_s: Optional[float],
+                     budget: Optional[Budget]) -> List[DecisionResult]:
+        """Questions whose labels cannot be coded are ``unsupported_question`` errors, with no request sent."""
+        unsupported = [unanswered_result(request, question, provider=self.name, model=self.model,
+                                         error_code="unsupported_question")
+                       for request in requests_ for question in request.questions if answer_codes(question) is None]
+        return unsupported + super().decide_batch(requests_, deadline_s=deadline_s, budget=budget)
 
     def prompt_texts(self, request: DecisionRequest, questions: Sequence[DecisionQuestion]) -> List[str]:
         return [SYSTEM_PROMPT, letter_prompt(request.evidence, questions[0])]
 
     @abstractmethod
-    def reply(self, payload: Mapping[str, object]) -> Tuple[object, object, bool]:
-        """``(answer text, generated tokens with their top logprobs or None, whether the model refused)``."""
+    def reply(self, payload: Mapping[str, object]) -> Reply:
+        """The answer text, the generated tokens with their top logprobs (or None), and how the reply ended."""
 
     def results(self, request: DecisionRequest, questions: Sequence[DecisionQuestion], payload: Mapping[str, object],
                 meta: ResponseMeta) -> List[DecisionResult]:
         question = questions[0]
-        text, tokens, refused = self.reply(payload)
+        text, tokens, refused, cut_off = self.reply(payload)
         if refused:
             return [self.answered(request, question, meta, value=None, distribution=None, probability_kind="none",
                                   reason="refusal")]
         labels, codes = answer_labels(question), answer_codes(question)
-        answer = code_index(text, codes)
-        if answer is None or answer >= len(labels):
+        answer = None if codes is None or cut_off else code_index(text, codes)
+        if codes is None or answer is None or answer >= len(labels):
             return [self.invalid(request, question, meta)]
         by_index, mass = label_distribution(answer_alternatives(tokens, codes, answer), codes, len(labels))
         if by_index is None:
@@ -172,8 +195,14 @@ class OpenAIChatProvider(_ChatDecisionProvider):
 
     ``top_logprobs`` is how many alternatives the API returns for the answer token (hosts cap it, some at 5; 0 asks
     for none, for hosts without logprobs). ``max_tokens_field`` names the answer-length limit (``"max_tokens"`` on
-    Mistral and Fireworks). A predicate or score answer takes the distribution's top label when there is one; a
-    host that returns no alternatives still yields validated answers with no distribution.
+    Mistral and Fireworks) and ``max_answer_tokens`` its value (at least 2; leave room for models that emit a few
+    tokens before the code). ``extra_body`` and ``extra_headers`` add host fields, for example
+    ``{"reasoning_effort": "none"}``; they cannot replace the fields the provider sets.
+
+    Probabilities are conditional on the answer being one of the codes; ``extra.label_mass`` is the codes' share of
+    the answer token's probability. A predicate or score answer takes the distribution's top label; with only some
+    labels observed, a top label with probability 0.5 or more is the true top label. A host that returns no
+    alternatives still yields validated answers with no distribution.
 
     **Example**
         ::
@@ -197,6 +226,8 @@ class OpenAIChatProvider(_ChatDecisionProvider):
                          extra_headers=extra_headers, prices=prices, concurrency_limit=concurrency_limit,
                          timeout_s=timeout_s, max_retries=max_retries, retry_backoff_s=retry_backoff_s,
                          session=session, name=name)
+        if isinstance(top_logprobs, bool) or not isinstance(top_logprobs, int) or top_logprobs < 0:
+            raise ValueError(f"top_logprobs must be an int >= 0, got {top_logprobs!r}")
         self.auth_header = auth_header
         self.top_logprobs = top_logprobs
         self.max_tokens_field = max_tokens_field
@@ -208,10 +239,10 @@ class OpenAIChatProvider(_ChatDecisionProvider):
 
     def body(self, request: DecisionRequest, questions: Sequence[DecisionQuestion]) -> JSONObject:
         logprobs: JSONObject = {"logprobs": True, "top_logprobs": self.top_logprobs} if self.top_logprobs else {}
-        return {"model": self.model, "messages": [
+        return {**self.extra_body, "model": self.model, "messages": [
                     {"role": "system", "content": SYSTEM_PROMPT},
                     {"role": "user", "content": letter_prompt(request.evidence, questions[0])}],
-                self.max_tokens_field: self.max_answer_tokens, **logprobs, **self.extra_body}
+                self.max_tokens_field: self.max_answer_tokens, **logprobs}
 
     def usage(self, payload: Mapping[str, object]) -> Optional[TokenUsage]:
         usage = payload.get("usage")
@@ -223,18 +254,22 @@ class OpenAIChatProvider(_ChatDecisionProvider):
         return TokenUsage(uncached_input=max(0, token_count(usage.get("prompt_tokens")) - cached - written),
                           cached_input=cached, cache_write=written, output=token_count(usage.get("completion_tokens")))
 
-    def reply(self, payload: Mapping[str, object]) -> Tuple[object, object, bool]:
+    def reply(self, payload: Mapping[str, object]) -> Reply:
         choices = payload.get("choices")
         choice = choices[0] if isinstance(choices, list) and choices and isinstance(choices[0], dict) else {}
         message = choice.get("message")
         message = message if isinstance(message, dict) else {}
         logprobs = choice.get("logprobs")
-        return (message.get("content"), logprobs.get("content") if isinstance(logprobs, dict) else None,
-                bool(message.get("refusal")) or choice.get("finish_reason") == "content_filter")
+        return Reply(message.get("content"), logprobs.get("content") if isinstance(logprobs, dict) else None,
+                     bool(message.get("refusal")) or choice.get("finish_reason") == "content_filter",
+                     choice.get("finish_reason") == "length")
 
 
 class AnthropicMessagesProvider(_ChatDecisionProvider):
-    """Anthropic Messages API. It returns no token probabilities, so every answer has no distribution."""
+    """Anthropic Messages API. It returns no token probabilities, so every answer has no distribution.
+
+    ``max_answer_tokens`` (at least 2), ``extra_body`` and ``extra_headers`` work as on :class:`OpenAIChatProvider`.
+    """
 
     name = "anthropic_messages"
     default_base_url = "https://api.anthropic.com/v1"
@@ -246,9 +281,8 @@ class AnthropicMessagesProvider(_ChatDecisionProvider):
                 **self.extra_headers}
 
     def body(self, request: DecisionRequest, questions: Sequence[DecisionQuestion]) -> JSONObject:
-        return {"model": self.model, "max_tokens": self.max_answer_tokens, "system": SYSTEM_PROMPT,
-                "messages": [{"role": "user", "content": letter_prompt(request.evidence, questions[0])}],
-                **self.extra_body}
+        return {**self.extra_body, "model": self.model, "max_tokens": self.max_answer_tokens, "system": SYSTEM_PROMPT,
+                "messages": [{"role": "user", "content": letter_prompt(request.evidence, questions[0])}]}
 
     def usage(self, payload: Mapping[str, object]) -> Optional[TokenUsage]:
         usage = payload.get("usage")
@@ -259,8 +293,9 @@ class AnthropicMessagesProvider(_ChatDecisionProvider):
                           cache_write=token_count(usage.get("cache_creation_input_tokens")),
                           output=token_count(usage.get("output_tokens")))
 
-    def reply(self, payload: Mapping[str, object]) -> Tuple[object, object, bool]:
+    def reply(self, payload: Mapping[str, object]) -> Reply:
         content = payload.get("content")
         blocks = [block.get("text") for block in content if isinstance(block, dict) and block.get("type") == "text"] \
             if isinstance(content, list) else []
-        return (blocks[0] if blocks else None), None, payload.get("stop_reason") == "refusal"
+        return Reply(blocks[0] if blocks else None, None, payload.get("stop_reason") == "refusal",
+                     payload.get("stop_reason") == "max_tokens")
