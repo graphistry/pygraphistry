@@ -92,6 +92,9 @@ class Scripted:
     def capabilities(self) -> ProviderCapabilities:
         return self._capabilities
 
+    def estimate_cost_usd(self, requests: Sequence[DecisionRequest]) -> Optional[float]:
+        return 0.0
+
     def decide_batch(self, requests: Sequence[DecisionRequest], *, deadline_s: Optional[float],
                      budget: Optional[Budget]) -> List[DecisionResult]:
         self.count += 1

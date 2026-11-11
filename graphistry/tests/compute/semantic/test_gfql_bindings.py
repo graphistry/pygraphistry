@@ -183,7 +183,7 @@ class TestJsonAndValidation:
         dict(questions=[{"id": "q", "kind": "choice", "text": "t", "options": ["a"]}]),
         dict(questions=[{"id": "q", "kind": "score", "text": "t", "levels": ["x", "y"], "options": ["a", "b"]}]),
         dict(questions=[{"id": "__gfql_x__", "kind": "predicate", "text": "t"}]), dict(questions=[Q_PRED, Q_PRED]),
-        dict(budget={"max_requests": 0}), dict(budget={"max_cost_usd": 1.0}), dict(evidence_cols=["name", "name"]),
+        dict(budget={"max_requests": 0}), dict(budget={"max_cost_usd": -1}), dict(evidence_cols=["name", "name"]),
         dict(questions=[{"id": "a", "kind": "predicate", "text": "t"}, {"id": "a__p", "kind": "predicate", "text": "t"}]),
     ])
     def test_e201_before_the_kernel(self, overrides: Dict[str, object]) -> None:

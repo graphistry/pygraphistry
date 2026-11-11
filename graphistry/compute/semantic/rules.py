@@ -103,7 +103,7 @@ def _json_questions(value: object) -> object:
 
 def _json_budget(value: object) -> object:
     if not isinstance(value, dict):
-        raise ValueError("must be a dict with max_requests")
+        raise ValueError("must be a dict with max_cost_usd and/or max_requests")
     return Budget.from_mapping(value)
 
 

@@ -116,13 +116,16 @@ class TestFromMapping:
     def test_question_and_budget_values(self) -> None:
         spec = {"id": "c", "kind": np.str_("choice"), "text": "Which?", "options": ["a", "b", "c"]}
         assert DecisionQuestion.from_mapping(spec) == CHOICE
-        budget = Budget.from_mapping({"max_requests": np.int64(3)})
-        assert budget == Budget(max_requests=3) and type(budget.max_requests) is int
+        budget = Budget.from_mapping({"max_cost_usd": np.float32(0.5), "max_requests": np.int64(3)})
+        assert budget == Budget(max_cost_usd=0.5, max_requests=3) and type(budget.max_requests) is int
+        assert type(budget.max_cost_usd) is float
         assert Budget.from_mapping({}) == Budget() == Budget.from_mapping({"max_requests": None})
 
     @pytest.mark.parametrize("spec", [{"max_requests": missing} for missing in (float("nan"), pd.NA, pd.NaT)]
+                             + [{"max_cost_usd": missing} for missing in (float("nan"), pd.NA, pd.NaT)]
                              + [{"max_requests": 0}, {"max_requests": 2.0}, {"max_requests": True}, {"max_rows": 1},
-                                {"max_cost_usd": 1.0}])
+                                {"max_cost_usd": -1}, {"max_cost_usd": True}, {"max_cost_usd": float("inf")},
+                                {"max_cost_usd": 10 ** 400}])
     def test_budget_errors_never_mean_no_cap(self, spec: dict) -> None:
         with pytest.raises(ValueError):
             Budget.from_mapping(spec)
@@ -272,12 +275,15 @@ class _Decider:
     def capabilities(self) -> ProviderCapabilities:
         return caps()
 
+    def estimate_cost_usd(self, requests: Sequence[DecisionRequest]) -> Optional[float]:
+        return None
+
     def decide_batch(self, requests: Sequence[DecisionRequest], *, deadline_s: Optional[float],
                      budget: Optional[Budget]) -> List[DecisionResult]:
         return []
 
 
-@pytest.mark.parametrize("member", ["name", "model", "capabilities", "decide_batch"])
+@pytest.mark.parametrize("member", ["name", "model", "capabilities", "estimate_cost_usd", "decide_batch"])
 def test_each_protocol_member_is_required(member: str) -> None:
     assert isinstance(_Decider(), DecisionProvider)
     partial = type("Partial", (), {k: v for k, v in vars(_Decider).items() if k != member and not k.startswith("__")})

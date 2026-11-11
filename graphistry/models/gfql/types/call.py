@@ -171,6 +171,7 @@ class SemQuestion(TypedDict, total=False):
 
 class SemBudget(TypedDict, total=False):
     """Run limits for semantic calls."""
+    max_cost_usd: float
     max_requests: int
 
 

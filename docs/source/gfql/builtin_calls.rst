@@ -1908,7 +1908,7 @@ Answer typed questions per row: ``predicate`` (yes/no), ``choice`` (one of ``opt
    * - budget
      - dict
      - No
-     - ``{max_requests?}``: the number of provider calls
+     - ``{max_cost_usd?, max_requests?}``; a cost cap requires a provider that can estimate cost
    * - max_rows
      - integer
      - No
@@ -1941,8 +1941,10 @@ stay polars. Called directly as ``g.sem_decide(...)`` on a polars-bound graph, t
 then reaches a step that engine cannot run raises ``GFQLCallExecutionError`` instead of re-running the whole
 query on another engine; rerun with ``engine='pandas'`` (or ``'cudf'``).
 
-**Providers:** ``CallableDecisionProvider`` wraps a Python function. Any object implementing the
-``DecisionProvider`` protocol in ``graphistry.compute.semantic`` can be bound.
+**Providers:** ``CallableDecisionProvider`` wraps a Python function; ``OpenAIDecisionsProvider`` calls the public
+`OpenAI Decisions API <https://developers.openai.com/api/docs/guides/decisions>`_ with a caller-supplied model and
+``TokenPrices``. Any object implementing the ``DecisionProvider`` protocol in ``graphistry.compute.semantic`` can be
+bound.
 
 Utility Methods
 ---------------

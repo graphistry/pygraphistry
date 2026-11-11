@@ -133,11 +133,34 @@ def _check_question_capabilities(questions: Sequence[DecisionQuestion], capabili
             raise ValueError(f"question {question.id!r} has more than {limit} {labels}")
 
 
-def _plan_calls(calls: int, budget: Optional[Budget]) -> List[Optional[Budget]]:
-    """The remaining budget handed to each call the budget allows; later calls are skipped (``budget``)."""
-    if budget is None or budget.max_requests is None:
-        return [budget] * calls
-    return [Budget(max_requests=budget.max_requests - index) for index in range(min(calls, budget.max_requests))]
+def _estimate_cost(provider: DecisionProvider, batch: Sequence[DecisionRequest]) -> Optional[float]:
+    """Provider code is untrusted: a failing or invalid estimate means "cannot estimate"."""
+    try:
+        return _nonnegative(canonicalize(provider.estimate_cost_usd(batch)))
+    except Exception:
+        return None
+
+
+def _plan_calls(batches: Sequence[Sequence[DecisionRequest]], budget: Optional[Budget],
+                estimate: Callable[[Sequence[DecisionRequest]], Optional[float]]) -> List[Optional[Budget]]:
+    """The remaining budget handed to each call the budget allows, in order; later calls are skipped (``budget``).
+
+    Each call reserves its estimated cost before submission, so which calls run never depends on completion order.
+    """
+    if budget is None:
+        return [None] * len(batches)
+    plans: List[Optional[Budget]] = []
+    reserved = 0.0
+    for index, batch in enumerate(batches):
+        if budget.max_requests is not None and index >= budget.max_requests:
+            break
+        cost = None if budget.max_cost_usd is None else estimate(batch)
+        if budget.max_cost_usd is not None and (cost is None or reserved + cost > budget.max_cost_usd * (1 + 1e-9) + 1e-12):
+            break
+        plans.append(Budget(max_cost_usd=None if budget.max_cost_usd is None else max(0.0, budget.max_cost_usd - reserved),
+                            max_requests=None if budget.max_requests is None else budget.max_requests - index))
+        reserved += cost or 0.0
+    return plans
 
 
 def _call_provider(invoke: Invoke, batch: Sequence[DecisionRequest], remaining_s: Optional[float],
@@ -373,7 +396,8 @@ def sem_decide(
     :param max_concurrency: upper bound on concurrent provider calls within this run
     :param deadline_s: seconds for the whole run; unfinished rows become ``skipped`` (calls already sent are
         abandoned, not cancelled: they may still finish, and keep the process alive, in the background)
-    :param budget: ``Budget`` or dict with ``max_requests`` (provider calls)
+    :param budget: ``Budget`` or dict with ``max_cost_usd`` (summed provider estimates; a provider that cannot
+        estimate raises) and/or ``max_requests`` (provider calls)
     :param max_rows: rows at positions >= ``max_rows`` are ``skipped``, never dropped
     :param min_p: ``ok`` answers whose ``q__p`` is below this (or undefined) become ``uncertain``
     :param column_max_chars: truncate each string evidence value to this many characters
@@ -424,7 +448,10 @@ def sem_decide(
     hashes = {(position, question.id): compute_decision_hash(evidence, question, task_version)
               for position, evidence in enumerate(rows.evidence) for question in coerced}
     threads = max(1, min(capabilities.concurrency_limit, max_concurrency or capabilities.concurrency_limit, len(calls)))
-    outcomes = _execute(calls, _plan_calls(len(calls), run_budget),
+    if run_budget is not None and run_budget.max_cost_usd is not None and calls \
+            and _estimate_cost(resolved, calls[0]) is None:
+        raise ValueError("budget.max_cost_usd is set but the provider cannot estimate cost; drop the cost cap")
+    outcomes = _execute(calls, _plan_calls(calls, run_budget, lambda batch: _estimate_cost(resolved, batch)),
                         lambda batch, remaining, call_budget: resolved.decide_batch(
                             batch, deadline_s=remaining, budget=call_budget),
                         None if deadline is None else started + deadline, threads, "sem_decide")
