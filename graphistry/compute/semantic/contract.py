@@ -73,7 +73,7 @@ def _known_keys(spec: Mapping[str, object], allowed: FrozenSet[str], what: str) 
 
 def _question_kind(value: object, question_id: object) -> QuestionKind:
     for kind in QUESTION_KINDS:
-        if value == kind:
+        if isinstance(value, str) and value == kind:
             return kind
     raise ValueError(f"question {question_id!r} kind must be one of {QUESTION_KINDS}, got {value!r}")
 
@@ -95,7 +95,8 @@ def _labels_tuple(value: object, field_name: str) -> Optional[Tuple[str, ...]]:
 class ProviderCapabilities:
     """What a provider can do; optional limits are None when the provider sets no limit.
 
-    ``concurrency_limit`` is how many provider calls may run at once (1 if not thread-safe) and
+    ``concurrency_limit`` is how many calls one operator run sends at once (1 if not thread-safe; calls a run
+    abandoned at its deadline may still be running when the next run starts) and
     ``max_rows_per_request`` how many rows one transport request answers. ``supported_kinds`` None means
     all question kinds. Operators check questions against these limits before any call.
     """
@@ -209,8 +210,9 @@ class DecisionResult:
 
     ``status``: ``ok`` (answered), ``uncertain`` (abstained, tied, or below ``min_p``), ``error``
     (``error_code`` set) or ``skipped`` (not attempted; ``status_reason`` says why).
-    ``distribution`` maps ``"true"``/``"false"`` or labels to probabilities and is None exactly when
-    ``probability_kind`` is ``"none"``; distributions are never fabricated. ``confidence`` is the
+    ``distribution`` maps ``"true"``/``"false"`` (both, for a predicate) or labels (all or some, for choice and
+    score) to probabilities and is None exactly when ``probability_kind`` is ``"none"``; distributions are never
+    fabricated. ``confidence`` is the
     provider's own number, verbatim, else None. ``retry_count`` None means unknown. ``extra`` holds scalar
     metadata such as ``probability_mechanism``, ``score_index``, ``evidence_truncated`` and
     ``cached_input_tokens``; it never carries evidence, credentials or tenant identifiers.
@@ -345,6 +347,7 @@ def check_decision_result(request: DecisionRequest, question: DecisionQuestion, 
                           capabilities: Optional[ProviderCapabilities] = None) -> List[str]:
     """Content violations of one decision result against its request and question (empty when valid)."""
     status, reason = result.status, result.status_reason
+    value, distribution = canonicalize(result.value), canonicalize(result.distribution)
     if not _is_member(status, RESULT_STATUSES):
         return [f"status must be a string in {RESULT_STATUSES}, got {status!r}"]
     if not _is_member(result.probability_kind, PROBABILITY_KINDS):
@@ -363,17 +366,17 @@ def check_decision_result(request: DecisionRequest, question: DecisionQuestion, 
     label = reason if isinstance(reason, str) and reason in _EMPTY_FIELDS else status
     problems.extend(f"{label} results must have {name} None" for name in _EMPTY_FIELDS.get(label, ())
                     if getattr(result, name) is not None)
-    if status == "ok" and result.value is None:
+    if status == "ok" and value is None:
         problems.append("an ok result must carry a value")
-    if (result.probability_kind == "none") != (result.distribution is None):
+    if (result.probability_kind == "none") != (distribution is None):
         problems.append("probability_kind must be 'none' exactly when distribution is None")
     labels = question.labels()
-    if result.value is not None and labels is None and not isinstance(result.value, bool):
+    if value is not None and labels is None and not isinstance(value, bool):
         problems.append(f"a predicate value must be a bool or None, got {result.value!r}")
-    if result.value is not None and labels is not None and not _is_member(result.value, labels):
+    if value is not None and labels is not None and not _is_member(value, labels):
         problems.append(f"value {result.value!r} is not one of {labels}")
-    if result.distribution is not None:
-        problems.extend(_distribution_problems(question, result.distribution))
+    if distribution is not None:
+        problems.extend(_distribution_problems(question, distribution))
     if capabilities is not None and result.probability_kind == "native_decision" \
             and not capabilities.supports_native_probabilities:
         problems.append("native_decision reported by a provider without native probabilities")

@@ -50,11 +50,13 @@ class TestOutputs:
             assert set(out[f"{q}__probability_kind"]) == {"none"} and set(out[f"{q}__status"]) == {"ok"}
 
     def test_dist_follows_label_order_and_input_is_not_mutated(self) -> None:
-        df = frame(1)
+        df = frame(1).assign(n=[5])
         before = df.copy()
         provider = Recording(lambda e, q: ("b", {"c": 0.1, "b": 0.6, "a": 0.3}), probability_kind="native_decision")
         out = decide(df, provider, [C])
         assert list(json.loads(out["c__dist"].iloc[0])) == ["a", "b", "c"]
+        out.loc[0, "n"] = 99
+        out.iloc[0, 0] = "changed"
         pd.testing.assert_frame_equal(df, before)
 
     def test_kernel_stamps_its_own_input_hash(self) -> None:
@@ -82,6 +84,11 @@ class TestRowIdentity:
             frames.append(out.drop(columns=["p__meta"]))
         pd.testing.assert_frame_equal(frames[0], frames[1])
         pd.testing.assert_frame_equal(frames[0], frames[2])
+
+    def test_unique_index_labels_become_request_ids(self) -> None:
+        provider = Recording()
+        decide(pd.DataFrame({"name": ["a", "b"]}, index=["x", 7]), provider)
+        assert sorted(provider.request_ids) == ["7", "x"]
 
     def test_unique_id_col_is_used(self) -> None:
         provider = Recording()
@@ -180,8 +187,7 @@ class TestAnswers:
         assert out["c"].tolist() == ["a"] and out["c__status"].tolist() == ["ok"]
         assert out["c__probability_kind"].tolist() == ["none"] and out["c__dist"].isna().all()
 
-    @pytest.mark.parametrize("bad", [dict(extra="abc"), dict(extra=5), dict(extra=pd.NA), dict(latency_ms=10 ** 5000),
-                                     dict(distribution={"true": 0.1})])
+    @pytest.mark.parametrize("bad", [dict(extra="abc"), dict(extra=5), dict(extra=pd.NA), dict(distribution={"true": 0.1})])
     def test_unserializable_metadata_and_half_predicate_distributions_are_invalid_not_a_crash(self, bad: dict) -> None:
         looped: Dict[str, object] = {}
         looped["self"] = looped
@@ -189,6 +195,22 @@ class TestAnswers:
             out = decide(frame(2), Scripted(lambda i, reqs: [result(r, "p", True, {"true": 0.9, "false": 0.1}, **overrides)
                                                             for r in reqs]))
             assert out["p__error_code"].tolist() == ["invalid_provider_result"] * 2
+
+    def test_unusable_provider_identity_and_metadata_keep_kernel_fields_only(self) -> None:
+        looped: Dict[str, object] = {}
+        looped["self"] = looped
+        provider = Scripted(lambda i, reqs: [result(r, "p", True, {"true": 0.9, "false": 0.1}, model=looped)
+                                             for r in reqs])
+        provider.model = looped  # type: ignore[misc,assignment]
+        out = decide(frame(2), provider)
+        metas = [json.loads(meta) for meta in out["p__meta"]]
+        assert out["p__error_code"].tolist() == ["invalid_provider_result"] * 2
+        assert {(m["model"], m["provider"], m["retry_count"]) for m in metas} == {("Scripted", "raw", None)}
+
+    def test_numpy_answers_from_any_provider_are_accepted(self) -> None:
+        out = decide(frame(2), Scripted(lambda i, reqs: [
+            result(r, "p", np.bool_(True), {"true": np.float32(0.75), "false": np.float64(0.25)}) for r in reqs]))
+        assert set(out["p__status"]) == {"ok"} and out["p__p"].tolist() == [0.75, 0.75]
 
     def test_input_hash_is_taken_before_the_provider_sees_the_evidence(self) -> None:
         def scribble(evidence: Dict[str, object], question: DecisionQuestion) -> bool:
@@ -206,10 +228,12 @@ class TestAnswers:
         assert set(out["p__status"]) == {"ok"} and out["p__p"].tolist() == [0.75, 0.75]
 
     def test_question_named_self_and_numpy_deadlines(self) -> None:
-        out = decide(frame(2), Recording(), [{"id": "self", "kind": "predicate", "text": "t"}],
-                     deadline_s=np.float32(30.0))
-        assert set(out["self__status"]) == {"ok"}
-        assert set(decide(frame(2), Recording(delay=0.01), deadline_s=np.float16(30.0))["p__status"]) == {"ok"}
+        provider = Recording()
+        out = decide(frame(2), provider, [{"id": "self", "kind": "predicate", "text": "t"}], deadline_s=np.float32(30.0))
+        assert set(out["self__status"]) == {"ok"} and all(type(d) is float and 0 < d <= 30 for d in provider.deadlines)
+        slow = Recording(delay=0.01)
+        assert set(decide(frame(2), slow, deadline_s=np.float16(30.0))["p__status"]) == {"ok"}
+        assert all(type(d) is float and 0 < d <= 30 for d in slow.deadlines)
 
     def test_callable_defaults(self) -> None:
         native = CallableDecisionProvider(lambda e, q: True, probability_kind="native_decision").capabilities()
@@ -308,6 +332,10 @@ class TestFailures:
 
 class TestLimits:
 
+    def test_max_rows_wins_over_null_evidence(self) -> None:
+        out = decide(pd.DataFrame({"name": ["a", None, None]}), Recording(), max_rows=2)
+        assert reasons(out)[1:] == ["null_evidence", "max_rows"]
+
     def test_max_rows(self) -> None:
         provider = Recording()
         out = decide(frame(10), provider, max_rows=3)
@@ -377,6 +405,7 @@ class TestEvidence:
         (pd.Categorical(["abcdefgh", "xy", "xyz"]), [{"x": "ab"}, {"x": "xy"}, {"x": "xy"}]),
         (pd.array(["abcdef", None, "q"], dtype="string"), [{"x": "ab"}, {"x": "q"}]),
         (pd.Series([float("inf"), 1.5, np.int64(3)], dtype=object), [{"x": "inf"}, {"x": 1.5}, {"x": 3}]),
+        (pd.Series([np.float64, "abc"], dtype=object), [{"x": "<class 'numpy.float64'>"}, {"x": "ab"}]),
     ])
     def test_truncation_touches_only_strings(self, column: object, expected: List[object]) -> None:
         seen: List[object] = []

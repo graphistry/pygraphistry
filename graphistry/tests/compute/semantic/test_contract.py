@@ -43,6 +43,13 @@ UNANSWERED = dict(value=None, distribution=None, probability_kind="none")
 
 class TestConstruction:
 
+    @pytest.mark.parametrize("instance,field_name", [
+        (PRED, "text"), (make_request(), "request_id"), (Budget(max_requests=1), "max_requests"),
+        (make_result(), "value"), (caps(), "concurrency_limit")])
+    def test_instances_are_frozen(self, instance: object, field_name: str) -> None:
+        with pytest.raises(dataclasses.FrozenInstanceError):
+            setattr(instance, field_name, None)
+
     def test_lists_become_tuples_and_numpy_kinds_become_str(self) -> None:
         question = DecisionQuestion(id="c", kind=np.str_("choice"), text="t", options=["a", "b"])  # type: ignore[arg-type]
         assert question.options == ("a", "b") and type(question.kind) is str
@@ -256,6 +263,25 @@ class TestHash:
         b[1000] = -1
         assert c.compute_decision_hash({"x": a}, PRED, "1") != c.compute_decision_hash({"x": b}, PRED, "1")
         assert c.canonicalize({None: 1, True: 2}) == {"None": 1, "True": 2}
+
+
+class _Decider:
+    name = "fake"
+    model = "m"
+
+    def capabilities(self) -> ProviderCapabilities:
+        return caps()
+
+    def decide_batch(self, requests: Sequence[DecisionRequest], *, deadline_s: Optional[float],
+                     budget: Optional[Budget]) -> List[DecisionResult]:
+        return []
+
+
+@pytest.mark.parametrize("member", ["name", "model", "capabilities", "decide_batch"])
+def test_each_protocol_member_is_required(member: str) -> None:
+    assert isinstance(_Decider(), DecisionProvider)
+    partial = type("Partial", (), {k: v for k, v in vars(_Decider).items() if k != member and not k.startswith("__")})
+    assert not isinstance(partial(), DecisionProvider)
 
 
 class TestModuleHygiene:

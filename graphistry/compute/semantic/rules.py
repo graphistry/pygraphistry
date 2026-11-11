@@ -4,6 +4,7 @@ A rule returns ``True`` or a problem message; the kernel raises ``ValueError`` o
 safelist reports it as E201.
 """
 import string
+from collections import Counter
 from typing import Callable, Dict, List, Mapping, Optional, Sequence, Tuple, Union
 
 from graphistry.compute.gfql.identifiers import validate_column_name
@@ -44,7 +45,7 @@ def boolean(value: object) -> Union[bool, str]:
 
 
 def table_kind(value: object) -> Union[bool, str]:
-    return True if value in ("nodes", "edges") else "must be 'nodes' or 'edges'"
+    return True if isinstance(value, str) and value in ("nodes", "edges") else "must be 'nodes' or 'edges'"
 
 
 def column_list(value: object) -> Union[bool, str]:
@@ -79,8 +80,8 @@ def coerce_questions(questions: object) -> Tuple[DecisionQuestion, ...]:
         raise ValueError(f"question ids must be unique, got {ids}")
     for question_id in ids:
         validate_column_name(question_id, "Question id")
-    names = [question_id + suffix for question_id in ids for suffix, _ in DECISION_COLUMN_TYPES]
-    collisions = sorted({name for name in names if names.count(name) > 1})
+    counts = Counter(question_id + suffix for question_id in ids for suffix, _ in DECISION_COLUMN_TYPES)
+    collisions = sorted(name for name, count in counts.items() if count > 1)
     if collisions:
         raise ValueError(f"derived output column names collide: {collisions}")
     return tuple(coerced)

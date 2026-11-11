@@ -197,26 +197,38 @@ def _nonnegative(value: object) -> Optional[float]:
 
 
 def _cell_result(request: DecisionRequest, question: DecisionQuestion, outcome: _CallOutcome,
-                 row: Optional[Dict[str, DecisionResult]], provider: DecisionProvider,
+                 row: Optional[Dict[str, DecisionResult]], identity: Tuple[str, str],
                  capabilities: ProviderCapabilities, min_p: Optional[float], input_hash: str) -> DecisionResult:
-    """The kernel's verdict on one cell; ``input_hash`` is taken before any call, so a provider cannot change it."""
+    """The kernel's verdict on one cell. ``input_hash`` is taken before any call, so a provider cannot change it,
+    and a result whose metadata cannot become JSON is replaced by an error built from kernel fields only."""
+    provider, model = identity
     if outcome.skipped is not None:
-        return unanswered_result(request, question, provider=provider.name, model=provider.model,
-                                 status_reason=outcome.skipped, input_hash=input_hash)
+        return unanswered_result(request, question, provider=provider, model=model, input_hash=input_hash,
+                                 status_reason=outcome.skipped)
     result = None if row is None else row[question.id]
-    if result is None or check_decision_result(request, question, result, capabilities) or _meta_json_or_none(result) is None:
-        retries = None if result is None else result.retry_count
-        return unanswered_result(
-            request, question, provider=provider.name, model=provider.model, input_hash=input_hash,
-            error_code="provider_exception" if outcome.raised else "invalid_provider_result",
-            latency_ms=None if result is None else _nonnegative(result.latency_ms),
-            retry_count=retries if isinstance(retries, int) and not isinstance(retries, bool) and retries >= 0 else None)
-    result = dataclasses.replace(result, input_hash=input_hash)
-    if min_p is not None and result.status == "ok":
-        probability = _probability_of_value(question, result)
-        if math.isnan(probability) or probability < min_p:
-            return dataclasses.replace(result, status="uncertain", status_reason="min_p")
-    return result
+    if result is not None and not check_decision_result(request, question, result, capabilities):
+        result = dataclasses.replace(result, input_hash=input_hash)
+        if min_p is not None and result.status == "ok":
+            probability = _probability_of_value(question, result)
+            if math.isnan(probability) or probability < min_p:
+                result = dataclasses.replace(result, status="uncertain", status_reason="min_p")
+        if _meta_json_or_none(result) is not None:
+            return result
+        result = None
+    retries = None if result is None else result.retry_count
+    return unanswered_result(
+        request, question, provider=provider, model=model, input_hash=input_hash,
+        error_code="provider_exception" if outcome.raised else "invalid_provider_result",
+        latency_ms=None if result is None else _nonnegative(result.latency_ms),
+        retry_count=retries if isinstance(retries, int) and not isinstance(retries, bool) and 0 <= retries < 2 ** 31
+        else None)
+
+
+def _provider_identity(provider: DecisionProvider) -> Tuple[str, str]:
+    """The provider name and model the kernel stamps on results it builds itself, always strings."""
+    fallback = type(provider).__name__
+    return (provider.name if isinstance(provider.name, str) else fallback,
+            provider.model if isinstance(provider.model, str) else fallback)
 
 
 def _meta_json(result: DecisionResult) -> str:
@@ -228,10 +240,10 @@ def _meta_json(result: DecisionResult) -> str:
 
 
 def _meta_json_or_none(result: DecisionResult) -> Optional[str]:
-    """Provider metadata that cannot become JSON (a non-mapping ``extra``, a cycle, an enormous int) is invalid."""
+    """Provider metadata is untrusted: any that cannot become JSON (a non-mapping ``extra``, a cycle) is invalid."""
     try:
         return _meta_json(result)
-    except (TypeError, ValueError, RecursionError):
+    except Exception:
         return None
 
 
@@ -283,7 +295,7 @@ def _cudf_columns(df: DataFrameT, columns: Dict[str, object]) -> Dict[str, objec
 
 def _with_columns(df: DataFrameT, columns: Dict[str, object]) -> DataFrameT:
     """A copy of ``df`` with the columns set one by one (``assign`` cannot take a column named ``self``)."""
-    out = df.copy(deep=False)
+    out = df.assign()
     for name, values in (_cudf_columns(df, columns) if _is_cudf(df) else columns).items():
         out[name] = values
     return out
@@ -326,7 +338,7 @@ def sem_decide(
         after ``str()``, and non-empty), else row positions
     :param task_version: version label included in the input hash
     :param batch_size: rows per provider call; default the provider's ``max_rows_per_request``, else 32
-    :param max_concurrency: upper bound on concurrent provider calls
+    :param max_concurrency: upper bound on concurrent provider calls within this run
     :param deadline_s: seconds for the whole run; unfinished rows become ``skipped`` (calls already sent are
         abandoned, not cancelled: they may still finish, and keep the process alive, in the background)
     :param budget: ``Budget`` or dict with ``max_requests`` (provider calls)
@@ -360,6 +372,7 @@ def sem_decide(
         raise ValueError(f"semantic provider {provider if isinstance(provider, str) else type(provider).__name__!r} "
                          "is not a DecisionProvider")
     capabilities = _provider_capabilities(resolved)
+    identity = _provider_identity(resolved)
     _check_question_capabilities(coerced, capabilities)
     rows = _prepare_rows(df, cols, template, id_col, column_max_chars, max_rows)
 
@@ -391,6 +404,6 @@ def sem_decide(
             row = None if aligned is None else aligned[request_.request_id]
             position = position_of[request_.request_id]
             for question in request_.questions:
-                grid[(position, question.id)] = _cell_result(request_, question, outcome, row, resolved, capabilities,
+                grid[(position, question.id)] = _cell_result(request_, question, outcome, row, identity, capabilities,
                                                              threshold, hashes[(position, question.id)])
     return _with_columns(df, _result_columns(coerced, grid, len(rows.request_ids)))

@@ -76,7 +76,18 @@ class TestCallMethodParity:
         provider = counting()
         with pytest.raises(ValueError, match="kind"):
             graph().sem_decide([Q_PRED], provider, kind="both", task_id="t", evidence_cols=["name"])  # type: ignore[arg-type]
+        for params in (decide_params(kind=pd.NA), decide_params(questions=[dict(Q_PRED, kind=pd.NA)])):
+            with pytest.raises(GFQLTypeError) as info:
+                ASTCall("sem_decide", params).validate()
+            assert info.value.code == ErrorCode.E201
         assert provider.answers == 0
+
+    def test_edge_id_binding_is_the_default_row_id(self) -> None:
+        provider = counting()
+        edges = EDGES.assign(eid=["e1", "e2"])
+        graphistry.edges(edges, "s", "d", edge="eid").sem_decide([Q_PRED], provider, kind="edges", task_id="t",
+                                                                evidence_cols=["w"])
+        assert sorted(provider.request_ids) == ["e1", "e2"]
 
     def test_parameter_lists_agree_across_surfaces(self) -> None:
         import inspect
@@ -147,8 +158,8 @@ class TestJsonAndValidation:
             run(provider, [call("sem_decide", decide_params(**overrides))])
         assert info.value.code == ErrorCode.E201 and provider.answers == 0
 
-    @pytest.mark.parametrize("overrides", [dict(evidence_cols=["missing"]), dict(id_col="missing"),
-                                           dict(evidence_cols=None, template="{missing}")])
+    @pytest.mark.parametrize("overrides", [dict(evidence_cols=["missing"]), dict(evidence_cols=("missing",)),
+                                           dict(id_col="missing"), dict(evidence_cols=None, template="{missing}")])
     def test_e301_missing_columns(self, overrides: Dict[str, object]) -> None:
         provider = counting()
         with pytest.raises(GFQLSchemaError):
@@ -412,3 +423,11 @@ def test_effect_ledgers_are_per_context_and_nest() -> None:
     for thread in threads:
         thread.join()
     assert seen == {"a": ["a"], "b": ["b"]}
+
+
+def test_a_decline_after_an_earlier_effect_in_the_same_scope_still_falls_back() -> None:
+    from graphistry.compute.gfql.effects import effect_scope, record_effect
+    with effect_scope():
+        record_effect("earlier")
+        out = polars_graph().gfql([call("prune_self_edges")] + SEL)
+    assert type(out._nodes).__module__.startswith("pandas")
