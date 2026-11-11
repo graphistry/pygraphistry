@@ -61,37 +61,25 @@ class TestCompanies:
         assert rows["row_id"].min() >= 5 and rows["company"].is_unique
         assert len(labels) == 100 and labels["row_id"].min() >= 5
 
-    @pytest.mark.parametrize("batch_size", [1, 7])
-    def test_replayed_labels_come_back_exactly(self, batch_size: int) -> None:
+    def test_replayed_labels_come_back_exactly_on_every_path(self) -> None:
         rows, labels = load_companies()
-        out = sem_decide(rows, questions=COMPANY_QUESTIONS, provider=company_provider(rows, labels),
-                         id_col="row_id", evidence_cols=["company", "description"], task_id="companies",
-                         batch_size=batch_size)
-        assert out["row_id"].tolist() == rows["row_id"].tolist()
+        provider = company_provider(rows, labels)
+        kwargs = dict(questions=COMPANY_QUESTIONS, id_col="row_id", evidence_cols=["company", "description"],
+                      task_id="companies")
+        out = sem_decide(rows, provider=provider, batch_size=1, **kwargs)  # type: ignore[arg-type]
         by_key = {(r.row_id, r.question_id): str(r.expected_value) for r in labels.itertuples()}
         for question in COMPANY_QUESTIONS:
             qid = str(question["id"])
             assert set(out[f"{qid}__status"]) == {"ok"}
             for row_id, got in zip(out["row_id"], out[qid]):
-                want = by_key[(row_id, qid)]
-                assert (str(bool(got)).lower() if question["kind"] == "predicate" else got) == want
-        assert set(out["q1_finance__p"]) == {0.9}
-        assert set(out["q4_sector__p"]) == {0.65}
-        assert set(out["q5_regulation__p"]) == {0.7}
-
-    def test_batch_sizes_and_gfql_path_agree(self) -> None:
-        rows, labels = load_companies()
-        provider = company_provider(rows, labels)
-        kwargs = dict(questions=COMPANY_QUESTIONS, id_col="row_id", evidence_cols=["company", "description"],
-                      task_id="companies")
+                assert (str(bool(got)).lower() if question["kind"] == "predicate" else got) == by_key[(row_id, qid)]
+        assert (set(out["q1_finance__p"]), set(out["q4_sector__p"]), set(out["q5_regulation__p"])) == ({0.9}, {0.65}, {0.7})
         meta_cols = [f"{q['id']}__meta" for q in COMPANY_QUESTIONS]
-        one = sem_decide(rows, provider=provider, batch_size=1, **kwargs).drop(columns=meta_cols)  # type: ignore[arg-type]
-        seven = sem_decide(rows, provider=provider, batch_size=7, **kwargs).drop(columns=meta_cols)  # type: ignore[arg-type]
-        pd.testing.assert_frame_equal(one, seven)
+        seven = sem_decide(rows, provider=provider, batch_size=7, **kwargs)  # type: ignore[arg-type]
         with bind_providers({"companies": provider}):
             g = graphistry.nodes(rows).gfql([call("sem_decide", dict(kwargs, provider="companies"))])
-        pd.testing.assert_frame_equal(g._nodes.drop(columns=meta_cols).reset_index(drop=True),
-                                      one.reset_index(drop=True))
+        for other in (seven, g._nodes.reset_index(drop=True)):
+            pd.testing.assert_frame_equal(other.drop(columns=meta_cols), out.drop(columns=meta_cols))
 
 
 class TestInjectionColumn:

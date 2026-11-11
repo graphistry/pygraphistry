@@ -8,7 +8,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from graphistry.compute.semantic.contract import DecisionQuestion, DecisionRequest, DecisionResult, compute_decision_hash
+from graphistry.compute.semantic.contract import (
+    Budget, DecisionQuestion, DecisionRequest, DecisionResult, compute_decision_hash)
 from graphistry.compute.semantic.ops import sem_decide
 from graphistry.compute.semantic.providers.callable import CallableDecisionProvider
 from graphistry.tests.compute.semantic.semantic_test_utils import (
@@ -127,10 +128,16 @@ class TestBatching:
         assert out["p__status"].tolist() == ["uncertain"] * 4 + ["skipped"] and set(reasons(out)[:4]) == {"min_p"}
 
     @pytest.mark.parametrize("limit,kwargs", [(8, dict(max_concurrency=2)), (2, {})])
-    def test_threads_never_exceed_concurrency(self, limit: int, kwargs: dict) -> None:
-        provider = Recording(delay=0.05, capabilities=caps(concurrency_limit=limit))
-        decide(frame(10), provider, batch_size=1, **kwargs)
-        assert provider.peak <= 2
+    def test_exactly_the_allowed_number_of_calls_run_together(self, limit: int, kwargs: dict) -> None:
+        both_running = threading.Barrier(2, timeout=10)
+
+        def meet(evidence: object, question: DecisionQuestion) -> bool:
+            both_running.wait()
+            return True
+
+        provider = Recording(meet, delay=0.05, capabilities=caps(concurrency_limit=limit))
+        assert set(decide(frame(4), provider, batch_size=1, **kwargs)["p__status"]) == {"ok"}
+        assert provider.peak == 2
 
 
 class TestAnswers:
@@ -153,9 +160,12 @@ class TestAnswers:
         picked = ((q & (out["p__p"] >= 0.9)) | (~q & (out["p__p"] >= 0.6))).fillna(False)
         assert picked.tolist() == [False, False, True, True, False]
 
-    def test_min_p_is_inclusive(self) -> None:
+    @pytest.mark.parametrize("min_p,status", [(0.75, "ok"), (0.0, "ok"), (1.0, "uncertain"), (np.float16(0.5), "ok")])
+    def test_min_p_is_inclusive_at_both_ends(self, min_p: float, status: str) -> None:
         provider = Recording(lambda e, q: (True, {"true": 0.75, "false": 0.25}), probability_kind="native_decision")
-        assert decide(frame(1), provider, min_p=0.75)["p__status"].tolist() == ["ok"]
+        assert decide(frame(1), provider, min_p=min_p)["p__status"].tolist() == [status]
+        certain = Recording(lambda e, q: (True, {"true": 1.0, "false": 0.0}), probability_kind="native_decision")
+        assert decide(frame(1), certain, min_p=1.0)["p__status"].tolist() == ["ok"]
 
     @pytest.mark.parametrize("answer", [None, (None, {"true": 0.9, "false": 0.1}), (None, {"true": float("nan")}),
                                         (None, {"true": None, "false": 0.1}), (None, {"true": "x"})])
@@ -170,17 +180,45 @@ class TestAnswers:
         assert out["c"].tolist() == ["a"] and out["c__status"].tolist() == ["ok"]
         assert out["c__probability_kind"].tolist() == ["none"] and out["c__dist"].isna().all()
 
+    @pytest.mark.parametrize("bad", [dict(extra="abc"), dict(extra=5), dict(extra=pd.NA), dict(latency_ms=10 ** 5000),
+                                     dict(distribution={"true": 0.1})])
+    def test_unserializable_metadata_and_half_predicate_distributions_are_invalid_not_a_crash(self, bad: dict) -> None:
+        looped: Dict[str, object] = {}
+        looped["self"] = looped
+        for overrides in (bad, dict(extra=looped)):
+            out = decide(frame(2), Scripted(lambda i, reqs: [result(r, "p", True, {"true": 0.9, "false": 0.1}, **overrides)
+                                                            for r in reqs]))
+            assert out["p__error_code"].tolist() == ["invalid_provider_result"] * 2
+
+    def test_input_hash_is_taken_before_the_provider_sees_the_evidence(self) -> None:
+        def scribble(evidence: Dict[str, object], question: DecisionQuestion) -> bool:
+            evidence["name"] = "changed"
+            return True
+
+        meta = json.loads(decide(frame(1), Recording(scribble))["p__meta"].iloc[0])
+        question = DecisionQuestion(id="p", kind="predicate", text="Is it notable?")
+        assert meta["input_hash"] == compute_decision_hash({"name": "n0"}, question, "1")
+
     def test_numpy_answers_are_normalized(self) -> None:
         provider = Recording(lambda e, q: (np.bool_(True), {"true": np.float32(0.75), "false": np.float64(0.25)}),
                              probability_kind="native_decision")
         out = decide(frame(2), provider)
         assert set(out["p__status"]) == {"ok"} and out["p__p"].tolist() == [0.75, 0.75]
 
+    def test_question_named_self_and_numpy_deadlines(self) -> None:
+        out = decide(frame(2), Recording(), [{"id": "self", "kind": "predicate", "text": "t"}],
+                     deadline_s=np.float32(30.0))
+        assert set(out["self__status"]) == {"ok"}
+        assert set(decide(frame(2), Recording(delay=0.01), deadline_s=np.float16(30.0))["p__status"]) == {"ok"}
+
     def test_callable_defaults(self) -> None:
         native = CallableDecisionProvider(lambda e, q: True, probability_kind="native_decision").capabilities()
         plain = CallableDecisionProvider(lambda e, q: True).capabilities()
         assert native.supports_native_probabilities and not plain.supports_native_probabilities
         assert plain.max_questions_per_request == 1000 and plain.concurrency_limit == 4
+        for bad in (dict(fn="not callable"), dict(probability_kind="guess")):
+            with pytest.raises(ValueError):
+                CallableDecisionProvider(**dict(dict(fn=lambda e, q: True), **bad))  # type: ignore[arg-type]
 
 
 class TestFailures:
@@ -213,7 +251,7 @@ class TestFailures:
             return value_only(evidence, question)
 
         out = decide(frame(8), Recording(fn), [P, C], batch_size=4)
-        assert out["p__error_code"].tolist().count("callable_exception") == 1 and out["p__error_code"].iloc[6]
+        assert out["p__error_code"].fillna("").tolist() == [""] * 6 + ["callable_exception", ""]
         assert out["c__status"].iloc[6] == "ok"
 
     @pytest.mark.parametrize("fault", ["unknown_id", "duplicate", "raise", "not_a_list", "wrong_type", "duplicate_unknown"])
@@ -334,8 +372,8 @@ class TestEvidence:
                                                                          "x|", "|y"]))
 
     @pytest.mark.parametrize("column,expected", [
-        (pd.Series([["alpha", "beta"], {"k": "longvalue"}, "abcdef"], dtype=object),
-         [{"x": ["alpha", "beta"]}, {"x": {"k": "longvalue"}}, {"x": "ab"}]),
+        (pd.Series([["alpha", "beta", "gamma"], {"k": "longvalue"}, "abcdef"], dtype=object),
+         [{"x": ["alpha", "beta", "gamma"]}, {"x": {"k": "longvalue"}}, {"x": "ab"}]),
         (pd.Categorical(["abcdefgh", "xy", "xyz"]), [{"x": "ab"}, {"x": "xy"}, {"x": "xy"}]),
         (pd.array(["abcdef", None, "q"], dtype="string"), [{"x": "ab"}, {"x": "q"}]),
         (pd.Series([float("inf"), 1.5, np.int64(3)], dtype=object), [{"x": "inf"}, {"x": 1.5}, {"x": 3}]),
@@ -369,7 +407,7 @@ class TestValidationBeforeAnyCall:
         dict(questions=[{"id": "q", "kind": "score", "text": "t", "levels": ["x", "y"], "options": ["a", "b"]}]),
         dict(questions=[{"id": "__gfql_x__", "kind": "predicate", "text": "t"}]),
         dict(questions=[{"id": "a", "kind": "predicate", "text": "t"}, {"id": "a__p", "kind": "predicate", "text": "t"}]),
-        dict(questions=[P, P]), dict(questions=[{"id": "q", "kind": "predicate", "text": "t", "bogus": 1}]),
+        dict(questions=[{"id": "q", "kind": "predicate", "text": "t", "bogus": 1}]),
         dict(questions=[]), dict(questions=["p"]), dict(min_p=1.5), dict(batch_size=0), dict(max_rows=True),
         dict(deadline_s=0), dict(budget={"max_tokens": 3}), dict(budget=5), dict(task_id=""), dict(overwrite="yes"),
     ])
@@ -380,6 +418,18 @@ class TestValidationBeforeAnyCall:
         with pytest.raises(ValueError):
             decide(frame(3), provider, **params)
         assert provider.calls == []
+
+    @pytest.mark.parametrize("kwargs,match", [
+        (dict(evidence_cols=None, template="{0}"), "bare column"), (dict(evidence_cols=None, template="{name.upper}"), "bare column"),
+        (dict(evidence_cols=None, template="{name!r}"), "bare column"), (dict(questions=[P, P]), "unique"),
+        (dict(questions=[{"id": "a", "kind": "predicate", "text": "t"}, {"id": "a__p", "kind": "predicate", "text": "t"}]),
+         "collide"), (dict(budget=Budget(max_requests=1), max_rows=0), "max_rows"),
+    ])
+    def test_each_rule_names_itself(self, kwargs: dict, match: str) -> None:
+        params: Dict[str, object] = dict(questions=[P])
+        params.update(kwargs)
+        with pytest.raises(ValueError, match=match):
+            decide(frame(3), Recording(), **params)
 
     @pytest.mark.parametrize("limits,question,match", [
         (dict(supported_kinds=("choice",)), P, "does not support predicate"),

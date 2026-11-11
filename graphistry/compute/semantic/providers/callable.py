@@ -2,8 +2,8 @@
 from typing import Callable, List, Mapping, Optional, Sequence, Tuple, Union
 
 from graphistry.compute.semantic.contract import (
-    Budget, DecisionQuestion, DecisionRequest, DecisionResult, Evidence, ProbabilityKind, ProviderCapabilities,
-    canonicalize, compute_decision_hash, unanswered_result)
+    PROBABILITY_KINDS, Budget, DecisionQuestion, DecisionRequest, DecisionResult, Evidence, ProbabilityKind,
+    ProviderCapabilities, canonicalize, compute_decision_hash, unanswered_result)
 
 
 CallableAnswer = Union[bool, str, None, Tuple[Union[bool, str, None], Optional[Mapping[str, float]]]]
@@ -17,6 +17,7 @@ class CallableDecisionProvider:
     ``(answer, distribution)`` pair. No answer is ``uncertain`` and drops any distribution. An exception
     from ``fn`` fails only that answer (``callable_exception``); the operator rejects answers that break
     the contract (``invalid_provider_result``), such as a distribution while ``probability_kind="none"``.
+    ``fn`` may run on up to ``capabilities.concurrency_limit`` threads at once (default 4).
 
     **Example**
         ::
@@ -26,6 +27,8 @@ class CallableDecisionProvider:
 
     def __init__(self, fn: DecisionFn, *, name: str = "callable", probability_kind: ProbabilityKind = "none",
                  capabilities: Optional[ProviderCapabilities] = None, model: Optional[str] = None) -> None:
+        if not callable(fn) or probability_kind not in PROBABILITY_KINDS:
+            raise ValueError(f"fn must be callable and probability_kind one of {PROBABILITY_KINDS}")
         self.fn = fn
         self.name = name
         self.model = model if model is not None else name

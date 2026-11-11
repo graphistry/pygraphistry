@@ -134,7 +134,8 @@ def _apply_persist_axis_defaults(g: Plottable) -> None:
 
 
 def _refuse_semantic_calls(payload: object) -> None:
-    """Semantic calls need a locally bound provider, so a serialized query that holds one is refused before upload."""
+    """Semantic calls need a locally bound provider, so a query that holds one is refused before upload; the walk
+    follows only query structure (chains, let bindings), never call parameters."""
     from graphistry.compute.semantic.gfql_support import SEMANTIC_CALLS
     found = set()
     pending: List[object] = [payload]
@@ -142,13 +143,13 @@ def _refuse_semantic_calls(payload: object) -> None:
         node = pending.pop()
         if isinstance(node, (ASTObject, Chain, ASTLet)):
             node = node.to_json(validate=False)
-        if isinstance(node, Mapping):
-            function = node.get("function")
+        if isinstance(node, (list, tuple)):
+            pending.extend(node)
+        elif isinstance(node, Mapping):
+            function, bindings = node.get("function"), node.get("bindings")
             if node.get("type") == "Call" and isinstance(function, str) and function in SEMANTIC_CALLS:
                 found.add(function)
-            pending.extend(node.values())
-        elif isinstance(node, (list, tuple)):
-            pending.extend(node)
+            pending.extend([node.get("chain")] + (list(bindings.values()) if isinstance(bindings, Mapping) else []))
     if found:
         raise GFQLUnsupportedError(
             ErrorCode.E110,

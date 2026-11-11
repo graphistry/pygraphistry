@@ -1932,7 +1932,8 @@ the answer; missing when undefined, so test it with ``isna()``), ``q__dist`` (JS
 ``q__probability_kind`` (``native_decision``, ``token_logprob``, ``verbalized`` or ``none``), ``q__error_code`` and
 ``q__meta`` (JSON with model, provider, task version, input hash, latency, cost, cache hit, retry count, provider
 confidence, status reason and extra metadata). Unparseable answers are errors, never default values; distributions are
-never fabricated.
+never fabricated. A row whose evidence columns are all null is ``skipped`` with status reason ``null_evidence``; no call
+is made for it.
 
 **Engines:** pandas and cuDF run natively; polars frames run through the off-engine call bridge, so GFQL results
 stay polars. Called directly as ``g.sem_decide(...)`` on a polars-bound graph, the result tables are pandas. Under

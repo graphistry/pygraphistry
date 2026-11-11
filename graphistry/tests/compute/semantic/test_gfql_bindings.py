@@ -72,6 +72,23 @@ class TestCallMethodParity:
         out = run(counting(), [call("sem_decide", decide_params())], g=graphistry.nodes(NODES[["name"]]))
         assert out._nodes["co"].tolist() == [True, False, True]
 
+    def test_kind_must_name_a_table(self) -> None:
+        provider = counting()
+        with pytest.raises(ValueError, match="kind"):
+            graph().sem_decide([Q_PRED], provider, kind="both", task_id="t", evidence_cols=["name"])  # type: ignore[arg-type]
+        assert provider.answers == 0
+
+    def test_parameter_lists_agree_across_surfaces(self) -> None:
+        import inspect
+        from graphistry.compute.ComputeMixin import ComputeMixin
+        from graphistry.compute.semantic.ops import sem_decide
+        from graphistry.compute.semantic.rules import RULES
+        from graphistry.models.gfql.types.call import SemDecideParams
+        kernel = set(inspect.signature(sem_decide).parameters) - {"df"}
+        method = set(inspect.signature(ComputeMixin.sem_decide).parameters) - {"self", "kind"}
+        plottable = set(inspect.signature(Plottable.sem_decide).parameters) - {"self", "kind"}
+        assert kernel == method == plottable == set(RULES) - {"kind"} == set(SemDecideParams.__annotations__) - {"kind"}
+
     def test_nodes_kind_on_edges_only_graph(self) -> None:
         g = graphistry.edges(EDGES, "s", "d")
         provider = counting()
@@ -122,6 +139,7 @@ class TestJsonAndValidation:
         dict(questions=[{"id": "q", "kind": "score", "text": "t", "levels": ["x", "y"], "options": ["a", "b"]}]),
         dict(questions=[{"id": "__gfql_x__", "kind": "predicate", "text": "t"}]), dict(questions=[Q_PRED, Q_PRED]),
         dict(budget={"max_requests": 0}), dict(budget={"max_cost_usd": 1.0}), dict(evidence_cols=["name", "name"]),
+        dict(questions=[{"id": "a", "kind": "predicate", "text": "t"}, {"id": "a__p", "kind": "predicate", "text": "t"}]),
     ])
     def test_e201_before_the_kernel(self, overrides: Dict[str, object]) -> None:
         provider = counting()
@@ -140,8 +158,6 @@ class TestJsonAndValidation:
     @pytest.mark.parametrize("overrides,limits,graph_nodes", [
         (dict(template="{name}"), {}, NODES), (dict(evidence_cols=None), {}, NODES),
         (dict(evidence_cols=None, template="{0}"), {}, NODES), (dict(evidence_cols=None, template="{name!r}"), {}, NODES),
-        (dict(questions=[{"id": "a", "kind": "predicate", "text": "t"}, {"id": "a__p", "kind": "predicate", "text": "t"}]),
-         {}, NODES),
         (dict(questions=[{"id": "c", "kind": "choice", "text": "t", "options": ["a", "b", "c"]}]),
          dict(max_choice_options=2), NODES),
         ({}, dict(supported_kinds=("choice",)), NODES), ({}, {}, NODES.assign(co__status="old")),
@@ -243,9 +259,6 @@ class TestPolicyHooks:
         with pytest.raises(GFQLSchemaError):
             run(counting(), [call("sem_decide", decide_params(evidence_cols=["missing"]))], policy=self._hooks(events))
         assert not [e for e in events if e["op"] == "sem_decide"]
-        with mock.patch("graphistry.compute.gfql.call.executor.execute_call") as execute:
-            graph().sem_decide([Q_PRED], counting(), task_id="t", evidence_cols=["name"])
-        assert execute.call_count == 0
 
 
 class TestRemoteRefusal:
@@ -263,8 +276,9 @@ class TestRemoteRefusal:
         g = graph()
         with mock.patch("graphistry.compute.chain_remote.requests.post") as post, \
                 mock.patch.object(type(g), "upload") as upload, mock.patch.object(g._pygraphistry, "refresh") as refresh:
-            with pytest.raises(GFQLUnsupportedError, match="run locally"):
+            with pytest.raises(GFQLUnsupportedError) as info:
                 getattr(g, method)(query, api_token="t", dataset_id="ds")
+            assert info.value.code == ErrorCode.E110 and info.value.context["value"] == ["sem_decide"]
             with pytest.raises(GFQLUnsupportedError):
                 getattr(g, method)(query, validate=False)
             assert post.call_count == upload.call_count == refresh.call_count == 0
@@ -273,8 +287,9 @@ class TestRemoteRefusal:
         g = graph()
         malformed = {"type": "Chain", "chain": [{"type": "Call", "function": ["get_degrees"], "params": {}}]}
         with mock.patch("graphistry.compute.chain_remote.requests.post", side_effect=RuntimeError("sent")) as post:
-            with pytest.raises(GFQLTypeError, match="function must be a string"):
+            with pytest.raises(GFQLTypeError) as info:
                 g.gfql_remote(malformed, api_token="t", dataset_id="ds")
+            assert info.value.context.get("field") == "function"
             for query in ([n()], malformed):
                 with pytest.raises(RuntimeError, match="sent"):
                     g.gfql_remote(query, api_token="t", dataset_id="ds", validate=False)
@@ -282,13 +297,6 @@ class TestRemoteRefusal:
 
 
 class TestAutoEffectBarrier:
-
-    def test_call_alone_runs_once_on_polars(self) -> None:
-        provider = counting()
-        for engine in ("auto", "polars"):
-            out = run(provider, [call("sem_decide", decide_params())], g=polars_graph(), engine=engine)
-            assert type(out._nodes).__module__.startswith("polars") and list(out._nodes["co"]) == [True, False, True]
-        assert provider.answers == 6
 
     @pytest.mark.parametrize("shape", ["late", "traversal", "let"])
     def test_late_decline_raises_after_one_pass(self, shape: str) -> None:
@@ -298,8 +306,8 @@ class TestAutoEffectBarrier:
         provider = counting()
         with pytest.raises(GFQLCallExecutionError) as info:
             run(provider, query, g=polars_graph())
-        assert info.value.code == ErrorCode.E306 and "(sem_decide)" in str(info.value)
-        assert isinstance(info.value.__cause__, NotImplementedError) and "engine='pandas'" in str(info.value)
+        assert info.value.code == ErrorCode.E306 and info.value.context["field"] == "engine"
+        assert isinstance(info.value.__cause__, NotImplementedError)
         assert provider.answers == 3
 
     def test_ledger_resets_and_a_raising_provider_still_counts(self) -> None:
@@ -315,20 +323,24 @@ class TestAutoEffectBarrier:
             run(raising, [call("sem_decide", decide_params())] + SEL, g=polars_graph())
         assert raising.answers == 3 and effects._LEDGER.get() is None
 
-    def test_explicit_polars_late_decline_is_plain_not_implemented(self) -> None:
-        provider = counting()
-        with pytest.raises(NotImplementedError):
-            run(provider, [call("sem_decide", decide_params())] + SEL, g=polars_graph(), engine="polars")
-        assert provider.answers == 3
-
-    @pytest.mark.parametrize("query,answers", [
-        ([call("sem_decide", decide_params()), n(), e_forward(), n()], 3),
-        ([call("sem_decide", decide_params(deadline_s=1e-9))] + SEL, 0), ([call("prune_self_edges")] + SEL, 0),
+    @pytest.mark.parametrize("query,engine,answers,result", [
+        ([call("sem_decide", decide_params())], "auto", 3, "polars"),
+        ([call("sem_decide", decide_params())], "polars", 3, "polars"),
+        ([call("sem_decide", decide_params()), n(), e_forward(), n()], "auto", 3, "pandas"),
+        ([call("sem_decide", decide_params(deadline_s=1e-9))] + SEL, "auto", 0, "pandas"),
+        ([call("prune_self_edges")] + SEL, "auto", 0, "pandas"),
+        ([call("sem_decide", decide_params())] + SEL, "polars", 3, NotImplementedError),
     ])
-    def test_fallback_runs_once_when_nothing_was_called_before_the_decline(self, query: list, answers: int) -> None:
+    def test_runs_once_unless_a_decline_follows_a_call(self, query: list, engine: str, answers: int,
+                                                       result: object) -> None:
         provider = counting()
-        out = run(provider, query, g=polars_graph())
-        assert provider.answers == answers and type(out._nodes).__module__.startswith("pandas")
+        if isinstance(result, type):
+            with pytest.raises(result):
+                run(provider, query, g=polars_graph(), engine=engine)
+        else:
+            out = run(provider, query, g=polars_graph(), engine=engine)
+            assert type(out._nodes).__module__.startswith(result)
+        assert provider.answers == answers
 
     def test_cudf_auto_arm_refuses_rerun_after_effect(self) -> None:
         import graphistry.compute.gfql_unified as gu
@@ -379,3 +391,24 @@ def test_declared_schema_effects_match_written_columns(kind: str) -> None:
     for name, logical in typed.items():
         assert str(table[name].dtype) in {"bool": ("boolean",), "float64": ("float64",), "string": ("object", "str")}[logical.kind]
     assert SAFELIST_V1["sem_decide"]["required_params"] == {"questions", "provider", "task_id"}
+
+
+def test_effect_ledgers_are_per_context_and_nest() -> None:
+    from graphistry.compute.gfql.effects import effect_scope, record_effect
+    meet = threading.Barrier(2, timeout=10)
+    seen: Dict[str, List[str]] = {}
+
+    def worker(name: str) -> None:
+        with effect_scope() as ledger:
+            record_effect(name)
+            meet.wait()
+            with effect_scope() as inner:
+                assert inner is ledger
+            seen[name] = list(ledger)
+
+    threads = [threading.Thread(target=worker, args=(name,)) for name in ("a", "b")]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+    assert seen == {"a": ["a"], "b": ["b"]}

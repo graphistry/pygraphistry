@@ -3,9 +3,9 @@
 Validators and schema-effect callables never raise; exactly-one and template-shape problems surface from
 the operator itself, so only missing columns become schema errors.
 """
-from typing import Callable, Dict, List, Mapping, Optional, Tuple
+from typing import Callable, Dict, List, Mapping, Optional
 
-from graphistry.compute.semantic.rules import RULES, Rule, decision_columns, template_fields
+from graphistry.compute.semantic.rules import RULES, Rule, decision_columns, evidence_columns
 from graphistry.models.compute.features import GraphEntityKind
 
 
@@ -14,28 +14,18 @@ SEM_DECIDE_PARAMS = frozenset(RULES)
 SEM_DECIDE_VALIDATORS: Dict[str, Rule] = dict(RULES)
 
 
-def _question_pairs(params: Mapping[str, object]) -> Optional[List[Tuple[str, object]]]:
+def typed_output_columns(params: Mapping[str, object]) -> Optional[Dict[str, str]]:
+    """Output column -> scalar type name (``bool``, ``string``, ``float64``) of a ``sem_decide`` call."""
     questions = params.get("questions")
     if not isinstance(questions, list) or not all(
             isinstance(spec, dict) and isinstance(spec.get("id"), str) for spec in questions):
         return None
-    return [(spec["id"], spec.get("kind")) for spec in questions]
-
-
-def typed_output_columns(function: str, params: Mapping[str, object]) -> Optional[Dict[str, str]]:
-    """Output column -> scalar type name (``bool``, ``string``, ``float64``) for a semantic call."""
-    pairs = _question_pairs(params) if function == "sem_decide" else None
-    return None if pairs is None else decision_columns(pairs)
+    return decision_columns([(spec["id"], spec.get("kind")) for spec in questions])
 
 
 def _evidence_reads(params: Mapping[str, object]) -> List[str]:
-    cols, template = params.get("evidence_cols"), params.get("template")
-    if (cols is None) == (template is None):
-        return []
-    if isinstance(cols, list):
-        return [col for col in cols if isinstance(col, str)]
     try:
-        return template_fields(template)
+        return evidence_columns(params.get("evidence_cols"), params.get("template"))
     except ValueError:
         return []
 
@@ -47,7 +37,7 @@ def _required(params: Mapping[str, object]) -> List[str]:
 
 
 def _added(params: Mapping[str, object]) -> List[str]:
-    return list(typed_output_columns("sem_decide", params) or {})
+    return list(typed_output_columns(params) or {})
 
 
 def _for_kind(kind: GraphEntityKind, compute: Callable[[Mapping[str, object]], List[str]]

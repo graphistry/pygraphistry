@@ -79,6 +79,10 @@ def coerce_questions(questions: object) -> Tuple[DecisionQuestion, ...]:
         raise ValueError(f"question ids must be unique, got {ids}")
     for question_id in ids:
         validate_column_name(question_id, "Question id")
+    names = [question_id + suffix for question_id in ids for suffix, _ in DECISION_COLUMN_TYPES]
+    collisions = sorted({name for name in names if names.count(name) > 1})
+    if collisions:
+        raise ValueError(f"derived output column names collide: {collisions}")
     return tuple(coerced)
 
 
@@ -151,16 +155,14 @@ def template_fields(template: object) -> List[str]:
     return fields
 
 
-def evidence_columns(evidence_cols: Optional[Sequence[str]], template: Optional[str]) -> List[str]:
+def evidence_columns(evidence_cols: object, template: object) -> List[str]:
     """Columns the evidence reads, after the exactly-one-of check."""
     if (evidence_cols is None) == (template is None):
         raise ValueError("pass exactly one of evidence_cols or template")
     if template is not None:
         return template_fields(template)
-    verdict = column_list(evidence_cols)
-    if verdict is not True:
-        raise ValueError(f"evidence_cols {verdict}, got {evidence_cols!r}")
-    return list(evidence_cols or ())
+    check_params(dict(evidence_cols=evidence_cols), {})
+    return list(evidence_cols) if isinstance(evidence_cols, (list, tuple)) else []
 
 
 def decision_columns(questions: Sequence[Tuple[str, object]]) -> Dict[str, str]:

@@ -9,7 +9,7 @@ import hashlib
 import json
 import math
 from dataclasses import dataclass
-from typing import Dict, List, Literal, Mapping, Optional, Protocol, Sequence, Tuple, Union, get_args, runtime_checkable
+from typing import Dict, FrozenSet, List, Literal, Mapping, Optional, Protocol, Sequence, Tuple, Union, get_args, runtime_checkable
 
 
 QuestionKind = Literal["predicate", "choice", "score"]
@@ -27,6 +27,9 @@ RESULT_STATUSES: Tuple[str, ...] = get_args(ResultStatus)
 UNCERTAIN_REASONS: Tuple[str, ...] = get_args(UncertainReason)
 SKIPPED_REASONS: Tuple[str, ...] = get_args(SkippedReason)
 _REASONS_BY_STATUS: Dict[str, Tuple[str, ...]] = {"uncertain": UNCERTAIN_REASONS, "skipped": SKIPPED_REASONS}
+_EMPTY_FIELDS: Dict[str, Tuple[str, ...]] = {
+    "error": ("value", "distribution", "confidence"), "skipped": ("value", "distribution", "confidence"),
+    "refusal": ("value", "distribution"), "null_answer": ("value", "distribution"), "tie": ("value",)}
 DISTRIBUTION_SUM_TOLERANCE = 0.01
 QUESTION_KEYS = frozenset({"id", "kind", "text", "options", "levels"})
 BUDGET_KEYS = frozenset({"max_requests"})
@@ -59,6 +62,13 @@ def _text(value: object, field_name: str) -> str:
     if not isinstance(value, str) or value == "":
         raise ValueError(f"{field_name} must be a non-empty string, got {value!r}")
     return value
+
+
+def _known_keys(spec: Mapping[str, object], allowed: FrozenSet[str], what: str) -> Mapping[str, object]:
+    unknown = set(spec) - allowed
+    if unknown:
+        raise ValueError(f"unknown {what} keys {sorted(map(str, unknown))}; allowed {sorted(allowed)}")
+    return spec
 
 
 def _question_kind(value: object, question_id: object) -> QuestionKind:
@@ -140,9 +150,7 @@ class DecisionQuestion:
     @classmethod
     def from_mapping(cls, spec: Mapping[str, object]) -> "DecisionQuestion":
         """A question from a dict with the keys id, kind, text and optional options or levels."""
-        unknown = set(spec) - QUESTION_KEYS
-        if unknown:
-            raise ValueError(f"unknown question keys {sorted(map(str, unknown))}; allowed {sorted(QUESTION_KEYS)}")
+        _known_keys(spec, QUESTION_KEYS, "question")
         question_id = _text(spec.get("id"), "question id")
         text = _text(spec.get("text"), f"question {question_id!r} text")
         return cls(id=question_id, kind=_question_kind(spec.get("kind"), question_id), text=text,
@@ -190,15 +198,9 @@ class Budget:
     @classmethod
     def from_mapping(cls, spec: Mapping[str, object]) -> "Budget":
         """A budget from a dict with the optional key max_requests; a missing marker such as NaN raises."""
-        unknown = set(spec) - BUDGET_KEYS
-        if unknown:
-            raise ValueError(f"unknown budget keys {sorted(map(str, unknown))}; allowed {sorted(BUDGET_KEYS)}")
-        return cls(max_requests=_min_int(_limit(spec.get("max_requests")), "max_requests", 1))
-
-
-def _limit(value: object) -> object:
-    canonical = canonicalize(value)
-    return value if canonical is None else canonical
+        limit = _known_keys(spec, BUDGET_KEYS, "budget").get("max_requests")
+        canonical = canonicalize(limit)
+        return cls(max_requests=_min_int(limit if canonical is None else canonical, "max_requests", 1))
 
 
 @dataclass(frozen=True)
@@ -267,7 +269,7 @@ def canonicalize(value: object) -> object:
     if isinstance(value, (list, tuple)):
         return [canonicalize(item) for item in value]
     to_python = getattr(value, "tolist", None)
-    if callable(to_python):
+    if callable(to_python) and not isinstance(value, type):
         plain = to_python()
         if type(plain) is not type(value):
             return canonicalize(plain)
@@ -330,7 +332,9 @@ def _distribution_problems(question: DecisionQuestion, distribution: object) -> 
         return problems + [f"each distribution value must be a number in [0, 1], got {dict(distribution)!r}"]
     total = sum(number for number in numbers if number is not None)
     slack = DISTRIBUTION_SUM_TOLERANCE + 1e-9
-    if set(distribution) == set(allowed) and abs(total - 1.0) > slack:
+    if question.kind == "predicate" and not problems and set(distribution) != set(allowed):
+        problems.append("a predicate distribution needs both true and false")
+    elif set(distribution) == set(allowed) and abs(total - 1.0) > slack:
         problems.append(f"a full distribution must sum to 1 +/- {DISTRIBUTION_SUM_TOLERANCE}, got {total}")
     elif total > 1.0 + slack:
         problems.append(f"a partial distribution must not sum above 1, got {total}")
@@ -356,16 +360,11 @@ def check_decision_result(request: DecisionRequest, question: DecisionQuestion, 
         problems.append("an error result needs a non-empty error_code")
     if status != "error" and result.error_code is not None:
         problems.append(f"error_code must be None unless status is error, got {result.error_code!r}")
-    unanswered = status in ("error", "skipped")
-    label = reason if _is_member(reason, ("refusal", "null_answer", "tie")) else status
-    if (unanswered or label != status) and result.value is not None:
-        problems.append(f"a {label} result must have value None")
+    label = reason if isinstance(reason, str) and reason in _EMPTY_FIELDS else status
+    problems.extend(f"{label} results must have {name} None" for name in _EMPTY_FIELDS.get(label, ())
+                    if getattr(result, name) is not None)
     if status == "ok" and result.value is None:
         problems.append("an ok result must carry a value")
-    if (unanswered or label in ("refusal", "null_answer")) and result.distribution is not None:
-        problems.append(f"a {label} result must have distribution None")
-    if unanswered and result.confidence is not None:
-        problems.append(f"a {status} result must have confidence None")
     if (result.probability_kind == "none") != (result.distribution is None):
         problems.append("probability_kind must be 'none' exactly when distribution is None")
     labels = question.labels()
@@ -383,12 +382,13 @@ def check_decision_result(request: DecisionRequest, question: DecisionQuestion, 
 
 def unanswered_result(request: DecisionRequest, question: DecisionQuestion, *, provider: str, model: str,
                       error_code: Optional[str] = None, status_reason: Optional[SkippedReason] = None,
-                      latency_ms: Optional[float] = None, retry_count: Optional[int] = None) -> DecisionResult:
+                      latency_ms: Optional[float] = None, retry_count: Optional[int] = None,
+                      input_hash: Optional[str] = None) -> DecisionResult:
     """An ``error`` result when ``error_code`` is set, else a ``skipped`` result with ``status_reason``."""
     return DecisionResult(
         request_id=request.request_id, question_id=question.id, value=None, distribution=None, confidence=None,
         probability_kind="none", status="error" if error_code is not None else "skipped", error_code=error_code,
         model=model, provider=provider, task_version=request.task_version,
-        input_hash=compute_decision_hash(request.evidence, question, request.task_version),
+        input_hash=input_hash or compute_decision_hash(request.evidence, question, request.task_version),
         latency_ms=latency_ms, cost_usd=None, cache_hit=None, retry_count=retry_count, status_reason=status_reason,
     )

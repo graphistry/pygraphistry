@@ -34,22 +34,26 @@ def record_effect(name: str) -> None:
         ledger.append(name)
 
 
-FallbackEngine = Literal["polars", "polars-gpu"]
-
-
-def raise_if_effects_since(ledger: List[str], start: int, error: NotImplementedError, engine: FallbackEngine) -> None:
-    """Refuse an engine fallback once the declined attempt has already caused side effects."""
-    effects = ledger[start:]
-    if not effects:
-        return
-    names = ", ".join(sorted(set(effects)))
-    raise GFQLCallExecutionError(
-        ErrorCode.E306,
-        f"The query already ran side-effecting steps ({names}) before a step the {engine} engine cannot run, "
-        "so engine='auto' will not re-run it on another engine",
-        field="engine",
-        value="auto",
-        suggestion="Rerun with engine='pandas' (or 'cudf'), or remove the unsupported step",
-        engine=engine,
-        original_exception=type(error).__name__,
-    ) from error
+@contextmanager
+def suppress_decline_unless_effects(engine: Literal["polars", "polars-gpu"]) -> Iterator[None]:
+    """Swallow an engine attempt's ``NotImplementedError`` so the caller falls back, unless the attempt already
+    caused side effects, in which case raise instead of letting the fallback repeat them."""
+    with effect_scope() as ledger:
+        start = len(ledger)
+        try:
+            yield
+        except NotImplementedError as error:
+            effects = ledger[start:]
+            if not effects:
+                return
+            names = ", ".join(sorted(set(effects)))
+            raise GFQLCallExecutionError(
+                ErrorCode.E306,
+                f"The query already ran side-effecting steps ({names}) before a step the {engine} engine cannot run, "
+                "so engine='auto' will not re-run it on another engine",
+                field="engine",
+                value="auto",
+                suggestion="Rerun with engine='pandas' (or 'cudf'), or remove the unsupported step",
+                engine=engine,
+                original_exception=type(error).__name__,
+            ) from error

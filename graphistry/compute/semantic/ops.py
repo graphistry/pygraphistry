@@ -8,7 +8,6 @@ import json
 import math
 import threading
 import time
-from collections import Counter
 from concurrent.futures import ThreadPoolExecutor, wait
 from typing import Callable, Dict, List, Mapping, Optional, Sequence, Tuple, Union
 
@@ -61,18 +60,18 @@ def _json_ready(value: object) -> object:
     return value if value is None or isinstance(value, (str, bool, int, float)) else str(value)
 
 
-def _row_request_ids(df: DataFrameT, host: pd.DataFrame, id_col: Optional[str]) -> List[str]:
+def _distinct_ids(ids: List[str]) -> bool:
+    return "" not in ids and len(set(ids)) == len(ids)
+
+
+def _row_request_ids(host: pd.DataFrame, id_col: Optional[str]) -> List[str]:
     if id_col is not None:
-        ids = host[id_col]
-        as_text = [str(value) for value in ids.tolist()]
-        if ids.isna().any() or "" in as_text or len(set(as_text)) != len(as_text):
+        ids = [str(value) for value in host[id_col].tolist()]
+        if host[id_col].isna().any() or not _distinct_ids(ids):
             raise ValueError(f"id_col {id_col!r} must hold non-null, unique ids with no empty id after str()")
-        return as_text
-    labels = df.index.to_pandas().tolist() if _is_cudf(df) else df.index.tolist()
-    from_index = [str(label) for label in labels]
-    if df.index.is_unique and "" not in from_index and len(set(from_index)) == len(from_index):
-        return from_index
-    return [str(position) for position in range(len(df))]
+        return ids
+    labels = [str(label) for label in host.index.tolist()]
+    return labels if host.index.is_unique and _distinct_ids(labels) else [str(position) for position in range(len(host))]
 
 
 def _row_evidence(record: Mapping[object, object], template: Optional[str], max_chars: Optional[int]) -> Evidence:
@@ -100,17 +99,14 @@ def _prepare_rows(df: DataFrameT, cols: List[str], template: Optional[str], id_c
         raise ValueError(f"columns appear more than once in the table: {duplicated}")
     host = df[needed].to_pandas() if _is_cudf(df) else df[needed]
     return _Rows(
-        request_ids=_row_request_ids(df, host, id_col),
+        request_ids=_row_request_ids(host, id_col),
         evidence=[_row_evidence(record, template, max_chars) for record in host[cols].to_dict("records")],
         skip_reason=[_skip_reason(position, all_null, max_rows)
                      for position, all_null in enumerate(host[cols].isna().all(axis=1).tolist())],
     )
 
 
-def _check_new_columns(names: Sequence[str], df: DataFrameT, overwrite: bool) -> None:
-    collisions = sorted(name for name, count in Counter(names).items() if count > 1)
-    if collisions:
-        raise ValueError(f"derived output column names collide: {collisions}")
+def _check_existing_columns(names: Sequence[str], df: DataFrameT, overwrite: bool) -> None:
     existing = [name for name in names if name in df.columns]
     if existing and not overwrite:
         raise ValueError(f"output columns already exist: {existing}; pass overwrite=True to replace them")
@@ -157,18 +153,14 @@ def _execute(batches: Sequence[Sequence[DecisionRequest]], budgets: Sequence[Opt
              deadline_at: Optional[float], threads: int, effect_name: str) -> List[_CallOutcome]:
     """Run the planned calls in order on a thread pool; at the deadline, unstarted and running calls are skipped."""
     outcomes = [_CallOutcome(skipped="budget")] * len(batches)
-    if not budgets:
-        return outcomes
-    lock = threading.Lock()
-    started: List[int] = []
-    closed: List[bool] = []
+    lock, started, closed = threading.Lock(), threading.Event(), threading.Event()
 
     def run_one(position: int) -> _CallOutcome:
         with lock:
             remaining_s = None if deadline_at is None else deadline_at - time.monotonic()
-            if closed or (remaining_s is not None and remaining_s <= 0):
+            if closed.is_set() or (remaining_s is not None and remaining_s <= 0):
                 return _CallOutcome(skipped="deadline")
-            started.append(position)
+            started.set()
         return _call_provider(invoke, batches[position], remaining_s, budgets[position])
 
     pool = ThreadPoolExecutor(max_workers=threads)
@@ -183,8 +175,8 @@ def _execute(batches: Sequence[Sequence[DecisionRequest]], budgets: Sequence[Opt
             outcomes[futures[future]] = _CallOutcome(skipped="deadline")
     finally:
         with lock:
-            closed.append(True)
-            any_started = bool(started)
+            closed.set()
+            any_started = started.is_set()
         pool.shutdown(wait=False)
         if any_started:
             record_effect(effect_name)
@@ -206,20 +198,20 @@ def _nonnegative(value: object) -> Optional[float]:
 
 def _cell_result(request: DecisionRequest, question: DecisionQuestion, outcome: _CallOutcome,
                  row: Optional[Dict[str, DecisionResult]], provider: DecisionProvider,
-                 capabilities: ProviderCapabilities, min_p: Optional[float]) -> DecisionResult:
+                 capabilities: ProviderCapabilities, min_p: Optional[float], input_hash: str) -> DecisionResult:
+    """The kernel's verdict on one cell; ``input_hash`` is taken before any call, so a provider cannot change it."""
     if outcome.skipped is not None:
         return unanswered_result(request, question, provider=provider.name, model=provider.model,
-                                 status_reason=outcome.skipped)
+                                 status_reason=outcome.skipped, input_hash=input_hash)
     result = None if row is None else row[question.id]
-    if result is None or check_decision_result(request, question, result, capabilities):
+    if result is None or check_decision_result(request, question, result, capabilities) or _meta_json_or_none(result) is None:
         retries = None if result is None else result.retry_count
         return unanswered_result(
-            request, question, provider=provider.name, model=provider.model,
+            request, question, provider=provider.name, model=provider.model, input_hash=input_hash,
             error_code="provider_exception" if outcome.raised else "invalid_provider_result",
             latency_ms=None if result is None else _nonnegative(result.latency_ms),
             retry_count=retries if isinstance(retries, int) and not isinstance(retries, bool) and retries >= 0 else None)
-    result = dataclasses.replace(
-        result, input_hash=compute_decision_hash(request.evidence, question, request.task_version))
+    result = dataclasses.replace(result, input_hash=input_hash)
     if min_p is not None and result.status == "ok":
         probability = _probability_of_value(question, result)
         if math.isnan(probability) or probability < min_p:
@@ -233,6 +225,14 @@ def _meta_json(result: DecisionResult) -> str:
         "status_reason", "confidence")}
     meta["extra"] = None if result.extra is None else dict(result.extra)
     return json.dumps(_json_ready(meta), sort_keys=True, separators=(",", ":"))
+
+
+def _meta_json_or_none(result: DecisionResult) -> Optional[str]:
+    """Provider metadata that cannot become JSON (a non-mapping ``extra``, a cycle, an enormous int) is invalid."""
+    try:
+        return _meta_json(result)
+    except (TypeError, ValueError, RecursionError):
+        return None
 
 
 def _dist_json(question: DecisionQuestion, result: DecisionResult) -> Optional[str]:
@@ -268,19 +268,25 @@ def _result_columns(questions: Sequence[DecisionQuestion], grid: Dict[Cell, Deci
     return columns
 
 
-def _with_columns(df: DataFrameT, columns: Dict[str, object]) -> DataFrameT:
-    if not _is_cudf(df):
-        return df.assign(**columns)
-    import cudf  # type: ignore[import-not-found]
+def _cudf_columns(df: DataFrameT, columns: Dict[str, object]) -> Dict[str, object]:
+    import cudf
     import pyarrow as pa
-    converted = {}
+    converted: Dict[str, object] = {}
     for name, values in columns.items():
         # explicit arrow strings: object dtype on every cudf version and mode, even when all null
         series = (cudf.Series(pa.array(values, type=pa.string())) if pd.api.types.is_object_dtype(values)
                   else cudf.from_pandas(pd.Series(values)))
         series.index = df.index
         converted[name] = series
-    return df.assign(**converted)
+    return converted
+
+
+def _with_columns(df: DataFrameT, columns: Dict[str, object]) -> DataFrameT:
+    """A copy of ``df`` with the columns set one by one (``assign`` cannot take a column named ``self``)."""
+    out = df.copy(deep=False)
+    for name, values in (_cudf_columns(df, columns) if _is_cudf(df) else columns).items():
+        out[name] = values
+    return out
 
 
 def sem_decide(
@@ -322,7 +328,7 @@ def sem_decide(
     :param batch_size: rows per provider call; default the provider's ``max_rows_per_request``, else 32
     :param max_concurrency: upper bound on concurrent provider calls
     :param deadline_s: seconds for the whole run; unfinished rows become ``skipped`` (calls already sent are
-        abandoned, not cancelled, so they may still finish in the background)
+        abandoned, not cancelled: they may still finish, and keep the process alive, in the background)
     :param budget: ``Budget`` or dict with ``max_requests`` (provider calls)
     :param max_rows: rows at positions >= ``max_rows`` are ``skipped``, never dropped
     :param min_p: ``ok`` answers whose ``q__p`` is below this (or undefined) become ``uncertain``
@@ -345,8 +351,10 @@ def sem_decide(
                       max_rows=max_rows, min_p=min_p, column_max_chars=column_max_chars))
     cols = evidence_columns(evidence_cols, template)
     run_budget = coerce_budget(budget)
-    _check_new_columns([question.id + suffix for question in coerced for suffix, _ in DECISION_COLUMN_TYPES], df,
-                       overwrite)
+    deadline = None if deadline_s is None else float(deadline_s)
+    threshold = None if min_p is None else float(min_p)
+    _check_existing_columns([question.id + suffix for question in coerced for suffix, _ in DECISION_COLUMN_TYPES], df,
+                            overwrite)
     resolved = resolve_provider(provider)
     if not isinstance(resolved, DecisionProvider):
         raise ValueError(f"semantic provider {provider if isinstance(provider, str) else type(provider).__name__!r} "
@@ -362,26 +370,27 @@ def sem_decide(
     per_call = capabilities.max_questions_per_request
     size = batch_size or capabilities.max_rows_per_request or DEFAULT_BATCH_SIZE
     attempted = [position for position, reason in enumerate(rows.skip_reason) if reason is None]
-    calls = [[request(position, coerced[start:start + per_call]) for position in attempted[first:first + size]]
-             for first in range(0, len(attempted), size) for start in range(0, len(coerced), per_call)]
+    calls: List[List[DecisionRequest]] = []
+    for first in range(0, len(attempted), size):
+        for start in range(0, len(coerced), per_call):
+            calls.append([request(position, coerced[start:start + per_call]) for position in attempted[first:first + size]])
+    hashes = {(position, question.id): compute_decision_hash(evidence, question, task_version)
+              for position, evidence in enumerate(rows.evidence) for question in coerced}
     threads = max(1, min(capabilities.concurrency_limit, max_concurrency or capabilities.concurrency_limit, len(calls)))
     outcomes = _execute(calls, _plan_calls(len(calls), run_budget),
                         lambda batch, remaining, call_budget: resolved.decide_batch(
                             batch, deadline_s=remaining, budget=call_budget),
-                        None if deadline_s is None else started + deadline_s, threads, "sem_decide")
+                        None if deadline is None else started + deadline, threads, "sem_decide")
+    never_sent = [([request(position, coerced)], _CallOutcome(skipped=reason))
+                  for position, reason in enumerate(rows.skip_reason) if reason is not None]
     position_of = {request_id: position for position, request_id in enumerate(rows.request_ids)}
     grid: Dict[Cell, DecisionResult] = {}
-    for requests, outcome in zip(calls, outcomes):
+    for requests, outcome in list(zip(calls, outcomes)) + never_sent:
         aligned = None if outcome.skipped or outcome.raised else align_results(requests, outcome.returned)
         for request_ in requests:
             row = None if aligned is None else aligned[request_.request_id]
+            position = position_of[request_.request_id]
             for question in request_.questions:
-                grid[(position_of[request_.request_id], question.id)] = _cell_result(
-                    request_, question, outcome, row, resolved, capabilities, min_p)
-    for position, reason in enumerate(rows.skip_reason):
-        if reason is not None:
-            for question in coerced:
-                grid[(position, question.id)] = _cell_result(
-                    request(position, coerced), question, _CallOutcome(skipped=reason), None, resolved, capabilities,
-                    min_p)
+                grid[(position, question.id)] = _cell_result(request_, question, outcome, row, resolved, capabilities,
+                                                             threshold, hashes[(position, question.id)])
     return _with_columns(df, _result_columns(coerced, grid, len(rows.request_ids)))
