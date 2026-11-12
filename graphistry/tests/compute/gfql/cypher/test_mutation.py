@@ -11,6 +11,7 @@ import graphistry.compute.gfql.cypher as cypher_module
 from graphistry.compute.exceptions import GFQLValidationError
 from graphistry.compute.gfql.cypher.api import cypher_to_gfql
 from graphistry.compute.gfql.cypher.lowering import CompiledCypherMutationQuery
+from graphistry.compute.gfql.mutation import _numeric_id_seed, _promote_shared_column_dtype
 
 
 ENGINES = [
@@ -180,6 +181,21 @@ def test_deprecated_compiled_mutation_lazy_export_matches_lowering() -> None:
         lazy_class = cypher_module.CompiledCypherMutationQuery
 
     assert lazy_class is CompiledCypherMutationQuery
+
+
+def test_numeric_id_seed_with_missing_identity_starts_at_zero() -> None:
+    assert _numeric_id_seed(pd.DataFrame({"other": []}), "id", line=1, column=1) == 0
+
+
+def test_shared_property_dtype_promotes_bool_and_int_losslessly() -> None:
+    promoted = _promote_shared_column_dtype(
+        bool, int, column="id", line=1, column_position=1
+    )
+
+    assert promoted == "Int64"
+    assert _promote_shared_column_dtype(
+        bool, bool, column="id", line=1, column_position=1
+    ) is bool
 
 
 def test_create_rejects_non_numeric_existing_identity() -> None:
