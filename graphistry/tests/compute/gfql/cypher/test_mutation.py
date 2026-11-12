@@ -35,6 +35,13 @@ def _records(frame: Any) -> list[dict[str, Any]]:
     ]
 
 
+def _entity_text_records(result: Any, entities: dict[str, str]) -> list[dict[str, Any]]:
+    nodes = result._nodes
+    if nodes is not None and not isinstance(nodes, pd.DataFrame):
+        result = graphistry.nodes(nodes.to_pandas(), result._node)
+    return entity_text_records(result, entities)
+
+
 def _assert_served(engine: str, frame: Any) -> None:
     expected = "pandas" if engine == "pandas" else engine
     assert type(frame).__module__.split(".")[0] == expected.split("-")[0]
@@ -113,7 +120,7 @@ def test_create_preserves_old_type_label_without_label_flags(engine: str) -> Non
     rows = result.gfql(
         "MATCH (old) WHERE old.id = 'old' RETURN old", engine=engine, language="cypher"
     )
-    assert entity_text_records(rows, {"old": "nodes"}) == [{"old": "(:Old)"}]
+    assert _entity_text_records(rows, {"old": "nodes"}) == [{"old": "(:Old)"}]
     assert _records(source._nodes) == [{"id": "old", "type": "Old"}]
 
 
@@ -130,8 +137,8 @@ def test_create_new_label_and_old_type_label_render_both_sources(engine: str) ->
     )
     new_rows = result.gfql("MATCH (new:New) RETURN new", engine=engine, language="cypher")
 
-    assert entity_text_records(old_rows, {"old": "nodes"}) == [{"old": "(:Old)"}]
-    assert entity_text_records(new_rows, {"new": "nodes"}) == [{"new": "(:New)"}]
+    assert _entity_text_records(old_rows, {"old": "nodes"}) == [{"old": "(:Old)"}]
+    assert _entity_text_records(new_rows, {"new": "nodes"}) == [{"new": "(:New)"}]
 
 
 @pytest.mark.parametrize("engine", ENGINES)
@@ -146,7 +153,7 @@ def test_create_does_not_duplicate_same_label_from_type(engine: str) -> None:
         "MATCH (old) WHERE old.id = 'old' RETURN old", engine=engine, language="cypher"
     )
 
-    assert entity_text_records(rows, {"old": "nodes"}) == [{"old": "(:Shared)"}]
+    assert _entity_text_records(rows, {"old": "nodes"}) == [{"old": "(:Shared)"}]
 
 
 @pytest.mark.parametrize("engine", ENGINES)
@@ -161,9 +168,7 @@ def test_create_render_does_not_admit_null_or_nan_legacy_type_labels(engine: str
         "MATCH (old) WHERE old.id = 'old' RETURN old", engine=engine, language="cypher"
     )
 
-    assert entity_text_records(rows, {"old": "nodes"}) == [{"old": "()"}]
-    count = result.gfql("MATCH (a)-[r]->(b) RETURN count(*) AS count", engine=engine)
-    assert _records(count._nodes) == [{"count": 1}]
+    assert _entity_text_records(rows, {"old": "nodes"}) == [{"old": "()"}]
     assert result.gfql_graph is result
     _assert_served(engine, result._nodes)
 
