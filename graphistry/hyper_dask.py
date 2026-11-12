@@ -728,7 +728,7 @@ def clean_events(
         for c in out_events:
             if out_events[c].dtype.name == 'timedelta64[ns]':
                 logger.debug('timedelta concats may conflict when nans; coerce col [ %s ] => str', c)
-                out_events[c] = out_events[c].astype(str)
+                out_events = out_events.assign(**{c: out_events[c].astype(str)})
     
     out_events = shallow_copy(out_events, engine)
 

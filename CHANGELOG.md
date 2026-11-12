@@ -8,6 +8,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [Development]
 <!-- Do Not Erase This Section - Used for tracking unreleased changes -->
 
+### Fixed
+
+- **Hypergraph GPU timedelta inputs**: coercing timedelta event columns to strings now creates a new frame instead of modifying the caller's cuDF or Dask-cuDF input. Existing event-ID columns and generated IDs retain their behavior (#2291).
+
 ## [0.62.0] - 2026-11-11
 
 ### Deprecated
