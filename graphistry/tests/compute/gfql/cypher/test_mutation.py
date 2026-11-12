@@ -503,3 +503,29 @@ def test_cleanup_and_view_bind_preserve_same_execution_association(engine):
     clean=clear_row_exec_context(contextual)
     assert clean.gfql_graph is saved
     assert clean._gfql_rows_base_graph is None and clean._gfql_start_nodes is None
+
+
+@pytest.mark.parametrize("value",[[1],{"a":1},float("nan")],ids=["list","map","nan"])
+@pytest.mark.parametrize("mode",["validate_only","execute","execute_validate"])
+def test_known_unsupported_property_parameters_decline_consistently(value,mode):
+    source=graphistry.nodes(_foundation_frame("pandas",{"id":[1,2]}),"id")
+    before=_records(source._nodes)
+    query="CREATE (n {p:$value})"
+    with pytest.raises(GFQLValidationError) as exc:
+        if mode=="validate_only":
+            source.gfql_validate(query,params={"value":value})
+        else:
+            source.gfql(query,params={"value":value},validate=mode=="execute_validate",engine="pandas")
+    from graphistry.compute.exceptions import ErrorCode
+    assert exc.value.code == ErrorCode.E108
+    assert _records(source._nodes)==before
+
+@pytest.mark.parametrize("engine",ENGINES)
+def test_empty_return_retains_updated_graph_same_execution(engine):
+    source=graphistry.nodes(_foundation_frame(engine,{"id":[1,2]}),"id")
+    rows=source.gfql("CREATE (a {name:'new'}) RETURN a.name AS name SKIP 1",engine=engine)
+    assert _records(rows._nodes)==[]
+    graph=rows.gfql_graph
+    assert len(graph._nodes)==3 and graph.gfql_graph is graph
+    assert len(graph.gfql("CREATE ()",engine=engine)._nodes)==4
+    assert _records(source._nodes)==[{"id":1},{"id":2}]

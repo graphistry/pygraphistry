@@ -26,7 +26,7 @@ class GFQLMutationError(GFQLValidationError):
 
 
 def validate_create_parameters(creates: tuple[CreateClause, ...], params: Optional[CypherParams]) -> None:
-    """Validate finite query values without constructing or appending graph rows."""
+    """Validate required parameters and scalar values without appending graph rows."""
     for clause in creates:
         for pattern in clause.patterns:
             for entry in pattern.properties:
@@ -48,7 +48,12 @@ def _property_value(value: object, *, params: Optional[CypherParams], span: obje
                 column=span_column,
                 language="cypher",
             )
-        return params[value.name]
+        value = params[value.name]
+    if isinstance(value, float) and math.isnan(value):
+        raise GFQLMutationError(
+            ErrorCode.E108, "CREATE cannot represent NaN property values as distinct from null",
+            field="create", value="nan_property", line=span_line, column=span_column, language="cypher",
+        )
     if value is None or isinstance(value, (bool, int, float, str)):
         return value
     raise GFQLMutationError(
