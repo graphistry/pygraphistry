@@ -413,10 +413,11 @@ class OpenAIChatProvider(_ChatDecisionProvider):
             lock.release()
 
     def probe(self, deadline_at: Optional[float]) -> Optional[Strategy]:
-        """The first of ``logprobs`` (with alternatives at the answer token), ``json_schema``, ``tool`` and ``text``
-        that answers a synthetic question in its own form, else ``text`` when plain chat works; None after a
-        transport or auth failure or when every rung is rejected. Probe requests are billed and are not counted in
-        the run's budget."""
+        """The first configured strategy that answers a synthetic question in its expected form.
+
+        Plain chat can keep the final text rung even for an off-code reply. Terminal request failures raise
+        RequestFailure; unusable replies keep nothing. Probe requests are billed outside the run's budget.
+        """
         question = PROBE_REQUEST.questions[0]
         codes = answer_codes(question) or LETTERS
         payload: Optional[JSONObject] = None
@@ -514,12 +515,15 @@ class OpenAIChatProvider(_ChatDecisionProvider):
         refused = bool(message.get("refusal")) or choice.get("finish_reason") == "content_filter"
         unfinished = choice.get("finish_reason") in ("length", "model_length", "error")
         content = message.get("content")
+        function, calls = message.get("function_call"), message.get("tool_calls")
+        foreign_function = function is not None and strategy != "function"
+        foreign_tools = calls is not None and calls != [] and strategy != "tool"
+        if strategy not in ("logprobs", "text") and (foreign_function or foreign_tools):
+            return Reply(None, None, refused, unfinished, strategy_form(strategy))
         if strategy in GRAMMAR_FIELDS:
             return Reply(content.strip() if isinstance(content, str) else content, None, refused, unfinished, "code")
-        function = message.get("function_call")
-        if function is not None:
+        if strategy == "function" and function is not None:
             return Reply(_tool_answer({"function": function}), None, refused, unfinished, "function")
-        calls = message.get("tool_calls")
         if isinstance(calls, list) and calls:
             answers = {json.dumps(_tool_answer(call), default=str) for call in calls}
             return Reply(_tool_answer(calls[0]) if len(answers) == 1 else None, None, refused, unfinished, "tool")

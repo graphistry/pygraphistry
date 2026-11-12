@@ -247,3 +247,36 @@ def test_an_expired_profile_sends_no_probe_or_row() -> None:
     result = provider(session, "auto", ["vllm_choice", "text"]).decide_batch(
         [request((PRED,))], deadline_s=0.0, budget=None)[0]
     assert result.error_code == "deadline_exceeded" and session.posts == []
+
+
+@pytest.mark.parametrize("strategy", ["text", "logprobs"])
+def test_legacy_function_fields_do_not_override_a_plain_reply(strategy: Strategy) -> None:
+    reply = response("B", function={"name": "answer", "arguments": '{"answer":"A"}'})
+    result = provider(FakeSession([reply]), strategy).decide_batch(
+        [request((PRED,))], deadline_s=None, budget=None)[0]
+    assert result.value is False
+
+
+@pytest.mark.parametrize("strategy", ["vllm_choice", "function", "tool", "json_schema", "json_mode"])
+def test_constrained_replies_reject_mixed_call_mechanisms(strategy: Strategy) -> None:
+    reply = response("A", function={"name": "answer", "arguments": '{"answer":"A"}'})
+    body = reply.json()
+    assert isinstance(body, dict)
+    body["choices"][0]["message"]["tool_calls"] = [
+        {"type": "function", "function": {"name": "answer", "arguments": '{"answer":"B"}'}}]
+    result = provider(FakeSession([reply]), strategy).decide_batch(
+        [request((PRED,))], deadline_s=None, budget=None)[0]
+    assert result.error_code == "invalid_provider_result" and result.value is None
+
+
+def test_a_grammar_probe_with_unsolicited_tool_calls_is_not_kept() -> None:
+    reply = response("A")
+    body = reply.json()
+    assert isinstance(body, dict)
+    body["choices"][0]["message"]["tool_calls"] = [
+        {"type": "function", "function": {"name": "answer", "arguments": '{"answer":"B"}'}}]
+    session = FakeSession([reply])
+    instance = provider(session, "auto", ["vllm_choice"])
+    result = instance.decide_batch([request((PRED,))], deadline_s=None, budget=None)[0]
+    assert result.error_code == "invalid_provider_result" and instance.kept_strategy() is None
+    assert len(session.posts) == 1
