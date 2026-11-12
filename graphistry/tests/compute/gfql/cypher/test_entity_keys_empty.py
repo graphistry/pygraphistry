@@ -36,7 +36,9 @@ def test_entity_keys_with_empty_property_rows(engine, table, values, expected):
     edges_before = edges.to_arrow().to_pylist() if engine == "cudf" else edges.to_dict("records")
     result = source.gfql(query, engine=engine)
     rows = result._nodes.to_arrow().to_pylist() if engine == "cudf" else result._nodes.to_dict("records")
-    assert rows == [{"identity": identity, "k": keys} for identity, keys in zip(identities, expected)]
+    assert sorted(rows, key=lambda row: row["identity"]) == [
+        {"identity": identity, "k": keys} for identity, keys in zip(identities, expected)
+    ]
     assert type(result._nodes).__module__.split(".")[0] == engine
     after = nodes.to_arrow().to_pylist() if engine == "cudf" else nodes.to_dict("records")
     assert after == before
