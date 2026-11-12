@@ -9394,7 +9394,7 @@ def compile_cypher_query(
                 patterns.append((NodePattern(variable=hidden_alias, labels=(), properties=(PropertyEntry(
                     key=MUTATION_NODE_ID, value=ParameterRef(name=parameter, span=query.span), span=query.span,
                 ),), span=query.span),))
-            read_query = replace(query, creates=(), matches=(MatchClause(patterns=tuple(patterns), span=query.span),))
+            read_query = replace(query, creates=(), row_sequence=(), matches=(MatchClause(patterns=tuple(patterns), span=query.span),))
             # Reuse the established binder/projection compiler for name and expression checks.
             compile_cypher_query(read_query, params={**(params or {}), **{parameter: 0 for _, parameter in binding_params}})
             return CompiledCypherMutationQuery(creates=query.creates, return_query=read_query, return_bindings=tuple(binding_params))
