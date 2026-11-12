@@ -370,7 +370,7 @@ def test_legacy_string_id(engine):
     assert len(again._nodes)==4 and again._node==graph._node
     assert list(again._nodes.columns)==list(graph._nodes.columns)
 
-@pytest.mark.parametrize("engine",["pandas","cudf"])
+@pytest.mark.parametrize("engine", ENGINES[:2])
 @pytest.mark.parametrize("old",["old",10])
 def test_current_id_membership(engine,old):
     explicit="new" if isinstance(old,str) else 20
@@ -445,3 +445,17 @@ def test_rebinding_metadata_is_typed_not_silently_reused(engine):
     with pytest.raises(GFQLValidationError):
         rebound.gfql("CREATE ()",engine=engine)
     assert _records(rebound._nodes)==before
+
+
+def test_functional_create_documentation_example() -> None:
+    from pathlib import Path
+    import textwrap
+    document = (Path(__file__).resolve().parents[5] / "docs/source/gfql/cypher.rst").read_text()
+    section = document.split("Functional Node Creation\n", 1)[1]
+    lines = section.split(".. code-block:: python\n", 1)[1].splitlines()
+    code = []
+    for line in lines:
+        if line and not line.startswith("   "):
+            break
+        code.append(line)
+    exec(textwrap.dedent("\n".join(code)), {})
