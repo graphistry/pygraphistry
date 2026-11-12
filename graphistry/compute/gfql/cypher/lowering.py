@@ -9353,6 +9353,18 @@ def compile_cypher_query(
     if isinstance(query, CypherQuery):
         _reject_excessive_match_clauses(query.matches)
         if query.creates:
+            if (
+                query.matches or query.reentry_matches or query.unwinds
+                or query.reentry_unwinds or query.with_stages or query.call is not None
+                or query.where is not None or query.graph_bindings or query.use is not None
+            ):
+                raise _unsupported(
+                    "CREATE cannot yet be combined with other query clauses",
+                    field="create",
+                    value="mixed_clauses",
+                    line=query.span.line,
+                    column=query.span.column,
+                )
             if query.return_ is not None and not query.return_is_synthetic:
                 raise _unsupported(
                     "GFQL CREATE with RETURN is not supported yet",

@@ -261,9 +261,9 @@ class PlotterBase(Plottable):
     _g: Optional["Plottable"] = None  # set only on row-pipeline adapters
 
     @property
-    def gfql_graph(self) -> Optional["Plottable"]:
-        """Read-only graph state from the same mutation execution, when present."""
-        return self._gfql_graph
+    def gfql_graph(self) -> "Plottable":
+        """Graph state from this result's mutation execution, or this graph itself."""
+        return self if self._gfql_graph is None else self._gfql_graph
 
     _defaultNodeId = NODE
     _defaultEdgeSourceId = SRC

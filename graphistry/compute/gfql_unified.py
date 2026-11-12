@@ -2922,7 +2922,6 @@ def _gfql_with_strictness(
                 mutated = execute_create_nodes(
                     self, compiled_query.creates, engine=engine, params=params
                 )
-                mutated._gfql_graph = mutated
                 return mutated
             if isinstance(compiled_query, CompiledCypherQuery):
                 if compiled_query.graph_bindings or compiled_query.use_ref:

@@ -78,6 +78,10 @@ class Plottable(Protocol):
     _cypher_entity_projection_presence: Dict[str, "DataFrameT"]
     _cypher_entity_projection_meta: Dict[str, "WholeRowProjectionMeta"]
 
+    @property
+    def gfql_graph(self) -> "Plottable":
+        ...
+
     _edges : Any
     _nodes : Any
     _source : Optional[str]

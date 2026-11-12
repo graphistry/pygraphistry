@@ -1,24 +1,32 @@
 from __future__ import annotations
 
+import math
 from typing import Optional
 
 from graphistry.compute.typing import DataFrameT, SeriesT
 from graphistry.Engine import (
     Engine,
     EngineAbstract,
-    align_shared_column_dtypes,
     df_concat,
     df_to_engine,
     is_polars_df,
     resolve_engine,
 )
-from graphistry.compute.exceptions import ErrorCode, GFQLValidationError
+from graphistry.compute.exceptions import ErrorCode, GFQLUnsupportedError, GFQLValidationError
 from graphistry.compute.gfql.cypher.ast import CreateClause, CypherParams, ParameterRef
 from graphistry.Plottable import Plottable
 
 
 class GFQLMutationError(GFQLValidationError):
     """Typed failure surface for unsupported or invalid mutation inputs."""
+
+
+def validate_create_parameters(creates: tuple[CreateClause, ...], params: Optional[CypherParams]) -> None:
+    """Validate finite query values without constructing or appending graph rows."""
+    for clause in creates:
+        for pattern in clause.patterns:
+            for entry in pattern.properties:
+                _property_value(entry.value, params=params, span=entry.span)
 
 
 def _property_value(value: object, *, params: Optional[CypherParams], span: object) -> object:
@@ -63,28 +71,48 @@ def _new_nodes_frame(
             for key in record:
                 if key not in columns:
                     columns.append(key)
-        frame = pd.DataFrame.from_records(records, columns=columns)
-        column_updates: dict[str, object] = {}
-        for column in frame.columns:
-            values = frame[column]
+        data: dict[str, SeriesT] = {}
+        for column in columns:
+            values = [record.get(column) for record in records]
+            declared = [value for value in values if value is not None]
+            if any(isinstance(value, float) and math.isnan(value) for value in declared):
+                raise GFQLMutationError(
+                    ErrorCode.E108, "CREATE cannot represent NaN property values as distinct from null",
+                    field=column, value="nan_property", language="cypher",
+                )
             if column in label_columns:
-                column_updates[column] = values.astype("boolean")
-                continue
-            declared = [record[column] for record in records if column in record]
-            incomplete = len(declared) != len(values)
-            if incomplete and all(
+                data[column] = pd.Series(values, dtype="boolean")
+            elif declared and all(
                 isinstance(value, int) and not isinstance(value, bool)
                 for value in declared
             ):
-                column_updates[column] = values.astype("Int64")
-            elif incomplete and all(
+                if any(value < -(1 << 63) or value >= (1 << 63) for value in declared):
+                    raise GFQLMutationError(
+                        ErrorCode.E105, "CREATE integer value is outside the signed 64-bit range",
+                        field=column, value="integer_overflow", language="cypher",
+                    )
+                data[column] = pd.Series(values, dtype="Int64")
+            elif declared and all(
                 isinstance(value, (int, float))
                 and not isinstance(value, bool)
                 for value in declared
             ):
-                column_updates[column] = values.astype("Float64")
-        if column_updates:
-            frame = frame.assign(**column_updates)
+                if any(isinstance(value, int) and abs(value) > (1 << 53) for value in declared):
+                    raise GFQLMutationError(
+                        ErrorCode.E108, "CREATE cannot combine wide integers with floating-point values losslessly",
+                        field=column, value="incompatible_numeric_types", language="cypher",
+                    )
+                data[column] = pd.Series(values, dtype="Float64")
+            elif declared and all(isinstance(value, bool) for value in declared):
+                data[column] = pd.Series(values, dtype="boolean")
+            elif not declared or all(isinstance(value, str) for value in declared):
+                data[column] = pd.Series(values, dtype="object")
+            else:
+                raise GFQLMutationError(
+                    ErrorCode.E108, "CREATE property columns require compatible scalar values",
+                    field=column, value="incompatible_property_values", language="cypher",
+                )
+        frame = pd.DataFrame(data)
         return df_to_engine(frame, engine)
     raise GFQLMutationError(
         ErrorCode.E108,
@@ -98,13 +126,15 @@ def _new_nodes_frame(
     )
 
 
-def _numeric_id_seed(nodes: DataFrameT, node_key: str, *, line: int, column: int) -> int:
+def _numeric_id_seed(nodes: DataFrameT, node_key: str, *, count: int, line: int, column: int) -> int:
     import numpy as np
     import pandas as pd
 
     if node_key not in nodes.columns:
         return 0
     series = nodes[node_key]
+    if not len(nodes):
+        return 0
     from graphistry.Engine import is_polars_df
 
     if is_polars_df(nodes):
@@ -113,11 +143,13 @@ def _numeric_id_seed(nodes: DataFrameT, node_key: str, *, line: int, column: int
         dtype = series.dtype
         is_numeric = dtype.is_numeric()
         is_boolean = dtype == pl.Boolean
+        is_integer = dtype.is_integer()
     else:
         has_null = bool(series.isna().any())
         dtype = series.dtype
         is_numeric = pd.api.types.is_numeric_dtype(dtype)
         is_boolean = pd.api.types.is_bool_dtype(dtype)
+        is_integer = pd.api.types.is_integer_dtype(dtype)
     if has_null:
         raise GFQLMutationError(
             ErrorCode.E105,
@@ -129,10 +161,10 @@ def _numeric_id_seed(nodes: DataFrameT, node_key: str, *, line: int, column: int
             column=column,
             language="cypher",
         )
-    if not is_numeric or is_boolean:
+    if not is_numeric or is_boolean or not is_integer:
         raise GFQLMutationError(
             ErrorCode.E108,
-            f"CREATE requires numeric node identities; {node_key!r} has dtype {str(series.dtype)!r}",
+            f"CREATE requires integer numeric node identities; {node_key!r} has dtype {str(series.dtype)!r}",
             field=node_key,
             value=str(series.dtype),
             suggestion="Numeric identities use max(existing)+1; other identity schemes require an explicit generator.",
@@ -140,12 +172,23 @@ def _numeric_id_seed(nodes: DataFrameT, node_key: str, *, line: int, column: int
             column=column,
             language="cypher",
         )
-    maximum = int(series.max()) if len(nodes) else 0
+    maximum = int(series.max())
     if is_polars_df(nodes):
         import polars as pl
         if dtype.is_integer():
-            limit = ((1 << 64) - 1) if dtype.is_unsigned_integer() else ((1 << 63) - 1)
-            if maximum == limit:
+            limits = {
+                pl.Int8: (1 << 7) - 1, pl.Int16: (1 << 15) - 1,
+                pl.Int32: (1 << 31) - 1, pl.Int64: (1 << 63) - 1,
+                pl.UInt8: (1 << 8) - 1, pl.UInt16: (1 << 16) - 1,
+                pl.UInt32: (1 << 32) - 1, pl.UInt64: (1 << 64) - 1,
+            }
+            if dtype not in limits:
+                raise GFQLMutationError(
+                    ErrorCode.E108, "CREATE does not support this physical identity width",
+                    field=node_key, value=str(dtype), language="cypher",
+                )
+            limit = limits[dtype]
+            if maximum + count > limit:
                 raise GFQLMutationError(
                     ErrorCode.E105,
                     f"Node identity column {node_key!r} has no remaining values",
@@ -156,9 +199,10 @@ def _numeric_id_seed(nodes: DataFrameT, node_key: str, *, line: int, column: int
                     column=column,
                     language="cypher",
                 )
-    elif np.issubdtype(dtype, np.integer):
-        info = np.iinfo(dtype)
-        if maximum == info.max:
+    elif pd.api.types.is_integer_dtype(dtype):
+        numpy_dtype = dtype.numpy_dtype if isinstance(dtype, pd.api.extensions.ExtensionDtype) else dtype
+        info = np.iinfo(numpy_dtype)
+        if maximum + count > info.max:
             raise GFQLMutationError(
                 ErrorCode.E105,
                 f"Node identity column {node_key!r} has no remaining values",
@@ -179,11 +223,9 @@ def _boolean_label_column(
     line: int,
     column: int,
 ) -> Optional[SeriesT]:
-    import pandas as pd
-
     if label_column not in nodes.columns:
         return None
-    if not pd.api.types.is_bool_dtype(nodes[label_column].dtype):
+    if _column_family(nodes[label_column], polars=is_polars_df(nodes)) != "bool":
         raise GFQLMutationError(
             ErrorCode.E108,
             f"Label column {label_column!r} must be boolean",
@@ -195,6 +237,75 @@ def _boolean_label_column(
             language="cypher",
         )
     return nodes[label_column]
+
+
+def _column_family(series: SeriesT, *, polars: bool) -> str:
+    import pandas as pd
+
+    dtype = series.dtype
+    if polars:
+        import polars as pl
+        if dtype == pl.Boolean:
+            return "bool"
+        if dtype.is_integer():
+            return "integer"
+        if dtype.is_float():
+            return "float"
+        return "string" if dtype == pl.String else "other"
+    if pd.api.types.is_bool_dtype(dtype):
+        return "bool"
+    if pd.api.types.is_integer_dtype(dtype):
+        return "integer"
+    if pd.api.types.is_float_dtype(dtype):
+        return "float"
+    return "string" if pd.api.types.is_string_dtype(dtype) else "other"
+
+
+def _prepare_append_frames(nodes: DataFrameT, new_nodes: DataFrameT) -> tuple[DataFrameT, DataFrameT]:
+    """Admit lossless column unions; never narrow candidate values to the old schema."""
+    import pandas as pd
+
+    polars = is_polars_df(nodes)
+    null_columns = [
+        name for name in new_nodes.columns
+        if bool(new_nodes[name].is_null().all() if polars else new_nodes[name].isna().all())
+    ]
+    if null_columns:
+        new_nodes = new_nodes.drop(null_columns) if polars else new_nodes.drop(columns=null_columns)
+    if isinstance(nodes, pd.DataFrame):
+        nullable = {}
+        for name in nodes.columns:
+            dtype = nodes[name].dtype
+            if pd.api.types.is_integer_dtype(dtype):
+                target = "UInt64" if pd.api.types.is_unsigned_integer_dtype(dtype) else "Int64"
+                nullable[name] = nodes[name].astype(target)
+            elif pd.api.types.is_bool_dtype(dtype):
+                nullable[name] = nodes[name].astype("boolean")
+        if nullable:
+            nodes = nodes.assign(**nullable)
+    for name in set(nodes.columns).intersection(new_nodes.columns):
+        old, new = nodes[name], new_nodes[name]
+        old_null = old.is_null().all() if polars else old.isna().all()
+        if bool(old_null):
+            continue
+        left = _column_family(old, polars=polars)
+        right = _column_family(new, polars=polars)
+        numeric = {"integer", "float"}
+        incompatible = left != right and not {left, right} <= numeric
+        if {left, right} <= numeric:
+            for series, family in ((old, left), (new, right)):
+                if family == "integer" and (
+                    left != right or str(old.dtype).lower().startswith("u") != str(new.dtype).lower().startswith("u")
+                ):
+                    if bool((series.abs() > (1 << 53)).any()):
+                        incompatible = True
+        if incompatible:
+            raise GFQLMutationError(
+                ErrorCode.E108, "CREATE cannot combine these property types losslessly",
+                field=str(name), value={"existing": str(old.dtype), "created": str(new.dtype)},
+                language="cypher",
+            )
+    return nodes, new_nodes
 
 
 def execute_create_nodes(
@@ -209,11 +320,24 @@ def execute_create_nodes(
         EngineAbstract(engine) if isinstance(engine, str) else engine,
         self._edges if self._edges is not None else self._nodes,
     )
+    if concrete_engine == Engine.POLARS_GPU:
+        raise GFQLUnsupportedError(
+            ErrorCode.E108,
+            "CREATE does not yet have a native Polars GPU execution route",
+            field="engine",
+            value=concrete_engine.value,
+            suggestion="Use engine='polars' on CPU or engine='cudf' for the native cuDF route.",
+            language="cypher",
+        )
     span = creates[0].span
     line, column = span.line, span.column
 
-    node_key = self._node or "_node"
-    nodes = self._nodes
+    from graphistry.compute.ComputeMixin import _coerce_input_formats
+    base_graph = _coerce_input_formats(self, concrete_engine)
+    if base_graph._nodes is None and base_graph._edges is not None:
+        base_graph = base_graph.materialize_nodes(engine=concrete_engine.value)
+    node_key = base_graph._node or "_node"
+    nodes = base_graph._nodes
     if nodes is None and node_key != "_node":
         raise GFQLMutationError(
             ErrorCode.E108,
@@ -239,7 +363,10 @@ def execute_create_nodes(
             language="cypher",
         )
     if nodes is not None:
-        identity = _numeric_id_seed(nodes, node_key, line=line, column=column)
+        identity = _numeric_id_seed(
+            nodes, node_key, count=sum(len(clause.patterns) for clause in creates),
+            line=line, column=column,
+        )
 
     records: list[dict[str, object]] = []
     label_columns: set[str] = set()
@@ -253,6 +380,11 @@ def execute_create_nodes(
                 label_columns.add(label_column)
                 row[label_column] = True
             for entry in pattern.properties:
+                if entry.key.startswith("label__"):
+                    raise GFQLMutationError(
+                        ErrorCode.E108, "CREATE properties cannot use the label flag namespace",
+                        field=entry.key, value=entry.key, language="cypher",
+                    )
                 if entry.key in row:
                     raise GFQLMutationError(
                         ErrorCode.E105,
@@ -272,12 +404,10 @@ def execute_create_nodes(
 
     new_nodes = _new_nodes_frame(concrete_engine, records, label_columns)
     if nodes is not None:
-        original_label_columns = {
-            label_column for label_column in label_columns if label_column in nodes.columns
-        }
+        original_label_columns = {str(name) for name in nodes.columns if str(name).startswith("label__")}
         for label_column in sorted(original_label_columns):
             _boolean_label_column(nodes, label_column, line=line, column=column)
-        new_nodes = align_shared_column_dtypes(nodes, new_nodes)
+        nodes, new_nodes = _prepare_append_frames(nodes, new_nodes)
         if is_polars_df(nodes):
             import polars as pl
             nodes = pl.concat([nodes, new_nodes], how="diagonal_relaxed")
@@ -335,4 +465,4 @@ def execute_create_nodes(
                 )
         nodes = new_nodes
 
-    return self.nodes(nodes, node_key)
+    return base_graph.nodes(nodes, node_key)
