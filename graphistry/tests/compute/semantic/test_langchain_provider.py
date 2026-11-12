@@ -232,6 +232,43 @@ def test_plain_runnable_needs_no_binding_methods() -> None:
     assert answer(LangChainDecisionProvider(Runnable())).value is False
 
 
+@pytest.mark.parametrize("strategy", ["tool", "structured"])
+@pytest.mark.parametrize("raw_calls", [
+    [{"function": {"name": "answer", "arguments": '{"answer":"B"}'}}],
+    [{"function": {"name": "other", "arguments": '{"answer":"A"}'}}],
+    [], None, {}, [tool(), tool()],
+])
+def test_conflicting_or_malformed_raw_tool_view_cannot_hide_behind_normalized_calls(
+        strategy: LangChainStrategy, raw_calls: object) -> None:
+    raw = Message(tool_calls=[tool()], additional_kwargs={"tool_calls": raw_calls})
+    model = FakeModel(raw if strategy == "tool" else envelope(raw=raw))
+    result = answer(LangChainDecisionProvider(model, strategy=strategy))
+    assert result.error_code == "invalid_provider_result" and result.value is None
+    assert len(model.invocations) == 1
+
+
+@pytest.mark.parametrize("strategy", ["tool", "structured"])
+def test_matching_raw_and_normalized_tool_views_remain_valid(strategy: LangChainStrategy) -> None:
+    raw = Message(tool_calls=[tool()], additional_kwargs={"tool_calls": [
+        {"function": {"name": "answer", "arguments": '{"answer":"A"}'}}]})
+    result = answer(LangChainDecisionProvider(FakeModel(raw if strategy == "tool" else envelope(raw=raw)),
+                                            strategy=strategy))
+    assert result.value is True and result.status == "ok"
+
+
+@pytest.mark.parametrize("strategy", ["text", "tool", "structured"])
+@pytest.mark.parametrize("finish", [None, "stop"])
+@pytest.mark.parametrize("stop", ["max_tokens", "model_context_window_exceeded", "pause_turn"])
+def test_each_unfinished_metadata_signal_is_checked(strategy: LangChainStrategy, finish: object, stop: str) -> None:
+    raw = Message(content="A" if strategy == "text" else '{"answer":"A"}',
+                  tool_calls=[tool()] if strategy == "tool" else [],
+                  response_metadata={"finish_reason": finish, "stop_reason": stop})
+    model = FakeModel(envelope(raw=raw) if strategy == "structured" else raw)
+    result = answer(LangChainDecisionProvider(model, strategy=strategy))
+    assert result.error_code == "invalid_provider_result" and result.value is None
+    assert len(model.invocations) == 1
+
+
 def test_usage_and_estimation_with_caller_prices() -> None:
     prices = TokenPrices(input=2, cached_input=1, output=3)
     raw = Message(content='{"answer":"A"}', usage_metadata={"input_tokens": 100, "output_tokens": 10,

@@ -52,12 +52,7 @@ def _mapping(value: object) -> Mapping[str, object]:
     return value if isinstance(value, dict) else {}
 
 
-def _tool_code(message: object) -> object:
-    if _field(message, "invalid_tool_calls"):
-        return None
-    calls = _field(message, "tool_calls")
-    if not calls:
-        calls = _mapping(_field(message, "additional_kwargs")).get("tool_calls")
+def _calls_code(calls: object) -> object:
     if not isinstance(calls, list) or len(calls) != 1 or not isinstance(calls[0], dict):
         return None
     call = calls[0]
@@ -65,6 +60,17 @@ def _tool_code(message: object) -> object:
         function = _mapping(call.get("function"))
         return _json_answer(function.get("arguments")) if function.get("name") == "answer" else None
     return _answer_field(call.get("args")) if call.get("name") == "answer" else None
+
+
+def _tool_code(message: object) -> object:
+    if _field(message, "invalid_tool_calls"):
+        return None
+    normalized = _field(message, "tool_calls")
+    additional = _mapping(_field(message, "additional_kwargs"))
+    raw = additional.get("tool_calls")
+    if normalized and "tool_calls" in additional and _calls_code(normalized) != _calls_code(raw):
+        return None
+    return _calls_code(normalized or raw)
 
 
 def _content(message: object) -> Optional[str]:
@@ -249,9 +255,9 @@ class LangChainDecisionProvider:
             "prompt_parse" if binding.strategy == "text" else "tool_structured" if binding.strategy == "tool"
             else "model_structured")}
         reason = "refusal" if _refused(raw) else None
-        stop = metadata.get("finish_reason", metadata.get("stop_reason"))
-        if reason is None and stop in ("length", "max_tokens", "model_context_window_exceeded", "pause_turn",
-                                      "content_filter", "error"):
+        if reason is None and any(metadata.get(field) in (
+                "length", "max_tokens", "model_context_window_exceeded", "pause_turn", "content_filter", "error")
+                                  for field in ("finish_reason", "stop_reason")):
             return failure
         if reason is None and _content(raw) is None:
             return failure
