@@ -364,6 +364,7 @@ def apply_result_projection(
             source_alias = column.source_name or projection.alias
             marker_frame = None
             marker_source = None
+            marker_column = None
             if projection.table == "nodes":
                 entity_id_column = result._node if result._node is not None else source_node_id
             else:
@@ -396,11 +397,12 @@ def apply_result_projection(
                     else:
                         marker_frame = marker_frame.rename(columns={marker_source: projection.alias})
                 # Keep membership beside entity-presence provenance, outside public fields.
-                if alias_sources is not None and all(
+                presence_source = marker_source if marker_source is not None else marker_column
+                if presence_source is not None and alias_sources is not None and all(
                     name in alias_sources for name in (MUTATION_NODE_ID, ID_PROPERTY_PRESENT)
                 ):
                     marker_frame = df_cons(resolve_engine("auto", marker_frame))({
-                        **{name: marker_frame[name] for name in marker_frame.columns},
+                        marker_frame.columns[0]: rows_df[presence_source],
                         **{
                             name: rows_df[alias_sources[name]]
                             for name in (MUTATION_NODE_ID, ID_PROPERTY_PRESENT)

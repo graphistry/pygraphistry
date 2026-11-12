@@ -301,7 +301,7 @@ def execute_create_nodes(
     self: Plottable,
     creates: tuple[CreateClause, ...],
     *,
-    engine: Union[EngineAbstract, Engine] = EngineAbstract.AUTO,
+    engine: EngineAbstract = EngineAbstract.AUTO,
     params: Optional[CypherParams] = None,
 ) -> tuple[Plottable, dict[str, CypherScalar]]:
     """Create node rows and return a new Plottable without changing the caller."""
