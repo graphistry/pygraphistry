@@ -200,7 +200,7 @@ def _require_id_capacity(
         else:
             return
     maximum = int(series.max())
-    if maximum > limit or identities - 1 > limit - maximum:
+    if maximum > limit or identities > limit - maximum:
         raise GFQLMutationError(
             ErrorCode.E105,
             f"Node identity column {node_key!r} cannot hold {identities} new IDs",
@@ -333,11 +333,12 @@ def _infer_nodes_from_edges(
         endpoints = pl.concat([edges[source_key], edges[destination_key]], rechunk=True).unique()
         return pl.DataFrame({node_key: endpoints})
     endpoints = df_concat(engine)([edges[source_key], edges[destination_key]], ignore_index=True)
-    endpoints = endpoints.drop_duplicates()
-    return df_to_engine(
-        type(endpoints)({node_key: endpoints.reset_index(drop=True)}),
-        engine,
-    )
+    endpoints = endpoints.drop_duplicates().reset_index(drop=True)
+    if engine == Engine.CUDF:
+        import cudf
+        return cudf.DataFrame({node_key: endpoints})
+    import pandas as pd
+    return pd.DataFrame({node_key: endpoints})
 
 
 def _boolean_label_column(
