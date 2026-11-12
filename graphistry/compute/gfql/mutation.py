@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import math
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 from graphistry.compute.typing import DataFrameT, SeriesT
 from graphistry.Engine import (
@@ -15,6 +15,9 @@ from graphistry.Engine import (
 from graphistry.compute.exceptions import ErrorCode, GFQLUnsupportedError, GFQLValidationError
 from graphistry.compute.gfql.cypher.ast import CreateClause, CypherParams, ParameterRef
 from graphistry.Plottable import Plottable
+
+if TYPE_CHECKING:
+    from graphistry.compute.typing import PolarsDType
 
 
 class GFQLMutationError(GFQLValidationError):
@@ -135,86 +138,54 @@ def _numeric_id_seed(nodes: DataFrameT, node_key: str, *, count: int, line: int,
 
     if node_key not in nodes.columns:
         return 0
-    series = nodes[node_key]
-    if not len(nodes):
-        return 0
-    from graphistry.Engine import is_polars_df
-
     if is_polars_df(nodes):
         import polars as pl
-        has_null = bool(series.is_null().any())
-        dtype = series.dtype
-        is_numeric = dtype.is_numeric()
-        is_boolean = dtype == pl.Boolean
-        is_integer = dtype.is_integer()
+        if not isinstance(nodes, pl.DataFrame):
+            raise GFQLUnsupportedError(
+                ErrorCode.E108, "CREATE requires materialized input frames",
+                field=node_key, value="lazy_frame", language="cypher",
+            )
+        values = nodes.get_column(node_key)
+        limits: dict["PolarsDType", int] = {
+            pl.Int8: (1 << 7) - 1, pl.Int16: (1 << 15) - 1,
+            pl.Int32: (1 << 31) - 1, pl.Int64: (1 << 63) - 1,
+            pl.UInt8: (1 << 8) - 1, pl.UInt16: (1 << 16) - 1,
+            pl.UInt32: (1 << 32) - 1, pl.UInt64: (1 << 64) - 1,
+        }
+        dtype_description = str(values.dtype)
+        integer = values.dtype in limits
+        empty = nodes.height == 0
+        has_null = bool(values.is_null().any())
+        maximum = int(values.max()) if integer and not empty and not has_null else 0
+        limit = limits.get(values.dtype, 0)
     else:
+        series = nodes[node_key]
+        dtype_description = str(series.dtype)
+        integer = pd.api.types.is_integer_dtype(series.dtype)
+        empty = len(nodes) == 0
         has_null = bool(series.isna().any())
-        dtype = series.dtype
-        is_numeric = pd.api.types.is_numeric_dtype(dtype)
-        is_boolean = pd.api.types.is_bool_dtype(dtype)
-        is_integer = pd.api.types.is_integer_dtype(dtype)
+        maximum = int(series.max()) if integer and not empty and not has_null else 0
+        limit = int(np.iinfo(series.dtype.type).max) if integer else 0
+    if empty:
+        return 0
     if has_null:
         raise GFQLMutationError(
-            ErrorCode.E105,
-            f"Node identity column {node_key!r} contains null values",
-            field=node_key,
-            value="null",
-            suggestion="Provide complete node identities or remove nulls before CREATE.",
-            line=line,
-            column=column,
-            language="cypher",
+            ErrorCode.E105, f"Node identity column {node_key!r} contains null values",
+            field=node_key, value="null", line=line, column=column, language="cypher",
         )
-    if not is_numeric or is_boolean or not is_integer:
+    if not integer:
         raise GFQLMutationError(
             ErrorCode.E108,
-            f"CREATE requires integer numeric node identities; {node_key!r} has dtype {str(series.dtype)!r}",
-            field=node_key,
-            value=str(series.dtype),
-            suggestion="Numeric identities use max(existing)+1; other identity schemes require an explicit generator.",
-            line=line,
-            column=column,
-            language="cypher",
+            f"CREATE requires integer numeric node identities; {node_key!r} has dtype {dtype_description!r}",
+            field=node_key, value=dtype_description, line=line, column=column,
+            suggestion="Use integer identities within the supported physical range.", language="cypher",
         )
-    maximum = int(series.max())
-    if is_polars_df(nodes):
-        import polars as pl
-        if dtype.is_integer():
-            limits = {
-                pl.Int8: (1 << 7) - 1, pl.Int16: (1 << 15) - 1,
-                pl.Int32: (1 << 31) - 1, pl.Int64: (1 << 63) - 1,
-                pl.UInt8: (1 << 8) - 1, pl.UInt16: (1 << 16) - 1,
-                pl.UInt32: (1 << 32) - 1, pl.UInt64: (1 << 64) - 1,
-            }
-            if dtype not in limits:
-                raise GFQLMutationError(
-                    ErrorCode.E108, "CREATE does not support this physical identity width",
-                    field=node_key, value=str(dtype), language="cypher",
-                )
-            limit = limits[dtype]
-            if maximum + count > limit:
-                raise GFQLMutationError(
-                    ErrorCode.E105,
-                    f"Node identity column {node_key!r} has no remaining values",
-                    field=node_key,
-                    value=maximum,
-                    suggestion="Widen the identity column or provide an explicit generator.",
-                    line=line,
-                    column=column,
-                    language="cypher",
-                )
-    elif pd.api.types.is_integer_dtype(dtype):
-        info = np.iinfo(dtype.type)
-        if maximum + count > info.max:
-            raise GFQLMutationError(
-                ErrorCode.E105,
-                f"Node identity column {node_key!r} has no remaining values",
-                field=node_key,
-                value=maximum,
-                suggestion="Widen the identity column or provide an explicit generator.",
-                line=line,
-                column=column,
-                language="cypher",
-            )
+    if maximum + count > limit:
+        raise GFQLMutationError(
+            ErrorCode.E105, f"Node identity column {node_key!r} has no remaining values",
+            field=node_key, value=maximum, line=line, column=column,
+            suggestion="Widen the identity column before CREATE.", language="cypher",
+        )
     return maximum + 1
 
 
@@ -227,7 +198,7 @@ def _boolean_label_column(
 ) -> Optional[SeriesT]:
     if label_column not in nodes.columns:
         return None
-    if _column_family(nodes[label_column], polars=is_polars_df(nodes)) != "bool":
+    if _column_family(nodes[label_column]) != "bool":
         raise GFQLMutationError(
             ErrorCode.E108,
             f"Label column {label_column!r} must be boolean",
@@ -241,19 +212,21 @@ def _boolean_label_column(
     return nodes[label_column]
 
 
-def _column_family(series: SeriesT, *, polars: bool) -> str:
+def _column_family(series: SeriesT) -> str:
     import pandas as pd
 
-    dtype = series.dtype
-    if polars:
+    from graphistry.Engine import is_polars_series
+    if is_polars_series(series):
         import polars as pl
-        if dtype == pl.Boolean:
+        polars_dtype = series.dtype
+        if polars_dtype == pl.Boolean:
             return "bool"
-        if dtype.is_integer():
+        if polars_dtype.is_integer():
             return "integer"
-        if dtype.is_float():
+        if polars_dtype.is_float():
             return "float"
-        return "string" if dtype == pl.String else "other"
+        return "string" if polars_dtype == pl.String else "other"
+    dtype = series.dtype
     if pd.api.types.is_bool_dtype(dtype):
         return "bool"
     if pd.api.types.is_integer_dtype(dtype):
@@ -275,7 +248,7 @@ def _prepare_append_frames(nodes: DataFrameT, new_nodes: DataFrameT) -> tuple[Da
     if null_columns:
         new_nodes = new_nodes.drop(null_columns) if polars else new_nodes.drop(columns=null_columns)
     if isinstance(nodes, pd.DataFrame):
-        nullable = {}
+        nullable: dict[str, SeriesT] = {}
         for name in nodes.columns:
             dtype = nodes[name].dtype
             if pd.api.types.is_integer_dtype(dtype):
@@ -290,8 +263,8 @@ def _prepare_append_frames(nodes: DataFrameT, new_nodes: DataFrameT) -> tuple[Da
         old_null = old.is_null().all() if polars else old.isna().all()
         if bool(old_null):
             continue
-        left = _column_family(old, polars=polars)
-        right = _column_family(new, polars=polars)
+        left = _column_family(old)
+        right = _column_family(new)
         numeric = {"integer", "float"}
         incompatible = left != right and not {left, right} <= numeric
         if {left, right} <= numeric:
@@ -372,7 +345,6 @@ def execute_create_nodes(
 
     records: list[dict[str, object]] = []
     label_columns: set[str] = set()
-    property_columns: set[str] = set()
     for clause in creates:
         for pattern in clause.patterns:
             row: dict[str, object] = {node_key: identity}
@@ -401,7 +373,6 @@ def execute_create_nodes(
                 row[entry.key] = _property_value(
                     entry.value, params=params, span=entry.span
                 )
-                property_columns.add(entry.key)
             records.append(row)
 
     new_nodes = _new_nodes_frame(concrete_engine, records, label_columns)
@@ -412,17 +383,23 @@ def execute_create_nodes(
         nodes, new_nodes = _prepare_append_frames(nodes, new_nodes)
         if is_polars_df(nodes):
             import polars as pl
-            nodes = pl.concat([nodes, new_nodes], how="diagonal_relaxed")
+            if not isinstance(nodes, pl.DataFrame) or not isinstance(new_nodes, pl.DataFrame):
+                raise GFQLUnsupportedError(
+                    ErrorCode.E108, "CREATE requires materialized Polars frames",
+                    field="engine", value="lazy_frame", language="cypher",
+                )
+            polars_nodes = pl.concat([nodes, new_nodes], how="diagonal_relaxed")
             label_columns_to_fill = [
-                column for column in nodes.columns if column.startswith("label__")
+                name for name in polars_nodes.columns if name.startswith("label__")
             ]
             if label_columns_to_fill:
-                nodes = nodes.with_columns(
+                polars_nodes = polars_nodes.with_columns(
                     [
                         pl.col(column).fill_null(False).cast(pl.Boolean)
                         for column in label_columns_to_fill
                     ]
                 )
+            return base_graph.nodes(polars_nodes, node_key)
         else:
             concat = df_concat(concrete_engine)
             nodes = concat([nodes, new_nodes], ignore_index=True, sort=False)
@@ -435,22 +412,6 @@ def execute_create_nodes(
                         label_column: nodes[label_column].fillna(False).astype(bool)
                         for label_column in label_columns_to_fill
                     }
-                )
-        for property_column in sorted(property_columns):
-            if is_polars_df(nodes):
-                continue
-            declared = [
-                record[property_column]
-                for record in records
-                if property_column in record
-            ]
-            incomplete = len(declared) != len(nodes)
-            if incomplete and all(
-                isinstance(value, int) and not isinstance(value, bool)
-                for value in declared
-            ):
-                nodes = nodes.assign(
-                    **{property_column: nodes[property_column].astype("Int64")}
                 )
     else:
         if is_polars_df(new_nodes):

@@ -299,3 +299,19 @@ def test_new_float_does_not_round_existing_wide_integer(engine: str) -> None:
         source.gfql("CREATE (a {serial: 1.5})", engine=engine)
     assert exc.value.context["field"] == "serial"
     assert _records(source._nodes) == before
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_new_integer_does_not_truncate_existing_fractional_values(engine: str) -> None:
+    source = _graph(engine)
+    if engine == "polars":
+        import polars as pl
+        nodes = source._nodes.with_columns(pl.Series("score", [1.5, -2.25]))
+    else:
+        nodes = source._nodes.assign(score=[1.5, -2.25])
+    source = source.nodes(nodes)
+    before = _records(source._nodes)
+    result = source.gfql("CREATE (a {score: 2})", engine=engine)
+    assert [row["score"] for row in _records(result._nodes)] == [1.5, -2.25, 2]
+    assert _records(source._nodes) == before
+    _assert_served(engine, result._nodes)
