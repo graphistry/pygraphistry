@@ -537,9 +537,6 @@ stages = let({
 persons_df = g.gfql(stages, output='persons')._nodes
 adults_df = g.gfql(stages, output='adults')._nodes
 connection_edges = g.gfql(stages, output='connections')._edges
-assert sorted(persons_df['id']) == ['a', 'b', 'd']
-assert sorted(adults_df['id']) == ['a', 'b', 'd']
-assert sorted(zip(connection_edges['s'], connection_edges['d'])) == [('a', 'b')]
 ```
 
 ### Ref (Reference to Named Bindings)

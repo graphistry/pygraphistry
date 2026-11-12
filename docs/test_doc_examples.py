@@ -510,4 +510,18 @@ def test_let_binding_output_examples(doc_name: str, result_name: str, engine: st
     assert marker is None and not _should_skip(code), f"{doc_name}:{line}: example must execute"
     exec(compile(code, f"{doc_name}:{line}", "exec"), ns)
     expected_frame = pl.DataFrame if engine == "polars" else pd.DataFrame
-    assert isinstance(ns[result_name], expected_frame)
+    g = ns["g"]
+    frames = [ns[result_name]]
+    expected_ids = ["a", "b"] if doc_name == "about.rst" else ["a", "b", "d"]
+    assert _quick_rows(ns[result_name], [g._node]) == [(node_id,) for node_id in expected_ids]
+    if doc_name in {"overview.rst", "spec/python_embedding.md"}:
+        edge_name = "connections" if doc_name == "overview.rst" else "connection_edges"
+        frames.append(ns[edge_name])
+        assert _quick_rows(ns[edge_name], [g._source, g._destination]) == [("a", "b")]
+    if doc_name == "spec/python_embedding.md":
+        frames.append(ns["adults_df"])
+        assert _quick_rows(ns["adults_df"], [g._node]) == [("a",), ("b",), ("d",)]
+    if doc_name in {"about.rst", "spec/language.md"}:
+        frames.append(ns["first_person"])
+        assert _quick_rows(ns["first_person"], [g._node]) == [("a",)]
+    assert all(isinstance(frame, expected_frame) for frame in frames)

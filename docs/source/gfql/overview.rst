@@ -322,8 +322,6 @@ GFQL Let approach (declarative DAG with named bindings):
     # Select a binding with output=; binding names do not create marker columns
     adults = g.gfql(stages, output='adults')._nodes
     connections = g.gfql(stages, output='connections')._edges
-    assert sorted(adults['id']) == ['a', 'b', 'd']
-    assert sorted(zip(connections['s'], connections['d'])) == [('a', 'b')]
 
 Key advantages of GFQL Let:
 - **Named subgraphs**: Create reusable named graph operations like constants in code

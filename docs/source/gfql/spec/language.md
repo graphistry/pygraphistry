@@ -654,8 +654,6 @@ stages = let({
 })
 people = g.gfql(stages, output='people')._nodes
 first_person = g.gfql(stages, output='first_person')._nodes
-assert sorted(people['id']) == ['a', 'b', 'd']
-assert sorted(first_person['id']) == ['a']
 ```
 
 ## Best Practices
