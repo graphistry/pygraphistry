@@ -16,7 +16,7 @@ from graphistry.hyper_dask import HyperBindings, clean_events
 @pytest.mark.parametrize("has_event_id", [True, False])
 def test_timedelta_coercion_preserves_caller(engine, entrypoint, has_event_id):
     cudf = pytest.importorskip("cudf")
-    original = pd.DataFrame({"person": ["a", "b", "c", "d"], "duration": pd.to_timedelta([1, 2, 3, 4], unit="s")})
+    original = pd.DataFrame({"person": ["a", "b", "c", "d"], "duration": pd.to_timedelta([1, None, 3, 4], unit="s")})
     if has_event_id:
         original = original.assign(eid=[10, 20, 30, 40])
     events = cudf.from_pandas(original)
