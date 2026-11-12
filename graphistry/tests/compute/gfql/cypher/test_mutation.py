@@ -167,10 +167,15 @@ def test_create_reverse_relationship_uses_semantic_endpoint_order(engine: str) -
         language="cypher",
     )
 
+    node_ids_by_name = {
+        row["name"]: row["__graphistry_node_identity__"]
+        for row in _records(result._nodes)
+        if row.get("name") is not None
+    }
     rows = _records(result._edges)
     assert rows[-1] == {
-        "src": 4,
-        "dst": 3,
+        "src": node_ids_by_name["B"],
+        "dst": node_ids_by_name["A"],
         "type": "T",
         "__graphistry_edge_identity__": 0,
     }
