@@ -10,9 +10,7 @@ from graphistry.Engine import Engine
 from graphistry.hyper_dask import HyperBindings, clean_events
 
 
-pytestmark = pytest.mark.skipif(os.environ.get("TEST_CUDF") != "1", reason="requires TEST_CUDF=1")
-
-
+@pytest.mark.skipif(os.environ.get("TEST_CUDF") != "1", reason="requires TEST_CUDF=1")
 @pytest.mark.parametrize("engine", [Engine.CUDF, Engine.DASK_CUDF])
 @pytest.mark.parametrize("entrypoint", ["clean_events", "hypergraph"])
 @pytest.mark.parametrize("has_event_id", [True, False])
@@ -36,3 +34,12 @@ def test_timedelta_coercion_preserves_caller(engine, entrypoint, has_event_id):
     pd.testing.assert_frame_equal(actual_input.to_pandas(), original)
     assert actual_result["duration"].dtype.name != "timedelta64[ns]"
     assert len(actual_result) == len(original)
+
+
+def test_pandas_timedelta_normalization_preserves_input():
+    original = pd.DataFrame({"person": ["a", "b"], "duration": pd.to_timedelta([1, 2], unit="s")})
+    before = original.copy(deep=True)
+    result = clean_events(original, HyperBindings(EVENTID="eid"), Engine.PANDAS)
+    pd.testing.assert_frame_equal(original, before)
+    pd.testing.assert_series_equal(result["duration"], before["duration"])
+    assert result["eid"].tolist() == ["eid::0", "eid::1"]
