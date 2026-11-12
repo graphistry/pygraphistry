@@ -110,6 +110,74 @@ def test_a_seed_set_covering_most_of_the_graph_takes_the_scan_and_still_agrees(e
 
 
 @pytest.mark.route_engaged("indexed-kernel")
+@pytest.mark.parametrize(
+    "seed_count,extra_seed_edges",
+    [(100, 0), (20, 2_000)],
+    ids=["key-frontier-above-two-percent", "gather-above-two-percent"],
+)
+def test_polars_connected_bindings_mid_frontier_default_and_override(
+    seed_count: int, extra_seed_edges: int, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A measured winning frontier is served by the Polars bindings gate.
+
+    The general 2% gate still applies when explicitly requested by a caller.
+    Both choices must preserve the same row bag as the canonical traversal.
+    """
+    from graphistry.compute.ast import e_forward, n, rows
+    from graphistry.compute.gfql.index import (
+        index_trace, reset_cost_gate_frac, set_cost_gate_frac,
+    )
+    from graphistry.Engine import Engine
+
+    _require("polars")
+    monkeypatch.delenv("GFQL_INDEX_COST_GATE_FRAC", raising=False)
+    monkeypatch.delenv("GFQL_INDEX_COST_GATE_FRAC_POLARS", raising=False)
+    reset_cost_gate_frac(Engine.POLARS)
+    ids = list(range(4_000))
+    g, edges = _graph(ids, "polars")
+    if extra_seed_edges:
+        extra = pd.DataFrame({
+            "src": np.arange(extra_seed_edges) % seed_count,
+            "dst": np.arange(extra_seed_edges) % len(ids),
+        })
+        native_nodes = _native(pd.DataFrame({"id": ids}), "polars")
+        native_edges = _native(pd.concat([edges, extra], ignore_index=True), "polars")
+        g = graphistry.edges(native_edges, "src", "dst").nodes(native_nodes, "id")
+        g = g.gfql("CREATE GFQL INDEX FOR edge_out_adj", engine="polars")
+        g = g.gfql("CREATE GFQL INDEX FOR node_id", engine="polars")
+        edges = pd.concat([edges, extra], ignore_index=True)
+    key_fraction = seed_count / len(ids)
+    gather_fraction = float(edges["src"].lt(seed_count).sum()) / len(edges)
+    if extra_seed_edges:
+        assert key_fraction < 0.02 < gather_fraction < 0.06
+    else:
+        assert 0.02 < key_fraction < 0.04
+        assert 0.02 < gather_fraction < 0.06
+    query = [n({"id": is_in(list(range(seed_count)))}, name="a"), e_forward(name="r"), n(name="b"), rows()]
+
+    def run(policy: str) -> tuple:
+        with index_trace() as steps:
+            frame = g.gfql(query, engine="polars", index_policy=policy)._nodes
+        assert frame is not None
+        return frame, [s for s in steps if s.get("seam") == "connected_bindings"]
+
+    canonical, _ = run("off")
+    served, default_steps = run("use")
+    assert len(default_steps) == 1 and default_steps[0]["served"] is True
+
+    set_cost_gate_frac(Engine.POLARS, 0.02)
+    try:
+        declined, override_steps = run("use")
+    finally:
+        reset_cost_gate_frac(Engine.POLARS)
+    assert len(override_steps) == 1 and override_steps[0]["served"] is False
+    for frame in (served, declined):
+        assert frame.schema == canonical.schema
+        cols = list(canonical.columns)
+        assert frame.sort(cols).equals(canonical.sort(cols))
+
+
+@pytest.mark.route_engaged("indexed-kernel")
 def test_string_ids_decline_the_kernel_and_still_agree() -> None:
     ids = [f"n{i}" for i in range(2_000)]
     g, edges = _graph(ids)

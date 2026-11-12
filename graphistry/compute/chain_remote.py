@@ -20,7 +20,8 @@ from graphistry.compute.gfql.strictness import (
     DEFAULT_STRICT_LEVEL, StrictInput, resolve_strict_level, schema_declared_names, strictness_scope)
 from graphistry.compute.gfql_validate import gfql_validate as gfql_preflight_validate
 from graphistry.io.metadata import deserialize_plottable_metadata
-from graphistry.compute.exceptions import ErrorCode, GFQLSyntaxError, GFQLTypeError
+from graphistry.compute.exceptions import (
+    ErrorCode, GFQLSyntaxError, GFQLTypeError, GFQLValidationError)
 from graphistry.compute.remote_df_io import (
     require_supported_frame_library,
     resolve_csv_reader,
@@ -49,6 +50,7 @@ class CompiledBindingLike(Protocol):
     chain: Chain
     procedure_call: Optional[CompiledProcedureCallLike]
     use_ref: Optional[str]
+    graph_residual_filters: Sequence[object]
 
 
 class CompiledQueryLike(Protocol):
@@ -56,6 +58,7 @@ class CompiledQueryLike(Protocol):
     graph_bindings: Sequence[CompiledBindingLike]
     procedure_call: Optional[CompiledProcedureCallLike]
     use_ref: Optional[str]
+    graph_residual_filters: Sequence[object]
 
 
 class CompiledUnionLike(Protocol):
@@ -71,29 +74,36 @@ def _is_compiled_union_query_shape(compiled: Any) -> TypeGuard[CompiledUnionLike
 
 
 def _is_compiled_query_shape(compiled: Any) -> TypeGuard[CompiledQueryLike]:
-    return _has_attrs(compiled, "chain", "graph_bindings", "procedure_call", "use_ref")
+    return _has_attrs(compiled, "chain", "graph_bindings", "procedure_call", "use_ref", "graph_residual_filters")
 
 
 def _step_to_json(
     chain: Chain,
     procedure_call: Optional[CompiledProcedureCallLike],
     use_ref: Optional[str],
+    graph_residual_filters: Sequence[object] = (),
+    *,
+    let_binding: bool = False,
 ) -> Dict[str, Any]:
     """Serialize one graph-pipeline step (binding or final clause) to wire format."""
     if procedure_call is not None:
-        if not _has_attrs(procedure_call, "procedure"):
-            raise TypeError(
-                "Compiled procedure call must provide `procedure` for remote serialization. "
-                f"Got {type(procedure_call)}"
-            )
-        call_params = getattr(procedure_call, "call_params", None)
-        val: Dict[str, Any] = {
-            "type": "Call",
-            "function": procedure_call.procedure,
-            "params": dict(call_params) if call_params else {},
-        }
-    else:
-        val = chain.to_json()
+        raise GFQLValidationError(
+            ErrorCode.E108,
+            "Cypher procedures cannot be represented faithfully by the remote wire format",
+            field="call",
+            value=procedure_call.procedure,
+            suggestion="Execute this Cypher procedure locally, or use an explicitly safelisted native GFQL call.",
+            language="cypher",
+        )
+    if graph_residual_filters or (let_binding and chain.where):
+        raise GFQLValidationError(
+            ErrorCode.E108,
+            "The remote wire format cannot preserve this GRAPH predicate",
+            field="where",
+            suggestion="Execute locally with g.gfql(), or rewrite the GRAPH predicate as supported per-alias filters.",
+            language="cypher",
+        )
+    val = chain.to_json()
     if use_ref is not None:
         return {"type": "Ref", "ref": use_ref, "chain": val.get('chain', [val])}
     return val
@@ -101,12 +111,46 @@ def _step_to_json(
 
 def _compiled_to_let_json(compiled: CompiledQueryLike) -> Dict[str, Any]:
     """Convert a structural compiled query with graph_bindings to Let wire format."""
+    names = {binding.name.lower(): binding.name for binding in compiled.graph_bindings}
+
+    def canonical_ref(ref: Optional[str]) -> Optional[str]:
+        return names.get(ref.lower(), ref) if ref is not None else None
+
     bindings: Dict[str, Any] = {
-        b.name: _step_to_json(b.chain, b.procedure_call, b.use_ref)
+        b.name: _step_to_json(
+            b.chain, b.procedure_call, canonical_ref(b.use_ref), b.graph_residual_filters, let_binding=True
+        )
         for b in compiled.graph_bindings
     }
-    bindings["__result__"] = _step_to_json(compiled.chain, compiled.procedure_call, compiled.use_ref)
+    bindings["__result__"] = _step_to_json(
+        compiled.chain, compiled.procedure_call, canonical_ref(compiled.use_ref),
+        compiled.graph_residual_filters, let_binding=True,
+    )
     return {"type": "Let", "bindings": bindings}
+
+
+def _reject_let_where(query: Dict[str, Any], *, within_let: bool = False) -> None:
+    """Older Let executors ignore Chain.where; never send that predicate silently."""
+    kind = query.get("type", "Chain")
+    if kind == "Let":
+        bindings = query.get("bindings")
+        if isinstance(bindings, dict):
+            for binding in bindings.values():
+                if isinstance(binding, dict):
+                    _reject_let_where(binding, within_let=True)
+    elif kind in ("Chain", "Ref"):
+        if within_let and query.get("where"):
+            raise GFQLValidationError(
+                ErrorCode.E108,
+                "Remote Let bindings cannot preserve cross-alias WHERE on older servers",
+                field="where",
+                suggestion="Execute the Let query locally, or send a standalone Chain with its WHERE predicate.",
+            )
+        ops = query.get("chain")
+        if isinstance(ops, list):
+            for op in ops:
+                if isinstance(op, dict):
+                    _reject_let_where(op, within_let=within_let)
 
 
 def _refresh_url_from_dataset_id(g: Plottable) -> None:
@@ -191,7 +235,9 @@ def chain_remote_generic(
             chain_json = _compiled_to_let_json(compiled)
             is_let = True
         else:
-            chain_json = compiled.chain.to_json()
+            chain_json = _step_to_json(
+                compiled.chain, compiled.procedure_call, compiled.use_ref, compiled.graph_residual_filters
+            )
     elif isinstance(chain, ASTLet):
         chain_json = chain.to_json()
         is_let = True
@@ -202,8 +248,30 @@ def chain_remote_generic(
     elif isinstance(chain, dict):
         chain_json = chain
         is_let = chain_json.get('type') == 'Let'
+        if not is_let and chain_json.get('type') != 'Chain':
+            is_legacy_flat_chain = (
+                'type' not in chain_json and isinstance(chain_json.get('chain'), list)
+            )
+            if not is_legacy_flat_chain:
+                if 'type' not in chain_json:
+                    raise GFQLValidationError(
+                        ErrorCode.E105,
+                        "Remote query dict must be a serialized Let or Chain",
+                        field="type",
+                        value=chain_json.get('type'),
+                        suggestion="Use Chain, List[ASTObject], ASTLet, Cypher string, or a dict with type='Chain' or type='Let'",
+                    )
+                raise GFQLTypeError(
+                    ErrorCode.E205,
+                    f"Remote query dict has invalid type: {chain_json.get('type')!r}",
+                    field="type",
+                    value=chain_json.get('type'),
+                    suggestion="Use Chain, List[ASTObject], ASTLet, Cypher string, or a dict with type='Chain' or type='Let'",
+                )
     else:
         raise TypeError(f"gfql_remote() query must be Chain, List, ASTLet, Dict, or str. Got {type(chain)}")
+
+    _reject_let_where(chain_json)
 
     if output is not None and not is_let:
         raise GFQLSyntaxError(
@@ -245,14 +313,12 @@ def chain_remote_generic(
     if is_let:
         warnings.warn(
             "gfql_remote() is sending a Let/DAG query. Servers that do not support "
-            "the gfql_query field will receive an empty gfql_operations array and "
-            "return the original graph unchanged. Upgrade to a server that reads "
-            "gfql_query for full Let/DAG support.",
+            "gfql_query will reject it. Upgrade to a server that reads "
+            "gfql_query for Let/DAG support.",
             UserWarning,
             stacklevel=2,
         )
         request_body: Dict[str, Any] = {
-            "gfql_operations": [],
             "gfql_query": chain_json,
             "format": format
         }

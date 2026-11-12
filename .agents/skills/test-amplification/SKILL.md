@@ -73,6 +73,8 @@ Recommended files:
 
 ## Parallel Subagent Protocol (Recommended When Available)
 
+Subagent-written filenames must follow `.agents/skills/plan/SKILL.md`'s subagent-safe basename rule.
+
 If parallel subagents are available (for example, Claude workers), use them with fixed artifact locations so work is crash-resumable.
 
 ### Round folder layout for parallel work
@@ -86,7 +88,7 @@ Under each round:
 
 Required per-agent files:
 - `task.md` (assigned scope and constraints)
-- `findings.md` (bugs, repros, evidence)
+- `agent-findings.md` (bugs, repros, evidence)
 - `proposed-tests.md` (concrete test additions)
 - `status.json` (machine-readable state: `in_progress|done|blocked`)
 

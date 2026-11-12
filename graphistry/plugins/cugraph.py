@@ -1,14 +1,18 @@
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Set, Union
+
+import numpy as np
 import pandas as pd
 import warnings
 
 from graphistry.constants import NODE
+from graphistry.compute.typing import DataFrameT, SeriesT
+from graphistry.compute.typing import NodeId
 from graphistry.Engine import EngineAbstract
+from graphistry.Engine import is_cudf_series
 from graphistry.Plottable import Plottable
 from graphistry.plugins_types.cugraph_types import CuGraphKind
 from graphistry.util import setup_logger
 logger = setup_logger(__name__)
-
 
 #import logging
 #logger.setLevel(logging.DEBUG)
@@ -28,6 +32,261 @@ def df_to_gdf(df: Any):
         return cudf.from_pandas(df)
     else:
         raise ValueError('Unsupported data type, expected pd.DataFrame or cudf.DataFrame, got: %s', type(df))
+
+
+def _unique_ids_to_set(values: Union[SeriesT, np.ndarray]) -> Set[NodeId]:
+    if is_cudf_series(values):
+        return set(values.to_arrow().to_pylist())
+    if isinstance(values, (pd.Series, np.ndarray)):
+        return set(values.tolist())
+    raise TypeError(f'Unsupported unique-ID type: {type(values)}')
+
+
+def _preserves_positional_orientation(
+    returned_edges: DataFrameT,
+    original_edges: DataFrameT,
+    source: str,
+    destination: str,
+) -> bool:
+    if len(returned_edges) != len(original_edges):
+        return False
+
+    for column in (source, destination):
+        returned_values = returned_edges[column]
+        original_values = original_edges[column]
+        if is_cudf_series(returned_values) != is_cudf_series(original_values):
+            return False
+        if not returned_values.reset_index(drop=True).equals(
+            original_values.reset_index(drop=True)
+        ):
+            return False
+    return True
+
+
+def _preserve_graph_edge_orientation(
+    returned_edges: DataFrameT,
+    original_edges: DataFrameT,
+    source: str,
+    destination: str,
+) -> DataFrameT:
+    """Restore caller edge orientation after a cuGraph graph operation.
+
+    cuGraph may canonicalize the endpoint order in an undirected result. The
+    Graphistry contract is that graph-write output preserves each original
+    ``source``/``destination`` orientation, so map returned endpoint pairs back
+    to the matching caller pair.
+    """
+    if _preserves_positional_orientation(
+        returned_edges, original_edges, source, destination
+    ):
+        return returned_edges
+
+    try:
+        import cudf
+    except ImportError:
+        cudf = None
+
+    original = (
+        df_to_gdf(original_edges)
+        if cudf is not None and isinstance(returned_edges, cudf.DataFrame)
+        else original_edges.copy()
+    )
+    original = original.drop_duplicates(subset=[source, destination])
+
+    returned_id = '__cugraph_returned_edge_id__'
+    original_id = '__cugraph_original_edge_id__'
+    match_source = '__cugraph_match_source__'
+    match_destination = '__cugraph_match_destination__'
+    while returned_id in returned_edges.columns:
+        returned_id = f'_{returned_id}'
+    while original_id in original.columns or original_id == returned_id:
+        original_id = f'_{original_id}'
+    while (
+        match_source in list(returned_edges.columns) + list(original.columns)
+        or match_destination in list(returned_edges.columns) + list(original.columns)
+        or match_source == match_destination
+    ):
+        match_source = f'_{match_source}'
+        match_destination = f'_{match_destination}'
+
+    original[original_id] = range(len(original))
+    orientation = original[[original_id, source, destination]].rename(
+        columns={source: match_source, destination: match_destination}
+    )
+    orientation[source] = original[source]
+    orientation[destination] = original[destination]
+
+    returned = returned_edges.copy()
+    returned[returned_id] = range(len(returned))
+
+    forward = returned.rename(
+        columns={source: match_source, destination: match_destination}
+    ).merge(
+        orientation,
+        on=[match_source, match_destination],
+    )
+
+    reversed_returned = returned.copy()
+    reversed_returned[source] = returned[destination]
+    reversed_returned[destination] = returned[source]
+    reverse = reversed_returned.rename(
+        columns={source: match_source, destination: match_destination}
+    ).merge(
+        orientation,
+        on=[match_source, match_destination],
+    )
+
+    concat = (
+        cudf.concat
+        if cudf is not None and isinstance(returned_edges, cudf.DataFrame)
+        else pd.concat
+    )
+    matches = concat([forward, reverse], ignore_index=True).drop_duplicates(
+        subset=[returned_id], keep='first'
+    )
+    if matches[returned_id].nunique() != len(returned):
+        raise ValueError(
+            'cuGraph graph-algorithm output contains an edge absent from the original graph'
+        )
+    matches = matches.sort_values(returned_id).reset_index(drop=True).drop(
+        columns=[returned_id, original_id, match_source, match_destination]
+    )
+    return matches[list(returned_edges.columns)]
+
+
+def _restore_graph_edge_attrs(
+    returned_edges: DataFrameT,
+    original_edges: DataFrameT,
+    source: str,
+    destination: str,
+) -> DataFrameT:
+    """Attach original edge attributes to graph-algorithm output without join fanout.
+
+    cuGraph returns one row per endpoint pair.  A duplicate original pair cannot be
+    assigned deterministically, so reject it instead of silently multiplying rows.
+    """
+    try:
+        import cudf
+    except ImportError:
+        cudf = None
+    original_columns = list(original_edges.columns)
+    attr_columns = [column for column in original_columns if column not in (source, destination)]
+    if not attr_columns:
+        return returned_edges
+
+    returned_columns = list(returned_edges.columns)
+    overlapping = [column for column in attr_columns if column in returned_columns]
+    if overlapping:
+        raise ValueError(f'Returned edge columns overlap original attributes: {overlapping}')
+
+    existing_columns = set(returned_columns) | set(original_columns)
+    if original_edges.duplicated(subset=[source, destination]).any():
+        raise ValueError(
+            'cuGraph graph algorithms require unique (source, destination) edge pairs; '
+            'drop or aggregate parallel edges before calling this method'
+        )
+
+    returned_id = '__cugraph_returned_edge_id__'
+    original_id = '__cugraph_original_edge_id__'
+    forward_match = '__cugraph_forward_match__'
+    while (
+        returned_id in existing_columns
+        or original_id in existing_columns
+        or returned_id == original_id
+    ):
+        returned_id = f'_{returned_id}'
+        original_id = f'_{original_id}'
+    while forward_match in existing_columns or forward_match == returned_id:
+        forward_match = f'_{forward_match}'
+
+    returned = returned_edges.copy()
+    original = (
+        df_to_gdf(original_edges).copy()
+        if cudf is not None and isinstance(returned_edges, cudf.DataFrame)
+        else original_edges.copy()
+    )
+    returned[returned_id] = range(len(returned))
+    original[original_id] = range(len(original))
+
+    forward = returned[[returned_id, source, destination]].merge(
+        original[[original_id, source, destination, *attr_columns]],
+        how='inner',
+        on=[source, destination],
+    )
+    forward[forward_match] = True
+    reversed_original = original[[original_id, source, destination, *attr_columns]].rename(
+        columns={source: destination, destination: source}
+    )
+    reversed_matches = returned[[returned_id, source, destination]].merge(
+        reversed_original,
+        how='inner',
+        on=[source, destination],
+    )
+    reversed_matches[forward_match] = False
+    concat = cudf.concat if cudf is not None and isinstance(returned_edges, cudf.DataFrame) else pd.concat
+    selected = concat([forward, reversed_matches]).drop_duplicates(
+        subset=[returned_id, *attr_columns], keep='first'
+    )
+    conflicted_ids = selected.loc[
+        selected.duplicated(subset=[returned_id], keep=False), returned_id
+    ].unique()
+    forward_rows = returned[[returned_id, source, destination]]
+    reverse_rows = forward_rows.rename(columns={source: destination, destination: source})
+    counterparts = forward_rows.merge(
+        reverse_rows, on=[source, destination], suffixes=('_left', '_right')
+    )
+    counterpart_ids = counterparts.loc[
+        counterparts[f'{returned_id}_left'] != counterparts[f'{returned_id}_right'],
+        f'{returned_id}_left',
+    ].unique()
+    conflicted_id_set = _unique_ids_to_set(conflicted_ids)
+    counterpart_id_set = _unique_ids_to_set(counterpart_ids)
+    if conflicted_id_set - counterpart_id_set:
+        raise ValueError(
+            'cuGraph undirected graph algorithms return one orientation per endpoint pair; '
+            'antiparallel original edges with conflicting attributes are ambiguous; '
+            'normalize attributes or use a directed graph'
+        )
+    selected = selected.loc[
+        ~selected[returned_id].isin(conflicted_id_set)
+        | selected[forward_match]
+    ]
+    selected = selected.sort_values(returned_id)
+
+    restored = returned.merge(
+        selected[[returned_id, *attr_columns]],
+        how='left',
+        on=[returned_id],
+    ).sort_values(returned_id).reset_index(drop=True)
+    return restored.drop(columns=[returned_id])
+
+
+def _restore_graph_return_edge_attrs(
+    graph: Plottable,
+    original_edges: Optional[DataFrameT],
+    source: Optional[str],
+    destination: Optional[str],
+) -> Plottable:
+    """Restore caller edge bindings and attributes on a returned cuGraph graph."""
+    assert source is not None and destination is not None
+    if original_edges is not None:
+        attr_columns = [
+            column for column in original_edges.columns
+            if column not in (source, destination)
+        ]
+        if attr_columns:
+            oriented_edges = _preserve_graph_edge_orientation(
+                graph._edges, original_edges, source, destination
+            )
+            restored = _restore_graph_edge_attrs(
+                oriented_edges, original_edges, source, destination
+            )
+            return graph.edges(restored, source, destination)
+        oriented_edges = _preserve_graph_edge_orientation(
+            graph._edges, original_edges, source, destination
+        )
+        return graph.edges(oriented_edges, source, destination)
+    return graph
 
 
 def from_cugraph(self,
@@ -357,15 +616,11 @@ def compute_cugraph_core(
             out = out[0]
         if out_col is not None:
             raise ValueError('Graph returned, but out_col was specified')
-        self2 = self
-        if self._source != out.source_columns:
-            logger.debug('Switching g source column name to G source column name to work around cugraph inconsistency')
-            if out.source_columns == 'src':
-                self2 = self.edges(self._edges.rename(columns={self._source: 'src', self._destination: 'dst'}), 'src', 'dst')
-        res = from_cugraph(self2, out, load_nodes=False)
-        if not (self2 is self):
-            res = res.edges(self._edges, self._source, self._destination)
-        return res
+        if out.source_columns == 'src' and out.destination_columns == 'dst':
+            out.source_columns = self._source
+            out.destination_columns = self._destination
+        res = from_cugraph(self, out, load_nodes=False, merge_if_existing=False)
+        return _restore_graph_return_edge_attrs(res, self._edges, self._source, self._destination)
 
     raise ValueError('Unsupported algorithm: %s', alg)
 

@@ -1,7 +1,7 @@
 from abc import abstractmethod
 import logging
 from typing import (
-    Any, TYPE_CHECKING, Dict, Iterable, List, Optional, Sequence, Tuple, Union, cast
+    Any, TYPE_CHECKING, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple, Union, cast
 )
 from typing_extensions import Literal
 
@@ -147,6 +147,7 @@ def _edge_from_json_kwargs(d: Dict[str, Any]) -> Dict[str, Any]:
         'edge_query': d['edge_query'] if 'edge_query' in d else None,
         'name': d['name'] if 'name' in d else None,
         'include_zero_hop_seed': d.get('include_zero_hop_seed', False),
+        'relationship_scope': d.get('relationship_scope', 0),
     }
 
 
@@ -262,8 +263,9 @@ class ASTNode(ASTObject):
             .nodes(prev_node_wavefront if prev_node_wavefront is not None else g._nodes)
             .filter_nodes_by_dict(self.filter_dict)
             .nodes(lambda g_dynamic: g_dynamic._nodes.query(self.query) if self.query is not None else g_dynamic._nodes)
-            .edges(g._edges[:0])
         )
+        if g._edges is not None:
+            out_g = out_g.edges(g._edges[:0])
         if target_wave_front is not None:
             assert g._node is not None
             reduced_nodes = safe_merge(cast(DataFrameT, out_g._nodes), target_wave_front[[g._node]], on=g._node, how='inner')
@@ -319,6 +321,7 @@ class ASTEdge(ASTObject):
         name: Optional[str] = None,
         prune_to_endpoints: bool = False,
         include_zero_hop_seed: bool = False,
+        relationship_scope: int = 0,
     ):
 
         super().__init__(name)
@@ -350,6 +353,7 @@ class ASTEdge(ASTObject):
         self.edge_query = edge_query
         self.prune_to_endpoints = prune_to_endpoints
         self.include_zero_hop_seed = include_zero_hop_seed
+        self.relationship_scope = relationship_scope
 
     def __repr__(self) -> str:
         return f'ASTEdge(direction={self.direction}, edge_match={self.edge_match}, hops={self.hops}, min_hops={self.min_hops}, max_hops={self.max_hops}, output_min_hops={self.output_min_hops}, output_max_hops={self.output_max_hops}, label_node_hops={self.label_node_hops}, label_edge_hops={self.label_edge_hops}, label_seeds={self.label_seeds}, to_fixed_point={self.to_fixed_point}, source_node_match={self.source_node_match}, destination_node_match={self.destination_node_match}, name={self._name}, source_node_query={self.source_node_query}, destination_node_query={self.destination_node_query}, edge_query={self.edge_query}, include_zero_hop_seed={self.include_zero_hop_seed})'
@@ -467,6 +471,18 @@ class ASTEdge(ASTObject):
                 value=type(self.include_zero_hop_seed).__name__,
             )
 
+        if (
+            not isinstance(self.relationship_scope, int)
+            or isinstance(self.relationship_scope, bool)
+            or self.relationship_scope < 0
+        ):
+            raise GFQLTypeError(
+                ErrorCode.E103,
+                "relationship_scope must be a non-negative integer",
+                field="relationship_scope",
+                value=type(self.relationship_scope).__name__,
+            )
+
         # Validate to_fixed_point
         if not isinstance(self.to_fixed_point, bool):
             raise GFQLTypeError(
@@ -582,7 +598,8 @@ class ASTEdge(ASTObject):
             **({'source_node_query': self.source_node_query} if self.source_node_query is not None else {}),
             **({'destination_node_query': self.destination_node_query} if self.destination_node_query is not None else {}),
             **({'edge_query': self.edge_query} if self.edge_query is not None else {}),
-            **({'include_zero_hop_seed': self.include_zero_hop_seed} if self.include_zero_hop_seed else {})
+            **({'include_zero_hop_seed': self.include_zero_hop_seed} if self.include_zero_hop_seed else {}),
+            **({'relationship_scope': self.relationship_scope} if self.relationship_scope else {})
         }
     
     @classmethod
@@ -729,6 +746,7 @@ class ASTEdge(ASTObject):
             destination_node_query=self.source_node_query,
             edge_query=self.edge_query,
             include_zero_hop_seed=self.include_zero_hop_seed,
+            relationship_scope=self.relationship_scope,
         )
 
 def _init_directional_edge(edge: ASTEdge, direction: Direction, params: Dict[str, Any]) -> None:
@@ -761,6 +779,7 @@ class ASTEdgeForward(ASTEdge):
         edge_query: Optional[str] = None,
         prune_to_endpoints: bool = False,
         include_zero_hop_seed: bool = False,
+        relationship_scope: int = 0,
     ):
         _init_directional_edge(self, 'forward', locals())
 
@@ -797,6 +816,7 @@ class ASTEdgeReverse(ASTEdge):
         edge_query: Optional[str] = None,
         prune_to_endpoints: bool = False,
         include_zero_hop_seed: bool = False,
+        relationship_scope: int = 0,
     ):
         _init_directional_edge(self, 'reverse', locals())
 
@@ -833,6 +853,7 @@ class ASTEdgeUndirected(ASTEdge):
         edge_query: Optional[str] = None,
         prune_to_endpoints: bool = False,
         include_zero_hop_seed: bool = False,
+        relationship_scope: int = 0,
     ):
         _init_directional_edge(self, 'undirected', locals())
 
@@ -1686,6 +1707,7 @@ def anti_semi_apply(
     binding_ops: List[Dict[str, Any]],
     join_aliases: Sequence[str],
     neq: Optional[Sequence[str]] = None,
+    requested_property_columns: Optional[Mapping[str, Sequence[str]]] = None,
 ) -> ASTCall:
     """Filter active rows by removing rows matching a correlated pattern.
 
@@ -1700,6 +1722,10 @@ def anti_semi_apply(
     }
     if neq is not None:
         params["neq"] = list(neq)
+    if requested_property_columns is not None:
+        params["requested_property_columns"] = {
+            alias: list(columns) for alias, columns in requested_property_columns.items()
+        }
     return ASTCall("anti_semi_apply", params)
 
 
@@ -1732,6 +1758,7 @@ def semi_apply_mark(
     join_aliases: Sequence[str],
     out_col: str,
     neq: Optional[Sequence[str]] = None,
+    requested_property_columns: Optional[Mapping[str, Sequence[str]]] = None,
 ) -> ASTCall:
     """Annotate active rows with a correlated pattern-existence boolean.
 
@@ -1746,6 +1773,10 @@ def semi_apply_mark(
     }
     if neq is not None:
         params["neq"] = list(neq)
+    if requested_property_columns is not None:
+        params["requested_property_columns"] = {
+            alias: list(columns) for alias, columns in requested_property_columns.items()
+        }
     return ASTCall("semi_apply_mark", params)
 
 
@@ -1786,9 +1817,9 @@ def limit(value: Any) -> ASTCall:
     return ASTCall("limit", {"value": value})
 
 
-def distinct() -> ASTCall:
-    """Create a DISTINCT operation for GFQL row pipelines."""
-    return ASTCall("distinct", {})
+def distinct(subset: Optional[Sequence[str]] = None) -> ASTCall:
+    """Create a DISTINCT operation, optionally keyed by visible columns."""
+    return ASTCall("distinct", {"subset": list(subset)} if subset else {})
 
 
 def unwind(expr: Any, as_: str = "value") -> ASTCall:

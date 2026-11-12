@@ -53,6 +53,7 @@ This plan MUST be:
 - 🔐 **No secrets** — never write passwords, tokens, API keys, or credentials; use `$ENV_VAR`, `<redacted>`, or pointer to env file (e.g. `source .env.local`)
 - **Parallel subagents**: before spawning, mark claimed step `🔄(🤖agent_<id>_step_<N>)` and record subagent plan path. Subagents **must NOT edit this file** — main agent updates it from their output.
 - **Subagent plans**: each subagent has its own full plan at `plans/[task]/subagents/agent_<id>_step_<N>/plan.md`, same protocol. Subordinate to this file.
+- **Subagent-safe filenames**: subagent-written Markdown filenames must not start with `report`, `summary`, `findings`, or `analysis`, in any directory and case-insensitively (anthropics/claude-code#44657). Prefer role-prefixed names such as `dimension-report.md`, `issues-<slug>.md`, `adversarial-report.md`, or `agent-findings.md`; keep safe role-final names such as `wave-report.md`, `execution-report.md`, and `final-report.md`.
 
 ### Step Protocol
 Per step:

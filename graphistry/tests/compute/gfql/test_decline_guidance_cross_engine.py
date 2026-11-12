@@ -73,7 +73,6 @@ class TestPolarsDeclineNamesBothServingEngines:
 
     @pytest.mark.parametrize("query,feature", [
         (SAME_PATH_Q, "cross-entity (same-path) WHERE"),
-        (SCALAR_CARRY_Q, "scalar WITH columns into the trailing MATCH"),
         (MIN_HOPS_Q, "not yet hop-gated"),
         (UNWIND_Q, "cypher row op"),
     ])
@@ -89,7 +88,7 @@ class TestPolarsDeclineNamesBothServingEngines:
         got = _rows(_graph(engine).gfql(SAME_PATH_Q, engine=engine), ["xid", "yid"])
         assert got == SAME_PATH_LT_ROWS
 
-    @pytest.mark.parametrize("engine", ["pandas", "cudf"])
+    @pytest.mark.parametrize("engine", ["pandas", "polars", "cudf"])
     def test_scalar_with_carry_served(self, engine: str) -> None:
         got = _rows(_graph(engine).gfql(SCALAR_CARRY_Q, engine=engine), ["pv", "qid"])
         assert [(int(pv), qid) for pv, qid in got] == SCALAR_CARRY_ROWS

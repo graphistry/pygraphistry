@@ -282,7 +282,7 @@ def test_named_middle_rewrite_keeps_attach_prop_aliases_values(engine: str) -> N
     shared = [c for c in map(str, explicit.columns) if c in set(map(str, rewritten.columns))]
     assert "a.id" in shared and "b" in shared
     for col in shared:
-        assert sorted(rewritten[col].tolist()) == sorted(explicit[col].tolist()), \
+        assert sorted(rewritten[col].tolist(), key=repr) == sorted(explicit[col].tolist(), key=repr), \
             f"[{engine}] column {col!r} differs between the rewritten and explicit spellings"
 
 

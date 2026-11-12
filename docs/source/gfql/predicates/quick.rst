@@ -67,6 +67,14 @@ See :doc:`/gfql/where` (same-path constraints) and :doc:`/gfql/return`
 
    See :doc:`/gfql/datetime_filtering` for datetime filtering examples.
 
+   A numeric comparison with a datetime column is rejected rather than treated
+   as an opaque unitless comparison. When the data source only offers numeric
+   epoch counts, build an explicit UTC instant with
+   ``DateTimeValue.from_epoch(count, unit="s"|"ms")`` (or the wire form
+   ``{"type": "datetime", "value": <count>, "unit": "ms"}``; see
+   :doc:`/gfql/wire_protocol_examples`). There is no default unit, so a bare
+   number is never silently interpreted as an instant.
+
 **Categorical Operators**
 
 .. list-table::

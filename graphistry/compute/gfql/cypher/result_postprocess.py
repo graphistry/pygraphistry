@@ -254,6 +254,11 @@ def _project_property_column(
     column: ResultProjectionColumn,
 ) -> SeriesT:
     if column.source_name is None or column.source_name not in rows_df.columns:
+        if len(rows_df) == 0:
+            source_name = next(iter(rows_df.columns), None)
+            if source_name is None:
+                return cast(SeriesT, pd.Series(dtype="object"))
+            return cast(SeriesT, rows_df[source_name].head(0).rename(column.output_name))
         raise ValueError(f"projection source column not found: {column.source_name!r}")
     series = cast(SeriesT, rows_df[column.source_name])
     # Temporal-constructor normalization only applies to strings; numeric/bool/complex
@@ -333,7 +338,9 @@ def apply_result_projection(
             result, projection, structured=structured, source_node_id=source_node_id,
         )
     else:
-        out = _apply_result_projection_pandas(result, projection, structured=structured)
+        out = _apply_result_projection_pandas(
+            result, projection, structured=structured, source_node_id=source_node_id,
+        )
     if out is result:
         out = out.bind()
     # Whole-entity provenance remains valid when an identity column is unavailable.
@@ -349,17 +356,47 @@ def apply_result_projection(
             if column.kind != "whole_row":
                 continue
             source_alias = column.source_name or projection.alias
-            sources = alias_field_sources(rows_df.columns, source_alias)
-            if sources is not None and source_alias in sources:
-                marker_column = source_alias if source_alias in rows_df.columns else sources[source_alias]
-                marker_frame = rows_df[[marker_column]]
+            marker_frame = None
+            marker_source = None
+            if projection.table == "nodes":
+                entity_id_column = result._node if result._node is not None else source_node_id
+            else:
+                entity_id_column = result._edge
+            alias_sources = alias_field_sources(rows_df.columns, source_alias)
+            identity_source = (
+                alias_sources.get(str(entity_id_column))
+                if entity_id_column is not None and alias_sources is not None
+                else None
+            )
+            if entity_id_column is not None and str(entity_id_column) in rows_df.columns:
+                marker_source = str(entity_id_column)
+                marker_frame = rows_df[[marker_source]]
+            elif identity_source is not None and identity_source in rows_df.columns:
+                marker_source = identity_source
+                marker_frame = rows_df[[marker_source]]
+            else:
+                if source_alias in rows_df.columns:
+                    marker_column = source_alias
+                elif alias_sources is not None and source_alias in alias_sources:
+                    marker_column = alias_sources[source_alias]
+                else:
+                    marker_column = None
+                if marker_column is not None:
+                    marker_frame = rows_df[[marker_column]]
+            if marker_frame is not None:
+                if marker_source is not None and projection.alias != marker_source:
+                    if is_polars_df(marker_frame):
+                        marker_frame = marker_frame.rename({marker_source: projection.alias})
+                    else:
+                        marker_frame = marker_frame.rename(columns={marker_source: projection.alias})
                 presence[column.output_name] = marker_frame.clone() if is_polars_df(marker_frame) else marker_frame.copy()
     out._cypher_entity_projection_presence = presence
     return out
 
 
 def _apply_result_projection_pandas(
-    result: Plottable, projection: ResultProjectionPlan, *, structured: bool = True
+    result: Plottable, projection: ResultProjectionPlan, *, structured: bool = True,
+    source_node_id: Optional[str] = None,
 ) -> Plottable:
     rows_df = cast(Optional[DataFrameT], result._nodes)
     if rows_df is None:
@@ -377,7 +414,10 @@ def _apply_result_projection_pandas(
             if source_rows_df is None or source_alias not in source_rows_df.columns:
                 raise ValueError(f"whole-row projection source alias not found: {source_alias!r}")
             source_projection = projection if source_alias == projection.alias else replace(projection, alias=source_alias)
-            id_column = result._node if source_projection.table == "nodes" else result._edge
+            if source_projection.table == "nodes":
+                id_column = result._node if result._node is not None else source_node_id
+            else:
+                id_column = result._edge
             flat_columns = (
                 _flat_entity_columns(source_rows_df, source_projection, column.output_name, id_column)
                 if structured

@@ -26,6 +26,7 @@ class ReentryPlan:
     scalar_columns: Tuple[str, ...] = ()
     scalar_only: bool = False
     free_form: bool = False
+    row_token_enabled: bool = False
 
     @property
     def reentry_alias(self) -> Optional[CarriedAlias]:

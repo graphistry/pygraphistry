@@ -1,4 +1,7 @@
-from typing import Any, Dict, Mapping, Optional, Tuple, Union, cast
+from typing import Any, Dict, Iterable, List, Mapping, Optional, Tuple, Type, Union, cast
+from importlib import import_module
+from functools import lru_cache
+
 import pandas as pd
 
 from graphistry.Engine import Engine, EngineAbstract, POLARS_ENGINES, df_cons, df_to_engine, resolve_engine, s_cons
@@ -11,6 +14,19 @@ from .typing import DataFrameT, DType, FilterDict, FilterValue, NodeDtypes, Seri
 
 
 logger = setup_logger(__name__)
+
+
+@lru_cache(maxsize=None)
+def _timezone_resolution_errors() -> Tuple[Type[BaseException], ...]:
+    try:
+        pytz_exceptions = import_module("pytz.exceptions")
+    except ModuleNotFoundError:
+        return (ValueError,)
+    return (
+        ValueError,
+        pytz_exceptions.AmbiguousTimeError,
+        pytz_exceptions.NonExistentTimeError,
+    )
 def _dtype_text(dtype: Any) -> str:
     from graphistry.compute.gfql.lazy.engine.polars.dtypes import dtype_text
     return dtype_text(dtype)
@@ -27,8 +43,72 @@ def _is_string_dtype_safe(dtype: Any) -> bool:
 
 
 
+def _is_temporal_dtype(dtype: DType) -> bool:
+    try:
+        return bool(
+            pd.api.types.is_datetime64_any_dtype(dtype)
+            or pd.api.types.is_timedelta64_dtype(dtype)
+        )
+    except (TypeError, ValueError):
+        return False
+
+
+def _coerce_temporal_filter_scalar(value: FilterValue, dtype: DType, *, field: str) -> FilterValue:
+    if not isinstance(value, str) or not _is_temporal_dtype(dtype):
+        return value
+
+    from graphistry.compute.exceptions import ErrorCode, GFQLSchemaError
+
+    is_datetime = pd.api.types.is_datetime64_any_dtype(dtype)
+
+    try:
+        if is_datetime:
+            parsed = pd.to_datetime(value)
+            if parsed is pd.NaT:
+                raise ValueError(f"Empty temporal value: {value!r}")
+            if (
+                isinstance(parsed, pd.Timestamp)
+                and parsed.tzinfo is None
+                and isinstance(dtype, pd.DatetimeTZDtype)
+            ):
+                try:
+                    return parsed.tz_localize(dtype.tz)
+                except _timezone_resolution_errors() as exc:
+                    raise GFQLSchemaError(
+                        ErrorCode.E302,
+                        f'Type mismatch: unresolvable temporal filter value for column "{field}"',
+                        field=field,
+                        value=value,
+                        column_type=str(dtype),
+                        suggestion="Use an explicit UTC offset or a resolvable column-local timestamp",
+                    ) from exc
+            return parsed
+        parsed = pd.to_timedelta(value)
+        if parsed is pd.NaT:
+            raise ValueError(f"Empty duration value: {value!r}")
+        return parsed
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise GFQLSchemaError(
+            ErrorCode.E302,
+            f'Type mismatch: unparseable temporal filter value for column "{field}"',
+            field=field,
+            value=value,
+            column_type=str(dtype),
+            suggestion="Use a parseable pandas timestamp or duration string",
+        ) from exc
+
+
 def _is_membership_filter_value(value: Any) -> bool:
     return isinstance(value, (list, tuple, set, frozenset, pd.Index, pd.Series))
+
+
+def _coerce_temporal_filter_members(values: Iterable[FilterValue], dtype: DType, *, field: str) -> List[FilterValue]:
+    if not _is_temporal_dtype(dtype):
+        return list(values)
+    return [
+        _coerce_temporal_filter_scalar(value, dtype, field=field)
+        for value in values
+    ]
 
 
 def _looks_like_edge_dataframe(df: DataFrameT) -> bool:
@@ -162,13 +242,19 @@ def _prepare_filter_dict(
         # Type checking for non-predicate values
         if not isinstance(resolved_val, ASTPredicate):
             if _is_membership_filter_value(resolved_val):
-                concrete_filters[col] = (resolved_col, list(resolved_val))
+                concrete_filters[col] = (
+                    resolved_col,
+                    _coerce_temporal_filter_members(
+                        resolved_val, df[resolved_col].dtype, field=col
+                    ),
+                )
                 continue
             if len(df) == 0:
                 concrete_filters[col] = (resolved_col, resolved_val)
                 continue
             # Check for obvious type mismatches
             col_dtype = df[resolved_col].dtype
+            resolved_val = _coerce_temporal_filter_scalar(resolved_val, col_dtype, field=col)
             if _is_numeric_dtype_safe(col_dtype) and isinstance(resolved_val, str):
                 raise GFQLSchemaError(
                     ErrorCode.E302,
@@ -191,9 +277,17 @@ def _prepare_filter_dict(
         else:
             # Validate predicates for appropriate column types
             from .predicates.numeric import NumericASTPredicate, Between
+            from .predicates.is_in import IsIn
             from .predicates.str import Contains, Startswith, Endswith, Match
 
             col_dtype = df[resolved_col].dtype
+
+            if isinstance(resolved_val, IsIn) and _is_temporal_dtype(col_dtype):
+                resolved_val = IsIn(
+                    _coerce_temporal_filter_members(
+                        resolved_val.options, col_dtype, field=col
+                    )
+                )
 
             # Check numeric predicates on non-numeric columns
             if isinstance(resolved_val, (NumericASTPredicate, Between)) and not _is_numeric_dtype_safe(col_dtype):

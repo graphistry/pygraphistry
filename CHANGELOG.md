@@ -10,7 +10,128 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Docs
 
-- **GFQL quick reference examples run** (#2169): node and edge matcher examples use declarative predicates (`gt`, `lt`, `between`) instead of callables that validation rejects; `let()` examples select bindings with `output=`; remote references are shown as `let()` bindings; the engine section notes which features `auto` runs on pandas for Polars input. The docs example audit now finds code blocks nested under bullets, and every runnable quick-reference example executes on pandas and eager Polars with matching rows.
+- **GFQL quick reference examples run** (#2169): node and edge matcher examples use declarative predicates (`gt`, `lt`, `between`) instead of callables that validation rejects; `let()` examples select bindings with `output=`; remote references are shown as `let()` bindings; the engine section notes which features `auto` runs on pandas for Polars input. The docs example audit now finds code blocks nested under bullets, and every runnable quick-reference example executes on pandas and Polars-bound inputs with matching RETURN rows or graph node/edge identities.
+
+## [0.62.1] - 2026-11-12
+
+### Fixed
+
+- **GFQL cross-alias filters**: reversing the operands of an ordering comparison now preserves its meaning, parallel edges retain their multiplicity, and empty relationship projections keep their schema without an explicit edge-ID binding. Applies to Cypher and native same-path queries on pandas and cuDF (#2282, #2283, #2284).
+
+- **GFQL remote unsupported-program detection**: identified Cypher procedure calls, GRAPH residual predicates, and cross-alias predicates in GRAPH/Let bindings as unsupported remote-mode programs. They now raise a structured error before upload or HTTP instead of being sent with omitted procedure or filter semantics. [Faithful remote support is tracked separately](https://github.com/graphistry/pygraphistry/issues/2304). Compiled GRAPH references preserve case-insensitive Cypher name resolution, and local Let bindings execute their Chain `where` predicates (#2277, #2278, #2285, #2286, #2287).
+
+- **GFQL default-engine GPU filters**: cross-alias `WHERE` queries on cuDF graphs now resolve the default `auto` engine to cuDF, matching explicit `engine='cudf'` for both Cypher projections and native chains instead of mixing pandas intermediates with GPU columns (#2289).
+
+- **Hypergraph GPU timedelta inputs**: coercing timedelta event columns to strings now creates a new frame instead of modifying the caller's cuDF or Dask-cuDF input. Existing event-ID columns and generated IDs retain their behavior (#2291).
+
+## [0.62.0] - 2026-11-11
+
+### Deprecated
+
+- **Ignored extra arguments to `nodes()` / `edges()`** (#398, #2280): non-callable data with extra positional or keyword arguments now emits a `FutureWarning` while preserving the existing behavior of ignoring those arguments. Use `.bind(...)` for binding options. Formal arguments and callable forwarding are unchanged; warnings include positional counts and keyword names, never argument values. Strict `TypeError` rejection is targeted for May 2027, after at least six months of released deprecation notice.
+
+### Documentation
+
+- **Stale benchmark results stay published**: age or compute-drift staleness is now rendered as a caveat with its measurement date and a linked re-measure issue instead of refusing or withdrawing the number. Removal of a published benchmark result requires explicit maintainer approval upstream.
+
+### Fixed
+
+- **Hypergraph `EventID` selection ambiguity** (#228): `hypergraph()` uses the default `EventID` input column as the event key when `EVENTID` is omitted. It now emits a `UserWarning` identifying that selection and explaining how to confirm it with `opts={'EVENTID': ...}` or rename the source column to retain its values as an attribute while row IDs are generated. Explicit `EVENTID` strings and existing missing-column row numbering remain unchanged. This is a partial mitigation, not a change to implicit selection semantics. Native Dask inputs with more than one partition now get distinct generated row IDs across partitions instead of raising a length mismatch.
+- **GFQL Cypher AST evaluation on cuDF**: row-expression results built on the host no longer force a cuDF index through implicit NumPy conversion. They retain positional alignment on the table's labels, so supported list, subscript, map, and dynamic-property expressions match the pandas result instead of failing with `TypeError` or an opaque `E306` wrapper (#2269).
+- **GFQL Cypher carried scalars through collected reentry**: a scalar carried alongside `collect(...)` survives the shared `WITH collect ... UNWIND ... MATCH` reentry path for plain and aggregate projections, without being mistaken for a node property. The Polars empty-prefix path uses native empty-frame handling instead of `AttributeError` (#2267).
+- **GFQL Cypher boolean node properties**: a node alias that shadows a real Boolean user property now restores that property on cuDF like pandas and Polars, instead of returning null for `kind.kind` (#2271).
+- **GFQL Cypher missing relationship properties**: `RETURN r.r` now resolves to null when `r` is the relationship alias and the edge table has no `r` property, matching `WHERE r.r IS NULL`. The internal alias marker no longer leaks as the property value on pandas or Polars (#2262).
+- **GFQL Cypher scalar carries after `WITH`**: a scalar carried through `WITH` remains available when a later `MATCH` reconnects the earlier alias, including whole-node-plus-scalar, connected-scalar, and multi-edge path prefixes. Grouping now keeps each carried scalar's multiplicity on pandas and Polars instead of returning null groups or dropping a connected result group (#2252).
+- **GFQL nullable 64-bit endpoint IDs**: pandas 3.1 fallback traversal preserves exact Int64/UInt64 node matches when nullable node-ID columns contain nulls, instead of silently dropping valid edges.
+- **GFQL multi-hop relationship aliases**: Cypher property reads and direct GFQL edge markers now include only edges that belong to a complete matched path, including ordinary and payload-shadowing aliases (#1911).
+- **GFQL reverse shadowed relationship properties**: pandas scalar projections now restore the matched edge payload after reverse traversal reorders rows (#2256).
+- **GFQL Cypher node entity membership identity** (#2258): direct and collected node aliases in `IN`/`NOT IN` predicates compare by graph node ID rather than display properties, while scalar/property equality and public collected-entity display retain their existing behavior. Mixed node/scalar/null lists preserve three-valued null semantics.
+- **GFQL Cypher conversion operand validation**: statically invalid conversion operands, such as lists, maps, and graph entities, are rejected at compile time before the engine sees them. Dynamic operands, null propagation, and list-comprehension lexical shadowing keep their existing behavior.
+
+- **GFQL remote Let/DAG compatibility**: `gfql_remote` no longer substitutes an empty `gfql_operations` array for a Let/DAG query, so unsupported older servers receive `gfql_query` and reject it explicitly instead of silently running an identity program.
+- **GFQL old/current server wire contract tests**: added hermetic HTTP-route tests for public, serialized, Cypher, and flat-chain queries against source-pinned old and current server request-key selection and response formats.
+- **GFQL temporal scalar filters**: an empty timestamp or duration string no longer silently becomes a `NaT` bound; it raises the same typed `GFQLSchemaError` E302 as an unparseable bound. Naive bounds are handled as `Timestamp` values before timezone localization, and optional `pytz` exception discovery is confined to aware-column localization.
+- **GFQL Cypher null-equality conjunctions**: comparisons such as `n.v = null` now preserve three-valued `UNKNOWN` when combined with `AND`, instead of being replaced as if no predicate existed. `NeverMatch` predicates now round-trip through GFQL JSON, and raw JSON `filter_dict` null matching is unchanged.
+- **GFQL Cypher grouped aggregates after scalar reentry**: when a multirow scalar `WITH` prefix feeds another `MATCH`, grouping now covers all joined suffix rows together. For example, `WITH s MATCH (b)-[]->(s) RETURN s.type, count(*)` returns one aggregate per group instead of one per carried prefix row (#2235).
+- **GFQL Cypher exact-depth variable-length patterns**: a self-loop can now supply the nonterminal hop of an exact match such as `MATCH (a)-[*2..2]->(b)`, so paths that reuse the graph's shortest-hop frontier remain available to later hops on the connected-bindings row route (#2235).
+- **GFQL temporal membership filters** (#1949): `IN`, `IsIn`, and list filter values on datetime columns parse scalar strings with the same aware/naive temporal contract as equality, instead of silently matching zero rows or raising an opaque engine error. Unparseable values fail with structured `E302`; Polars datetime membership lowers natively. Typed timestamps must match the column's awareness, though offset-equivalent aware values match. Raw-list `NaT` is not a member; predicate `IsIn` `NaT` handling remains engine-specific.
+- **GFQL Cypher compile limit for extreme MATCH chains**: each MATCH sequence or UNION branch with more than 512 MATCH clauses now fails immediately with a typed `GFQLValidationError` naming the clause limit, instead of consuming super-linear planner time and crashing with a `RecursionError` (#2235).
+- **GFQL Cypher `toInteger` on strings**: unparseable, non-finite, overflow, and null strings now return Cypher null instead of raising or leaking an input value. Pandas preserves a nullable integer result (#2235).
+- **GFQL Cypher relationship uniqueness across `MATCH` clauses**: sequential connected `MATCH` clauses can reuse the same relationship with a new relationship variable, as in `MATCH (x)-[e]->(y) MATCH (y)<-[f]-(z)`, while uniqueness remains path-global within each clause (#2235).
+## [0.61.2] - 2026-10-23
+
+### Fixed
+
+- **igraph calls on nodes with a `name` column**: a node attribute named `name`, other than the node ID column, no longer makes `to_igraph`, `compute_igraph`, and `CALL graphistry.igraph.*` fail with `Vertex attribute conflict`. It moves to a generated name for igraph, which reserves `name` for node IDs, and is restored by `from_igraph` (#2217).
+
+- **`from_igraph` on empty graphs**: an empty graph with a node `name` column keeps every node column's original type, and an edge list with no edges gets endpoints of the node ID type instead of `float64`, so such a graph no longer fails with a merge dtype mismatch. On populated graphs with a node `name` column, the node ID, `name`, and edge endpoint columns also keep their original types, such as `int32`, `Int64`, and `category`; on polars, `compute_igraph` still widens a nullable `Int64` node attribute to `Float64`, as before (#2217).
+
+- **GFQL Cypher on graphs without edges**: patterns with only nodes, such as `MATCH (n) RETURN count(*)` now return results on the polars engine like pandas instead of raising `NotImplementedError`, and edge patterns raise the same typed `GFQLSchemaError`. An `OPTIONAL MATCH` edge arm on such a graph returns the base rows with nulls on every engine instead of failing, and `WHERE EXISTS { (n)-->() }` and `WHERE (n)-->()` no longer fail on pandas and cuDF with `'NoneType' object is not subscriptable`: a positive pattern matches no nodes and a negated one matches every node (#1879).
+
+- **GFQL Cypher UNION on cuDF**: a UNION whose branch is served by a pandas fast path no longer fails with `TypeError` under `engine='cudf'`, and branches that disagree on a non numeric value type, such as a boolean or string next to an integer, raise a typed `NotImplementedError` like polars instead of a bare `ValueError` or silently turning `true` into `1`. Categorical columns are compared and combined by their values, as on pandas, so compatible categories return their values and an integer next to a string categorical declines with the same typed error (#2231).
+
+- **GFQL Cypher grouping by a `name` column on cuDF**: aggregates grouped by a property called `name`, such as `RETURN n.name, count(*)` and `MATCH (a)-[:R]->(b) RETURN b.name AS key, count(a)`, no longer fail on cuDF with "The truth value of a Series is ambiguous", in the row pipeline and in the single hop grouped aggregate fast path. The fast path also serves on cuDF when an edge endpoint column is named `name`. pandas and polars run the same code as before (#1946).
+
+- **GFQL Cypher pattern predicates with aggregates**: a pattern predicate in `WHERE`, such as `MATCH (n) WHERE (n)-->() RETURN count(*)` or its `NOT` form, keeps the matched node's properties, so aggregates over the result return the right counts on pandas and no longer fail on cuDF. Absent properties in strict mode raise `GFQLSchemaError` (#2216).
+
+- **GFQL Cypher backslash escapes**: a backslash in a string literal is decoded once in every row expression, so `NOT`, `OR`, and nested predicates match the same rows as a plain `WHERE`; for example `NOT n.ip =~ '10\\..*'` no longer matches every row (#2215).
+
+- **GFQL Cypher whole node results of traversal patterns**: `RETURN DISTINCT x` on a traversal now follows openCypher semantics, matching the property projection of the same query: relationship uniqueness within a `MATCH`, paths of exactly `min_hops..max_hops` relationships, the start node for undirected variable length when a cycle returns to it, and the zero length match for `*0..n`. Whole node results without `DISTINCT` are unchanged (#2221).
+
+- **GFQL Cypher reentry row multiplicity**: a whole row carry through `WITH` that feeds `OPTIONAL MATCH`, and non optional nested reentry, keep duplicate binding and seed rows instead of collapsing them; genuinely ambiguous identities still decline with a typed error (#1935).
+
+- **GFQL native polars scalar carry reentry**: Cypher reentry that carries scalar columns through `WITH` now runs natively on polars instead of raising `NotImplementedError` (#1712).
+
+- **GFQL seeded typed hops with duplicate seed IDs**: when the matched seed node IDs are duplicated, the seeded typed hop fast path declines so the full path keeps row multiplicity, matching pandas, polars, and cuDF (#2034).
+
+- **GFQL Cypher temporal parameters**: a zoned ISO string passed as a Cypher parameter, such as `WHERE n.ts > $since` with `since = '2021-01-01T00:00:00Z'`, is compared like the same literal instead of silently returning no rows (#1949).
+
+- **GFQL temporal string filters**: an equality filter that compares a datetime or duration column with a string parses the string first, so parseable naive timestamps and durations match, and a string that cannot be parsed for the column raises the typed `GFQLSchemaError` E302 instead of silently returning no rows (#1949).
+
+- **GEXF import endpoint attributes**: edge attributes whose title collides with an endpoint binding keep their original names and values on import; only the endpoint fields move to collision safe internal columns (#2212).
+
+- **cuGraph graph returning algorithms and `src`/`dst` bindings**: algorithms that return a graph no longer create duplicate cuDF columns when the endpoint bindings are `src` and `dst`, keep the caller's source and destination bindings, and preserve the original edge attributes on retained rows (#2211).
+
+### Documentation
+
+- **Hybrid planner polling**: the internal `.agents` planner workflow keeps polling an external worker while it is presumed running, instead of ending on mailbox silence (#2223).
+
+## [0.61.1] - 2026-10-21
+
+### Fixed
+
+- **Chained `compute_igraph` calls preserve custom-named edge attributes**: edge attributes named `source` or `target` are restored to their original column names after a round trip when endpoint bindings use other names, so repeated igraph calls no longer accumulate collision renames or fail on duplicate columns. Attributes that collide with the final endpoint bindings are moved to unique generated names rather than merging with endpoint columns (#2204).
+
+- **GFQL Cypher quoted ORDER BY aliases**: quoted aliases containing spaces or escaped backticks can now order values in pandas, Polars, and cuDF lowering, including aggregate outputs. Quoted output names keep their own binding identity when their text matches another aggregate expression, and unresolved quoted aliases retain structured validation errors (#2205).
+
+### Documentation
+
+- **Added planner and worker coordination skills**: these internal `.agents` workflows describe implementation planning, focused evidence, review handoffs, and lightweight heartbeat coordination (#2206).
+## [0.61.0] - 2026-10-18
+
+### Added
+
+- **GFQL relationship-type adjacency sidecars** (#2184): `gfql_index_edges(..., type_column=..., type_values=...)` explicitly builds forward and reverse adjacency indexes for selected string or integer relationship values. Matching queries can narrow candidate edge rows while retaining the full edge predicate and canonical results; queries without a live sidecar use ordinary adjacency. Sidecars are built at graph setup, share neighbor arrays with ordinary indexes, and appear as `typed:` rows with incremental CSR bytes in `show_indexes()`. Typed options are keyword-only. cuDF builds may add overhead on dense-community shapes, and sidecars must be rebuilt after rebinding or changing edges.
+
+- **GFQL Cypher backtick identifiers**: property names, aliases, labels, relationship types, and map keys can preserve spaces, dots, hyphens, escaped backticks, and reserved words through parsing, binding, lowering, and rendering. Unterminated backticks remain syntax errors, and unquoted dotted-property semantics are unchanged (#2198).
+- **GFQL node-type segments and indexed destination filtering** (#2192, #2193): `gfql_index_node_types(..., type_column=..., type_values=...)` explicitly builds node row-position segments for selected scalar types or Boolean labels. Matching seeded wavefront hops can narrow source and destination candidates while retaining canonical node filters and results; queries without a live segment use the ordinary paths. A simple Polars plain-chain destination node predicate may additionally lower into an indexed direct hop; this narrow lowering is separate from general node-segment support. Segments are built at graph setup, appear as `typed_node:` `node_type_segment` rows in `show_indexes()`, and selective drop supports all segments, one column, or one segment.
+- **GFQL Cypher aggregates over relationship rows**: in a single required `MATCH`, aggregates such as `MATCH (a)-[r]->(b) RETURN a, count(*), sum(r.w), collect(b.id)` run on per-path binding rows, so group keys and arguments can reference any node or relationship alias, including `DISTINCT`, post-aggregate arithmetic (`count(b) + 1`) and multi-alias keys. These shapes previously raised unsupported-query errors.
+- **GFQL `DateTimeValue.from_epoch`** (#2197): construct an explicit UTC instant from epoch seconds or milliseconds with `unit="s"|"ms"`; typed wire datetime values accept the equivalent `{"type": "datetime", "value": ..., "unit": "s"|"ms"}` form.
+
+### Fixed
+
+- **GFQL comparison predicates and typed wire inputs reject numeric-versus-datetime comparisons**: a bare integer no longer silently compares as an opaque unitless value against a datetime column. Use a typed ISO datetime value or explicit `DateTimeValue.from_epoch` UTC epoch units. There is no default epoch unit, and `epoch_ms` predicate flags are rejected (#2197). This boundary does not change all mixed-type Cypher `EQ`/`NE` semantics.
+- **GFQL Call runtime failures use structured `E306`**: exceptions from safelisted handlers are wrapped as `GFQLCallExecutionError` with the handler name, requested engine, original exception type, and original exception as `__cause__`; input/reference validation retains its existing structured codes (#2199).
+- **GFQL index byte reporting is engine-aware** (#2201): `show_indexes()` reports Polars and cuDF sidecar/segment bytes without assuming a pandas-only Series interface.
+
+- **GFQL Polars indexed connected bindings**: the default planner gate now admits moderately sized key frontiers and edge gathers. Measured on LDBC SF1 IC4; other families showed no regression, and the relaxation is not claimed to generalize. Explicit cost-gate overrides still take precedence; other index paths and engines retain their defaults.
+
+- **GFQL indexed traversal uses faster sorted uniqueness**: integer index arrays with at least 128 entries and Boolean arrays with more than one entry use sorted deduplication, avoiding the slower `numpy.unique` path. Measured on NumPy 2.4; applies on all versions. Tiny integer arrays retain native `unique` because the extra sort/mask setup can cost more there; tiny Boolean arrays favor sorting. Other dtypes and cuPy retain their existing uniqueness semantics. IC4 benchmark evidence and follow-up are tracked in graphistry/pyg-bench#303.
+
+- **Graph algorithms on Polars-bound graphs** (#2025): `compute_igraph`, `layout_igraph`, `compute_cugraph` and `layout_cugraph` accept graphs bound to Polars `DataFrame` or `LazyFrame` frames. igraph runs on pandas and cuGraph on cuDF (via Arrow); results return as eager Polars frames with node id, source, destination and edge id dtypes preserved. The frame conversion helper is shared with GFQL `call()`.
+- **Layouts on Polars-bound graphs** (#1966): `circle_layout`, `tree_layout`, `ring_categorical_layout`, `ring_continuous_layout`, `time_ring_layout`, `group_in_a_box_layout`, `modularity_weighted_layout`, `mercator_layout` and `fa2_layout` accept Polars `DataFrame` or `LazyFrame` frames. They run on pandas and return eager Polars frames, instead of crashing or silently returning pandas. Layouts with backend support honor an explicit engine; Mercator has no `engine` parameter, and tree's legacy `engine='cudf'` keyword still runs on pandas.
+- **GFQL indexed bindings relationship uniqueness** (#2177): the indexed connected-bindings and array path-bag routes could bind one relationship to two hops of a Cypher MATCH pattern (for example `(a)-[:K]->(b)<-[:K]-(c)` returned `c = a` through a single edge) under the default `use`/`auto` index policies. Both routes now drop paths that reuse an edge whenever two hops could match the same relationship; hops with pairwise-distinct edge types skip the check. With uniqueness enforced, undirected hops in multi-hop patterns are admitted to the indexed path.
+- **GFQL Cypher `count(DISTINCT <alias>)` on binding rows**: counted the active alias instead of the named one, so `MATCH (a)-[r]->(b) WITH a, count(DISTINCT b) AS c` returned 1 per group. It now counts distinct `b`; on Polars the shape runs natively instead of declining.
 
 ## [0.60.0 - 2026-10-08]
 

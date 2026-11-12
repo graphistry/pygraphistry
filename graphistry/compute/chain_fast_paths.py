@@ -236,7 +236,8 @@ def _ids_to_key_array(
             arr = arr.astype(common)
         if cudf_series and int(arr.shape[0]) <= 1:
             return arr.copy()
-        return xp.unique(arr)
+        from graphistry.compute.gfql.index.engine_arrays import sorted_unique
+        return sorted_unique(xp, arr)
     except (TypeError, ValueError):
         return None
 

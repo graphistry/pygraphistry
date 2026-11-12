@@ -7,6 +7,14 @@ Native layout engines within Graphistry.
 
 We recommend using the various plugins for additional layouts, such as for tree and hierarchical data diagramming.
 
+On Polars-backed graphs, direct layouts default to pandas computation and return
+eager Polars frames. Supported methods accept ``engine='pandas'`` or ``'cudf'``
+to return that backend's frames, or ``engine='polars-gpu'`` to compute with cuDF
+and return Polars frames. ``mercator_layout`` has no engine argument;
+``tree_layout`` remains pandas-only and ignores its legacy ``engine='cudf'``;
+``fa2_layout`` needs a GPU engine or ``allow_cpu_fallback=True``. For an
+end-to-end Cypher graph-result example, see :doc:`/api/gfql/cypher`.
+
 
 .. toctree::
    :maxdepth: 3

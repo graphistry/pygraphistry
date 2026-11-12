@@ -473,6 +473,7 @@ def test_polars_matches_the_pandas_oracle(graph_name: str, shape_name: str, quer
 # -------------------------------------------------------------------------- engagement
 
 @pytest.mark.parametrize("shape_name,query", _ADMITTED_SHAPES)
+@pytest.mark.route_engaged("cypher-fast")
 def test_admitted_shapes_are_admitted(
     monkeypatch: pytest.MonkeyPatch, shape_name: str, query: str
 ) -> None:
@@ -484,6 +485,7 @@ def test_admitted_shapes_are_admitted(
 
 
 @pytest.mark.parametrize("shape_name,query", _DECLINED_SHAPES)
+@pytest.mark.route_engaged("cypher-fast")
 def test_declined_shapes_are_declined(
     monkeypatch: pytest.MonkeyPatch, shape_name: str, query: str
 ) -> None:
@@ -496,6 +498,7 @@ def test_declined_shapes_are_declined(
     assert calls == [False], f"{shape_name} should be declined, got {calls}"
 
 
+@pytest.mark.route_engaged("cypher-fast")
 def test_cardinality_bound_declines_a_wide_group_key(monkeypatch: pytest.MonkeyPatch) -> None:
     """MAX_GROUPS + 1 city rows. Every one of them carries country 'US', so the TRUE
     cardinality of ``c.country`` is 1 -- the O(1) height bound cannot see that, and the
@@ -508,6 +511,7 @@ def test_cardinality_bound_declines_a_wide_group_key(monkeypatch: pytest.MonkeyP
     assert len(result._nodes) == 1, "the true cardinality really was 1; the bound was loose"
 
 
+@pytest.mark.route_engaged("cypher-fast")
 def test_cardinality_bound_admits_exactly_max_groups(monkeypatch: pytest.MonkeyPatch) -> None:
     """The boundary is inclusive: a node frame of exactly MAX_GROUPS rows is admitted."""
     _require_polars()
@@ -517,6 +521,7 @@ def test_cardinality_bound_admits_exactly_max_groups(monkeypatch: pytest.MonkeyP
     assert calls == [True]
 
 
+@pytest.mark.route_engaged("cypher-fast")
 def test_row_bound_declines_a_large_edge_frame(monkeypatch: pytest.MonkeyPatch) -> None:
     """MAX_INPUT_ROWS + 1 edges over a 3-city frame: cardinality is tiny, so only the ROW
     bound can decline this. It must."""
@@ -527,6 +532,7 @@ def test_row_bound_declines_a_large_edge_frame(monkeypatch: pytest.MonkeyPatch) 
     assert calls == [False]
 
 
+@pytest.mark.route_engaged("cypher-fast")
 def test_row_bound_admits_exactly_max_input_rows(monkeypatch: pytest.MonkeyPatch) -> None:
     _require_polars()
     nodes_df, edges_df = _many_edges_data()
@@ -536,6 +542,7 @@ def test_row_bound_admits_exactly_max_input_rows(monkeypatch: pytest.MonkeyPatch
     assert calls == [True]
 
 
+@pytest.mark.route_engaged("cypher-fast")
 def test_duplicate_group_alias_node_ids_decline(monkeypatch: pytest.MonkeyPatch) -> None:
     """Duplicate ids in the group-key alias frame make the property join MULTIPLY rows, so
     ``rows <= edge frame height`` stops holding. The gate declines rather than reason about
@@ -547,6 +554,7 @@ def test_duplicate_group_alias_node_ids_decline(monkeypatch: pytest.MonkeyPatch)
     assert calls == [False]
 
 
+@pytest.mark.route_engaged("cypher-fast")
 def test_duplicate_other_alias_node_ids_still_admit(monkeypatch: pytest.MonkeyPatch) -> None:
     """Duplicates on the side that contributes NO property column feed only a semi-join,
     which cannot multiply -- so the bound survives and the gate admits. Kept separate from

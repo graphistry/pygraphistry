@@ -254,11 +254,12 @@ def test_ref_traversal_after_row_call_runs_on_pandas() -> None:
     assert len(result._nodes) == 2
 
 
-def test_polars_traversal_on_a_graph_without_bound_edges_declines_typed() -> None:
+def test_polars_node_step_on_a_graph_without_bound_edges_serves() -> None:
     pl = pytest.importorskip("polars")
     g = graphistry.nodes(pl.from_pandas(NODES), "id")
-    with pytest.raises(NotImplementedError, match="unbound edge endpoints"):
-        g.gfql(n({}), engine="polars")
+    result = g.gfql(n({}), engine="polars")
+    assert result._nodes["id"].to_list() == NODES["id"].tolist()
+    assert result._edges is None
 
 
 # --- Scheduling and error typing (#1923 F5-F8)

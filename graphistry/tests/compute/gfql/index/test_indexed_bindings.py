@@ -700,7 +700,7 @@ def test_node_property_index_declines_unindexable_columns() -> None:
     )
 
     g = _prop_graph("pandas", columns=())
-    g = g.nodes(g._nodes.assign(active=True), "id")
+    g = g.nodes(g._nodes.assign(active=[[1]] * len(g._nodes)), "id")
     for column in ("active",):
         with pytest.raises(GfqlIndexUnsupportedError):
             create_index(g, NODE_PROP, column=column)
@@ -1220,3 +1220,36 @@ def test_explicit_polars_gpu_declines_indexed_helper_and_falls_back(
         seam="connected_bindings",
         expect_served=False,
     )
+
+
+@pytest.mark.route_engaged("indexed-kernel")
+def test_connected_bindings_trace_reports_per_hop_thresholds():
+    """Trace exposes the connected-binding seam gates, not the engine-wide frac."""
+    from graphistry.compute.gfql.index import cost_gate_frac, index_trace, with_index_policy
+    import graphistry.compute.gfql.index.bindings as indexed_bindings
+
+    ops = [
+        n({"public": 100}, name="source"),
+        e_forward({"type": "A"}, name="first"),
+        n(name="middle"),
+        e_forward({"type": "B"}, name="second"),
+        n(name="destination"),
+    ]
+    g = _graph("polars")
+    with index_trace() as trace:
+        state = indexed_bindings.try_indexed_connected_bindings_state(
+            with_index_policy(g, "force"), ops, engine=Engine.POLARS,
+        )
+        assert state is not None
+    served = [
+        step for step in trace
+        if step.get("operation") == "indexed_traversal" and step.get("served")
+    ]
+    assert len(served) == 1 and len(served[0]["hop_details"]) == 2
+    for hop_number, detail in enumerate(served[0]["hop_details"], start=1):
+        assert detail["hop"] == hop_number
+        assert detail["key_threshold_frac"] == 0.04
+        assert detail["gather_threshold_frac"] == 0.06
+        assert detail["key_threshold"] == 0.04 * detail["n_keys"]
+        assert detail["gather_threshold"] == 0.06 * detail["n_edges"]
+    assert cost_gate_frac(Engine.POLARS) == 0.02

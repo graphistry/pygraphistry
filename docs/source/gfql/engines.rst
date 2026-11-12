@@ -230,6 +230,16 @@ a Python setting overrides the environment:
    set_call_mode('strict')   # raise on off-engine analytics (pass None to reset to env/default)
    # or: export GFQL_POLARS_CALL_MODE=strict
 
+Direct ``compute_igraph`` / ``layout_igraph`` calls on Polars graphs use pandas;
+``compute_cugraph`` / ``layout_cugraph`` use cuDF. They return eager Polars frames
+with binding ID dtypes preserved, collecting lazy input first. ``call_mode`` governs
+GFQL ``call()`` only; these direct methods choose their backend by algorithm.
+
+Direct layouts accept Polars input and return eager Polars frames by default;
+they do not inherit a previous GFQL query's engine. See the
+:doc:`Cypher graph-result example </api/gfql/cypher>` and
+:doc:`layout API </api/layout/index>` for usage and backend choices.
+
 cuDF vs Polars-GPU
 ------------------
 
@@ -321,10 +331,6 @@ Install
    pip install graphistry polars   # adds the CPU 'polars' engine
    # 'cudf' and 'polars-gpu' require the NVIDIA RAPIDS stack (GPU);
    # 'polars-gpu' additionally uses cudf_polars.
-
-.. note::
-   Layouts, plotting and featurization accept Polars frames as input and compute in
-   pandas. The engine behavior on this page applies to GFQL query execution.
 
 Provenance
 ----------

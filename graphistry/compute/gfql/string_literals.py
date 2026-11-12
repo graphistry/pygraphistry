@@ -5,7 +5,7 @@ import re
 
 _ESCAPE_RE = re.compile(r"\\(u[0-9A-Fa-f]{4}|U[0-9A-Fa-f]{8}|.)")
 _PARSE_ESCAPES = {
-    "\\": "\\\\",
+    "\\": "\\",
     "'": "'",
     '"': '"',
     "n": "\n",

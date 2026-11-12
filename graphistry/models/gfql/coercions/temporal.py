@@ -9,7 +9,7 @@ from datetime import datetime, date, time
 import pandas as pd
 
 from graphistry.compute.ast_temporal import (
-    TemporalValue, DateTimeValue, DateValue, TimeValue
+    TemporalValue, DateTimeValue, DateValue, TimeValue, temporal_value_from_json
 )
 from graphistry.models.gfql.types.temporal import NativeTemporal, TemporalWire
 
@@ -35,16 +35,14 @@ def to_ast(
     elif isinstance(val, time):
         return TimeValue.from_time(val)
 
-    # From wire
+    # Decode all wire datetime variants through the canonical JSON boundary.
     elif isinstance(val, dict) and "type" in val:
         if val["type"] == "datetime":
-            timezone = val.get("timezone", "UTC")
-            assert isinstance(timezone, str)
-            return DateTimeValue(val["value"], timezone)
+            return temporal_value_from_json(val)
         elif val["type"] == "date":
-            return DateValue(val["value"])
+            return DateValue(val["value"])  # type: ignore[arg-type]
         elif val["type"] == "time":
-            return TimeValue(val["value"])
+            return TimeValue(val["value"])  # type: ignore[arg-type]
         else:
             raise ValueError(f"Unknown temporal wire type: {val['type']}")
 
@@ -70,13 +68,20 @@ def to_native(
         return val  # time stays as time
 
     # From AST
-    elif isinstance(val, TemporalValue):
+    elif isinstance(val, (DateValue, DateTimeValue)):
+        return val.as_pandas_value()
+    elif isinstance(val, TimeValue):
         return val.as_pandas_value()
 
     # From wire (via AST)
     elif isinstance(val, dict) and "type" in val:
         ast_val = to_ast(val)
-        return ast_val.as_pandas_value()
+        if isinstance(ast_val, (DateValue, DateTimeValue)):
+            return ast_val.as_pandas_value()
+        elif isinstance(ast_val, TimeValue):
+            return ast_val.as_pandas_value()
+        else:
+            raise TypeError(f"Unknown temporal AST type: {type(ast_val).__name__}")
 
     else:
         raise TypeError(f"Cannot convert {type(val)} to native temporal")

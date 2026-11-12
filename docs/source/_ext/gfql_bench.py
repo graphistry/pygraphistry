@@ -75,7 +75,16 @@ def _bench_role(diagnostic: bool):
         text = format_cell(cell)
         if diagnostic:
             text = '{} (diagnostic)'.format(text)
-        return [nodes.literal(rawtext, text)], []
+        result: List[nodes.Node] = [nodes.literal(rawtext, text)]
+        if cell is not None and key in state.stale_keys:
+            run = state.run(cell['run'])
+            measured = run.get('measured_at') if run else None
+            label = nodes.strong(rawtext, ' (stale: measured {}; '.format(measured))
+            reference = nodes.reference(rawtext, 're-measure', refuri=state.remeasure_issue)
+            label += reference
+            label += nodes.Text(')')
+            result.append(label)
+        return result, []
 
     return role
 
@@ -249,6 +258,13 @@ class BenchBoard(Directive):
                     text += ' (diagnostic)'
                 literal = nodes.literal(text, text)
                 para = nodes.paragraph()
+                if cell is not None and cell_key in state.stale_keys:
+                    run = state.run(cell['run'])
+                    measured = run.get('measured_at') if run else None
+                    stale = nodes.strong(text=' (stale: measured {}; '.format(measured))
+                    stale += nodes.reference('', 're-measure', refuri=state.remeasure_issue)
+                    stale += nodes.Text(')')
+                    para += stale
                 if key == fastest and len(values) > 1:
                     strong = nodes.strong()
                     strong += literal

@@ -246,6 +246,10 @@ DENIED_NOT_ARGUMENT_CLOSED: Mapping[str, str] = {
     "__edge_keys__": "__edge_keys__(e)",
     "__node_entity__": "__node_entity__(n)",
     "__edge_entity__": "__edge_entity__(e)",
+    "__node_identity__": "__node_identity__(n)",
+    "__cypher_node_identity_value__": "__cypher_node_identity_value__(n)",
+    "__cypher_non_entity_null__": "__cypher_non_entity_null__(n)",
+    "__cypher_node_in__": "__cypher_node_in__(__node_identity__(n), [])",
     # quantifiers bind a variable over a source; they are not FunctionCall nodes
     "any": "any(x IN n.c WHERE x > 1)",
     "all": "all(x IN n.c WHERE x > 1)",

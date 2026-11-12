@@ -343,16 +343,13 @@ def test_optional_match_nested_arm_and_label_arm_matched(engine):
 @pytest.mark.parametrize("engine", ENGINES)
 def test_with_carried_scalar_props_after_optional_reentry(engine):
     """F-04 control: scalar WITH carry + optional PROPS projection is a correct
-    5-row left join with the scalar carried -- protects the working half next
-    to the aggregate half (fixed above). polars declines this one, and the
-    decline is now ASSERTED by name: the whole-row carry that also threads
-    scalar WITH columns is the pandas-only payload path."""
+    5-row left join with the scalar carried, now served by native Polars too."""
     q = ("MATCH (p {kind:'person'}) WITH p, p.score AS s "
          "OPTIONAL MATCH (p)-[{t:'L'}]->(x) RETURN s, x.v AS v")
     _parity_or_nie(q, engine, [
         {"s": 5, "v": 100}, {"s": 5, "v": 200},
         {"s": 9, "v": None}, {"s": 7, "v": None}, {"s": 2, "v": None},
-    ], polars_nie="re-entry that carries scalar WITH columns")
+    ])
 
 
 # ===========================================================================

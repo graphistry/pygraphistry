@@ -279,6 +279,7 @@ def combine_steps(
             steps = new_steps
 
     logger.debug('-----------[ combine %s ---------------]', kind)
+    from graphistry.compute.gfql.cypher.reentry.naming import REENTRY_HIDDEN_COLUMN_PREFIX
 
     if label_steps is None:
         label_steps = steps
@@ -307,6 +308,7 @@ def combine_steps(
     dfs_to_concat = []
     extra_step_dfs = []
     base_cols = set((g._nodes if kind == "nodes" else g._edges).columns)
+    carry_cols: List[str] = []
     for idx, (op, g_step) in enumerate(steps):
         op_label = label_steps[idx][0] if idx < len(label_steps) else op
         step_df = apply_output_slice(op, op_label, (g_step._nodes if kind == "nodes" else g_step._edges))
@@ -315,13 +317,67 @@ def combine_steps(
             raise ValueError(f"Column '{id}' not found in {kind} step DataFrame. "
                            f"Step has id='{step_id}', available columns: {list(step_df.columns)}. "
                            f"Operation: {op}")
-        dfs_to_concat.append(step_df[[id]])
+
+        if (
+            kind == 'nodes'
+            and idx > 0
+            and isinstance(op, ASTNode)
+            and isinstance(label_steps[idx - 1][0], ASTEdge)
+        ):
+            prev_nodes = label_steps[idx - 2][1]._nodes
+            prev_edges = label_steps[idx - 1][1]._edges
+            edge_op = label_steps[idx - 1][0]
+            assert isinstance(edge_op, ASTEdge)
+            prev_carry_cols = (
+                [c for c in prev_nodes.columns if c.startswith(REENTRY_HIDDEN_COLUMN_PREFIX)]
+                if prev_nodes is not None else []
+            )
+            if (
+                prev_nodes is not None
+                and prev_edges is not None
+                and prev_carry_cols
+                and len(step_df)
+                and len(prev_edges)
+            ):
+                edge_parts = []
+                if edge_op.direction != 'reverse':
+                    edge_parts.append((g._source, g._destination))
+                if edge_op.direction != 'forward':
+                    edge_parts.append((g._destination, g._source))
+
+                carry_maps = []
+                for from_col, to_col in edge_parts:
+                    carry_maps.append(
+                        prev_edges[[from_col, to_col]].merge(
+                            prev_nodes[[id] + prev_carry_cols],
+                            left_on=from_col,
+                            right_on=id,
+                            how='inner',
+                        ).drop(columns=[from_col, id]).rename(columns={to_col: id})
+                    )
+                carry_map = df_concat(engine)(carry_maps)
+                try:
+                    carry_map = carry_map.drop_duplicates(subset=[id] + prev_carry_cols)
+                except TypeError:
+                    carry_map = carry_map.drop_duplicates(subset=[id])
+                step_df = step_df.drop(columns=[c for c in prev_carry_cols if c in step_df.columns])
+                step_df = safe_merge(step_df, carry_map, on=id, how='left', engine=engine)
+
+        step_carry_cols = [
+            column for column in step_df.columns
+            if column.startswith(REENTRY_HIDDEN_COLUMN_PREFIX)
+        ]
+        carry_cols.extend(step_carry_cols)
+        dfs_to_concat.append(step_df[[id] + step_carry_cols])
 
     for _, (_, g_step) in enumerate(label_steps):
         step_df = (g_step._nodes if kind == "nodes" else g_step._edges)
         if id not in step_df.columns:
             continue
-        extra_cols = [c for c in step_df.columns if c != id and c not in base_cols and 'hop' in c]
+        extra_cols = [
+            c for c in step_df.columns
+            if c != id and c not in base_cols and 'hop' in c
+        ]
         if extra_cols:
             extra_step_dfs.append(step_df[[id] + extra_cols])
 
@@ -332,7 +388,12 @@ def combine_steps(
             dfs_to_concat = [df_to_engine(df, engine) for df in dfs_to_concat]
 
     concat = df_concat(engine)
-    out_df = concat(dfs_to_concat).drop_duplicates(subset=[id])
+    dedup_cols = [id] + list(dict.fromkeys(carry_cols))
+    combined_df = concat(dfs_to_concat)
+    try:
+        out_df = combined_df.drop_duplicates(subset=dedup_cols)
+    except TypeError:
+        out_df = combined_df.drop_duplicates(subset=[id])
 
     label_cols = set()
     for step_df in extra_step_dfs:
@@ -553,8 +614,9 @@ def combine_steps(
     cols = list(out_df.columns)
     # An alias named like a user column collides here (marker `_x` from the step frames
     # vs user values `_y` from the base frame). The marker is authoritative (null =
-    # unbound row); user values are restored from the base frame at property-read time,
-    # never coalesced into the marker (mixed bool/user dtypes also crash cuDF).
+    # unbound row); a Cypher pipeline keeps the user values in a separate restore column
+    # while the temporary edge identity still aligns them. Never coalesce them into the
+    # marker (mixed bool/user dtypes also crash cuDF).
     alias_marker_names = {
         op._name for op, _ in steps
         if isinstance(op, op_type) and isinstance(op._name, str)
@@ -565,6 +627,12 @@ def combine_steps(
             c_y = base + '_y'
             if c_y in out_df.columns:
                 if base in alias_marker_names:
+                    from graphistry.compute.gfql.identifiers import (
+                        shadow_restore_column,
+                        shadow_restore_wanted,
+                    )
+                    if shadow_restore_wanted():
+                        out_df[shadow_restore_column(base)] = out_df[c_y]
                     out_df[base] = out_df[c].fillna(False).astype(bool)
                     out_df = out_df.drop(columns=[c, c_y])
                     continue
@@ -676,7 +744,6 @@ def _plan_indexed_middle(
     comparable instead of two inline condition chains that drift.
     """
     from .gfql.index.handoff import IndexedBindingsHandoff
-
     if not (middle and suffix) or prefix or start_nodes is not None or policy:
         return None
     call = suffix[0]
@@ -1505,6 +1572,9 @@ def _chain_impl(
 
             if g_out._edges is not None and len(g_out._edges) > 0:
                 concat_fn = df_concat(engine_concrete)
+                from graphistry.compute.gfql.cypher.reentry.naming import (
+                    REENTRY_HIDDEN_COLUMN_PREFIX,
+                )
                 endpoints = concat_fn(
                     [
                         g_out._edges[[g_out._source]].rename(columns={g_out._source: g_out._node}),
@@ -1518,7 +1588,15 @@ def _chain_impl(
                 nodes_out = g_out._nodes
                 if len(missing) > 0:  # only a dangling endpoint is backfilled; a present id would widen the attribute dtypes
                     nodes_out = safe_row_concat([nodes_out, missing], ignore_index=True, sort=False)
-                g_out = g_out.nodes(nodes_out.drop_duplicates(subset=[g_out._node]))
+                node_dedup_cols = [g_out._node] + [
+                    column for column in nodes_out.columns
+                    if column.startswith(REENTRY_HIDDEN_COLUMN_PREFIX)
+                ]
+                try:
+                    nodes_out = nodes_out.drop_duplicates(subset=node_dedup_cols)
+                except TypeError:
+                    nodes_out = nodes_out.drop_duplicates(subset=[g_out._node])
+                g_out = g_out.nodes(nodes_out)
 
             success = True
 

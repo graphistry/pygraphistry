@@ -410,8 +410,13 @@ def execute_node(name: str, ast_obj: Union[ASTObject, 'Chain', 'Plottable'], g: 
         # Check if it's a Chain or Plottable
         from graphistry.compute.chain import Chain
         if isinstance(ast_obj, Chain):
-            from .chain import chain as chain_impl
-            result = chain_impl(g, ast_obj.chain, EngineAbstract(engine.value), policy=policy, context=context)
+            if ast_obj.where:
+                from .gfql_unified import _chain_dispatch
+
+                result = _chain_dispatch(g, ast_obj, EngineAbstract(engine.value), policy, context)
+            else:
+                from .chain import chain as chain_impl
+                result = chain_impl(g, ast_obj.chain, EngineAbstract(engine.value), policy=policy, context=context)
         elif isinstance(ast_obj, Plottable):
             # Direct Plottable instance - just return it
             result = ast_obj

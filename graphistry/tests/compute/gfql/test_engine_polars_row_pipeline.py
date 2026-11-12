@@ -118,6 +118,7 @@ NATIVE_LOWERED = [
     "MATCH (a)-[e]->(b) RETURN count(DISTINCT b) AS c",
     # property-arg distinct (already native; guard against regression)
     "MATCH (n) RETURN n.kind, count(DISTINCT n.val) AS c",
+    "MATCH (n) RETURN collect(n) AS xs",
 ]
 
 # NO-CHEATING (see plan.md): no native impl yet -> NotImplementedError, never a
@@ -126,13 +127,6 @@ NATIVE_LOWERED = [
 # lowered via rows(binding_ops) are native.
 DEFERRED = [
     "MATCH (n)-[e]->(m) WHERE n.val < m.val RETURN n, m",   # cross-entity WHERE
-    # whole-entity collect: agg arg is the __node_entity__(n) whole-entity token (not the bare
-    # identity sentinel), whose native list-of-entities representation isn't ported yet -> NIE.
-    "MATCH (n) RETURN collect(n) AS xs",
-    # multi-alias binding-table identity aggregation: the bare ``__gfql_node_id__`` sentinel has
-    # no bare node-id column on the connected-pattern binding table (identity lives in the bare
-    # ALIAS column), so it declines honestly rather than resolve to a wrong/absent column.
-    "MATCH (a)-[e]->(b) RETURN b.kind, count(DISTINCT b) AS c, count(b) AS t",
 ]
 
 
@@ -480,6 +474,9 @@ def test_polars_identity_aggregation_fuzz_matches_pandas(seed):
         "MATCH (b) RETURN b.grp, count(DISTINCT b) AS c, count(b) AS t",
         "MATCH (a)-[]->(b) RETURN count(DISTINCT b) AS c",
         "MATCH (b) RETURN b.kind, count(DISTINCT b.v) AS c",
+        # binding rows: DISTINCT counts each alias's identity column
+        "MATCH (a)-[e]->(b) RETURN b.kind, count(DISTINCT b) AS c, count(b) AS t",
+        "MATCH (a)-[e]->(b) RETURN a.kind, count(DISTINCT b) AS c, collect(DISTINCT b.kind) AS ks",
     ]
     for q in queries:
         try:

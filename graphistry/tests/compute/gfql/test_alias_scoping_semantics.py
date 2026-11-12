@@ -21,18 +21,25 @@ Four defects, all pinned on BOTH engines with hand-computed openCypher oracles:
 Discriminating controls from the probe are pinned alongside each fix so a future
 regression cannot pass by repairing only one side.
 """
-from typing import Literal
+import os
+from typing import Any, List, Literal
 
 import pandas as pd
 import pytest
 
 import graphistry
+from graphistry.compute.ast import e_forward, n
 from graphistry.compute.exceptions import ErrorCode, GFQLTypeError, GFQLValidationError
 from graphistry.compute.gfql.cypher.api import compile_cypher
 
 pl = pytest.importorskip("polars")
 
-ENGINES = ["pandas", "polars"]
+ENGINES = [
+    "pandas",
+    "polars",
+    pytest.param("polars-gpu", marks=pytest.mark.skipif(os.environ.get("TEST_POLARS_GPU") != "1", reason="requires actual polars-gpu")),
+    pytest.param("cudf", marks=pytest.mark.skipif(os.environ.get("TEST_CUDF") != "1", reason="cudf tests need TEST_CUDF=1")),
+]
 
 
 # ---------------------------------------------------------------- fixtures
@@ -84,10 +91,27 @@ SHADOW_EDGES = pd.DataFrame({
     "w": [7, 8],
 })
 
+# A valid two-edge path plus an edge that is reachable at the first hop but cannot
+# continue to the second hop. Used to distinguish path-valid alias markers from labels
+# taken from the forward-only hop frame.
+MULTIHOP_NODES = pd.DataFrame({
+    "id": ["n1", "n2", "n3", "n4"],
+    "label__P": [True] * 4,
+})
+MULTIHOP_EDGES = pd.DataFrame({
+    "s": ["n1", "n2", "n2"],
+    "d": ["n2", "n3", "n4"],
+    "type": ["K", "K", "K"],
+    "w": [7, 8, 10],
+})
+
 
 def _graph(nodes: pd.DataFrame, edges: pd.DataFrame, engine: str):
-    if engine == "polars":
+    if engine in {"polars", "polars-gpu"}:
         nodes, edges = pl.from_pandas(nodes), pl.from_pandas(edges)
+    elif engine == "cudf":
+        cudf = pytest.importorskip("cudf")
+        nodes, edges = cudf.from_pandas(nodes), cudf.from_pandas(edges)
     return graphistry.nodes(nodes, "id").edges(edges, "s", "d")
 
 
@@ -99,7 +123,10 @@ def _rows(g, query: str, engine: str):
     frame = g.gfql(query, engine=engine)._nodes
     if frame is None:
         return []
-    records = frame.to_dicts() if isinstance(frame, pl.DataFrame) else frame.to_dict("records")
+    if isinstance(frame, pl.DataFrame):
+        records = frame.to_dicts()
+    else:
+        records = (frame.to_pandas() if hasattr(frame, "to_pandas") else frame).to_dict("records")
     return [{k: _null(v) for k, v in r.items()} for r in records]
 
 
@@ -331,8 +358,19 @@ def test_whole_entity_projection_of_shadowing_alias_omits_the_column(engine: str
 
 # ---------------------------------------- defect-4 remaining shapes (fixed)
 
+@pytest.mark.parametrize(
+    ("shape", "query"),
+    [
+        ("single-node", "MATCH (kind:P) RETURN kind.kind AS k"),
+        ("cartesian", "MATCH (kind:P), (b:P) RETURN kind.kind AS k, b.id AS bi"),
+        ("bare-edge", "MATCH (a:P)-[w:K]->(b:P) RETURN w.w AS k"),
+    ],
+    ids=["single-node", "cartesian", "bare-edge"],
+)
 @pytest.mark.parametrize("engine", ENGINES)
-def test_single_alias_and_cartesian_shadowed_alias_reads_the_user_value(engine: str) -> None:
+def test_single_alias_and_cartesian_shadowed_alias_reads_the_user_value(
+    engine: str, shape: str, query: str, record_property
+) -> None:
     """#1911 defect 4 (was RESIDUAL): the single-alias ``rows(table=..., source=...)``
     route and the cartesian binding path read properties off the chain output frame,
     where the alias marker had overwritten the user column. The rows route now restores
@@ -340,23 +378,135 @@ def test_single_alias_and_cartesian_shadowed_alias_reads_the_user_value(engine: 
     cartesian paths unshadow like the connected one. Anti-vacuity: 3 node rows / 9
     cartesian rows / 2 relationship rows, distinct values -- an all-``True`` marker
     leak or an empty frame cannot pass."""
-    rows = _run(SHADOW_NODES, SHADOW_EDGES, "MATCH (kind:P) RETURN kind.kind AS k", engine)
-    assert sorted(r["k"] for r in rows) == ["K1", "K2", "K3"]
-    rows = _run(SHADOW_NODES, SHADOW_EDGES,
-                "MATCH (kind:P), (b:P) RETURN kind.kind AS k, b.id AS bi", engine)
-    assert len(rows) == 9 and sorted({r["k"] for r in rows}) == ["K1", "K2", "K3"]
-    # bare relationship-property projection (rows(table='edges', source=alias) route)
-    rows = _run(SHADOW_NODES, SHADOW_EDGES, "MATCH (a:P)-[w:K]->(b:P) RETURN w.w AS k", engine)
-    assert sorted(r["k"] for r in rows) == [7, 8]
+    def matches(rows: list[dict[str, Any]]) -> bool:
+        if shape == "single-node":
+            return sorted(r["k"] for r in rows) == ["K1", "K2", "K3"]
+        if shape == "cartesian":
+            return len(rows) == 9 and sorted({r["k"] for r in rows}) == ["K1", "K2", "K3"]
+        return sorted(r["k"] for r in rows) == [7, 8]
+
+    if engine == "polars-gpu":
+        record_property("gpu_decline_shapes", "single-node,cartesian")
+
+    try:
+        rows = _run(SHADOW_NODES, SHADOW_EDGES, query, engine)
+    except NotImplementedError:
+        assert engine == "polars-gpu"
+        assert shape in {"single-node", "cartesian"}
+        record_property("gpu_capability", "declined")
+        return
+    record_property("gpu_capability", "served")
+    assert matches(rows)
 
 
-def test_multihop_relationship_shadowed_alias_pandas_fixed_polars_multiplicity_residual() -> None:
-    """#1911 defect 4: pandas now reads the user value in the MULTI-hop shape too
-    (was the marker ``True``). polars still over-multiplies the rows -- a separate
-    pre-existing multiplicity defect independent of the alias name -- pinned as-is."""
+def test_multihop_relationship_alias_reads_only_path_valid_edge() -> None:
+    """A relationship alias in a multi-hop pattern marks only edges in a complete path."""
     query = "MATCH (a:P)-[w:K]->(b:P)-[:K]->(c:P) RETURN w.w AS x"
     assert [r["x"] for r in _run(SHADOW_NODES, SHADOW_EDGES, query, "pandas")] == [7]
-    assert sorted(r["x"] for r in _run(SHADOW_NODES, SHADOW_EDGES, query, "polars")) == [7, 8]
+    assert [r["x"] for r in _run(SHADOW_NODES, SHADOW_EDGES, query, "polars")] == [7]
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+@pytest.mark.parametrize(
+    ("query", "expected"),
+    [
+        (
+            "MATCH (a:P)-[w:K]->(b:P)-[:K]->(c:P) RETURN w.w AS x",
+            [7],
+        ),
+        (
+            "MATCH (a:P)-[r:K]->(b:P)-[:K]->(c:P) RETURN r.w AS x",
+            [7],
+        ),
+        (
+            "MATCH (a:P)-[w:K]->(b:P)-[:K]->(c:P) "
+            "WHERE b.id='n2' RETURN w.w AS x",
+            [7],
+        ),
+        (
+            "MATCH (a:P)-[w:K]->(b:P)-[:K]->(c:P) "
+            "WHERE w.w=10 RETURN w.w AS x",
+            [],
+        ),
+        (
+            "MATCH (a:P)-[w:K]->(b:P)-[:K]->(c:P) "
+            "WHERE a.id='n4' RETURN w.w AS x",
+            [],
+        ),
+        (
+            "MATCH (a:P)<-[w:K]-(b:P)<-[:K]-(c:P) "
+            "WHERE a.id='n3' RETURN w.w AS x",
+            [8],
+        ),
+        (
+            "MATCH (a:P)<-[:K]-(b:P)<-[w:K]-(c:P) "
+            "WHERE a.id='n3' RETURN w.w AS x",
+            [7],
+        ),
+        (
+            "MATCH (a:P)-[w:K]-(b:P)-[:K]-(c:P) "
+            "WHERE a.id='n1' RETURN w.w AS x",
+            [7],
+        ),
+    ],
+    ids=[
+        "forward-shadow",
+        "forward-ordinary",
+        "middle-filter",
+        "dead-end-filter-empty",
+        "no-path-empty",
+        "reverse-first-edge-alias",
+        "reverse-second-edge-alias",
+        "undirected-path",
+    ],
+)
+def test_multihop_relationship_alias_matches_path_oracle(
+    query: str, expected: List[int], engine: str
+) -> None:
+    """Direction, alias shadowing, filters and no-path controls share one hand oracle."""
+    rows = _run(MULTIHOP_NODES, MULTIHOP_EDGES, query, engine)
+    assert sorted(r["x"] for r in rows) == expected
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+@pytest.mark.parametrize("alias", ["r", "w"], ids=["ordinary", "shadows-edge-column"])
+def test_direct_gfql_multihop_named_edge_alias_marks_only_complete_path(
+    engine: str, alias: str
+) -> None:
+    """Direct GFQL uses the same combine path; a dead-end first-hop edge is unbound."""
+    graph = _graph(MULTIHOP_NODES, MULTIHOP_EDGES, engine)
+    result = graph.gfql(
+        [
+            n(name="start"),
+            e_forward({"type": "K"}, name=alias),
+            n(name="middle"),
+            e_forward({"type": "K"}),
+            n(name="end"),
+        ],
+        engine=engine,
+    )
+    if engine in {"polars", "polars-gpu"}:
+        edge_rows = result._edges.to_dicts()
+    else:
+        edge_rows = result._edges.to_dict("records")
+    marked = [(row["s"], row["d"]) for row in edge_rows if bool(row[alias])]
+    assert marked == [("n1", "n2")]
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_reverse_multihop_shadowed_relationship_property_reads_matching_edge(engine: str) -> None:
+    """Reverse traversal may reorder edge rows before rows(source=alias) restores payloads."""
+    nodes = pd.DataFrame({"id": ["n1", "n2", "n3", "n4"], "label__P": [True] * 4})
+    edges = pd.DataFrame({
+        "s": ["n1", "n2", "n2"],
+        "d": ["n2", "n3", "n4"],
+        "type": ["K", "K", "K"],
+        "w": [7, 8, 10],
+    })
+    positive = "MATCH (a:P)<-[w:K]-(b:P)<-[:K]-(c:P) WHERE a.id='n3' RETURN w.w AS x"
+    empty = "MATCH (a:P)<-[w:K]-(b:P)<-[:K]-(c:P) WHERE a.id='n1' RETURN w.w AS x"
+    assert _run(nodes, edges, positive, engine) == [{"x": 8}]
+    assert _run(nodes, edges, empty, engine) == []
 
 
 def test_empty_result_keeps_a_shadowed_alias_column_on_both_engines() -> None:
@@ -394,6 +544,9 @@ def test_generate_safe_column_name_from_skips_taken_names() -> None:
     assert generate_safe_column_name_from(
         "edge_ident", ["__gfql_edge_ident_0__", "__gfql_edge_ident_1__"]
     ) == "__gfql_edge_ident_2__"
+    assert generate_safe_column_name_from(
+        "source", {"__attr_source_2__", "__attr_source_3__"}, prefix="__attr_", start=2
+    ) == "__attr_source_4__"
 
 
 def test_unshadow_alias_marker_column_declines_when_there_is_nothing_to_restore() -> None:
@@ -478,12 +631,14 @@ def test_edge_onto_node_entity_rebind_declines_at_compile_time() -> None:
 
 
 @pytest.mark.parametrize("engine", ENGINES)
-def test_scalar_rebind_stays_an_error(engine: Literal["pandas", "polars"]) -> None:
+def test_scalar_rebind_stays_an_error(
+    engine: Literal["pandas", "polars", "polars-gpu", "cudf"],
+) -> None:
     query = "MATCH (a:Person)-[r:KNOWS]->(b:Person) WITH a.name AS b RETURN b.name AS t"
-    if engine == "pandas":
+    if engine in {"pandas", "cudf"}:
         with pytest.raises(GFQLTypeError) as exc_info:
             _run(PEOPLE_NODES, PEOPLE_EDGES, query, engine)
-        assert exc_info.value.code == ErrorCode.E303
+        assert exc_info.value.code == ErrorCode.E306
         assert exc_info.value.context["field"] == "function"
         assert exc_info.value.context["value"] == "select"
     else:
@@ -622,18 +777,47 @@ def test_restore_alias_shadowed_user_column_branches() -> None:
     from graphistry.compute.gfql.row.frame_ops import _restore_alias_shadowed_user_column
 
     restore_col = shadow_restore_column("kind")
+    edge_restore_col = shadow_restore_column("r")
 
-    def ctx_for(base_graph):
-        return SimpleNamespace(_gfql_rows_base_graph=base_graph, _g=None)
+    def ctx_for(base_graph, edge_aliases=None, node_aliases=None):
+        return SimpleNamespace(
+            _gfql_rows_base_graph=base_graph,
+            _gfql_rows_edge_aliases=edge_aliases,
+            _gfql_rows_node_aliases=node_aliases,
+            _g=None,
+        )
 
     marked = pd.DataFrame({"id": ["a", "b"], "kind": [True, True]})
     # no base graph / alias shadows nothing: unchanged
     assert _restore_alias_shadowed_user_column(ctx_for(None), marked, "nodes", "kind") is marked
     base_no_col = SimpleNamespace(_nodes=pd.DataFrame({"id": ["a", "b"]}), _edges=None, _node="id", _edge=None)
     assert _restore_alias_shadowed_user_column(ctx_for(base_no_col), marked, "nodes", "kind") is marked
-    # base column is itself a boolean marker (an intermediate dispatch graph): unchanged
+    # A boolean property is restored unless explicit provenance says it is a marker.
     base_marker = SimpleNamespace(_nodes=pd.DataFrame({"id": ["a", "b"], "kind": [True, False]}), _edges=None, _node="id", _edge=None)
-    assert _restore_alias_shadowed_user_column(ctx_for(base_marker), marked, "nodes", "kind") is marked
+    assert _restore_alias_shadowed_user_column(ctx_for(base_marker, node_aliases={"kind"}), marked, "nodes", "kind") is marked
+    restored_bool = _restore_alias_shadowed_user_column(ctx_for(base_marker), marked, "nodes", "kind")
+    assert list(restored_bool[restore_col]) == [True, False]
+    # A generated relationship alias marker in the active edge frame remains a marker.
+    marked_edges = pd.DataFrame({"s": ["a"], "d": ["b"], "type": ["R"], "r": [True]})
+    base_edge_marker = SimpleNamespace(
+        _nodes=None,
+        _edges=pd.DataFrame({"s": ["a"], "d": ["b"], "type": ["R"], "r": [False]}),
+        _node="id",
+        _edge="type",
+    )
+    assert _restore_alias_shadowed_user_column(
+        ctx_for(base_edge_marker, {"r"}), marked_edges, "edges", "r"
+    ) is marked_edges
+    base_edge_property = SimpleNamespace(
+        _nodes=None,
+        _edges=pd.DataFrame({"s": ["a"], "d": ["b"], "type": ["R"], "r": [False]}),
+        _node="id",
+        _edge="type",
+    )
+    restored_edge = _restore_alias_shadowed_user_column(
+        ctx_for(base_edge_property), marked_edges, "edges", "r"
+    )
+    assert list(restored_edge[edge_restore_col]) == [False]
     # Keyed restore keeps the marker boolean.
     base = SimpleNamespace(_nodes=pd.DataFrame({"id": ["a", "b"], "kind": ["K1", "K2"]}), _edges=None, _node="id", _edge=None)
     out = _restore_alias_shadowed_user_column(ctx_for(base), marked, "nodes", "kind")
@@ -650,7 +834,7 @@ def test_restore_alias_shadowed_user_column_branches() -> None:
     shifted = pd.DataFrame({"id": ["a", "b"], "kind": [True, True]}, index=[10, 11])
     out = _restore_alias_shadowed_user_column(ctx_for(base), shifted, "nodes", "kind")
     assert list(out[restore_col]) == ["K1", "K2"]
-    # polars: id-keyed join replaces the marker column in place; no key -> unchanged
+    # polars string properties continue replacing the marker column in place.
     marked_pl = pl.DataFrame({"id": ["a", "b"], "kind": [True, True]})
     base_pl = SimpleNamespace(_nodes=pl.DataFrame({"id": ["a", "b"], "kind": ["K1", "K2"]}), _edges=None, _node="id", _edge=None)
     out_pl = _restore_alias_shadowed_user_column(ctx_for(base_pl), marked_pl, "nodes", "kind")
@@ -659,9 +843,12 @@ def test_restore_alias_shadowed_user_column_branches() -> None:
     assert _restore_alias_shadowed_user_column(ctx_for(base_pl_no_key), marked_pl, "nodes", "kind") is marked_pl
     # polars marker-carrying base: unchanged
     base_pl_marker = SimpleNamespace(_nodes=pl.DataFrame({"id": ["a", "b"], "kind": [True, False]}), _edges=None, _node="id", _edge=None)
-    assert _restore_alias_shadowed_user_column(ctx_for(base_pl_marker), marked_pl, "nodes", "kind") is marked_pl
+    assert _restore_alias_shadowed_user_column(ctx_for(base_pl_marker, node_aliases={"kind"}), marked_pl, "nodes", "kind") is marked_pl
+    restored_pl_bool = _restore_alias_shadowed_user_column(ctx_for(base_pl_marker), marked_pl, "nodes", "kind")
+    assert restored_pl_bool[restore_col].to_list() == [True, False]
 
 
+@pytest.mark.skipif(os.environ.get("TEST_CUDF") != "1", reason="cudf tests need TEST_CUDF=1")
 def test_cudf_rows_route_self_named_alias_parity() -> None:
     """cuDF (dataframe ops only): the node shape crashed with a raw mixed-types
     TypeError from the marker/user-column coalesce; both shapes now match pandas."""
@@ -676,6 +863,7 @@ def test_cudf_rows_route_self_named_alias_parity() -> None:
     assert sorted(out.to_pandas()["t"]) == ["K", "K"]
 
 
+@pytest.mark.skipif(os.environ.get("TEST_CUDF") != "1", reason="cudf tests need TEST_CUDF=1")
 def test_cudf_unshadow_and_rebind_guard_parity() -> None:
     """cuDF (dataframe ops only): the marker unshadow reads the user value and
     the rebind guard declines identically."""
@@ -694,7 +882,13 @@ def test_cudf_unshadow_and_rebind_guard_parity() -> None:
     assert "rebind an entity alias" in str(exc_info.value)
 
 
-@pytest.mark.parametrize("backend", ["pandas", "cudf"])
+@pytest.mark.parametrize(
+    "backend",
+    [
+        "pandas",
+        pytest.param("cudf", marks=pytest.mark.skipif(os.environ.get("TEST_CUDF") != "1", reason="cudf tests need TEST_CUDF=1")),
+    ],
+)
 @pytest.mark.parametrize("keys", [[], [2, 1], [2, 1, 2], [2, 99, 1]])
 @pytest.mark.parametrize("duplicate_index", [False, True])
 @pytest.mark.parametrize("values", [[10, 20], ["first", "second"]])
@@ -711,8 +905,14 @@ def test_alias_restore_uses_entity_keys_after_row_reordering(backend, keys, dupl
     if backend == "cudf":
         cudf = pytest.importorskip("cudf")
         base, marked = cudf.from_pandas(base), cudf.from_pandas(marked)
-    ctx = SimpleNamespace(_gfql_rows_base_graph=SimpleNamespace(
-        _nodes=base, _edges=None, _node="id", _edge=None), _g=None)
+    ctx = SimpleNamespace(
+        _gfql_rows_base_graph=SimpleNamespace(
+            _nodes=base, _edges=None, _node="id", _edge=None
+        ),
+        _gfql_rows_edge_aliases=None,
+        _gfql_rows_node_aliases=None,
+        _g=None,
+    )
     result = _restore_alias_shadowed_user_column(ctx, marked, "nodes", "value")
     result_pd = result.to_pandas() if backend == "cudf" else result
     marked_pd = marked.to_pandas() if backend == "cudf" else marked

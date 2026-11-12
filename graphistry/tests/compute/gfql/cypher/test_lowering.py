@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 from dataclasses import fields as dataclass_fields
+from collections import Counter
 from pathlib import Path
+import os
+
 import pandas as pd
 import pytest
 import graphistry
@@ -54,6 +57,7 @@ from graphistry.compute.gfql.cypher.lowering import (
     _expr_property_access_node_aliases,
     _is_multi_source_match_alias_boundary_error,
     _logical_plan_route_for_query,
+    _parse_row_expr,
     _projection_ref_from_expr_safe,
     _render_row_where_operand_text,
     _row_where_predicate_text,
@@ -101,6 +105,15 @@ class _CypherTestGraph(CGFull):
 
 def _mk_graph(nodes_df: pd.DataFrame, edges_df: pd.DataFrame) -> _CypherTestGraph:
     return cast(_CypherTestGraph, _CypherTestGraph().nodes(nodes_df, "id").edges(edges_df, "s", "d"))
+
+
+def _mk_engine_graph(engine: str, nodes_df: pd.DataFrame, edges_df: pd.DataFrame) -> _CypherTestGraph:
+    if engine == "cudf":
+        _require_cudf_runtime()
+        return _mk_cudf_graph(nodes_df, edges_df)
+    if engine == "polars":
+        return _mk_polars_graph(nodes_df, edges_df)
+    return _mk_graph(nodes_df, edges_df)
 
 
 def _mk_cudf_graph(nodes_df: pd.DataFrame, edges_df: pd.DataFrame) -> _CypherTestGraph:
@@ -276,8 +289,9 @@ def _mk_connected_reentry_carried_scalar_data() -> Tuple[pd.DataFrame, pd.DataFr
         pd.DataFrame(
             {
                 "s": ["a1", "a2", "b1", "b2"],
-                "d": ["b1", "b2", "c1", "c2"],
+                "d": ["b1", "b2", "c1", "c1"],
                 "type": ["R", "R", "S", "S"],
+                "weight": [None, None, 10, 20],
             }
         ),
     )
@@ -392,9 +406,9 @@ def _mk_connected_multi_pattern_reentry_graph() -> _CypherTestGraph:
     )
 
 
-def _mk_collect_unwind_reentry_graph() -> _CypherTestGraph:
-    """Graph for WITH collect(...) UNWIND ... MATCH tests: s->b1->c1, s->b2->c2."""
-    return _mk_graph(
+def _mk_collect_unwind_reentry_data() -> Tuple[pd.DataFrame, pd.DataFrame]:
+    """Graph data for WITH collect(...) UNWIND ... MATCH tests: s->b1->c1, s->b2->c2."""
+    return (
         pd.DataFrame(
             {
                 "id": ["s", "b1", "b2", "c1", "c2"],
@@ -412,6 +426,10 @@ def _mk_collect_unwind_reentry_graph() -> _CypherTestGraph:
             }
         ),
     )
+
+
+def _mk_collect_unwind_reentry_graph() -> _CypherTestGraph:
+    return _mk_graph(*_mk_collect_unwind_reentry_data())
 
 
 def _mk_connected_multi_pattern_fanout_data() -> Tuple[pd.DataFrame, pd.DataFrame]:
@@ -1542,6 +1560,277 @@ def test_gfql_executes_positive_where_pattern_predicate_as_seeded_match() -> Non
     assert result._nodes.to_dict(orient="records") == [{"id": "a"}]
 
 
+@pytest.mark.parametrize("empty_edges", [False, True], ids=["nonempty", "empty"])
+@pytest.mark.parametrize("engine", ["pandas", "polars", "cudf"])
+@pytest.mark.parametrize(
+    "query,expected",
+    [
+        ("MATCH (n) WHERE (n)-->() RETURN n.id AS id", [{"id": "a"}, {"id": "b"}]),
+        ("MATCH (n) WHERE (n)-->() RETURN count(*) AS c", [{"c": 2}]),
+        ("MATCH (n) WHERE NOT (n)-->() RETURN count(*) AS c", [{"c": 2}]),
+        ("MATCH (n)-->() RETURN count(DISTINCT n) AS c", [{"c": 2}]),
+    ],
+)
+def test_pattern_where_aggregates_use_alias_id_keys(
+    engine: str,
+    empty_edges: bool,
+    query: str,
+    expected: list[dict[str, object]],
+) -> None:
+    if engine == "polars":
+        pytest.importorskip("polars")
+    elif engine == "cudf":
+        _require_cudf_runtime()
+
+    if empty_edges:
+        expected = [] if query.endswith("RETURN n.id AS id") else [{"c": 0}]
+        if query.startswith("MATCH (n) WHERE NOT"):
+            expected = [{"c": 4}]
+
+    nodes = pd.DataFrame({"id": ["a", "b", "c", "d"]})
+    edge_values = {"s": ["a", "a", "b"], "d": ["b", "c", "c"]}
+    edges = (
+        pd.DataFrame({"s": pd.Series([], dtype="object"), "d": pd.Series([], dtype="object")})
+        if empty_edges
+        else pd.DataFrame(edge_values)
+    )
+    if engine == "polars":
+        pl = pytest.importorskip("polars")
+        nodes, edges = pl.from_pandas(nodes), pl.from_pandas(edges)
+        graph = cast(_CypherTestGraph, _CypherTestGraph().nodes(nodes, "id").edges(edges, "s", "d"))
+    elif engine == "cudf":
+        cudf = _require_cudf_runtime()
+        nodes, edges = cudf.from_pandas(nodes), cudf.from_pandas(edges)
+        graph = cast(_CypherTestGraph, _CypherTestGraph().nodes(nodes, "id").edges(edges, "s", "d"))
+    else:
+        graph = _mk_graph(nodes, edges)
+
+    result = graph.gfql(query)
+    if engine == "polars":
+        records = result._nodes.to_dicts()
+    else:
+        records = result._nodes.to_dict(orient="records")
+    assert records == expected
+
+
+@pytest.mark.parametrize(
+    "query,expected",
+    [
+        (
+            "MATCH (n) WHERE (n)-->() RETURN n.id AS id, count(*) AS c ORDER BY id",
+            [{"id": "a", "c": 1}, {"id": "b", "c": 1}],
+        ),
+        (
+            "MATCH (n) WHERE (n)<--() RETURN count(*) AS c",
+            [{"c": 2}],
+        ),
+        (
+            "MATCH (n) WHERE (n)--() RETURN count(*) AS c",
+            [{"c": 3}],
+        ),
+        (
+            "MATCH (n) WHERE (n)-->() AND n.id != 'a' RETURN count(*) AS c",
+            [{"c": 1}],
+        ),
+    ],
+    ids=["grouped", "reverse", "undirected", "compound"],
+)
+def test_pattern_where_aggregate_deduplicates_edge_multiplicity(
+    query: str,
+    expected: list[dict[str, object]],
+) -> None:
+    nodes = pd.DataFrame({"id": ["a", "b", "c"]})
+    edges = pd.DataFrame({"s": ["a", "a", "b"], "d": ["b", "b", "c"]})
+
+    result = _mk_graph(nodes, edges).gfql(query)
+
+    assert result._nodes.to_dict(orient="records") == expected
+
+
+@pytest.mark.parametrize("engine", ["pandas", "polars", "cudf"])
+@pytest.mark.parametrize(
+    "query,expected",
+    [
+        (
+            "MATCH (n) WHERE (n)-->() RETURN n.kind AS kind, count(*) AS c ORDER BY kind",
+            [{"kind": "x", "c": 2}],
+        ),
+        (
+            "MATCH (n) WHERE NOT (n)-->() RETURN n.kind AS kind, count(*) AS c ORDER BY kind",
+            [{"kind": "y", "c": 1}],
+        ),
+        (
+            "MATCH (n) WHERE (n)-->() AND n.kind = 'x' RETURN count(*) AS c",
+            [{"c": 2}],
+        ),
+        (
+            "MATCH (n) WHERE NOT (n)-->() AND n.kind = 'y' RETURN count(*) AS c",
+            [{"c": 1}],
+        ),
+        (
+            "MATCH (n) WHERE (n)-->() RETURN n.missing AS missing, count(*) AS c ORDER BY c",
+            [{"missing": None, "c": 2}],
+        ),
+        (
+            "MATCH (n) WHERE NOT (n)-->() RETURN n.missing AS missing, count(*) AS c ORDER BY c",
+            [{"missing": None, "c": 1}],
+        ),
+    ],
+    ids=[
+        "positive-grouped",
+        "negative-grouped",
+        "positive-compound",
+        "negative-compound",
+        "positive-missing",
+        "negative-missing",
+    ],
+)
+def test_pattern_where_aggregate_preserves_property_scope(
+    engine: str,
+    query: str,
+    expected: list[dict[str, object]],
+) -> None:
+    nodes = pd.DataFrame({"id": ["a", "b", "c"], "kind": ["x", "x", "y"]})
+    edges = pd.DataFrame({"s": ["a", "a", "b"], "d": ["b", "b", "c"]})
+
+    if engine == "polars":
+        pl = pytest.importorskip("polars")
+        graph = cast(
+            _CypherTestGraph,
+            _CypherTestGraph()
+            .nodes(pl.from_pandas(nodes), "id")
+            .edges(pl.from_pandas(edges), "s", "d"),
+        )
+    elif engine == "cudf":
+        cudf = _require_cudf_runtime()
+        graph = cast(
+            _CypherTestGraph,
+            _CypherTestGraph()
+            .nodes(cudf.from_pandas(nodes), "id")
+            .edges(cudf.from_pandas(edges), "s", "d"),
+        )
+    else:
+        graph = _mk_graph(nodes, edges)
+
+    result = graph.gfql(query)
+    if engine == "polars":
+        records = result._nodes.to_dicts()
+    else:
+        records = result._nodes.to_dict(orient="records")
+    records = [
+        {**record, "missing": None if pd.isna(record["missing"]) else record["missing"]}
+        if "missing" in record
+        else record
+        for record in records
+    ]
+    assert records == expected
+
+
+@pytest.mark.parametrize("engine", ["pandas", "polars", "cudf"])
+@pytest.mark.parametrize(
+    "query",
+    [
+        "MATCH (n) WHERE (n)-->() RETURN n.missing AS missing, count(*) AS c",
+        "MATCH (n) WHERE NOT (n)-->() RETURN n.missing AS missing, count(*) AS c",
+    ],
+    ids=["positive-marker", "negative-marker"],
+)
+def test_pattern_where_aggregate_strict_missing_property_raises(
+    engine: str,
+    query: str,
+) -> None:
+    nodes = pd.DataFrame({"id": ["a", "b", "c"]})
+    edges = pd.DataFrame({"s": ["a", "a", "b"], "d": ["b", "b", "c"]})
+
+    if engine == "polars":
+        pl = pytest.importorskip("polars")
+        graph = cast(
+            _CypherTestGraph,
+            _CypherTestGraph()
+            .nodes(pl.from_pandas(nodes), "id")
+            .edges(pl.from_pandas(edges), "s", "d"),
+        )
+    elif engine == "cudf":
+        cudf = _require_cudf_runtime()
+        graph = cast(
+            _CypherTestGraph,
+            _CypherTestGraph()
+            .nodes(cudf.from_pandas(nodes), "id")
+            .edges(cudf.from_pandas(edges), "s", "d"),
+        )
+    else:
+        graph = _mk_graph(nodes, edges)
+
+    with pytest.raises(GFQLSchemaError) as exc_info:
+        graph.gfql(query, strict=True)
+    assert exc_info.value.code == "column-not-found"
+
+
+def test_pattern_semi_join_frame_preserves_existing_qualified_property() -> None:
+    from graphistry.compute.gfql.row.pipeline import RowPipelineMixin
+
+    left_df = pd.DataFrame(
+        {"id": ["1"], "n": [True], "kind": ["bare"], "n.kind": ["qualified"]}
+    )
+    right_df = pd.DataFrame({"n.id": ["1"]})
+
+    out_df, join_cols, missing_aliases = RowPipelineMixin._gfql_pattern_semi_join_frame(
+        left_df,
+        right_df,
+        ["n"],
+        "id",
+        {"n": ["kind"]},
+    )
+
+    assert join_cols == ["n.id"]
+    assert missing_aliases == []
+    assert out_df["n.kind"].tolist() == ["qualified"]
+    assert out_df["kind"].tolist() == ["bare"]
+
+
+def test_pattern_semi_join_frame_synthesizes_absent_qualified_property() -> None:
+    from graphistry.compute.gfql.row.pipeline import RowPipelineMixin
+    from graphistry.compute.gfql.strictness import strictness_scope
+
+    left_df = pd.DataFrame({"id": ["1", "2"], "n": [True, False]})
+    right_df = pd.DataFrame({"n.id": ["1"]})
+
+    with strictness_scope("quiet"):
+        out_df, join_cols, missing_aliases = (
+            RowPipelineMixin._gfql_pattern_semi_join_frame(
+                left_df,
+                right_df,
+                ["n"],
+                "id",
+                {"n": ["kind"]},
+            )
+        )
+
+    assert join_cols == ["n.id"]
+    assert missing_aliases == []
+    assert pd.isna(out_df["n.kind"]).all()
+
+
+def test_pattern_semi_join_frame_strict_absent_qualified_property_raises() -> None:
+    from graphistry.compute.exceptions import GFQLSchemaError
+    from graphistry.compute.gfql.row.pipeline import RowPipelineMixin
+    from graphistry.compute.gfql.strictness import strictness_scope
+
+    left_df = pd.DataFrame({"id": ["1"], "n": [True]})
+    right_df = pd.DataFrame({"n.id": ["1"]})
+
+    with strictness_scope("strict"), pytest.raises(GFQLSchemaError) as exc_info:
+        RowPipelineMixin._gfql_pattern_semi_join_frame(
+            left_df,
+            right_df,
+            ["n"],
+            "id",
+            {"n": ["kind"]},
+        )
+
+    assert exc_info.value.code == "column-not-found"
+
+
 def test_gfql_executes_reverse_fixed_point_where_pattern_predicate_as_seeded_match() -> None:
     nodes = pd.DataFrame({"id": ["a", "b", "c", "x", "y"]})
     edges = pd.DataFrame(
@@ -2534,6 +2823,136 @@ def test_cypher_to_gfql_executes_whole_row_alias_pipeline() -> None:
     ]
 
 
+@pytest.mark.parametrize(
+    ("nodes", "edges", "query", "alias", "expected"),
+    [
+        pytest.param(
+            ["a", "b", "c"],
+            [("a", "b"), ("c", "b")],
+            "MATCH (a)-[e]->(b)<-[f]-(c) WHERE a.id = 'a' RETURN DISTINCT c",
+            "c",
+            ["c"],
+            id="direct-fan-in",
+        ),
+        pytest.param(
+            ["a", "b"],
+            [("a", "a"), ("a", "b")],
+            "MATCH (a)-->(b)-->(c) RETURN DISTINCT c",
+            "c",
+            ["b"],
+            id="self-loop-and-multi-edge",
+        ),
+        pytest.param(
+            ["a", "b", "c", "d"],
+            [("a", "b"), ("b", "c"), ("c", "d"), ("a", "c")],
+            "MATCH (a)-[*2..2]->(c) WHERE a.id = 'a' RETURN DISTINCT c",
+            "c",
+            ["c", "d"],
+            id="exact-two-hop",
+        ),
+        pytest.param(
+            ["x", "y", "z"],
+            [("x", "y"), ("y", "z"), ("z", "x")],
+            "MATCH (a)-[*1..3]-(b) WHERE a.id = 'x' RETURN DISTINCT b",
+            "b",
+            ["x", "y", "z"],
+            id="undirected-cycle",
+        ),
+        pytest.param(
+            ["x", "a", "b"],
+            [("a", "b")],
+            "MATCH (a)-[*0..1]->(b) WHERE a.id = 'x' RETURN DISTINCT b",
+            "b",
+            ["x"],
+            id="zero-hop",
+        ),
+        pytest.param(
+            ["a", "b", "c", "d"],
+            [("a", "b"), ("b", "c"), ("b", "d"), ("a", "c")],
+            "MATCH (a)-[e]-(b) WHERE b.id = 'c' RETURN DISTINCT a",
+            "a",
+            ["a", "b"],
+            id="far-end-filter",
+        ),
+    ],
+)
+def test_cypher_whole_node_projection_matches_relationship_unique_paths(
+    nodes: List[str],
+    edges: List[Tuple[str, str]],
+    query: str,
+    alias: str,
+    expected: List[str],
+) -> None:
+    nodes_df = pd.DataFrame({"id": nodes})
+    edges_df = pd.DataFrame({"s": [edge[0] for edge in edges], "d": [edge[1] for edge in edges]})
+    result = _mk_graph(nodes_df, edges_df).gfql(query, strict="strict")
+
+    assert sorted(result._nodes[f"{alias}.id"]) == expected
+
+
+@pytest.mark.parametrize("engine", ["pandas", "polars", "cudf"])
+@pytest.mark.parametrize(
+    ("values", "expected"),
+    [
+        pytest.param([1, 2], [(1,), (2,)], id="distinct-projected-values-are-retained"),
+        pytest.param([1, 1], [(1,)], id="equal-projected-values-collapse"),
+        pytest.param([None, None], [(None,)], id="equal-null-projected-values-collapse"),
+        pytest.param([None, 1], [(None,), (1,)], id="null-and-value-are-retained"),
+    ],
+)
+def test_whole_node_distinct_keys_on_projected_values(
+    engine: str,
+    values: List[Optional[int]],
+    expected: List[Tuple[Optional[int], ...]],
+) -> None:
+    nodes = pd.DataFrame({"id": ["a", "b", "c", "d"], "v": [None, None, values[0], values[1]]})
+    edges = pd.DataFrame({"s": ["a", "c", "d"], "d": ["b", "b", "b"]})
+    query = "MATCH (a)-[e]->(b)<-[f]-(c) WHERE a.id = 'a' RETURN DISTINCT b, c.v AS v"
+    if engine == "cudf":
+        _require_cudf_runtime()
+        graph = _mk_cudf_graph(nodes, edges)
+    elif engine == "polars":
+        graph = _mk_polars_graph(nodes, edges)
+    else:
+        graph = _mk_graph(nodes, edges)
+
+    rows = _to_pandas_df(graph.gfql(query, strict="strict")._nodes)
+    actual_rows = Counter(
+        tuple(None if pd.isna(value) else value for value in row)
+        for row in zip(rows["v"])
+    )
+    assert actual_rows == Counter(expected)
+
+
+@pytest.mark.parametrize("engine", ["pandas", "polars", "cudf"])
+@pytest.mark.parametrize(
+    ("distinct", "expected"),
+    [
+        pytest.param(True, [("c",)], id="parallel-relationship-set-collapses"),
+        pytest.param(False, [("c",), ("c",)], id="parallel-relationship-bag-retains-relationships"),
+    ],
+)
+def test_whole_node_distinct_preserves_bag_or_set_semantics(
+    engine: str,
+    distinct: bool,
+    expected: List[Tuple[str, ...]],
+) -> None:
+    nodes = pd.DataFrame({"id": ["a", "b", "c"]})
+    edges = pd.DataFrame({"s": ["a", "a", "c"], "d": ["b", "b", "b"]})
+    distinct_sql = " DISTINCT" if distinct else ""
+    query = f"MATCH (a)-[e]->(b)<-[f]-(c) WHERE a.id = 'a' AND c.id = 'c' RETURN{distinct_sql} b, c.id AS cid"
+    if engine == "cudf":
+        _require_cudf_runtime()
+        graph = _mk_cudf_graph(nodes, edges)
+    elif engine == "polars":
+        graph = _mk_polars_graph(nodes, edges)
+    else:
+        graph = _mk_graph(nodes, edges)
+
+    rows = _to_pandas_df(graph.gfql(query, strict="strict")._nodes)
+    assert sorted(zip(rows["cid"])) == expected
+
+
 def test_string_cypher_formats_single_node_entity_projection() -> None:
     nodes = pd.DataFrame(
         {
@@ -2823,6 +3242,73 @@ def test_cypher_to_gfql_supports_standalone_graph_constructor() -> None:
     result = _mk_simple_path_graph().gfql(chain)
     assert set(result._nodes["id"].tolist()) == {"a", "b"}
     assert result._edges[["s", "d"]].to_dict(orient="records") == [{"s": "a", "d": "b"}]
+
+
+_requires_test_cudf = pytest.mark.skipif(
+    os.environ.get("TEST_CUDF", "0") != "1", reason="cudf tests need TEST_CUDF=1 and a GPU")
+
+
+@pytest.mark.parametrize("engine", ["pandas", pytest.param("cudf", marks=_requires_test_cudf)])
+@pytest.mark.parametrize(
+    "query,expected",
+    [
+        (
+            "MATCH (n) RETURN n.name AS name, count(*) AS c ORDER BY name",
+            [{"name": "A", "c": 2}, {"name": "B", "c": 2}],
+        ),
+        (
+            "MATCH (n) RETURN n.name AS name, n.town AS town, sum(n.score) AS s ORDER BY name, town",
+            [
+                {"name": "A", "town": "x", "s": 3},
+                {"name": "A", "town": "y", "s": 4},
+                {"name": "B", "town": "x", "s": 6},
+            ],
+        ),
+        (
+            "MATCH (n) WITH n.name AS name, count(n.name) AS c WHERE c > 1 RETURN name, c ORDER BY name",
+            [{"name": "A", "c": 2}, {"name": "B", "c": 2}],
+        ),
+    ],
+)
+def test_string_cypher_groups_by_a_key_named_name(engine: str, query: str, expected: list) -> None:
+    if engine == "cudf":
+        cudf = pytest.importorskip("cudf")
+    nodes = pd.DataFrame(
+        {
+            "id": ["a", "b", "c", "e"],
+            "name": ["A", "B", "A", "B"],
+            "town": ["x", "x", "y", "x"],
+            "score": [3, 1, 4, 5],
+        }
+    )
+    edges = pd.DataFrame({"s": ["a", "b"], "d": ["b", "c"]})
+    if engine == "cudf":
+        nodes, edges = cudf.from_pandas(nodes), cudf.from_pandas(edges)
+
+    result = graphistry.nodes(nodes, "id").edges(edges, "s", "d").gfql(query, engine=engine)
+
+    out = result._nodes.to_pandas() if engine == "cudf" else result._nodes
+    assert out.to_dict(orient="records") == expected
+
+
+@pytest.mark.parametrize("engine", ["pandas", pytest.param("cudf", marks=_requires_test_cudf)])
+@pytest.mark.parametrize("alias", ["__gfql_name_key__", "__gfql_name_key___x", "c"])
+def test_string_cypher_groups_by_name_with_an_aggregate_alias_like_the_internal_key(
+    engine: str, alias: str
+) -> None:
+    if engine == "cudf":
+        cudf = pytest.importorskip("cudf")
+    nodes = pd.DataFrame({"id": [0, 1], "name": ["A", "A"]})
+    edges = pd.DataFrame({"s": [0], "d": [1]})
+    if engine == "cudf":
+        nodes, edges = cudf.from_pandas(nodes), cudf.from_pandas(edges)
+
+    result = graphistry.nodes(nodes, "id").edges(edges, "s", "d").gfql(
+        f"MATCH (n) RETURN n.name AS name, count(*) AS {alias}", engine=engine
+    )
+
+    out = result._nodes.to_pandas() if engine == "cudf" else result._nodes
+    assert out.to_dict(orient="records") == [{"name": "A", alias: 2}]
 
 
 def test_string_cypher_formats_filtered_edge_entity_projection_on_cudf() -> None:
@@ -4007,7 +4493,7 @@ def test_string_cypher_uses_integer_division_for_literal_arithmetic_expression()
     assert result._nodes.to_dict(orient="records") == [{"12 / 4 * 3 - 2 * 4": 1}]
 
 
-def test_string_cypher_preserves_escaped_literal_backslash_pairs() -> None:
+def test_string_cypher_decodes_standard_escaped_backslash_once() -> None:
     graph = _mk_graph(
         pd.DataFrame({"id": []}),
         pd.DataFrame({"s": [], "d": []}),
@@ -4016,7 +4502,7 @@ def test_string_cypher_preserves_escaped_literal_backslash_pairs() -> None:
     result = graph.gfql(r"""RETURN 'a\\bcn5t\'"\\//\\"\'' AS literal""")
 
     assert result._nodes.to_dict(orient="records") == [
-        {"literal": "a\\\\bcn5t'\"\\\\//\\\\\"'"}
+        {"literal": "a\\bcn5t'\"\\//\\\"'"}
     ]
 
 
@@ -4040,8 +4526,41 @@ def test_string_cypher_handles_standard_string_literal_escapes() -> None:
     result = graph.gfql(r"""RETURN '\n\t\r\b\f\\\'\"' AS literal""")
 
     assert result._nodes.to_dict(orient="records") == [
-        {"literal": "\n\t\r\b\f\\\\'\""}
+        {"literal": "\n\t\r\b\f\\'\""}
     ]
+
+
+def test_string_cypher_backslash_matches_consistently_under_composed_where() -> None:
+    graph = _mk_graph(
+        pd.DataFrame({
+            "id": ["a", "b", "c", "d"],
+            "ip": ["10.0.0.1", "192.168.1.5", "10x0.0.2", "8.8.8.8"],
+            "path": ["a\\slash", "plain", "plain", "plain"],
+        }),
+        pd.DataFrame({"s": ["a", "a", "b"], "d": ["b", "c", "c"]}),
+    )
+
+    direct = graph.gfql(r"MATCH (n) WHERE n.ip =~ '10\\..*' RETURN n.id AS id")
+    negated = graph.gfql(r"MATCH (n) WHERE NOT n.ip =~ '10\\..*' RETURN n.id AS id")
+    logical_or = graph.gfql(
+        r"MATCH (n) WHERE n.ip =~ '10\\..*' OR n.id = 'zz' RETURN n.id AS id"
+    )
+    regex_control = graph.gfql(r"MATCH (n) WHERE NOT n.ip =~ '10[.].*' RETURN n.id AS id")
+    nested = graph.gfql(
+        r"MATCH (n) WHERE NOT (n.ip =~ '10\\..*' OR n.id = 'zz') RETURN n.id AS id"
+    )
+    stored_slash = graph.gfql(r"MATCH (n) WHERE n.path = 'a\\slash' RETURN n.id AS id")
+    composed_stored_slash = graph.gfql(
+        r"MATCH (n) WHERE n.path = 'a\\slash' OR n.id = 'zz' RETURN n.id AS id"
+    )
+
+    assert direct._nodes["id"].tolist() == ["a"]
+    assert negated._nodes["id"].tolist() == ["b", "c", "d"]
+    assert logical_or._nodes["id"].tolist() == ["a"]
+    assert regex_control._nodes["id"].tolist() == ["b", "c", "d"]
+    assert nested._nodes["id"].tolist() == ["b", "c", "d"]
+    assert stored_slash._nodes["id"].tolist() == ["a"]
+    assert composed_stored_slash._nodes["id"].tolist() == ["a"]
 
 
 @pytest.mark.parametrize("query", [r"RETURN '\uH' AS literal", "RETURN 'unterminated AS literal"])
@@ -4179,7 +4698,7 @@ def test_string_cypher_supports_relationship_row_multiplicity_sensitive_aggregat
     assert result._nodes.to_dict(orient="records") == expected_rows
 
 
-def test_string_cypher_failfast_relationship_whole_row_grouped_count_star_boundary() -> None:
+def test_string_cypher_relationship_whole_row_grouped_count_star_counts_paths() -> None:
     graph = _mk_graph(
         pd.DataFrame(
             {
@@ -4196,8 +4715,8 @@ def test_string_cypher_failfast_relationship_whole_row_grouped_count_star_bounda
         ),
     )
 
-    with pytest.raises(GFQLValidationError, match="repeated MATCH rows"):
-        graph.gfql("MATCH (a:L)-[rel]->(b) RETURN a, count(*)")
+    out = graph.gfql("MATCH (a:L)-[rel]->(b) RETURN a, count(*)")._nodes
+    assert out.to_dict(orient="records") == [{"a.id": "a", "a.label__L": True, "count(*)": 2}]
 
 
 def test_string_cypher_failfast_optional_match_collect_null_whole_row_return_boundary() -> None:
@@ -4329,16 +4848,17 @@ def test_string_cypher_supports_relationship_row_grouped_count_sum_and_avg() -> 
 
 
 @pytest.mark.parametrize(
-    "query",
+    "query, expected",
     [
-        "MATCH (a:L)-[r]->(b) RETURN a.id AS aid, count(r) AS cnt",
-        "MATCH (a:L)-[r]->(b) RETURN a.id AS aid, sum(r.weight) AS total",
-        "MATCH (a:L)-[r]->(b) RETURN a.id AS aid, avg(r.weight) AS avg_w",
+        ("MATCH (a:L)-[r]->(b) RETURN a.id AS aid, count(r) AS cnt", [{"aid": "a", "cnt": 2}]),
+        ("MATCH (a:L)-[r]->(b) RETURN a.id AS aid, sum(r.weight) AS total", [{"aid": "a", "total": 5}]),
+        ("MATCH (a:L)-[r]->(b) RETURN a.id AS aid, avg(r.weight) AS avg_w", [{"aid": "a", "avg_w": 2.5}]),
     ],
 )
-def test_string_cypher_direct_return_grouped_relationship_aggregate_one_source_boundary(
-    query: str,
+def test_string_cypher_direct_return_grouped_relationship_aggregate_matches_with_form(
+    query: str, expected: list,
 ) -> None:
+    """RETURN-form relationship aggregates equal the WITH-form results pinned above."""
     graph = _mk_graph(
         pd.DataFrame(
             {
@@ -4357,8 +4877,7 @@ def test_string_cypher_direct_return_grouped_relationship_aggregate_one_source_b
         ),
     )
 
-    with pytest.raises(GFQLValidationError, match="one MATCH source alias at a time"):
-        graph.gfql(query)
+    assert graph.gfql(query)._nodes.to_dict(orient="records") == expected
 
 
 def test_string_cypher_keeps_single_edge_relationship_grouped_count_star() -> None:
@@ -4381,6 +4900,86 @@ def test_string_cypher_keeps_single_edge_relationship_global_count() -> None:
     result = graph.gfql("MATCH (a)-[r]->(b) RETURN count(r) AS cnt")
 
     assert result._nodes.to_dict(orient="records") == [{"cnt": 2}]
+
+
+@pytest.mark.parametrize("engine", ["pandas", "polars"])
+def test_string_cypher_allows_relationship_reuse_across_match_clauses(engine: str) -> None:
+    if engine == "polars":
+        pytest.importorskip("polars")
+    graph = _mk_graph(
+        pd.DataFrame({"id": ["a"]}),
+        pd.DataFrame({"s": ["a"], "d": ["a"]}),
+    )
+    got = graph.gfql(
+        "MATCH (x)-[e]->(y) MATCH (y)<-[f]-(z) RETURN x.id AS x, z.id AS z",
+        engine=engine,
+    )
+    assert _to_pandas_df(got._nodes).to_dict(orient="records") == [{"x": "a", "z": "a"}]
+
+
+@pytest.mark.parametrize("engine", ["pandas", "polars"])
+def test_string_cypher_allows_anonymous_relationship_reuse_across_match_clauses(engine: str) -> None:
+    if engine == "polars":
+        pytest.importorskip("polars")
+    graph = _mk_graph(
+        pd.DataFrame({"id": ["a"]}),
+        pd.DataFrame({"s": ["a"], "d": ["a"]}),
+    )
+    got = graph.gfql(
+        "MATCH (x)-->(y) MATCH (y)<--(z) RETURN x.id AS x, z.id AS z",
+        engine=engine,
+    )
+    assert _to_pandas_df(got._nodes).to_dict(orient="records") == [{"x": "a", "z": "a"}]
+
+
+@pytest.mark.parametrize("engine", ["pandas", "polars"])
+def test_string_cypher_keeps_relationship_uniqueness_within_one_match_clause(engine: str) -> None:
+    if engine == "polars":
+        pytest.importorskip("polars")
+    graph = _mk_graph(
+        pd.DataFrame({"id": ["a"]}),
+        pd.DataFrame({"s": ["a"], "d": ["a"]}),
+    )
+    got = graph.gfql(
+        "MATCH (x)-[e]->(y)<-[f]-(z) RETURN x.id AS x, z.id AS z",
+        engine=engine,
+    )
+    assert _to_pandas_df(got._nodes).to_dict(orient="records") == []
+
+
+def test_string_cypher_resets_relationship_uniqueness_for_each_match_clause() -> None:
+    graph = _mk_graph(
+        pd.DataFrame({"id": ["a"]}),
+        pd.DataFrame({"s": ["a"], "d": ["a"]}),
+    )
+    got = graph.gfql(
+        "MATCH (x)-[e]->(y) MATCH (y)<-[f]-(z) MATCH (z)-[g]->(w) "
+        "RETURN x.id AS x, w.id AS w",
+    )
+    assert got._nodes.to_dict(orient="records") == [{"x": "a", "w": "a"}]
+
+
+def test_relationship_scope_json_roundtrip_preserves_boundary() -> None:
+    scoped = ASTEdge(relationship_scope=2)
+    assert scoped.to_json()["relationship_scope"] == 2
+    assert ASTEdge.from_json(scoped.to_json()).relationship_scope == 2
+
+    reverse = ASTEdgeReverse(relationship_scope=2)
+    assert ASTEdgeReverse.from_json(reverse.to_json()).relationship_scope == 2
+
+    default = ASTEdge()
+    assert "relationship_scope" not in default.to_json()
+    assert ASTEdge.from_json(default.to_json()).relationship_scope == 0
+
+
+@pytest.mark.parametrize("value", [-1, True, 1.0, "0"])
+def test_relationship_scope_rejects_nonnegative_integer_boundary(value: object) -> None:
+    with pytest.raises(GFQLTypeError) as raised:
+        ASTEdge(relationship_scope=value).validate()
+
+    assert raised.value.code == ErrorCode.E103
+    assert raised.value.context["field"] == "relationship_scope"
+    assert raised.value.context["value"] == type(value).__name__
 
 
 def test_string_cypher_supports_with_whole_row_grouping_then_return() -> None:
@@ -6257,6 +6856,400 @@ def test_string_cypher_executes_graph_backed_unwind_after_with_into_post_with_ma
     )
 
 
+@pytest.mark.parametrize("engine", ["pandas", "polars", "cudf"])
+def test_string_cypher_collect_unwind_reentry_keeps_carry_across_forms_and_names(engine: str) -> None:
+    """A carry can be returned and aggregated even when nodes own the same property name."""
+    nodes_df, edges_df = _mk_collect_unwind_reentry_data()
+    graph = _mk_engine_graph(engine, nodes_df, edges_df)
+    prefix = "MATCH (root:S)-[:X]->(b1:B) WITH root.id AS id, collect(b1) AS bees UNWIND bees AS b2 MATCH (b2)-[:Y]->(c:C) "
+
+    returned = graph.gfql(prefix + "RETURN id, c.id AS cid ORDER BY cid", engine=engine)
+    assert _to_pandas_df(returned._nodes).to_dict(orient="records") == [
+        {"id": "s", "cid": "c1"},
+        {"id": "s", "cid": "c2"},
+    ]
+
+    aggregated = graph.gfql(prefix + "RETURN id, count(c.id) AS cnt", engine=engine)
+    assert _to_pandas_df(aggregated._nodes).to_dict(orient="records") == [{"id": "s", "cnt": 2}]
+
+
+@pytest.mark.parametrize("engine", ["pandas", "polars", "cudf"])
+@pytest.mark.parametrize(
+    ("case", "nodes_df", "edges_df"),
+    [
+        pytest.param(
+            "absent-source-edge",
+            pd.DataFrame(
+                {
+                    "id": ["s", "b", "c"],
+                    "label__S": [True, False, False],
+                    "label__B": [False, True, False],
+                    "label__C": [False, False, True],
+                }
+            ),
+            pd.DataFrame({"s": ["b"], "d": ["c"], "type": ["Y"]}),
+            id="absent-source-edge",
+        ),
+        pytest.param(
+            "isolated-root",
+            pd.DataFrame(
+                {
+                    "id": ["s", "b", "c"],
+                    "label__S": [True, False, False],
+                    "label__B": [False, True, False],
+                    "label__C": [False, False, True],
+                }
+            ),
+            pd.DataFrame({"s": ["b"], "d": ["c"], "type": ["Y"]}),
+            id="isolated-root",
+        ),
+        pytest.param(
+            "target-only-path",
+            pd.DataFrame(
+                {
+                    "id": ["s", "b", "c"],
+                    "label__S": [True, False, False],
+                    "label__B": [False, True, False],
+                    "label__C": [False, False, True],
+                }
+            ),
+            pd.DataFrame({"s": ["s"], "d": ["b"], "type": ["X"]}),
+            id="target-only-path",
+        ),
+        pytest.param(
+            "missing-target",
+            pd.DataFrame(
+                {
+                    "id": ["s", "b", "d"],
+                    "label__S": [True, False, False],
+                    "label__B": [False, True, False],
+                    "label__D": [False, False, True],
+                }
+            ),
+            pd.DataFrame({"s": ["s", "b"], "d": ["b", "d"], "type": ["X", "Y"]}),
+            id="missing-target",
+        ),
+    ],
+)
+def test_string_cypher_collect_unwind_reentry_negative_paths_return_empty(
+    engine: str,
+    case: str,
+    nodes_df: pd.DataFrame,
+    edges_df: pd.DataFrame,
+) -> None:
+    del case
+    graph = _mk_engine_graph(engine, nodes_df, edges_df)
+    query = (
+        "MATCH (root:S)-[:X]->(b:B) "
+        "WITH root.id AS id, collect(b) AS bees "
+        "UNWIND bees AS b2 "
+        "MATCH (b2)-[:Y]->(c:C) "
+        "RETURN id, c.id AS cid"
+    )
+
+    result = graph.gfql(query, engine=engine)
+    assert _to_pandas_df(result._nodes).to_dict(orient="records") == []
+
+
+@pytest.mark.parametrize("engine", ["pandas", "polars", "cudf"])
+def test_string_cypher_preserves_unwind_after_collect_unwind_reentry(engine: str) -> None:
+    nodes_df, edges_df = _mk_collect_unwind_reentry_data()
+    graph = _mk_engine_graph(engine, nodes_df, edges_df)
+    query = (
+        "MATCH (root:S)-[:X]->(b1:B) "
+        "WITH root.id AS id, collect(b1) AS bees "
+        "UNWIND bees AS b2 "
+        "MATCH (b2)-[:Y]->(c:C) "
+        "UNWIND [1, 2] AS k "
+        "RETURN id, c.id AS cid, k "
+        "ORDER BY cid, k"
+    )
+    result = graph.gfql(query, engine=engine)
+    assert _to_pandas_df(result._nodes).to_dict(orient="records") == [
+        {"id": "s", "cid": "c1", "k": 1},
+        {"id": "s", "cid": "c1", "k": 2},
+        {"id": "s", "cid": "c2", "k": 1},
+        {"id": "s", "cid": "c2", "k": 2},
+    ]
+
+
+def _mk_ic6_two_stage_data() -> tuple[pd.DataFrame, pd.DataFrame]:
+    nodes_df = pd.DataFrame(
+        {
+            "id": [1, 2, 10, 11, 12, 13, 101, 102, 103, 104],
+            "name": ["Alpha", "Beta", None, None, None, None, None, None, None, None],
+            "label__Tag": [True, True] + [False] * 8,
+            "label__Person": [False, False, True, True, True, True, False, False, False, False],
+            "label__Post": [False] * 6 + [True] * 4,
+        }
+    )
+    edges_df = pd.DataFrame(
+        [
+            (10, 11, "KNOWS"),
+            (10, 12, "KNOWS"),
+            (101, 11, "HAS_CREATOR"),
+            (102, 11, "HAS_CREATOR"),
+            (103, 12, "HAS_CREATOR"),
+            (104, 13, "HAS_CREATOR"),
+            (101, 1, "HAS_TAG"),
+            (102, 1, "HAS_TAG"),
+            (103, 1, "HAS_TAG"),
+            (104, 1, "HAS_TAG"),
+            (102, 2, "HAS_TAG"),
+        ],
+        columns=["s", "d", "type"],
+    )
+    return nodes_df, edges_df
+
+
+def _mk_ic6_two_stage_graph() -> _CypherTestGraph:
+    return _mk_graph(*_mk_ic6_two_stage_data())
+
+
+@pytest.mark.parametrize(
+    "engine",
+    [
+        "pandas",
+        "polars",
+        pytest.param(
+            "polars-gpu",
+            marks=pytest.mark.skipif(
+                os.environ.get("TEST_POLARS_GPU") != "1", reason="requires actual polars-gpu"
+            ),
+        ),
+        "cudf",
+    ],
+)
+@pytest.mark.parametrize(
+    ("case", "params", "expected_rows"),
+    [
+        pytest.param(
+            "positive",
+            {"tagName": "Alpha", "personId": 10},
+            [{"knownTagId": 1, "postCount": 3}],
+            id="positive",
+        ),
+        pytest.param(
+            "missing_tag",
+            {"tagName": "Nope", "personId": 10},
+            [],
+            id="missing_tag",
+        ),
+        pytest.param(
+            "absent_person",
+            {"tagName": "Alpha", "personId": 999},
+            [],
+            id="absent_person",
+        ),
+        pytest.param(
+            "isolated_person",
+            {"tagName": "Alpha", "personId": 13},
+            [],
+            id="isolated_person",
+        ),
+    ],
+)
+def test_string_cypher_two_stage_collect_reentry_empty_prefix_returns_native_empty(
+    engine: str,
+    case: str,
+    params: dict[str, object],
+    expected_rows: list[dict[str, object]],
+) -> None:
+    del case
+    graph = _mk_engine_graph(engine, *_mk_ic6_two_stage_data())
+
+    query = (
+        "MATCH (knownTag:Tag { name: $tagName }) "
+        "WITH knownTag.id AS knownTagId "
+        "MATCH (person:Person { id: $personId })-[:KNOWS]-(friend) "
+        "WITH knownTagId, collect(distinct friend) AS friends "
+        "UNWIND friends AS f "
+        "MATCH (f)<-[:HAS_CREATOR]-(post:Post), "
+        "(post)-[:HAS_TAG]->(tag:Tag { id: knownTagId }) "
+        "RETURN knownTagId, count(post) AS postCount "
+        "ORDER BY postCount"
+    )
+    result = graph.gfql(query, params=params, engine=engine)
+    output = _to_pandas_df(result._nodes)
+    assert list(output.columns) == ["knownTagId", "postCount"]
+    if expected_rows:
+        known_tag_id_dtype = output["knownTagId"].dtype
+        if engine == "pandas":
+            assert str(known_tag_id_dtype) == "Int64"
+        else:
+            assert pd.api.types.is_integer_dtype(known_tag_id_dtype)
+    assert output.to_dict(orient="records") == expected_rows
+
+
+@pytest.mark.parametrize("engine", ["pandas", "polars", "cudf"])
+@pytest.mark.parametrize(
+    ("aggregate", "expected_row"),
+    [
+        pytest.param("count(post) AS postCount", {"postCount": 0}, id="count"),
+        pytest.param("sum(post.id) AS postSum", {"postSum": 0}, id="sum"),
+        pytest.param("collect(post.id) AS postIds", {"postIds": []}, id="collect"),
+        pytest.param("avg(post.id) AS postAvg", {"postAvg": None}, id="avg"),
+        pytest.param("max(post.id) AS postMax", {"postMax": None}, id="max"),
+    ],
+)
+@pytest.mark.parametrize(
+    ("case", "params"),
+    [
+        pytest.param(
+            "missing_tag",
+            {"tagName": "Nope", "personId": 10},
+            id="missing_tag",
+        ),
+        pytest.param(
+            "absent_person",
+            {"tagName": "Alpha", "personId": 999},
+            id="absent_person",
+        ),
+        pytest.param(
+            "isolated_person",
+            {"tagName": "Alpha", "personId": 13},
+            id="isolated_person",
+        ),
+    ],
+)
+def test_string_cypher_two_stage_collect_reentry_empty_global_aggregate_identity(
+    engine: str,
+    aggregate: str,
+    expected_row: dict[str, object],
+    case: str,
+    params: dict[str, object],
+) -> None:
+    del case
+    graph = _mk_engine_graph(engine, *_mk_ic6_two_stage_data())
+
+    query = (
+        "MATCH (knownTag:Tag { name: $tagName }) "
+        "WITH knownTag.id AS knownTagId "
+        "MATCH (person:Person { id: $personId })-[:KNOWS]-(friend) "
+        "WITH knownTagId, collect(distinct friend) AS friends "
+        "UNWIND friends AS f "
+        "MATCH (f)<-[:HAS_CREATOR]-(post:Post), "
+        "(post)-[:HAS_TAG]->(tag:Tag { id: knownTagId }) "
+        f"RETURN {aggregate}"
+    )
+    result = graph.gfql(query, params=params, engine=engine)
+    output = _to_pandas_df(result._nodes)
+    [output_alias] = output.columns
+    [expected_alias] = expected_row
+    assert list(output.columns) == list(expected_row)
+    assert len(output) == 1
+    if output_alias == "postIds":
+        assert list(output.iloc[0][output_alias]) == []
+    elif expected_row[expected_alias] is None:
+        assert pd.isna(output.iloc[0][output_alias])
+    else:
+        assert output.iloc[0][output_alias] == expected_row[expected_alias]
+
+
+def _mk_ic6_p0959_data() -> tuple[pd.DataFrame, pd.DataFrame]:
+    nodes_df = pd.DataFrame(
+        {
+            "id": [1, 2, 3, 4, 5, 99, 10, 11, 12, 13, 14, 15, 16, 17, 101, 102, 103, 104, 105, 106],
+            "name": [None, None, None, None, None, None, None, None, None, None, None, None, None, None, "Alpha", "Beta", "Gamma", "Epsilon", "Delta", "Lonely"],
+            "label__Person": [True] * 6 + [False] * 14,
+            "label__Post": [False] * 6 + [True] * 8 + [False] * 6,
+            "label__Tag": [False] * 14 + [True] * 6,
+        }
+    )
+    knows = [(1, 2), (1, 3), (2, 3), (3, 4), (4, 5)]
+    creators = [(10, 2), (11, 3), (12, 3), (13, 4), (14, 4), (15, 5), (16, 2), (17, 4)]
+    post_tags = [
+        (10, [101, 102]),
+        (11, [101, 102]),
+        (12, [101, 103]),
+        (13, [101, 104]),
+        (14, [101]),
+        (15, [101, 105]),
+        (16, [106]),
+        (17, [101]),
+    ]
+    edges: list[tuple[int, int, str]] = [
+        *[(left, right, "KNOWS") for left, right in knows],
+        *[(post, creator, "HAS_CREATOR") for post, creator in creators],
+        *[(post, tag_id, "HAS_TAG") for post, tag_ids in post_tags for tag_id in tag_ids],
+    ]
+    edges_df = pd.DataFrame(edges, columns=["s", "d", "type"])
+    return nodes_df, edges_df
+
+
+def _mk_ic6_p0959_graph() -> _CypherTestGraph:
+    return _mk_graph(*_mk_ic6_p0959_data())
+
+
+_IC6_P0959_QUERY = (
+    "MATCH (knownTag:Tag { name: $tagName }) "
+    "WITH knownTag.id AS knownTagId "
+    "MATCH (person:Person { id: $personId })-[:KNOWS*1..2]-(friend) "
+    "WHERE NOT person=friend "
+    "WITH knownTagId, collect(distinct friend) AS friends "
+    "UNWIND friends AS f "
+    "MATCH (f)<-[:HAS_CREATOR]-(post:Post), "
+    "(post)-[:HAS_TAG]->(t:Tag { id: knownTagId }), "
+    "(post)-[:HAS_TAG]->(tag:Tag) "
+    "WHERE NOT t = tag "
+    "WITH tag.name AS tagName, count(post) AS postCount "
+    "RETURN tagName, postCount "
+    "ORDER BY postCount DESC, tagName ASC "
+    "LIMIT 10"
+)
+
+
+@pytest.mark.parametrize("engine", ["pandas", "polars", "cudf"])
+@pytest.mark.parametrize(
+    ("case", "params", "expected_rows"),
+    [
+        pytest.param(
+            "positive_direct_and_two_hop",
+            {"tagName": "Alpha", "personId": 1},
+            [{"tagName": "Beta", "postCount": 2}, {"tagName": "Epsilon", "postCount": 1}, {"tagName": "Gamma", "postCount": 1}],
+            id="positive_direct_and_two_hop",
+        ),
+        pytest.param(
+            "negative_absent_person",
+            {"tagName": "Alpha", "personId": -1},
+            [],
+            id="negative_absent_person",
+        ),
+        pytest.param(
+            "negative_isolated_person",
+            {"tagName": "Alpha", "personId": 99},
+            [],
+            id="negative_isolated_person",
+        ),
+        pytest.param(
+            "negative_target_tag_without_co_tag",
+            {"tagName": "Lonely", "personId": 1},
+            [],
+            id="negative_target_tag_without_co_tag",
+        ),
+        pytest.param(
+            "negative_nonexistent_target_tag",
+            {"tagName": "NoSuchTag", "personId": 1},
+            [],
+            id="negative_nonexistent_target_tag",
+        ),
+    ],
+)
+def test_string_cypher_official_ic6_p0959_oracle_cases(
+    engine: str,
+    case: str,
+    params: dict[str, object],
+    expected_rows: list[dict[str, object]],
+) -> None:
+    del case
+    graph = _mk_engine_graph(engine, *_mk_ic6_p0959_data())
+
+    result = graph.gfql(_IC6_P0959_QUERY, params=params, engine=engine)
+    output = _to_pandas_df(result._nodes)
+    assert list(output.columns) == ["tagName", "postCount"]
+    assert output.to_dict(orient="records") == expected_rows
+
+
 def test_string_cypher_executes_graph_backed_distinct_unwind_after_with_into_post_with_match() -> None:
     graph = _mk_graph(
         pd.DataFrame(
@@ -6448,6 +7441,133 @@ def test_string_cypher_executes_exact_multihop_relationship_pattern() -> None:
     result = graph.gfql("MATCH (a {id: 'a'})-[*2]->(b) RETURN b.id AS id ORDER BY id")
 
     assert result._nodes.to_dict(orient="records") == [{"id": "c"}]
+
+
+@pytest.mark.parametrize("engine", ["pandas", "cudf"])
+def test_string_cypher_exact_multihop_keeps_self_loop_endpoint_paths(engine: str) -> None:
+    nodes = pd.DataFrame({"id": ["a", "b", "c"]})
+    edges = pd.DataFrame(
+        {
+            "s": ["a", "a", "b"],
+            "d": ["b", "a", "c"],
+            "type": ["R", "R", "R"],
+        }
+    )
+    if engine == "cudf":
+        _require_cudf_runtime()
+        graph = _mk_cudf_graph(nodes, edges)
+    else:
+        graph = _mk_graph(nodes, edges)
+
+    result = graph.gfql(
+        "MATCH (a {id: 'a'})-[:R*2..2]->(b) "
+        "RETURN DISTINCT b.id AS id ORDER BY id",
+        engine=engine,
+    )
+
+    assert _to_pandas_df(result._nodes).to_dict(orient="records") == [{"id": "b"}, {"id": "c"}]
+
+
+@pytest.mark.parametrize("engine", ["pandas", "polars"])
+def test_string_cypher_one_hop_multihop_range_keeps_self_loop(engine: str) -> None:
+    if engine == "polars":
+        pytest.importorskip("polars")
+
+    graph = _mk_graph(
+        pd.DataFrame({"id": ["a", "b"]}),
+        pd.DataFrame({"s": ["a", "a"], "d": ["b", "a"], "type": ["R", "R"]}),
+    )
+
+    result = graph.gfql(
+        "MATCH (a {id: 'a'})-[:R*1..1]->(b) "
+        "RETURN DISTINCT b.id AS id ORDER BY id",
+    )
+
+    records = _to_pandas_df(result._nodes).to_dict(orient="records")
+    assert records == [{"id": "a"}, {"id": "b"}]
+
+
+@pytest.mark.parametrize("engine", ["pandas", "cudf"])
+def test_string_cypher_bounded_multihop_counts_parallel_edges(engine: str) -> None:
+    nodes = pd.DataFrame({"id": ["a", "b", "c"]})
+    edges = pd.DataFrame(
+        {"s": ["a", "a", "b"], "d": ["b", "b", "c"], "type": ["R"] * 3}
+    )
+    if engine == "cudf":
+        _require_cudf_runtime()
+        graph = _mk_cudf_graph(nodes, edges)
+    else:
+        graph = _mk_graph(nodes, edges)
+
+    result = graph.gfql(
+        "MATCH (a {id: 'a'})-[:R*2..2]->(b) RETURN b.id AS id",
+        engine=engine,
+    )
+
+    records = _to_pandas_df(result._nodes).to_dict(orient="records")
+    assert records == [{"id": "c"}, {"id": "c"}]
+
+
+@pytest.mark.parametrize("engine", ["pandas", "cudf"])
+def test_string_cypher_bounded_multihop_counts_self_loop_and_branch(engine: str) -> None:
+    nodes = pd.DataFrame({"id": ["a", "b", "c"]})
+    edges = pd.DataFrame(
+        {"s": ["a", "a", "b"], "d": ["a", "b", "c"], "type": ["R"] * 3}
+    )
+    if engine == "cudf":
+        _require_cudf_runtime()
+        graph = _mk_cudf_graph(nodes, edges)
+    else:
+        graph = _mk_graph(nodes, edges)
+
+    result = graph.gfql(
+        "MATCH (a {id: 'a'})-[:R*2..2]->(b) RETURN b.id AS id ORDER BY id",
+        engine=engine,
+    )
+
+    records = _to_pandas_df(result._nodes).to_dict(orient="records")
+    assert records == [{"id": "b"}, {"id": "c"}]
+
+
+@pytest.mark.parametrize("engine", ["pandas", "cudf"])
+def test_string_cypher_bounded_multihop_counts_edge_simple_cycle_once(engine: str) -> None:
+    nodes = pd.DataFrame({"id": ["a", "b", "c"]})
+    edges = pd.DataFrame(
+        {"s": ["a", "b", "c"], "d": ["b", "c", "a"], "type": ["R"] * 3}
+    )
+    if engine == "cudf":
+        _require_cudf_runtime()
+        graph = _mk_cudf_graph(nodes, edges)
+    else:
+        graph = _mk_graph(nodes, edges)
+
+    result = graph.gfql(
+        "MATCH (a {id: 'a'})-[:R*3..3]->(b) RETURN b.id AS id",
+        engine=engine,
+    )
+
+    assert _to_pandas_df(result._nodes).to_dict(orient="records") == [{"id": "a"}]
+
+
+@pytest.mark.parametrize("engine", ["pandas", "cudf"])
+def test_string_cypher_bounded_multihop_counts_undirected_paths(engine: str) -> None:
+    nodes = pd.DataFrame({"id": ["a", "b", "c"]})
+    edges = pd.DataFrame(
+        {"s": ["a", "b", "c"], "d": ["b", "c", "a"], "type": ["R"] * 3}
+    )
+    if engine == "cudf":
+        _require_cudf_runtime()
+        graph = _mk_cudf_graph(nodes, edges)
+    else:
+        graph = _mk_graph(nodes, edges)
+
+    result = graph.gfql(
+        "MATCH (a {id: 'a'})-[:R*2..2]-(b) RETURN b.id AS id",
+        engine=engine,
+    )
+
+    records = _to_pandas_df(result._nodes).to_dict(orient="records")
+    assert sorted(records, key=lambda row: row["id"]) == [{"id": "b"}, {"id": "c"}]
 
 
 def test_string_cypher_executes_bounded_multihop_relationship_pattern() -> None:
@@ -9119,17 +10239,18 @@ def test_string_cypher_executes_real_cugraph_node_multi_column_write_call_on_cud
 def test_string_cypher_executes_real_cugraph_graph_write_call_on_cudf() -> None:
     pytest.importorskip("cugraph")
 
-    result = _mk_path_with_isolate_graph_cudf().gfql(
+    result = _mk_cudf_graph(
+        pd.DataFrame({"id": ["a", "b", "c", "d", "z"]}),
+        pd.DataFrame({"s": ["a", "d"], "d": ["b", "c"]}),
+    ).gfql(
         "CALL graphistry.cugraph.k_core.write({k: 1, directed: false})"
     )
 
     nodes_pdf = _to_pandas_df(result._nodes).sort_values("id").reset_index(drop=True)
-    edges_pdf = _to_pandas_df(result._edges).sort_values(["s", "d"]).reset_index(drop=True)
-    assert set(nodes_pdf["id"]) == {"a", "b", "c", "z"}
-    assert edges_pdf.to_dict(orient="records") == [
-        {"s": "a", "d": "b"},
-        {"s": "b", "d": "c"},
-    ]
+    edges_pdf = _to_pandas_df(result._edges).sort_values("s").reset_index(drop=True)
+    assert set(nodes_pdf["id"]) == {"a", "b", "c", "d", "z"}
+    assert edges_pdf.columns.tolist() == ["s", "d"]
+    assert list(zip(edges_pdf["s"], edges_pdf["d"])) == [("a", "b"), ("d", "c")]
 
 
 def test_string_cypher_executes_real_igraph_graph_write_call() -> None:
@@ -12004,7 +13125,7 @@ def test_string_cypher_executes_with_match_reentry_where_xor_on_carried_and_trai
     )
 
     result = _mk_connected_reentry_carried_scalar_graph().gfql(query)
-    assert result._nodes.to_dict(orient="records") == []
+    assert result._nodes.to_dict(orient="records") == [{"aid": "a2", "cid": "c1"}]
 
 
 def test_string_cypher_executes_with_match_reentry_preserves_orderby_single_column_limit_prefix() -> None:
@@ -22176,10 +23297,13 @@ def test_lowering_coverage_helper_direct_margin_paths() -> None:
 
     boundary_exc = GFQLValidationError(ErrorCode.E108, "forced", field="return", value=["a", "b"])
     assert _is_multi_source_match_alias_boundary_error(boundary_exc, alias_targets={"a": ASTNode(name="a"), "b": ASTNode(name="b")})
-    assert not _is_multi_source_match_alias_boundary_error(GFQLValidationError(ErrorCode.E201, "forced", field="return", value=["a", "b"]), alias_targets={"a": ASTNode(name="a"), "b": ASTNode(name="b")})
-
+    assert not _is_multi_source_match_alias_boundary_error(
+        GFQLValidationError(ErrorCode.E201, "forced", field="return", value=["a", "b"]),
+        alias_targets={"a": ASTNode(name="a"), "b": ASTNode(name="b")},
+    )
     assert _expr_property_access_node_aliases(
         "[a.city, r.weight]",
+        parse_row_expr=_parse_row_expr,
         alias_targets=alias_targets,
         params=None,
         field="return",
@@ -22200,3 +23324,235 @@ def test_string_cypher_parenthesized_and_preserves_missing_property_as_null() ->
     # IS NOT NULL on the same absent property yields no rows (absent -> null)
     none = g.gfql("MATCH (n) WHERE n.missing IS NOT NULL AND (n.x = 1) RETURN n.id AS id")
     assert none._nodes["id"].tolist() == [] if "id" in none._nodes.columns else len(none._nodes) == 0
+
+
+@pytest.mark.parametrize("engine", ["pandas", "polars"])
+def test_issue_2252_whole_plus_scalar_prefix_survives_match_on_pandas_and_polars(engine: str) -> None:
+    nodes_df, edges_df = _mk_reentry_carried_scalar_data()
+    nodes_df = nodes_df.assign(label__B=[False, False, True, True])
+    graph = _mk_polars_graph(nodes_df, edges_df) if engine == "polars" else _mk_graph(nodes_df, edges_df)
+
+    result = graph.gfql(
+        "MATCH (a:A) WITH a, a.num AS property MATCH (a)-->(b:B) "
+        "RETURN property, count(DISTINCT b.id) AS messageCount ORDER BY property",
+        engine=engine,
+        language="cypher",
+    )
+
+    records = _to_pandas_df(result._nodes).to_dict(orient="records")
+    assert records == [
+        {"property": 1.0, "messageCount": 1},
+        {"property": 2.0, "messageCount": 1},
+    ]
+
+
+@pytest.mark.parametrize("engine", ["pandas", "polars"])
+def test_issue_2252_scalar_only_prefix_survives_match_on_pandas_and_polars(engine: str) -> None:
+    nodes_df, edges_df = _mk_reentry_carried_scalar_data()
+    nodes_df = nodes_df.assign(label__B=[False, False, True, True])
+    graph = _mk_polars_graph(nodes_df, edges_df) if engine == "polars" else _mk_graph(nodes_df, edges_df)
+
+    result = graph.gfql(
+        "MATCH (a:A) WITH a.num AS property MATCH (a)-->(b:B) "
+        "RETURN property, count(DISTINCT b.id) AS messageCount ORDER BY property",
+        engine=engine,
+        language="cypher",
+    )
+
+    records = _to_pandas_df(result._nodes).to_dict(orient="records")
+    assert records == [{"property": 1.0, "messageCount": 2}, {"property": 2.0, "messageCount": 2}]
+
+
+@pytest.mark.parametrize("engine", ["pandas", "polars"])
+def test_issue_2252_connected_scalar_prefix_survives_match_on_pandas_and_polars(engine: str) -> None:
+    nodes_df, edges_df = _mk_connected_reentry_carried_scalar_data()
+    graph = _mk_polars_graph(nodes_df, edges_df) if engine == "polars" else _mk_graph(nodes_df, edges_df)
+
+    result = graph.gfql(
+        "MATCH (a:A)-[:R]->(b:B) WITH b, b.score AS property "
+        "MATCH (b)-[:S]->(c:C) "
+        "RETURN property, count(DISTINCT c.id) AS messageCount ORDER BY property",
+        engine=engine,
+        language="cypher",
+    )
+
+    records = _to_pandas_df(result._nodes).to_dict(orient="records")
+    assert records == [
+        {"property": 10.0, "messageCount": 1},
+        {"property": 20.0, "messageCount": 1},
+    ]
+
+
+@pytest.mark.parametrize("engine", ["pandas", "polars"])
+def test_issue_2252_convergent_destination_suffix_filters_stay_path_scoped(engine: str) -> None:
+    nodes_df, edges_df = _mk_connected_reentry_carried_scalar_data()
+    graph = _mk_polars_graph(nodes_df, edges_df) if engine == "polars" else _mk_graph(nodes_df, edges_df)
+
+    partial = graph.gfql(
+        "MATCH (a:A)-[:R]->(b:B) WITH b, b.score AS property "
+        "MATCH (b)-[:S {weight: 10}]->(c:C) "
+        "RETURN property, count(DISTINCT c.id) AS messageCount ORDER BY property",
+        engine=engine,
+        language="cypher",
+    )
+    assert _to_pandas_df(partial._nodes).to_dict(orient="records") == [
+        {"property": 10.0, "messageCount": 1}
+    ]
+
+    empty = graph.gfql(
+        "MATCH (a:A)-[:R]->(b:B) WITH b, b.score AS property "
+        "MATCH (b)-[:S {weight: 99}]->(c:C) "
+        "RETURN property, count(DISTINCT c.id) AS messageCount",
+        engine=engine,
+        language="cypher",
+    )
+    assert _to_pandas_df(empty._nodes).to_dict(orient="records") == []
+
+
+def test_issue_2252_convergent_destination_keeps_carry_on_cudf() -> None:
+    """cuDF parity for path-scoped carries entering the same destination (#2252)."""
+    pytest.importorskip("cudf")
+    _require_cudf_runtime()
+    graph = _mk_connected_reentry_carried_scalar_graph_cudf()
+
+    positive = graph.gfql(
+        "MATCH (a:A)-[:R]->(b:B) WITH b, b.score AS property "
+        "MATCH (b)-[:S]->(c:C) "
+        "RETURN property, count(DISTINCT c.id) AS messageCount ORDER BY property",
+        engine="cudf",
+        language="cypher",
+    )
+    assert type(positive._nodes).__module__.startswith("cudf")
+    assert _to_pandas_df(positive._nodes).to_dict(orient="records") == [
+        {"property": 10.0, "messageCount": 1},
+        {"property": 20.0, "messageCount": 1},
+    ]
+
+    partial = graph.gfql(
+        "MATCH (a:A)-[:R]->(b:B) WITH b, b.score AS property "
+        "MATCH (b)-[:S {weight: 10}]->(c:C) "
+        "RETURN property, count(DISTINCT c.id) AS messageCount ORDER BY property",
+        engine="cudf",
+        language="cypher",
+    )
+    assert type(partial._nodes).__module__.startswith("cudf")
+    assert _to_pandas_df(partial._nodes).to_dict(orient="records") == [
+        {"property": 10.0, "messageCount": 1}
+    ]
+
+@pytest.mark.parametrize("engine", ["pandas", "polars"])
+def test_issue_2252_multi_edge_prefix_keeps_path_scalar_on_pandas_and_polars(engine: str) -> None:
+    nodes_df = pd.DataFrame(
+        {
+            "id": ["a1", "a2", "b1", "b2", "c1", "c2"],
+            "label__A": [True, True, False, False, False, False],
+            "label__B": [False, False, True, True, False, False],
+            "label__C": [False, False, False, False, True, True],
+            "num": [1, 2, None, None, None, None],
+        }
+    )
+    edges_df = pd.DataFrame(
+        {
+            "s": ["a1", "a2", "b1", "b2"],
+            "d": ["b1", "b2", "c1", "c2"],
+            "type": ["R", "R", "S", "S"],
+        }
+    )
+    graph = _mk_polars_graph(nodes_df, edges_df) if engine == "polars" else _mk_graph(nodes_df, edges_df)
+
+    result = graph.gfql(
+        "MATCH (a:A) WITH a, a.num AS p "
+        "MATCH (a)-[:R]->(b:B)-[:S]->(c:C) "
+        "RETURN p, c.id AS cid ORDER BY p",
+        engine=engine,
+        language="cypher",
+    )
+
+    assert _to_pandas_df(result._nodes).to_dict(orient="records") == [
+        {"p": 1.0, "cid": "c1"},
+        {"p": 2.0, "cid": "c2"},
+    ]
+
+
+@pytest.mark.parametrize("engine", ["pandas", "polars"])
+def test_issue_2252_multi_edge_prefix_negative_is_empty_on_pandas_and_polars(engine: str) -> None:
+    nodes_df = pd.DataFrame(
+        {
+            "id": ["a1", "a2", "b1", "b2", "c1", "c2"],
+            "label__A": [True, True, False, False, False, False],
+            "label__B": [False, False, True, True, False, False],
+            "label__C": [False, False, False, False, True, True],
+            "num": [1, 2, None, None, None, None],
+        }
+    )
+    edges_df = pd.DataFrame(
+        {
+            "s": ["a1", "a2", "b1", "b2"],
+            "d": ["b1", "b2", "c1", "c2"],
+            "type": ["R", "R", "S", "S"],
+        }
+    )
+    graph = _mk_polars_graph(nodes_df, edges_df) if engine == "polars" else _mk_graph(nodes_df, edges_df)
+
+    result = graph.gfql(
+        "MATCH (a:A {num: 99}) WITH a, a.num AS p "
+        "MATCH (a)-[:R]->(b:B)-[:S]->(c:C) "
+        "RETURN p, c.id AS cid",
+        engine=engine,
+        language="cypher",
+    )
+
+    assert _to_pandas_df(result._nodes).to_dict(orient="records") == []
+
+
+@pytest.mark.parametrize("engine", ["pandas", "polars"])
+def test_issue_2252_scalar_only_prefix_negative_is_empty_on_pandas_and_polars(engine: str) -> None:
+    nodes_df, edges_df = _mk_reentry_carried_scalar_data()
+    nodes_df = nodes_df.assign(label__B=[False, False, True, True])
+    graph = _mk_polars_graph(nodes_df, edges_df) if engine == "polars" else _mk_graph(nodes_df, edges_df)
+
+    result = graph.gfql(
+        "MATCH (a:A {num: 99}) WITH a.num AS property MATCH (a)-->(b:B) "
+        "RETURN property, count(DISTINCT b.id) AS messageCount",
+        engine=engine,
+        language="cypher",
+    )
+
+    assert _to_pandas_df(result._nodes).to_dict(orient="records") == []
+
+
+def test_issue_2252_no_reentry_match_retains_multiplicity_on_pandas_and_polars() -> None:
+    nodes_df, edges_df = _mk_reentry_carried_scalar_data()
+    nodes_df = nodes_df.assign(label__B=[False, False, True, True])
+
+    for engine in ("pandas", "polars"):
+        graph = _mk_polars_graph(nodes_df, edges_df) if engine == "polars" else _mk_graph(nodes_df, edges_df)
+        result = graph.gfql(
+            "MATCH (a:A)-[:R]->(b:B) RETURN count(*) AS pathCount",
+            engine=engine,
+            language="cypher",
+        )
+        assert _to_pandas_df(result._nodes).to_dict(orient="records") == [{"pathCount": 2}]
+
+
+@pytest.mark.parametrize("engine", ["pandas", "polars"])
+def test_issue_2252_typed_carried_scalar_survives_match_on_pandas_and_polars(engine: str) -> None:
+    nodes_df, edges_df = _mk_reentry_carried_scalar_data()
+    nodes_df = nodes_df.assign(
+        label__B=[False, False, True, True],
+        ts=pd.to_datetime(["2020-01-01", "2020-01-02", "2020-01-03", "2020-01-04"]),
+    )
+    graph = _mk_polars_graph(nodes_df, edges_df) if engine == "polars" else _mk_graph(nodes_df, edges_df)
+
+    result = graph.gfql(
+        "MATCH (a:A) WITH a.ts AS event MATCH (a)-->(b:B) "
+        "RETURN event, count(DISTINCT b.id) AS messageCount",
+        engine=engine,
+        language="cypher",
+    )
+
+    records = _to_pandas_df(result._nodes).to_dict(orient="records")
+    assert records == [
+        {"event": pd.Timestamp("2020-01-01"), "messageCount": 2},
+        {"event": pd.Timestamp("2020-01-02"), "messageCount": 2},
+    ]

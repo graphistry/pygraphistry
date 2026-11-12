@@ -227,38 +227,44 @@ def _rewrite_reentry_projection_stage(
 def _rewrite_collect_unwind_reentry_query(query: CypherQuery) -> Optional[CypherQuery]:
     from graphistry.compute.gfql.cypher import lowering as _lowering
 
-    if not query.with_stages or len(query.unwinds) != 1 or len(query.reentry_matches) != 1:
+    if not query.with_stages or not query.reentry_matches:
         return None
-    prefix_stage = query.with_stages[0]
-    remaining_with_stages = query.with_stages[1:]
-    if (
-        prefix_stage.where is not None
-        or prefix_stage.order_by is not None
-        or prefix_stage.skip is not None
-        or prefix_stage.limit is not None
-        or len(prefix_stage.clause.items) < 1
-    ):
+    if len(query.unwinds) != 1:
         return None
     unwind_clause = query.unwinds[0]
     # Find the collect(...) item that feeds the UNWIND
+    prefix_stage_index: Optional[int] = None
     collected_idx: Optional[int] = None
     collected_match_result: Optional[re.Match[str]] = None
-    for idx, item in enumerate(prefix_stage.clause.items):
-        output_name = item.alias or item.expression.text
-        if output_name != unwind_clause.expression.text:
+    for stage_index, stage in enumerate(query.with_stages):
+        if (
+            stage.where is not None
+            or stage.order_by is not None
+            or stage.skip is not None
+            or stage.limit is not None
+            or len(stage.clause.items) < 1
+        ):
             continue
-        m = re.fullmatch(
-            r"collect\(\s*(distinct\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*\)",
-            item.expression.text,
-            flags=re.IGNORECASE,
-        )
-        if m is not None:
-            collected_idx = idx
-            collected_match_result = m
+        for idx, item in enumerate(stage.clause.items):
+            output_name = item.alias or item.expression.text
+            if output_name != unwind_clause.expression.text:
+                continue
+            m = re.fullmatch(
+                r"collect\(\s*(distinct\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*\)",
+                item.expression.text,
+                flags=re.IGNORECASE,
+            )
+            if m is not None:
+                prefix_stage_index = stage_index
+                collected_idx = idx
+                collected_match_result = m
+                break
+        if collected_match_result is not None:
             break
-    if collected_idx is None or collected_match_result is None:
+    if prefix_stage_index is None or collected_idx is None or collected_match_result is None:
         return None
-    reentry_alias = _first_pattern_node_alias(query.reentry_matches[0])
+    prefix_stage = query.with_stages[prefix_stage_index]
+    reentry_alias = _first_pattern_node_alias(query.reentry_matches[-1])
     if reentry_alias is None or reentry_alias != unwind_clause.alias:
         return None
     collected_item = prefix_stage.clause.items[collected_idx]
@@ -285,6 +291,10 @@ def _rewrite_collect_unwind_reentry_query(query: CypherQuery) -> Optional[Cypher
     )
     return replace(
         query,
-        with_stages=(rewritten_prefix_stage,) + remaining_with_stages,
+        with_stages=(
+            query.with_stages[:prefix_stage_index]
+            + (rewritten_prefix_stage,)
+            + query.with_stages[prefix_stage_index + 1 :]
+        ),
         unwinds=(),
     )

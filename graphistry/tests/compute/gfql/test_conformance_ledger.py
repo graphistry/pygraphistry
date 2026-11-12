@@ -104,6 +104,10 @@ KNOWN_UNCOVERED_FUNCTIONS: dict[str, str] = {
     "__node_entity__": "internal cypher-lowering helper (node entity text); not a standalone user function. internal.",
     "__edge_entity__": "internal cypher-lowering helper (edge entity text); not a standalone user function. internal.",
     "__cypher_case_eq__": "internal simple-CASE equality helper; matrix exercises the SEARCHED CASE form (CaseWhen AST), not this function. internal.",
+    "__node_identity__": "internal Cypher node identity wrapper; exercised through #2258 entity identity lowering and row-pipeline membership tests in test_issue_2258_entity_identity_membership.py. internal.",
+    "__cypher_node_identity_value__": "internal Cypher membership identity value wrapper; exercised through #2258 direct/collected identity membership tests in test_issue_2258_entity_identity_membership.py. internal.",
+    "__cypher_non_entity_null__": "internal Cypher membership null-preservation wrapper; exercised through #2258 mixed/non-entity item tests in test_issue_2258_entity_identity_membership.py. internal.",
+    "__cypher_node_in__": "internal Cypher entity-aware membership operation; exercised through #2258 direct/collected identity membership tests in test_issue_2258_entity_identity_membership.py. internal.",
 }
 
 

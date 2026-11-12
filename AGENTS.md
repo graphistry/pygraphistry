@@ -6,32 +6,21 @@ This file defines AI assistant guidance for this repository.
 
 Canonical skills live under:
 
-- `agents/skills/`
-
-For tools that expect `.agents/skills/`, use a local symlink:
-
-```bash
-ln -s agents .agents
-```
+- `.agents/skills/`
 
 ## Platform Path Conventions
 
-- **OpenAI Codex**: prefers `.agents/skills/`
+- **OpenAI Codex**: uses `.agents/skills/`
 - **Claude Code**: often uses `.claude/skills/`
 - **Other tools (Cursor/Copilot/etc.)**: may use `.agents/skills/` or tool-specific paths
 
 Recommended local setup:
 
 ```bash
-# Canonical -> tool-expected path
-ln -s agents .agents
-
 # Claude path to shared skills
 mkdir -p .claude
 ln -s ../.agents/skills .claude/skills
 ```
-
-`/.agents/` is ignored in git to keep local tool wiring out of commits.
 
 ## Guidance Priority
 
@@ -46,3 +35,7 @@ ln -s ../.agents/skills .claude/skills
 - After the workflow completes, verify both TestPyPI and PyPI public metadata report `X.Y.Z`; PyPI may lag briefly after the job succeeds.
 - Create or verify the matching GitHub Release for tag `X.Y.Z`, then check Read the Docs. `latest` may update automatically, while tag-specific versions can require maintainer activation in the RTD dashboard.
 - Record release follow-ups discovered during readiness audits as issues in the owning repo before final handoff.
+
+## Published Benchmarks
+
+- Never remove or suppress a published benchmark number without the maintainer's explicit approval. Stale numbers remain published with their measurement date, a staleness label, and a linked re-measure issue.

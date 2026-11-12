@@ -37,6 +37,9 @@ from graphistry.compute.gfql.row.entity_props import (
 class _AliasView:
     frame: pl.DataFrame
     columns: typing.Mapping[str, str]
+    presence_column: str
+    presence_source: str
+    node_id_column: typing.Optional[str]
 
 
 def _has_temporal_constructor_text(rows_df: pl.DataFrame, col: str) -> bool:
@@ -105,18 +108,83 @@ def _native_scalar_text_expr(col: str, dtype: pl.DataType) -> typing.Optional[pl
     return None
 
 
-def _alias_view_polars(rows_df: pl.DataFrame, alias: str) -> typing.Optional[_AliasView]:
+def _alias_view_polars(
+    rows_df: pl.DataFrame, alias: str, node_id_column: typing.Optional[str] = None,
+) -> typing.Optional[_AliasView]:
     import polars as pl
 
     field_sources = alias_field_sources(rows_df.columns, alias)
+    if field_sources is None and node_id_column is not None:
+        # Recover a grouped alias marker from its qualified native node ID.
+        id_source = f"{alias}.{node_id_column}"
+        if id_source in rows_df.columns:
+            field_sources = {
+                str(column)[len(alias) + 1:]: str(column)
+                for column in rows_df.columns
+                if str(column).startswith(f"{alias}.")
+            }
+            field_sources.setdefault(alias, id_source)
     if field_sources is None:
         return None
-    if all(field == source for field, source in field_sources.items()):
-        return _AliasView(frame=rows_df, columns=field_sources)
+    if node_id_column is not None:
+        id_source = f"{alias}.{node_id_column}"
+        alias_property_source = f"{alias}.{alias}"
+        qualified = [
+            str(column) for column in rows_df.columns
+            if str(column).startswith(f"{alias}.")
+        ]
+        if id_source in qualified and all(
+            column in {id_source, alias_property_source} for column in qualified
+        ):
+            # Merge collision provenance while leaving other source properties untouched.
+            direct_sources: typing.Dict[str, str] = {}
+            for column in rows_df.columns:
+                source = str(column)
+                if source == alias:
+                    if alias_property_source in rows_df.columns:
+                        direct_sources[alias] = alias_property_source
+                    continue
+                if source in qualified:
+                    if source == id_source:
+                        direct_sources[node_id_column] = source
+                    continue
+                if source.startswith("__"):
+                    continue
+                direct_sources.setdefault(source, source)
+            field_sources = direct_sources
+    presence_candidates = (
+        [f"{alias}.{node_id_column}", node_id_column]
+        if node_id_column is not None
+        else []
+    ) + [alias]
+    presence_source = next(
+        (source for source in presence_candidates if source in rows_df.columns),
+        None,
+    )
+    if presence_source is None or presence_source not in rows_df.columns:
+        return None
+    presence_column = f"__gfql_alias_presence_{alias}"
+    while presence_column in field_sources or presence_column in rows_df.columns:
+        presence_column += "_"
+    if all(field == source for field, source in field_sources.items()) and presence_source == alias:
+        return _AliasView(
+            frame=rows_df,
+            columns=field_sources,
+            presence_column=alias,
+            presence_source=alias,
+            node_id_column=node_id_column,
+        )
     frame = rows_df.select(
         [pl.col(source).alias(field) for field, source in field_sources.items()]
+        + [pl.col(presence_source).alias(presence_column)]
     )
-    return _AliasView(frame=frame, columns=field_sources)
+    return _AliasView(
+        frame=frame,
+        columns=field_sources,
+        presence_column=presence_column,
+        presence_source=presence_source,
+        node_id_column=node_id_column,
+    )
 
 
 def _native_node_entity_text_expr(
@@ -127,7 +195,7 @@ def _native_node_entity_text_expr(
 
     rows_df = view.frame
     cols = list(rows_df.columns)
-    has_node_entity_shape = alias in cols and "type" not in cols
+    has_node_entity_shape = view.presence_column in cols and "type" not in cols
     if not has_node_entity_shape:
         return None
 
@@ -137,10 +205,22 @@ def _native_node_entity_text_expr(
     from .dtypes import is_int
     schema = rows_df.schema
     excluded = set(str(c) for c in (exclude or ()))
+    bare_boolean_alias_marker = (
+        alias in cols
+        and view.columns.get(alias, alias) == alias
+        and view.presence_source != alias
+        and schema[alias] == pl.Boolean
+    )
     include_id = "id" in cols and is_int(schema["id"])
     prop_cols = [
         str(c) for c in cols
-        if str(c) != alias and str(c) not in excluded
+        if not (str(c) == alias and bare_boolean_alias_marker)
+        if str(c) != view.node_id_column
+        if not (
+            str(c) == alias
+            and view.columns.get(str(c), str(c)) == view.presence_source
+        )
+        and str(c) not in excluded
         and not str(c).startswith("__") and not str(c).startswith(LABEL_FLAG_PREFIX)
         and (str(c) not in NODE_INTERNAL_COLS or (include_id and str(c) == "id"))
     ]
@@ -171,7 +251,7 @@ def _native_node_entity_text_expr(
     # Nullify absent (OPTIONAL-MATCH miss) rows — alias marker is null there and an absent
     # entity must render null, not "()" (mirrors pandas _nullify_missing_alias_rows); a real
     # property-less node keeps "()".
-    return pl.when(_c(alias).is_null()).then(None).otherwise(rendered)
+    return pl.when(pl.col(view.presence_source).is_null()).then(None).otherwise(rendered)
 
 
 def _flat_entity_columns_polars(
@@ -232,14 +312,14 @@ def _try_native_projection(
     exprs: typing.List[typing.Union[pl.Expr, pl.Series]] = []
     entity_meta: typing.Dict[str, WholeRowProjectionMeta] = {}
     id_column = result._node if result._node is not None else source_node_id
-    primary = _alias_view_polars(rows_df, projection.alias)
+    primary = _alias_view_polars(rows_df, projection.alias, id_column)
     primary_columns = primary.columns if primary is not None else {}
     for column in projection.columns:
         if column.kind == "whole_row":
             if projection.table != "nodes":
                 return None  # edge entity rendering -> defer (NIE)
             source_alias = column.source_name or projection.alias
-            view = _alias_view_polars(rows_df, source_alias)
+            view = _alias_view_polars(rows_df, source_alias, id_column)
             if view is None:
                 return None
             if structured:
@@ -260,6 +340,10 @@ def _try_native_projection(
         if src is None or src not in rows_df.columns:
             return None  # expression needing evaluation / missing -> defer (NIE)
         dtype = rows_df.schema[src]
+        if isinstance(dtype, pl.List) and not isinstance(dtype.inner, (pl.List, pl.Struct, pl.Object)):
+            # Preserve public collected values; hidden identity companions travel separately.
+            exprs.append(rows_df.get_column(src).alias(column.output_name))
+            continue
         if dtype in (pl.Date, pl.Datetime, pl.Duration, pl.Time) or isinstance(dtype, (pl.List, pl.Struct, pl.Object)):
             return None  # temporal/nested rendering -> defer (NIE)
         if dtype == pl.String and _has_temporal_constructor_text(rows_df, src):
