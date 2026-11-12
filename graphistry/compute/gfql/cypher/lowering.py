@@ -287,7 +287,8 @@ class CompiledCypherMutationQuery:
     """A standalone write program whose semantics are owned by the mutation runtime."""
 
     creates: Tuple[CreateClause, ...]
-    return_: Optional[ReturnClause] = None
+    return_query: Optional[CypherQuery] = None
+    return_bindings: Tuple[Tuple[str, str], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -9365,15 +9366,38 @@ def compile_cypher_query(
                     line=query.span.line,
                     column=query.span.column,
                 )
-            if query.return_ is not None and not query.return_is_synthetic:
-                raise _unsupported(
-                    "GFQL CREATE with RETURN is not supported yet",
-                    field="return",
-                    value=None,
-                    line=query.return_.span.line,
-                    column=query.return_.span.column,
-                )
-            return CompiledCypherMutationQuery(creates=query.creates, return_=query.return_)
+            variables = [pattern.variable for clause in query.creates for pattern in clause.patterns if pattern.variable is not None]
+            if len(set(variables)) != len(variables):
+                raise _unsupported("CREATE variable is already bound", field="create", value=variables, line=query.span.line, column=query.span.column)
+            if query.return_is_synthetic:
+                return CompiledCypherMutationQuery(creates=query.creates)
+            from graphistry.compute.gfql.row.entity_props import MUTATION_NODE_ID
+            binding_params = []
+            occupied = set(params or {})
+            patterns = []
+            for variable in variables:
+                parameter = "__gfql_created_" + str(len(binding_params))
+                while parameter in occupied:
+                    parameter += "_"
+                occupied.add(parameter)
+                binding_params.append((variable, parameter))
+                patterns.append((NodePattern(variable=variable, labels=(), properties=(PropertyEntry(
+                    key=MUTATION_NODE_ID, value=ParameterRef(name=parameter, span=query.span), span=query.span,
+                ),), span=query.span),))
+            if not patterns:
+                # A hidden created alias supplies the one input row for constant RETURN.
+                hidden_alias = "__gfql_created_return__"
+                parameter = "__gfql_created_return_id__"
+                while parameter in occupied:
+                    parameter += "_"
+                binding_params.append((hidden_alias, parameter))
+                patterns.append((NodePattern(variable=hidden_alias, labels=(), properties=(PropertyEntry(
+                    key=MUTATION_NODE_ID, value=ParameterRef(name=parameter, span=query.span), span=query.span,
+                ),), span=query.span),))
+            read_query = replace(query, creates=(), matches=(MatchClause(patterns=tuple(patterns), span=query.span),))
+            # Reuse the established binder/projection compiler for name and expression checks.
+            compile_cypher_query(read_query, params={**(params or {}), **{parameter: 0 for _, parameter in binding_params}})
+            return CompiledCypherMutationQuery(creates=query.creates, return_query=read_query, return_bindings=tuple(binding_params))
     elif isinstance(query, CypherUnionQuery):
         for branch in query.branches:
             _reject_excessive_match_clauses(branch.matches)

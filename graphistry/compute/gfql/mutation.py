@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import math
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Optional, Union
 
 from graphistry.compute.typing import DataFrameT, SeriesT
 from graphistry.Engine import (
@@ -13,8 +13,9 @@ from graphistry.Engine import (
     resolve_engine,
 )
 from graphistry.compute.exceptions import ErrorCode, GFQLUnsupportedError, GFQLValidationError
-from graphistry.compute.gfql.cypher.ast import CreateClause, CypherParams, ParameterRef
+from graphistry.compute.gfql.cypher.ast import CreateClause, CypherParams, CypherScalar, ParameterRef
 from graphistry.Plottable import Plottable
+from graphistry.compute.gfql.row.entity_props import MUTATION_NODE_ID, ID_PROPERTY_PRESENT
 
 if TYPE_CHECKING:
     from graphistry.compute.typing import PolarsDType
@@ -156,7 +157,10 @@ def _numeric_id_seed(nodes: DataFrameT, node_key: str, *, count: int, line: int,
         integer = values.dtype in limits
         empty = nodes.height == 0
         has_null = bool(values.is_null().any())
-        maximum = int(values.max()) if integer and not empty and not has_null else 0
+        maximum_value = values.max() if integer and not empty and not has_null else 0
+        if not isinstance(maximum_value, int):
+            raise GFQLMutationError(ErrorCode.E108, "Unsupported physical identity scalar", field=node_key, value=type(maximum_value).__name__, language="cypher")
+        maximum = maximum_value
         limit = limits.get(values.dtype, 0)
     else:
         series = nodes[node_key]
@@ -289,7 +293,7 @@ def execute_create_nodes(
     *,
     engine: EngineAbstract | str = EngineAbstract.AUTO,
     params: Optional[CypherParams] = None,
-) -> Plottable:
+) -> tuple[Plottable, dict[str, CypherScalar]]:
     """Create node rows and return a new Plottable without changing the caller."""
     concrete_engine = resolve_engine(
         EngineAbstract(engine) if isinstance(engine, str) else engine,
@@ -309,54 +313,88 @@ def execute_create_nodes(
 
     from graphistry.compute.ComputeMixin import _coerce_input_formats
     base_graph = _coerce_input_formats(self, concrete_engine)
+    if base_graph._gfql_graph is not None:
+        base_graph = base_graph.bind()
+        base_graph._gfql_graph = None
     if base_graph._nodes is None and base_graph._edges is not None:
         base_graph = base_graph.materialize_nodes(engine=concrete_engine.value)
-    node_key = base_graph._node or "_node"
+    old_key = base_graph._node or "_node"
     nodes = base_graph._nodes
-    if nodes is None and node_key != "_node":
+    if nodes is not None and old_key not in nodes.columns:
         raise GFQLMutationError(
-            ErrorCode.E108,
-            f"Bound node key {node_key!r} must use the existing identity convention",
-            field=node_key,
-            value=node_key,
-            suggestion="Create a graph with numeric node identities before CREATE.",
-            line=line,
-            column=column,
-            language="cypher",
+            ErrorCode.E108, f"Existing node frame is missing identity column {old_key!r}",
+            field=old_key, value="missing", line=line, column=column, language="cypher",
         )
-
-    identity = 0
-    if nodes is not None and node_key not in nodes.columns:
-        raise GFQLMutationError(
-            ErrorCode.E108,
-            f"Existing node frame is missing identity column {node_key!r}",
-            field=node_key,
-            value="missing",
-            suggestion="Provide a node frame with the bound identity column before CREATE.",
-            line=line,
-            column=column,
-            language="cypher",
-        )
+    if nodes is not None and not base_graph._gfql_mutation_identity:
+        collisions = {MUTATION_NODE_ID, ID_PROPERTY_PRESENT} & set(nodes.columns)
+        if collisions:
+            raise GFQLMutationError(
+                ErrorCode.E108, "CREATE reserved metadata columns collide with input columns",
+                field="create", value=sorted(collisions), language="cypher",
+            )
+        from graphistry.compute.gfql.row.entity_props import _include_numeric_id_as_property
+        include_id = _include_numeric_id_as_property(nodes)
+        if is_polars_df(nodes):
+            import polars as pl
+            nodes = nodes.with_columns(
+                pl.col(old_key).alias(MUTATION_NODE_ID),
+                pl.lit(include_id).alias(ID_PROPERTY_PRESENT),
+            )
+        else:
+            nodes = nodes.assign(**{
+                MUTATION_NODE_ID: nodes[old_key], ID_PROPERTY_PRESENT: include_id,
+            })
+    node_key = MUTATION_NODE_ID
+    count = sum(len(clause.patterns) for clause in creates)
+    identities: list[Union[int, str]]
+    string_identity = nodes is not None and _column_family(nodes[node_key]) == "string"
     if nodes is not None:
-        identity = _numeric_id_seed(
-            nodes, node_key, count=sum(len(clause.patterns) for clause in creates),
-            line=line, column=column,
+        physical = nodes[node_key]
+        nulls = physical.is_null().any() if is_polars_df(nodes) else physical.isna().any()
+        duplicates = physical.n_unique() != len(physical) if is_polars_df(nodes) else physical.duplicated().any()
+        if bool(nulls) or bool(duplicates):
+            raise GFQLMutationError(ErrorCode.E105, "CREATE requires unique non-null physical identities", field=old_key, value="invalid_identity", language="cypher")
+    if string_identity:
+        # Membership is checked on the native frame; no existing identities leave it.
+        offset = 0
+        while True:
+            identities = [f"__gfql_created_{offset + i}" for i in range(count)]
+            values = nodes[node_key]
+            hits = values.is_in(identities) if is_polars_df(nodes) else values.isin(identities)
+            if not bool(hits.any()):
+                break
+            offset += count
+    else:
+        seed = 0 if nodes is None else _numeric_id_seed(
+            nodes, node_key, count=count, line=line, column=column,
         )
+        identities = list(range(seed, seed + count))
+    bindings: dict[str, CypherScalar] = {"": identities[-1]}
+    identity_index = 0
 
     records: list[dict[str, object]] = []
     label_columns: set[str] = set()
     for clause in creates:
         for pattern in clause.patterns:
-            row: dict[str, object] = {node_key: identity}
-            identity += 1
+            identity = identities[identity_index]
+            identity_index += 1
+            if pattern.variable is not None:
+                if pattern.variable in bindings:
+                    raise GFQLMutationError(
+                        ErrorCode.E105, "CREATE variable is already bound", field="create",
+                        value=pattern.variable, line=pattern.span.line, column=pattern.span.column,
+                        language="cypher",
+                    )
+                bindings[pattern.variable] = identity
+            row: dict[str, object] = {node_key: identity, ID_PROPERTY_PRESENT: False}
             for label in pattern.labels:
                 label_column = f"label__{label}"
                 label_columns.add(label_column)
                 row[label_column] = True
             for entry in pattern.properties:
-                if entry.key.startswith("label__"):
+                if entry.key.startswith(("label__", "__")):
                     raise GFQLMutationError(
-                        ErrorCode.E108, "CREATE properties cannot use the label flag namespace",
+                        ErrorCode.E108, "CREATE properties cannot use reserved metadata or label namespaces",
                         field=entry.key, value=entry.key, language="cypher",
                     )
                 if entry.key in row:
@@ -373,6 +411,7 @@ def execute_create_nodes(
                 row[entry.key] = _property_value(
                     entry.value, params=params, span=entry.span
                 )
+            row[ID_PROPERTY_PRESENT] = row.get("id") is not None
             records.append(row)
 
     new_nodes = _new_nodes_frame(concrete_engine, records, label_columns)
@@ -399,7 +438,9 @@ def execute_create_nodes(
                         for column in label_columns_to_fill
                     ]
                 )
-            return base_graph.nodes(polars_nodes, node_key)
+            result = base_graph.nodes(polars_nodes, node_key)
+            result._gfql_mutation_identity = True
+            return result, bindings
         else:
             concat = df_concat(concrete_engine)
             nodes = concat([nodes, new_nodes], ignore_index=True, sort=False)
@@ -428,4 +469,6 @@ def execute_create_nodes(
                 )
         nodes = new_nodes
 
-    return base_graph.nodes(nodes, node_key)
+    result = base_graph.nodes(nodes, node_key)
+    result._gfql_mutation_identity = True
+    return result, bindings

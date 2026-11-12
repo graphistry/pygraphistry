@@ -29,6 +29,8 @@ from graphistry.Engine import is_polars_df as _is_polars_frame
 from graphistry.compute.gfql.row.entity_props import (
     LABEL_FLAG_PREFIX,
     NODE_INTERNAL_COLS,
+    MUTATION_NODE_ID,
+    ID_PROPERTY_PRESENT,
     label_flag_columns,
 )
 
@@ -211,7 +213,7 @@ def _native_node_entity_text_expr(
         and view.presence_source != alias
         and schema[alias] == pl.Boolean
     )
-    include_id = "id" in cols and is_int(schema["id"])
+    include_id = "id" in cols and (is_int(schema["id"]) or (MUTATION_NODE_ID in cols and ID_PROPERTY_PRESENT in cols))
     prop_cols = [
         str(c) for c in cols
         if not (str(c) == alias and bare_boolean_alias_marker)
@@ -239,7 +241,10 @@ def _native_node_entity_text_expr(
         val = _native_scalar_text_expr(view.columns.get(col, col), schema[col])
         if val is None:
             return None
-        segments.append(pl.when(_c(col).is_null()).then(None).otherwise(pl.lit(f"{col}: ") + val))
+        absent = _c(col).is_null()
+        if col == "id" and MUTATION_NODE_ID in cols and ID_PROPERTY_PRESENT in cols:
+            absent = absent | ~_c(ID_PROPERTY_PRESENT).fill_null(False)
+        segments.append(pl.when(absent).then(None).otherwise(pl.lit(f"{col}: ") + val))
     if not segments:
         rendered = pl.lit("(") + labels + pl.lit(")")
     else:

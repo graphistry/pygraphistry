@@ -1821,12 +1821,6 @@ def _build_transformer(source: str) -> _TransformerLike:
                     unwind_clauses.append(item)
                     ordered_row_items.append(item)
                 elif isinstance(item, CreateClause):
-                    if any(pattern.variable is None for pattern in item.patterns):
-                        raise _to_syntax_error(
-                            "CREATE node pattern requires a variable for GFQL binding and validation",
-                            line=item.span.line,
-                            column=item.span.column,
-                        )
                     if match_clauses or reentry_match_clauses or stages or unwind_clauses or call_clause is not None:
                         raise _to_unsupported(
                             "GFQL CREATE is currently supported only before an optional RETURN in standalone node mutations",

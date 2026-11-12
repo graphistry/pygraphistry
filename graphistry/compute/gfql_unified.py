@@ -2919,10 +2919,25 @@ def _gfql_with_strictness(
             if isinstance(compiled_query, CompiledCypherGraphQuery):
                 return _execute_graph_query(self, compiled_query, engine=engine, policy=expanded_policy, context=context)
             if isinstance(compiled_query, CompiledCypherMutationQuery):
-                mutated = execute_create_nodes(
+                mutated, created_bindings = execute_create_nodes(
                     self, compiled_query.creates, engine=engine, params=params
                 )
-                return mutated
+                if compiled_query.return_query is None:
+                    return mutated
+                from .gfql.cypher.lowering import compile_cypher_query
+                read_params = dict(params or {})
+                for variable, parameter in compiled_query.return_bindings:
+                    if variable in created_bindings:
+                        read_params[parameter] = created_bindings[variable]
+                    else:
+                        # Anonymous CREATE + constant RETURN: one execution, one row.
+                        read_params[parameter] = created_bindings[""]
+                compiled_return = compile_cypher_query(compiled_query.return_query, params=read_params)
+                if not isinstance(compiled_return, CompiledCypherQuery):
+                    raise TypeError("CREATE RETURN must compile to a read projection")
+                result = _execute_compiled_query(mutated, compiled_query=compiled_return, engine=engine, policy=expanded_policy, context=context)
+                result._gfql_graph = mutated
+                return result
             if isinstance(compiled_query, CompiledCypherQuery):
                 if compiled_query.graph_bindings or compiled_query.use_ref:
                     return _execute_query_with_graph_context(self, compiled_query, engine=engine, policy=expanded_policy, context=context)

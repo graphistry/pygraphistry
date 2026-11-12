@@ -14,6 +14,8 @@ from graphistry.compute.gfql.series_str_compat import is_non_textual_scalar_dtyp
 
 from .lowering import ResultProjectionColumn, ResultProjectionPlan
 from graphistry.compute.gfql.row.entity_props import (
+    MUTATION_NODE_ID,
+    ID_PROPERTY_PRESENT,
     _const_text,
     _empty_text,
     _is_null_mask,
@@ -148,7 +150,8 @@ def _flat_entity_field_names(
         extra = ["type"] if "type" in source_rows_df.columns else []
 
     fields: list[str] = []
-    for col in [id_column, *prop_cols, *extra]:
+    public_id = id_column if id_column is None or not id_column.startswith("__") else None
+    for col in [public_id, *prop_cols, *extra]:
         if col is not None and col in source_rows_df.columns and col not in fields:
             fields.append(str(col))
     return fields
@@ -212,6 +215,9 @@ def render_entity_text(
             raise ValueError("entity presence metadata is not aligned with result rows")
         present = marker_frame[marker_frame.columns[0]].notna()
         present.index = rows_df.index
+        for metadata_col in (MUTATION_NODE_ID, ID_PROPERTY_PRESENT):
+            if metadata_col in marker_frame.columns:
+                frame[metadata_col] = marker_frame[metadata_col]
     else:
         for field in frame.columns:
             not_na: SeriesT = frame[field].notna()
@@ -389,6 +395,20 @@ def apply_result_projection(
                         marker_frame = marker_frame.rename({marker_source: projection.alias})
                     else:
                         marker_frame = marker_frame.rename(columns={marker_source: projection.alias})
+                # Keep current property membership beside existing entity-presence
+                # provenance, never in public flattened columns.
+                source_view = _projection_alias_rows(rows_df, alias=source_alias)
+                if source_view is not None and all(name in source_view.columns for name in (MUTATION_NODE_ID, ID_PROPERTY_PRESENT)):
+                    if is_polars_df(marker_frame):
+                        import polars as pl
+                        marker_frame = marker_frame.with_columns([
+                            source_view[name].alias(name)
+                            for name in (MUTATION_NODE_ID, ID_PROPERTY_PRESENT)
+                        ])
+                    else:
+                        marker_frame = marker_frame.assign(**{
+                            name: source_view[name] for name in (MUTATION_NODE_ID, ID_PROPERTY_PRESENT)
+                        })
                 presence[column.output_name] = marker_frame.clone() if is_polars_df(marker_frame) else marker_frame.copy()
     out._cypher_entity_projection_presence = presence
     return out

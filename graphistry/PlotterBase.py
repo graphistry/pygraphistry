@@ -253,6 +253,7 @@ class PlotterBase(Plottable):
     _gfql_indexed_bindings_handoff: Optional["IndexedBindingsHandoff"] = None
     _gfql_rows_base_graph: Optional["Plottable"] = None
     _gfql_graph: Optional["Plottable"] = None
+    _gfql_mutation_identity: bool = False
     _gfql_start_nodes: Optional["DataFrameT"] = None
     _gfql_preserve_start_node_multiplicity: bool = False
     _gfql_rows_edge_aliases: Optional[Iterable[str]] = None

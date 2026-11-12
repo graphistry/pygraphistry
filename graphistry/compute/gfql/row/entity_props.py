@@ -19,6 +19,11 @@ from graphistry.compute.typing import DataFrameT, IndexT, SeriesT
 
 
 #: Node columns that are engine structure, not user properties.
+# Stable native metadata for graphs that have undergone functional mutation.
+# The runtime rejects user collisions before introducing these reserved columns.
+MUTATION_NODE_ID = "__gfql_mutation_node_id__"
+ID_PROPERTY_PRESENT = "__gfql_id_property_present__"
+
 NODE_INTERNAL_COLS = frozenset({"id", "labels", "type"})
 _EDGE_INTERNAL_COLS = frozenset({"s", "d", "src", "dst", "edge_id", "type", EDGE_IDENTITY_COLUMN, "undirected"})
 
@@ -61,6 +66,8 @@ def _fresh_col_name(columns: Sequence[object] | IndexT, prefix: str) -> str:
 def _include_numeric_id_as_property(df: DataFrameT) -> bool:
     if "id" not in df.columns:
         return False
+    if ID_PROPERTY_PRESENT in df.columns and MUTATION_NODE_ID in df.columns:
+        return True
     try:
         # polars frames: pd.api.types.is_numeric_dtype doesn't understand polars
         # dtypes; use the dtype's own numeric check so structured whole-entity
@@ -88,6 +95,14 @@ def node_property_columns(df: DataFrameT, alias_col: str, excluded: Sequence[str
         and (str(col) not in NODE_INTERNAL_COLS or (include_id and str(col) == "id"))
     ]
 
+
+
+def property_present_mask(df: DataFrameT, column: str) -> SeriesT:
+    """Current property membership, including the legacy string-id exception."""
+    mask = ~_is_null_mask(df[column])
+    if column == "id" and ID_PROPERTY_PRESENT in df.columns and MUTATION_NODE_ID in df.columns:
+        mask = mask & df[ID_PROPERTY_PRESENT].fillna(False)
+    return cast(SeriesT, mask)
 
 def edge_property_columns(df: DataFrameT, alias_col: str, excluded: Sequence[str]) -> list[str]:
     return [
@@ -393,7 +408,7 @@ def append_property_segments(
     has_props = _false_mask(df, alias_col)
     for col in property_columns:
         series = cast(SeriesT, df[col])
-        include = cast(SeriesT, ~_is_null_mask(series))
+        include = property_present_mask(df, col)
         value_text = render_scalar_value_text(df, alias_col, series)
         segment = _const_text(df, alias_col, f"{col}: ") + value_text
         prefix = cast(SeriesT, _const_text(df, alias_col, ", ").where(has_props & include, ""))
@@ -534,6 +549,8 @@ def entity_keys_series(
     present_col = _fresh_col_name(df.columns, "__gfql_entity_key_present__")
 
     presence = cast(DataFrameT, df[property_cols].notna().copy())
+    if "id" in property_cols:
+        presence["id"] = property_present_mask(df, "id")
     presence[row_col] = range(len(df))
 
     melted = cast(
