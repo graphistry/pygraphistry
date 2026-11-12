@@ -9374,16 +9374,32 @@ def compile_cypher_query(
             seen_node_variables: set[str] = set()
             for clause in query.creates:
                 seen_relationship_variables: set[str] = set()
+                clause_node_variables: set[str] = set()
                 for pattern in clause.patterns:
                     if isinstance(pattern, NodePattern):
                         if pattern.variable is not None and pattern.variable not in seen_node_variables:
                             variables.append(pattern.variable)
                             seen_node_variables.add(pattern.variable)
+                            clause_node_variables.add(pattern.variable)
                     else:
                         for endpoint in (pattern.source, pattern.destination):
                             if endpoint.variable is not None and endpoint.variable not in seen_node_variables:
                                 variables.append(endpoint.variable)
                                 seen_node_variables.add(endpoint.variable)
+                                clause_node_variables.add(endpoint.variable)
+                        for endpoint in (pattern.source, pattern.destination):
+                            if (
+                                endpoint.variable is not None
+                                and endpoint.variable not in clause_node_variables
+                                and endpoint.variable in seen_node_variables
+                            ):
+                                raise _unsupported(
+                                    "CREATE relationship cannot reuse a node from another clause",
+                                    field="create",
+                                    value=endpoint.variable,
+                                    line=query.span.line,
+                                    column=query.span.column,
+                                )
                         if pattern.relationship.variable is not None and pattern.relationship.variable not in seen_relationship_variables:
                             relationship_variables.append(pattern.relationship.variable)
                             seen_relationship_variables.add(pattern.relationship.variable)

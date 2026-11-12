@@ -405,6 +405,27 @@ def test_create_relationship_rejects_shared_node_relationship_alias() -> None:
     assert _records(source._edges) == before_edges
 
 
+def test_compile_create_relationship_rejects_shared_node_relationship_alias() -> None:
+    with pytest.raises(GFQLValidationError, match="variable is already bound"):
+        compile_cypher_query(parse_cypher("CREATE (a)-[a:T]->(b)"))
+
+
+def test_create_relationship_rejects_cross_clause_node_reuse_before_effects() -> None:
+    source = _graph("pandas")
+    before_nodes = _records(source._nodes)
+    before_edges = _records(source._edges)
+
+    with pytest.raises(GFQLValidationError, match="another clause"):
+        source.gfql(
+            "CREATE (a)\nCREATE (b)\nCREATE (a)-[:T]->(b)",
+            engine="pandas",
+            language="cypher",
+        )
+
+    assert _records(source._nodes) == before_nodes
+    assert _records(source._edges) == before_edges
+
+
 def test_create_relationship_rejects_configured_missing_edge_key() -> None:
     edges = pd.DataFrame({"src": [1], "dst": [2]})
     source = graphistry.nodes(pd.DataFrame({"id": [1, 2]}), "id").edges(
