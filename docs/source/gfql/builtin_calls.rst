@@ -2003,6 +2003,22 @@ Current vLLM uses ``structured_outputs``; ``guided_*`` fields target older serve
 accepted by current releases. Grammar support depends on the server backend. Select and test the
 mechanism supported by the deployment rather than inferring support from its model name.
 
+Anthropic structured answers
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+``AnthropicMessagesProvider(strategy='json_schema')`` sends the answer-code schema through
+``output_config.format``. ``strategy='tool'`` requests one tool named ``answer`` with the same
+schema. Both validate the returned code and return no distribution or probability. Metadata
+records ``answer_strategy`` and ``semantic_level``. ``strategy='text'`` remains the default.
+The selected strategy controls format/tool fields in ``extra_body``; other ``output_config``
+settings are retained. The cost estimate includes the selected schema or tool payload.
+
+Forced tool support depends on the model and thinking settings. An unsupported request retains
+its HTTP error; the provider does not resend it with another strategy. Refusals remain uncertain,
+and truncated, paused, malformed or conflicting answers become errors. The provider reads tool
+arguments as data and never executes a returned tool call.
+
+
 Utility Methods
 ---------------
 

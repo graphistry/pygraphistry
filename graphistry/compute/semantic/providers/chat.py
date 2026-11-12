@@ -19,7 +19,7 @@ from graphistry.compute.semantic.contract import (
     Budget, DecisionQuestion, DecisionRequest, DecisionResult, Evidence, ExtraValue, ProviderCapabilities, StatusReason,
     unanswered_result)
 from graphistry.compute.semantic.providers.chat_constraints import (
-    CONSTRAINT_KEYS, GRAMMAR_FIELDS, JSON_INSTRUCTION, constraint_fields)
+    CONSTRAINT_KEYS, GRAMMAR_FIELDS, JSON_INSTRUCTION, answer_schema, constraint_fields)
 from graphistry.compute.semantic.providers.http import (
     HttpDecisionProvider, HttpPoster, JSONObject, RequestFailure, ResponseMeta, TokenPrices, TokenUsage, evidence_text,
     post_json, token_count)
@@ -33,6 +33,7 @@ Strategy = Literal["logprobs", "json_schema", "tool", "text", "auto", "json_mode
                    "vllm_choice", "vllm_regex", "vllm_grammar", "guided_choice", "guided_regex", "guided_grammar",
                    "sglang_regex", "sglang_ebnf"]
 ReplyForm = Literal["text", "json_schema", "tool", "function", "code"]
+AnthropicStrategy = Literal["text", "json_schema", "tool"]
 DEFAULT_PROBE_STRATEGIES: Tuple[Strategy, ...] = ("logprobs", "json_schema", "tool", "text")
 STRATEGIES: Tuple[str, ...] = get_args(Strategy)
 NOT_CAPABILITY_ERRORS = ("http_401", "http_403", "http_407", "http_408", "http_409", "http_429")
@@ -571,6 +572,10 @@ def _json_answer(text: object) -> object:
         value = json.loads(text, object_pairs_hook=_unique_keys) if isinstance(text, str) else None
     except (ValueError, RecursionError):
         return None
+    return _answer_field(value)
+
+
+def _answer_field(value: object) -> object:
     return value.get("answer") if isinstance(value, dict) and set(value) == {"answer"} else None
 
 
@@ -583,7 +588,11 @@ def _unique_keys(pairs: List[Tuple[str, object]]) -> Dict[str, object]:
 class AnthropicMessagesProvider(_ChatDecisionProvider):
     """Anthropic Messages API. It returns no token probabilities, so every answer has no distribution.
 
+    ``strategy="text"`` preserves plain code replies. ``json_schema`` sends ``output_config.format``;
+    ``tool`` requests a named answer tool. Both validate the answer-code schema and record their semantic level.
+    Forced tools depend on the model/settings; failures retain their HTTP code, with no strategy resend.
     ``max_answer_tokens`` (at least 2), ``extra_body`` and ``extra_headers`` work as on :class:`OpenAIChatProvider`.
+    The selected strategy controls output-format and tool fields. Other ``output_config`` fields are retained.
     """
 
     name = "anthropic_messages"
@@ -591,13 +600,56 @@ class AnthropicMessagesProvider(_ChatDecisionProvider):
     path = "/messages"
     api_version = "2023-06-01"
 
+    def __init__(self, api_key: str, model: str, *, strategy: AnthropicStrategy = "text",
+                 base_url: Optional[str] = None, max_answer_tokens: int = 16,
+                 extra_body: Optional[JSONObject] = None, extra_headers: Optional[Dict[str, str]] = None,
+                 prices: Optional[TokenPrices] = None, concurrency_limit: int = 4, timeout_s: float = 60,
+                 max_retries: int = 3, retry_backoff_s: float = 0.5, session: Optional[HttpPoster] = None,
+                 name: Optional[str] = None) -> None:
+        super().__init__(api_key, model, base_url=base_url, max_answer_tokens=max_answer_tokens, extra_body=extra_body,
+                         extra_headers=extra_headers, prices=prices, concurrency_limit=concurrency_limit,
+                         timeout_s=timeout_s, max_retries=max_retries, retry_backoff_s=retry_backoff_s,
+                         session=session, name=name)
+        if strategy not in get_args(AnthropicStrategy):
+            raise ValueError("strategy must be text, json_schema or tool")
+        self.strategy = strategy
+
     def headers(self) -> Dict[str, str]:
         return {"x-api-key": self._api_key, "anthropic-version": self.api_version, "content-type": "application/json",
                 **self.extra_headers}
 
     def body(self, request: DecisionRequest, questions: Sequence[DecisionQuestion]) -> JSONObject:
-        return {**self.extra_body, "model": self.model, "max_tokens": self.max_answer_tokens, "system": SYSTEM_PROMPT,
-                "messages": [{"role": "user", "content": letter_prompt(request.evidence, questions[0])}]}
+        question = questions[0]
+        codes = (answer_codes(question) or LETTERS)[:len(answer_labels(question))]
+        schema = answer_schema(codes)
+        extras = {key: value for key, value in self.extra_body.items()
+                  if key not in ("output_config", "output_format", "tools", "tool_choice", "logprobs", "top_logprobs")}
+        configured = self.extra_body.get("output_config")
+        output = {key: value for key, value in configured.items() if key != "format"} \
+            if isinstance(configured, dict) else {}
+        if self.strategy == "json_schema":
+            output["format"] = {"type": "json_schema", "schema": schema}
+        if output:
+            extras["output_config"] = output
+        if self.strategy == "tool":
+            extras.update({"tools": [{"name": "answer", "description": "The code of the answer.",
+                                      "input_schema": schema}],
+                           "tool_choice": {"type": "tool", "name": "answer"}})
+        system = SYSTEM_PROMPT + (JSON_INSTRUCTION if self.strategy == "json_schema" else "")
+        return {**extras, "model": self.model, "max_tokens": self.max_answer_tokens, "system": system,
+                "messages": [{"role": "user", "content": letter_prompt(request.evidence, question)}]}
+
+    def prompt_texts(self, request: DecisionRequest, questions: Sequence[DecisionQuestion]) -> List[str]:
+        sent = self.body(request, questions)
+        extras = {key: value for key, value in sent.items() if key in ("output_config", "tools", "tool_choice")}
+        return [str(sent["system"]), letter_prompt(request.evidence, questions[0])] \
+            + ([json.dumps(extras)] if extras else [])
+
+    def answer_extra(self, form: ReplyForm) -> Dict[str, ExtraValue]:
+        if self.strategy == "text":
+            return {}
+        return {"answer_strategy": self.strategy,
+                "semantic_level": "provider_structured" if self.strategy == "json_schema" else "tool_structured"}
 
     def usage(self, payload: Mapping[str, object]) -> Optional[TokenUsage]:
         usage = payload.get("usage")
@@ -610,7 +662,17 @@ class AnthropicMessagesProvider(_ChatDecisionProvider):
 
     def reply(self, payload: Mapping[str, object]) -> Reply:
         content = payload.get("content")
-        blocks = [block.get("text") for block in content if isinstance(block, dict) and block.get("type") == "text"] \
-            if isinstance(content, list) else []
-        return Reply(blocks[0] if blocks else None, None, payload.get("stop_reason") == "refusal",
-                     payload.get("stop_reason") in ("max_tokens", "model_context_window_exceeded"))
+        blocks = [block for block in content if isinstance(block, dict)] if isinstance(content, list) else []
+        texts = [block.get("text") for block in blocks if block.get("type") == "text"]
+        refused = payload.get("stop_reason") == "refusal"
+        unfinished = payload.get("stop_reason") in ("max_tokens", "model_context_window_exceeded", "pause_turn")
+        if self.strategy == "text":
+            return Reply(texts[0] if texts else None, None, refused, unfinished)
+        tools = [block for block in blocks if block.get("type") in ("tool_use", "server_tool_use")]
+        if self.strategy == "json_schema":
+            text = "".join(part for part in texts if isinstance(part, str))
+            value = _json_answer(text) if not tools and all(isinstance(part, str) for part in texts) else None
+            return Reply(value, None, refused, unfinished, "json_schema")
+        value = _answer_field(tools[0].get("input")) if len(tools) == 1 \
+            and tools[0].get("type") == "tool_use" and tools[0].get("name") == "answer" else None
+        return Reply(value, None, refused, unfinished, "tool")
