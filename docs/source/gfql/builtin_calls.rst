@@ -2007,7 +2007,7 @@ ordered profile. For example::
 
     provider = OpenAIChatProvider(
         key, model, base_url="http://localhost:8000/v1",
-        strategy="auto", probe_strategies=("vllm_choice", "guided_choice", "text"),
+        strategy="auto", probe_strategies=("vllm_choice", "json_schema", "text"),
         max_tokens_field="max_tokens",
     )
 
@@ -2021,9 +2021,11 @@ A real row's failure is returned without resending it through a lower strategy.
 The existing cost estimate includes the selected constraint payload, or the largest profile payload
 before discovery. It estimates input cost and is not a bound on billed spend.
 
-Current vLLM uses ``structured_outputs``; ``guided_*`` fields target older servers and are not
-accepted by current releases. Grammar support depends on the server backend. Select and test the
-mechanism supported by the deployment rather than inferring support from its model name.
+Current vLLM uses ``structured_outputs``; ``guided_*`` fields target older servers. Unsupported
+fields can be rejected or silently ignored, even with HTTP 200. A probe validates the reply shape;
+it does not verify that the server enforced the constraint. Use a deployment-specific profile and
+test the chosen mechanism with instructions that conflict with its constraint. Grammar support
+depends on the server backend; a model name alone does not establish support.
 
 LangChain chat models
 ~~~~~~~~~~~~~~~~~~~~~
