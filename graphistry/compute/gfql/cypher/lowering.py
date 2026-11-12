@@ -9351,8 +9351,28 @@ def compile_cypher_query(
     from graphistry.compute.gfql.cypher import projection_planning as _projection
 
     if isinstance(query, CypherQuery):
+        typed_query = query
         _reject_excessive_match_clauses(query.matches)
         if query.creates:
+            def _first_span(items: Sequence[Any]) -> SourceSpan:
+                return items[0].span
+
+            unsupported_mutation_fields: Tuple[Tuple[str, Any, Callable[[], SourceSpan]], ...] = (
+                ("MATCH", typed_query.matches, lambda: _first_span(typed_query.matches)),
+                ("WHERE", typed_query.where, lambda: cast(Any, typed_query.where).span),
+                ("CALL", typed_query.call, lambda: cast(Any, typed_query.call).span),
+                ("UNWIND", typed_query.unwinds, lambda: _first_span(typed_query.unwinds)),
+                ("WITH", typed_query.with_stages, lambda: _first_span(typed_query.with_stages)),
+                ("GRAPH", typed_query.graph_bindings, lambda: _first_span(typed_query.graph_bindings)),
+            )
+            for field_name, field_value, get_span in unsupported_mutation_fields:
+                if field_value:
+                    raise _unsupported_at_span(
+                        f"GFQL CREATE with {field_name} is not supported yet; the whole program is declined",
+                        field=field_name.lower(),
+                        value=None,
+                        span=get_span(),
+                    )
             if query.return_ is not None and not query.return_is_synthetic:
                 raise _unsupported(
                     "GFQL CREATE with RETURN is not supported yet",

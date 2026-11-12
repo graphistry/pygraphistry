@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import os
-from typing import Any
+from typing import Any, cast
 
 import pandas as pd
 import pytest
@@ -93,25 +93,100 @@ def test_create_nodes_without_existing_nodes_uses_identity_zero(engine: str) -> 
     _assert_served(engine, result._nodes)
 
 
+@pytest.mark.parametrize("engine", ENGINES)
+def test_create_preserves_edges_only_inferred_nodes(engine: str) -> None:
+    edges = pd.DataFrame({"src": [7], "dst": [8], "type": ["R"]})
+    source = graphistry.edges(edges, "src", "dst")
+
+    result = source.gfql("CREATE (a:L)", engine=engine, language="cypher")
+
+    assert result._edges is source._edges
+    assert _records(result._nodes) == [
+        {"_node": 7, "label__L": False},
+        {"_node": 8, "label__L": False},
+        {"_node": 9, "label__L": True},
+    ]
+
+
+def test_create_promotes_existing_numeric_and_bool_columns_losslessly() -> None:
+    nodes = pd.DataFrame({"id": [1], "score": [1], "flag": [True]})
+    source = graphistry.nodes(nodes, "id")
+
+    result = source.gfql(
+        "CREATE (a:L {score: 1.5, flag: 2})",
+        engine="pandas",
+        language="cypher",
+    )
+
+    rows = _records(result._nodes)
+    assert rows[0]["score"] == 1
+    assert rows[1]["score"] == 1.5
+    assert rows[0]["flag"] == 1
+    assert rows[1]["flag"] == 2
+    assert str(result._nodes["score"].dtype) == "Float64"
+    assert str(result._nodes["flag"].dtype) == "Int64"
+
+
+def test_create_rejects_integer_identity_overflow() -> None:
+    nodes = pd.DataFrame({"id": pd.array([-128, 126], dtype="int8")})
+    source = graphistry.nodes(nodes, "id")
+
+    with pytest.raises(GFQLValidationError, match="cannot hold 2 new IDs"):
+        source.gfql("CREATE (a:L), (b:L)", engine="pandas", language="cypher")
+
+
+def test_create_rejects_unsupported_mixed_program() -> None:
+    source = _graph("pandas")
+
+    with pytest.raises(GFQLValidationError, match="CREATE with CALL"):
+        source.gfql(
+            "CREATE (a:L) CALL degree.write()",
+            engine="pandas",
+            language="cypher",
+        )
+
+
+def test_create_declines_unavailable_polars_gpu(monkeypatch: pytest.MonkeyPatch) -> None:
+    from graphistry.compute.gfql.lazy import polars_gpu_available
+
+    monkeypatch.setattr(
+        "graphistry.compute.gfql.lazy.polars_gpu_available",
+        lambda: False,
+    )
+    source = _graph("polars-gpu")
+
+    with pytest.raises(GFQLValidationError, match="requires a usable GPU"):
+        source.gfql("CREATE (a:L)", engine="polars-gpu", language="cypher")
+
+
+def test_validate_mutation_does_not_touch_chain() -> None:
+    source = _graph("pandas")
+
+    report = source.gfql_validate("CREATE (a:L)", engine="pandas", language="cypher")
+
+    assert report["ok"] is True
+    assert report["compiled_kind"] == "mutation"
+
+
 def test_create_rejects_non_numeric_existing_identity() -> None:
     source = graphistry.nodes(pd.DataFrame({"id": ["a", "b"]}), "id")
 
     with pytest.raises(GFQLValidationError, match="numeric node identities"):
-        source.gfql("CREATE (a:L)", engine="pandas", language="cypher")
+        cast(Any, source).gfql("CREATE (a:L)", engine="pandas", language="cypher")
 
 
 def test_create_rejects_missing_existing_identity_column() -> None:
     source = graphistry.bind(node="id").nodes(pd.DataFrame({"name": ["Ada"]}))
 
     with pytest.raises(GFQLValidationError, match="missing identity column 'id'"):
-        source.gfql("CREATE (a:L)", engine="pandas", language="cypher")
+        cast(Any, source).gfql("CREATE (a:L)", engine="pandas", language="cypher")
 
 
 def test_create_return_is_typed_supported_gap() -> None:
     source = _graph("pandas")
 
     with pytest.raises(GFQLValidationError, match="CREATE with RETURN"):
-        source.gfql("CREATE (a:L) RETURN a", engine="pandas", language="cypher")
+        cast(Any, source).gfql("CREATE (a:L) RETURN a", engine="pandas", language="cypher")
 
 
 def test_cypher_to_gfql_rejects_standalone_create() -> None:

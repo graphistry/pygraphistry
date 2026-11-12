@@ -6,7 +6,6 @@ from graphistry.compute.typing import DataFrameT, SeriesT
 from graphistry.Engine import (
     Engine,
     EngineAbstract,
-    align_shared_column_dtypes,
     df_concat,
     df_to_engine,
     is_polars_df,
@@ -172,6 +171,175 @@ def _numeric_id_seed(nodes: DataFrameT, node_key: str, *, line: int, column: int
     return maximum + 1
 
 
+def _require_id_capacity(
+    nodes: DataFrameT,
+    node_key: str,
+    *,
+    identities: int,
+    line: int,
+    column: int,
+) -> None:
+    """Reject identity allocation only when the existing integer dtype cannot hold it."""
+    import numpy as np
+
+    if nodes is None or node_key not in nodes.columns or identities <= 0:
+        return
+    series = nodes[node_key]
+    if is_polars_df(nodes):
+        import polars as pl
+        if series.dtype.is_integer():
+            limit = ((1 << 64) - 1) if series.dtype.is_unsigned_integer() else ((1 << 63) - 1)
+        else:
+            return
+    else:
+        import pandas as pd
+        dtype = series.dtype
+        if pd.api.types.is_integer_dtype(dtype):
+            info = np.iinfo(dtype.numpy_dtype if hasattr(dtype, "numpy_dtype") else dtype)
+            limit = int(info.max)
+        else:
+            return
+    maximum = int(series.max())
+    if maximum > limit or identities - 1 > limit - maximum:
+        raise GFQLMutationError(
+            ErrorCode.E105,
+            f"Node identity column {node_key!r} cannot hold {identities} new IDs",
+            field=node_key,
+            value=str(series.dtype),
+            suggestion="Widen the identity column or provide an explicit generator.",
+            line=line,
+            column=column,
+            language="cypher",
+        )
+
+
+def _promote_shared_column_dtype(
+    reference_dtype: object,
+    candidate_dtype: object,
+    *,
+    column: str,
+    line: int,
+    column_position: int,
+) -> object:
+    """Return a lossless common dtype or raise, never coercing candidate to reference."""
+    import pandas as pd
+
+    if str(reference_dtype) == str(candidate_dtype):
+        return reference_dtype
+    ref_is_numeric = pd.api.types.is_numeric_dtype(reference_dtype)
+    cand_is_numeric = pd.api.types.is_numeric_dtype(candidate_dtype)
+    ref_is_bool = pd.api.types.is_bool_dtype(reference_dtype)
+    cand_is_bool = pd.api.types.is_bool_dtype(candidate_dtype)
+    if not ref_is_numeric and not ref_is_bool:
+        raise GFQLMutationError(
+            ErrorCode.E108,
+            f"CREATE property {column!r} has incompatible dtypes {str(reference_dtype)!r} and {str(candidate_dtype)!r}",
+            field=column,
+            value=str(candidate_dtype),
+            suggestion="Use the same property dtype as existing nodes; implicit mixed-type conversion is not lossless.",
+            line=line,
+            column=column_position,
+            language="cypher",
+        )
+    if not cand_is_numeric and not cand_is_bool:
+        raise GFQLMutationError(
+            ErrorCode.E108,
+            f"CREATE property {column!r} has incompatible dtypes {str(reference_dtype)!r} and {str(candidate_dtype)!r}",
+            field=column,
+            value=str(candidate_dtype),
+            suggestion="Use the same property dtype as existing nodes; implicit mixed-type conversion is not lossless.",
+            line=line,
+            column=column_position,
+            language="cypher",
+        )
+    if ref_is_bool and cand_is_bool:
+        return reference_dtype
+    if ref_is_bool or cand_is_bool:
+        other = candidate_dtype if ref_is_bool else reference_dtype
+        return "Float64" if pd.api.types.is_float_dtype(other) else "Int64"
+    if pd.api.types.is_float_dtype(reference_dtype) or pd.api.types.is_float_dtype(candidate_dtype):
+        return "Float64"
+    return "Int64"
+
+
+def _promote_shared_columns_losslessly(
+    nodes: DataFrameT,
+    new_nodes: DataFrameT,
+    *,
+    records: list[dict[str, object]],
+    property_columns: set[str],
+    line: int,
+    column: int,
+) -> tuple[DataFrameT, DataFrameT]:
+    """Promote both frames to a common lossless dtype, leaving caller input unchanged."""
+    if is_polars_df(nodes):
+        return nodes, new_nodes
+    shared_columns = [value for value in new_nodes.columns if value in nodes.columns]
+    for shared_column in shared_columns:
+        reference_dtype = nodes[shared_column].dtype
+        candidate_dtype = new_nodes[shared_column].dtype
+        if str(reference_dtype) == str(candidate_dtype):
+            continue
+        target_dtype = _promote_shared_column_dtype(
+            reference_dtype,
+            candidate_dtype,
+            column=shared_column,
+            line=line,
+            column_position=column,
+        )
+        nodes = nodes.assign(**{shared_column: nodes[shared_column].astype(target_dtype)})
+        new_nodes = new_nodes.assign(
+            **{shared_column: new_nodes[shared_column].astype(target_dtype)}
+        )
+    return nodes, new_nodes
+
+
+def _infer_nodes_from_edges(
+    self: Plottable,
+    engine: Engine,
+    node_key: str,
+    *,
+    line: int,
+    column: int,
+) -> DataFrameT:
+    """Materialize endpoint identities implied by an edges-only graph without changing edges."""
+    edges = self._edges
+    if edges is None:
+        raise GFQLMutationError(
+            ErrorCode.E108,
+            "CREATE requires node or edge data from which identities can be inferred",
+            field="nodes",
+            value=None,
+            suggestion="Bind nodes or edges before CREATE.",
+            line=line,
+            column=column,
+            language="cypher",
+        )
+    source_key = self._source
+    destination_key = self._destination
+    if source_key is None or destination_key is None or source_key not in edges.columns or destination_key not in edges.columns:
+        raise GFQLMutationError(
+            ErrorCode.E108,
+            "Edges-only CREATE requires bound source and destination columns",
+            field="edges",
+            value=None,
+            suggestion="Call .edges(edges, source, destination) before CREATE.",
+            line=line,
+            column=column,
+            language="cypher",
+        )
+    if is_polars_df(edges):
+        import polars as pl
+        endpoints = pl.concat([edges[source_key], edges[destination_key]], rechunk=True).unique()
+        return pl.DataFrame({node_key: endpoints})
+    endpoints = df_concat(engine)([edges[source_key], edges[destination_key]], ignore_index=True)
+    endpoints = endpoints.drop_duplicates()
+    return df_to_engine(
+        type(endpoints)({node_key: endpoints.reset_index(drop=True)}),
+        engine,
+    )
+
+
 def _boolean_label_column(
     nodes: DataFrameT,
     label_column: str,
@@ -205,15 +373,29 @@ def execute_create_nodes(
     params: Optional[CypherParams] = None,
 ) -> Plottable:
     """Create node rows and return a new Plottable without changing the caller."""
+    span = creates[0].span
+    line, column = span.line, span.column
     concrete_engine = resolve_engine(
         EngineAbstract(engine) if isinstance(engine, str) else engine,
         self._edges if self._edges is not None else self._nodes,
     )
-    span = creates[0].span
-    line, column = span.line, span.column
+    if concrete_engine == Engine.POLARS_GPU:
+        from graphistry.compute.gfql.lazy import polars_gpu_available
+        if not polars_gpu_available():
+            raise GFQLMutationError(
+                ErrorCode.E108,
+                "GFQL engine='polars-gpu' requires a usable GPU; CREATE declined rather than serving CPU Polars",
+                field="engine",
+                value=concrete_engine.value,
+                suggestion="Use engine='polars' for CPU execution or run on a GPU-capable host.",
+                line=line,
+                column=column,
+                language="cypher",
+            )
 
     node_key = self._node or "_node"
     nodes = self._nodes
+    inferred_nodes = False
     if nodes is None and node_key != "_node":
         raise GFQLMutationError(
             ErrorCode.E108,
@@ -225,6 +407,15 @@ def execute_create_nodes(
             column=column,
             language="cypher",
         )
+    if nodes is None:
+        nodes = _infer_nodes_from_edges(
+            self,
+            concrete_engine,
+            node_key,
+            line=line,
+            column=column,
+        )
+        inferred_nodes = True
 
     identity = 0
     if nodes is not None and node_key not in nodes.columns:
@@ -240,6 +431,13 @@ def execute_create_nodes(
         )
     if nodes is not None:
         identity = _numeric_id_seed(nodes, node_key, line=line, column=column)
+    _require_id_capacity(
+        nodes,
+        node_key,
+        identities=sum(len(create_clause.patterns) for create_clause in creates),
+        line=line,
+        column=column,
+    )
 
     records: list[dict[str, object]] = []
     label_columns: set[str] = set()
@@ -277,7 +475,14 @@ def execute_create_nodes(
         }
         for label_column in sorted(original_label_columns):
             _boolean_label_column(nodes, label_column, line=line, column=column)
-        new_nodes = align_shared_column_dtypes(nodes, new_nodes)
+        nodes, new_nodes = _promote_shared_columns_losslessly(
+            nodes,
+            new_nodes,
+            records=records,
+            property_columns=property_columns,
+            line=line,
+            column=column,
+        )
         if is_polars_df(nodes):
             import polars as pl
             nodes = pl.concat([nodes, new_nodes], how="diagonal_relaxed")
@@ -335,4 +540,7 @@ def execute_create_nodes(
                 )
         nodes = new_nodes
 
-    return self.nodes(nodes, node_key)
+    result = self.nodes(nodes, node_key)
+    if inferred_nodes:
+        result._gfql_graph = result
+    return result

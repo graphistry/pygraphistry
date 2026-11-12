@@ -11,6 +11,7 @@ from graphistry.compute.chain import Chain
 from graphistry.compute.exceptions import ErrorCode, GFQLSyntaxError, GFQLValidationError
 from graphistry.compute.gfql.cypher.lowering import (
     CompiledCypherGraphQuery,
+    CompiledCypherMutationQuery,
     CompiledCypherQuery,
     CompiledCypherUnionQuery,
     compile_cypher_query,
@@ -166,13 +167,16 @@ def _validate_cypher(
                 if not absent_name_is_lenient(name, kind="name", context="query"):
                     raise
     compiled = compile_cypher_query(parsed, params=params)
-    compiled_kind: Literal["query", "union", "graph"] = "query"
+    compiled_kind: Literal["query", "union", "graph", "mutation"] = "query"
     if isinstance(compiled, CompiledCypherUnionQuery):
         compiled_kind = "union"
         compiled_chains = [branch.chain for branch in compiled.branches]
     elif isinstance(compiled, CompiledCypherGraphQuery):
         compiled_kind = "graph"
         compiled_chains = [compiled.chain] + [b.chain for b in compiled.graph_bindings]
+    elif isinstance(compiled, CompiledCypherMutationQuery):
+        compiled_kind = "mutation"
+        compiled_chains = []
     else:
         compiled = cast(CompiledCypherQuery, compiled)
         compiled_chains = [compiled.chain]
