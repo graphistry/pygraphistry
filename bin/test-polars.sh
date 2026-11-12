@@ -58,6 +58,9 @@ POLARS_TEST_FILES=(
     graphistry/tests/compute/gfql/cypher/test_order_by_null_placement.py
     graphistry/tests/compute/gfql/cypher/test_null_equality_conjunction.py
     graphistry/tests/compute/gfql/cypher/test_missing_relationship_property_2262.py
+    # CREATE mutation engine params: the polars params are exercised only in this lane,
+    # while pandas params also run in test-gfql-core
+    graphistry/tests/compute/gfql/cypher/test_mutation.py
     graphistry/tests/compute/gfql/cypher/test_issue_2258_entity_identity_membership.py
     # grouped whole-entity identity is engine-parametrized; pandas runs in core,
     # while Polars only has this explicit lane

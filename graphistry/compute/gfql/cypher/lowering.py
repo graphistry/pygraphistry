@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field, replace
 import math
 import re
-from typing import TYPE_CHECKING, AbstractSet, Any, Callable, Dict, Iterable, List, Mapping, Optional, Sequence, Set, Tuple, Union, cast
+from typing import TYPE_CHECKING, AbstractSet, Any, Callable, Dict, Iterable, List, Mapping, Optional, Protocol, Sequence, Set, Tuple, Union, cast
 from typing_extensions import Literal
 import pandas as pd
 
@@ -105,6 +105,7 @@ from graphistry.compute.gfql.expr_parser import (
 from graphistry.compute.gfql.cypher.reentry_plan import ReentryPlan
 from graphistry.compute.gfql.cypher.ast import (
     BooleanExpr,
+    CreateClause,
     CypherGraphQuery,
     CypherLiteral,
     CypherScalar,
@@ -239,6 +240,7 @@ class CompiledCypherQuery:
     use_ref: Optional[str] = None
     graph_residual_filters: Tuple[CompiledGraphResidualFilter, ...] = ()
 
+
     @property
     def result_projection(self) -> Optional["ResultProjectionPlan"]:
         return None if self.post_processing is None else self.post_processing.result_projection
@@ -278,6 +280,14 @@ class CompiledCypherQuery:
     @property
     def logical_plan_defer_code(self) -> Optional[str]:
         return None if self.execution_extras is None else self.execution_extras.logical_plan_defer_code
+
+
+@dataclass(frozen=True)
+class CompiledCypherMutationQuery:
+    """A standalone write program whose semantics are owned by the mutation runtime."""
+
+    creates: Tuple[CreateClause, ...]
+    return_: Optional[ReturnClause] = None
 
 
 @dataclass(frozen=True)
@@ -662,6 +672,15 @@ def _unsupported_at_span(message: str, *, field: str, value: Any, span: SourceSp
         line=span.line,
         column=span.column,
     )
+
+
+class _Spanned(Protocol):
+    @property
+    def span(self) -> SourceSpan: ...
+
+
+def _span_or_fallback(value: Optional[_Spanned], fallback: SourceSpan) -> SourceSpan:
+    return value.span if value is not None else fallback
 
 
 _MAX_MATCH_CLAUSES = 512
@@ -7735,6 +7754,15 @@ def lower_cypher_query(
             suggestion="Execute the Cypher query through g.gfql(\"...\", language=\"cypher\") instead of cypher_to_gfql().",
             language="cypher",
         )
+    if isinstance(compiled, CompiledCypherMutationQuery):
+        raise GFQLValidationError(
+            ErrorCode.E108,
+            "Standalone Cypher CREATE cannot be represented as a single GFQL Chain",
+            field="create",
+            value=None,
+            suggestion="Execute the query through g.gfql(\"...\", language=\"cypher\") instead of cypher_to_gfql().",
+            language="cypher",
+        )
     if compiled.procedure_call is not None:
         raise GFQLValidationError(
             ErrorCode.E108,
@@ -9328,11 +9356,41 @@ def compile_cypher_query(
     *,
     params: Optional[Mapping[str, Any]] = None,
     node_dtypes: Optional[NodeDtypes] = None,
-) -> Union[CompiledCypherQuery, CompiledCypherUnionQuery, CompiledCypherGraphQuery]:
+) -> Union[CompiledCypherQuery, CompiledCypherMutationQuery, CompiledCypherUnionQuery, CompiledCypherGraphQuery]:
     from graphistry.compute.gfql.cypher import projection_planning as _projection
 
     if isinstance(query, CypherQuery):
+        typed_query = query
         _reject_excessive_match_clauses(query.matches)
+        if query.creates:
+            def _first_span(items: Sequence[Any]) -> SourceSpan:
+                return items[0].span
+
+            unsupported_mutation_fields: Tuple[Tuple[str, Any, Callable[[], SourceSpan]], ...] = (
+                ("MATCH", typed_query.matches, lambda: _first_span(typed_query.matches)),
+                ("WHERE", typed_query.where, lambda: _span_or_fallback(typed_query.where, typed_query.span)),
+                ("CALL", typed_query.call, lambda: _span_or_fallback(typed_query.call, typed_query.span)),
+                ("UNWIND", typed_query.unwinds, lambda: _first_span(typed_query.unwinds)),
+                ("WITH", typed_query.with_stages, lambda: _first_span(typed_query.with_stages)),
+                ("GRAPH", typed_query.graph_bindings, lambda: _first_span(typed_query.graph_bindings)),
+            )
+            for field_name, field_value, get_span in unsupported_mutation_fields:
+                if field_value:
+                    raise _unsupported_at_span(
+                        f"GFQL CREATE with {field_name} is not supported yet; the whole program is declined",
+                        field=field_name.lower(),
+                        value=None,
+                        span=get_span(),
+                    )
+            if query.return_ is not None and not query.return_is_synthetic:
+                raise _unsupported(
+                    "GFQL CREATE with RETURN is not supported yet",
+                    field="return",
+                    value=None,
+                    line=query.return_.span.line,
+                    column=query.return_.span.column,
+                )
+            return CompiledCypherMutationQuery(creates=query.creates, return_=query.return_)
     elif isinstance(query, CypherUnionQuery):
         for branch in query.branches:
             _reject_excessive_match_clauses(branch.matches)
