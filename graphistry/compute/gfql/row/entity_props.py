@@ -575,5 +575,8 @@ def entity_keys_series(
     if bool(missing_mask.any()):
         fill_col = _fresh_col_name(df.columns, "__gfql_entity_key_fill__")
         filled = _list_series_from_python_rows(df, fill_col, len(merged))
+        # Empty cuDF lists infer a null child type; align it with the grouped
+        # string lists before the native conditional copy.
+        filled = filled.astype(out.dtype)
         out = cast(SeriesT, out.where(~missing_mask, filled))
     return out.reset_index(drop=True)
