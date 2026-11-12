@@ -48,6 +48,7 @@ def _access_deprecated_attr(name: str):
     "CompiledCypherUnionQuery",
     "compile_cypher_query",
     "CompiledCypherProcedureCall",
+    "CompiledCypherMutationQuery",
 ])
 def test_deprecated_module_attr_emits_deprecation_warning(name):
     w = _access_deprecated_attr(name)
@@ -60,6 +61,7 @@ def test_deprecated_module_attr_emits_deprecation_warning(name):
     "CompiledCypherUnionQuery",
     "compile_cypher_query",
     "CompiledCypherProcedureCall",
+    "CompiledCypherMutationQuery",
 ])
 def test_deprecated_module_attr_still_accessible(name):
     import graphistry.compute.gfql.cypher as mod
