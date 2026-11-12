@@ -79,18 +79,23 @@ def entity_projection_meta_entry(
 
 def _node_label_text(df: DataFrameT, alias_col: str) -> SeriesT:
     label_cols = label_flag_columns(df.columns)
-    if label_cols:
-        labels = _empty_text(df, alias_col)
-        for col, label_name in label_cols:
-            mask = cast(SeriesT, cast(SeriesT, df[col]) == True)  # noqa: E712
-            labels = cast(SeriesT, labels + _const_text(df, alias_col, ":" + label_name).where(mask, ""))
-        return labels
+    labels = _empty_text(df, alias_col)
+    flag_names: set[str] = set()
+    for col, label_name in label_cols:
+        flag_names.add(label_name)
+        mask = cast(SeriesT, cast(SeriesT, df[col]) == True)  # noqa: E712
+        labels = cast(SeriesT, labels + _const_text(df, alias_col, ":" + label_name).where(mask, ""))
     if "type" in df.columns:
         type_series = cast(SeriesT, df["type"])
-        include = cast(SeriesT, ~_is_null_mask(type_series))
-        rendered = _object_text(cast(SeriesT, type_series.where(include, "").astype(str)))
-        return cast(SeriesT, (_const_text(df, alias_col, ":") + rendered).where(include, ""))
-    return _empty_text(df, alias_col)
+        rendered = _object_text(cast(SeriesT, type_series.where(~_is_null_mask(type_series), "").astype(str)))
+        type_in_flags = (
+            type_series.is_in(flag_names)
+            if is_polars_df(df)
+            else type_series.isin(flag_names)
+        )
+        type_mask = cast(SeriesT, ~_is_null_mask(type_series) & ~type_in_flags)
+        labels = cast(SeriesT, labels + _const_text(df, alias_col, ":" + rendered).where(type_mask, ""))
+    return labels
 
 
 def _format_node_entities(df: DataFrameT, projection: ResultProjectionPlan) -> SeriesT:

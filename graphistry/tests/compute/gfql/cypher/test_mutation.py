@@ -11,6 +11,7 @@ from graphistry.compute.exceptions import GFQLValidationError
 from graphistry.compute.gfql.cypher.api import cypher_to_gfql
 from graphistry.compute.gfql.cypher.lowering import CompiledCypherMutationQuery, compile_cypher_query
 from graphistry.compute.gfql.cypher.parser import parse_cypher
+from graphistry.tests.compute.gfql.cypher._whole_entity_compat import entity_text_records
 from graphistry.compute.gfql.row.entity_props import MUTATION_NODE_ID, ID_PROPERTY_PRESENT
 
 
@@ -98,6 +99,69 @@ def test_create_nodes_without_existing_nodes_preserves_inferred_graph(engine: st
     ]
     assert _records(result._edges) == [{"src": 7, "dst": 8, "type": "R"}]
     assert source._nodes is None
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_create_preserves_old_type_label_without_label_flags(engine: str) -> None:
+    source = graphistry.nodes(
+        _foundation_frame(engine, {"id": ["old"], "type": ["Old"]}),
+        "id",
+    )
+
+    result = source.gfql("CREATE (:New)", engine=engine, language="cypher")
+
+    rows = result.gfql(
+        "MATCH (old) WHERE old.id = 'old' RETURN old", engine=engine, language="cypher"
+    )
+    assert entity_text_records(rows, {"old": "nodes"}) == [{"old": "(:Old)"}]
+    assert _records(source._nodes) == [{"id": "old", "type": "Old"}]
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_create_new_label_and_old_type_label_render_both_sources(engine: str) -> None:
+    source = graphistry.nodes(
+        _foundation_frame(engine, {"id": ["old"], "type": ["Old"]}),
+        "id",
+    )
+
+    result = source.gfql("CREATE (:New)", engine=engine, language="cypher")
+    old_rows = result.gfql(
+        "MATCH (old) WHERE old.id = 'old' RETURN old", engine=engine, language="cypher"
+    )
+    new_rows = result.gfql("MATCH (new:New) RETURN new", engine=engine, language="cypher")
+
+    assert entity_text_records(old_rows, {"old": "nodes"}) == [{"old": "(:Old)"}]
+    assert entity_text_records(new_rows, {"new": "nodes"}) == [{"new": "(:New)"}]
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_create_does_not_duplicate_same_label_from_type(engine: str) -> None:
+    source = graphistry.nodes(
+        _foundation_frame(engine, {"id": ["old"], "type": ["Shared"]}),
+        "id",
+    )
+
+    result = source.gfql("CREATE (:Shared)", engine=engine, language="cypher")
+    rows = result.gfql(
+        "MATCH (old) WHERE old.id = 'old' RETURN old", engine=engine, language="cypher"
+    )
+
+    assert entity_text_records(rows, {"old": "nodes"}) == [{"old": "(:Shared)"}]
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_create_render_does_not_admit_null_or_nan_legacy_type_labels(engine: str) -> None:
+    source = graphistry.nodes(
+        _foundation_frame(engine, {"id": ["old"], "type": [None]}),
+        "id",
+    )
+
+    result = source.gfql("CREATE (:New)", engine=engine, language="cypher")
+    rows = result.gfql(
+        "MATCH (old) WHERE old.id = 'old' RETURN old", engine=engine, language="cypher"
+    )
+
+    assert entity_text_records(rows, {"old": "nodes"}) == [{"old": "()"}]
     count = result.gfql("MATCH (a)-[r]->(b) RETURN count(*) AS count", engine=engine)
     assert _records(count._nodes) == [{"count": 1}]
     assert result.gfql_graph is result
