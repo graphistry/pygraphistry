@@ -95,6 +95,15 @@ def test_parse_empty_property_map_does_not_replace_labels() -> None:
     assert node.properties == ()
 
 
+def test_parse_empty_relationship_property_map_does_not_replace_types() -> None:
+    parsed = _parse_query("MATCH ()-[r:R {}]->() RETURN r")
+
+    relationship = parsed.match.pattern[1]
+    assert relationship.variable == "r"
+    assert relationship.types == ("R",)
+    assert relationship.properties == ()
+
+
 def test_parse_graph_property_access_allowed() -> None:
     parsed = _parse_query("MATCH (n) RETURN n.graph")
 
