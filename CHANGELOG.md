@@ -8,6 +8,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [Development]
 <!-- Do Not Erase This Section - Used for tracking unreleased changes -->
 
+### Fixed
+
+- **GFQL cross-alias filters**: reversing the operands of an ordering comparison now preserves its meaning, parallel edges retain their multiplicity, and empty relationship projections keep their schema without an explicit edge-ID binding. Applies to Cypher and native same-path queries on pandas and cuDF (#2282, #2283, #2284).
+
 ## [0.62.0] - 2026-11-11
 
 ### Deprecated
