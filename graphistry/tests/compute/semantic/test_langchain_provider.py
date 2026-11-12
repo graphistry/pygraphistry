@@ -183,11 +183,19 @@ def test_auto_uses_only_local_binding_fallback_and_caches_domain() -> None:
     assert not explicit.invocations and len(explicit.bindings) == 1
 
 
-@pytest.mark.parametrize("error,code", [(TimeoutError(), "deadline_exceeded"), (RuntimeError(), "provider_exception")])
+@pytest.mark.parametrize("error,code", [(TimeoutError(), "transport_error"), (ConnectionError(), "transport_error"),
+                                      (RuntimeError(), "provider_exception")])
 def test_invocation_errors_do_not_fallback_or_retry(error: Exception, code: str) -> None:
     model = FakeModel(error)
     assert answer(LangChainDecisionProvider(model)).error_code == code
     assert len(model.bindings) == len(model.invocations) == 1
+
+
+def test_transport_timeout_does_not_claim_unexpired_run_deadline() -> None:
+    model = FakeModel(TimeoutError())
+    result = LangChainDecisionProvider(model).decide_batch([request((PRED,))], deadline_s=5, budget=None)[0]
+    assert result.error_code == "transport_error"
+    assert len(model.invocations) == 1
 
 
 def test_structured_http_error_keeps_status() -> None:

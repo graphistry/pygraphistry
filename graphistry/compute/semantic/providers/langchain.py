@@ -117,7 +117,7 @@ def _invoke(runner: ChatRunnable, messages: List[Dict[str, str]], kwargs: Dict[s
         status = _field(error, "status_code")
         if isinstance(status, int) and not isinstance(status, bool) and 100 <= status <= 599:
             return None, f"http_{status}"
-        return None, "deadline_exceeded" if isinstance(error, TimeoutError) else "provider_exception"
+        return None, "transport_error" if isinstance(error, (TimeoutError, ConnectionError)) else "provider_exception"
 
 
 class LangChainDecisionProvider:
@@ -244,6 +244,8 @@ class LangChainDecisionProvider:
         response, error = _invoke(binding.runner, messages, kwargs)
         latency = (time.monotonic() - started) * 1000
         if error is not None and error != "refusal":
+            if error == "transport_error" and deadline_at is not None and time.monotonic() >= deadline_at:
+                error = "deadline_exceeded"
             return replace(failure, error_code=error, latency_ms=latency)
         structured = binding.strategy not in ("text", "tool")
         envelope = _mapping(response) if structured else {}
