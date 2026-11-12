@@ -10,6 +10,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- **GFQL probability requirements**: `sem_decide(require_probabilities=True)` requires measured native or token-logprob probabilities; `"native"` requires native decisions. Missing required probabilities become explicit per-answer errors, and known incompatible chat configurations fail locally without sending evidence. The default remains unchanged.
+
 - **GFQL LangChain decisions**: optional adapter for supplied chat models and Runnables, with locally selected structured, tool and text strategies, validated value-only answers, and no runtime fallback resend.
 
 - **GFQL Anthropic decision providers**: JSON Schema structured outputs and named tool-call answers, with local validation and value-only result metadata. Plain text remains the default strategy.

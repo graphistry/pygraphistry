@@ -20,8 +20,9 @@ from graphistry.compute.semantic.contract import (
     Budget, DecisionProvider, DecisionQuestion, DecisionRequest, DecisionResult, Evidence, ProviderCapabilities,
     SkippedReason, align_results, canonicalize, check_decision_result, compute_decision_hash, finite_float,
     unanswered_result)
+from graphistry.compute.semantic.probability import enforce_probability, known_probability_gap
 from graphistry.compute.semantic.rules import (
-    DECISION_COLUMN_TYPES, BudgetSpec, QuestionLike, check_params, coerce_budget, coerce_questions, decision_columns,
+    DECISION_COLUMN_TYPES, BudgetSpec, ProbabilityRequirement, QuestionLike, check_params, coerce_budget, coerce_questions, decision_columns,
     evidence_columns)
 from graphistry.compute.typing import DataFrameT
 
@@ -224,7 +225,8 @@ def _nonnegative(value: object) -> Optional[float]:
 
 def _cell_result(request: DecisionRequest, question: DecisionQuestion, outcome: _CallOutcome,
                  row: Optional[Dict[str, DecisionResult]], identity: Tuple[str, str],
-                 capabilities: ProviderCapabilities, min_p: Optional[float], input_hash: str) -> DecisionResult:
+                 capabilities: ProviderCapabilities, min_p: Optional[float], input_hash: str,
+                 require_probabilities: ProbabilityRequirement) -> DecisionResult:
     """The kernel's verdict on one cell. Provider data is untrusted: if reading it fails, or its metadata cannot
     become JSON, the cell is an error built from kernel fields. ``input_hash`` (taken before any call) and
     ``task_version`` come from the kernel, so a provider cannot change them."""
@@ -238,6 +240,7 @@ def _cell_result(request: DecisionRequest, question: DecisionQuestion, outcome: 
         result = None if row is None else _plain_answer(row[question.id])
         if result is not None and not check_decision_result(request, question, result, capabilities):
             result = dataclasses.replace(result, input_hash=input_hash, task_version=request.task_version)
+            result = enforce_probability(question, result, require_probabilities)
             if min_p is not None and result.status == "ok":
                 probability = _probability_of_value(question, result)
                 if math.isnan(probability) or probability < min_p:
@@ -374,6 +377,7 @@ def sem_decide(
     budget: BudgetSpec = None,
     max_rows: Optional[int] = None,
     min_p: Optional[float] = None,
+    require_probabilities: ProbabilityRequirement = False,
     column_max_chars: Optional[int] = None,
     overwrite: bool = False,
 ) -> DataFrameT:
@@ -403,6 +407,10 @@ def sem_decide(
         estimate raises) and/or ``max_requests`` (provider calls)
     :param max_rows: rows at positions >= ``max_rows`` are ``skipped``, never dropped
     :param min_p: ``ok`` answers whose ``q__p`` is below this (or undefined) become ``uncertain``
+    :param require_probabilities: False preserves default behavior; True requires native or token-logprob p for
+        each successful value; "native" requires native-decision p. Missing required p is probabilities_unavailable.
+        Known incompatible shipped chat configurations fail locally without sending evidence or reserving cost;
+        this capability check precedes provider-call budget planning. Answerless uncertainty, errors and skips are preserved.
     :param column_max_chars: truncate each string evidence value to this many characters
     :param overwrite: replace existing output columns instead of raising
     :returns: a copy of ``df`` with the result columns appended
@@ -417,7 +425,8 @@ def sem_decide(
     """
     started = time.monotonic()
     coerced = coerce_questions(questions)
-    check_params(dict(task_id=task_id, task_version=task_version, overwrite=overwrite),
+    check_params(dict(task_id=task_id, task_version=task_version, overwrite=overwrite,
+                      require_probabilities=require_probabilities),
                  dict(batch_size=batch_size, max_concurrency=max_concurrency, deadline_s=deadline_s,
                       max_rows=max_rows, min_p=min_p, column_max_chars=column_max_chars))
     cols = evidence_columns(evidence_cols, template)
@@ -451,14 +460,22 @@ def sem_decide(
     hashes = {(position, question.id): compute_decision_hash(evidence, question, task_version)
               for position, evidence in enumerate(rows.evidence) for question in coerced}
     threads = max(1, min(capabilities.concurrency_limit, max_concurrency or capabilities.concurrency_limit, len(calls)))
-    if run_budget is not None and run_budget.max_cost_usd is not None and calls \
-            and _estimate_cost(resolved, calls[0]) is None:
-        raise ValueError("budget.max_cost_usd is set but the provider cannot estimate cost; give the provider prices "
-                         "it can estimate with, or drop the cost cap")
-    outcomes = _execute(calls, _plan_calls(calls, run_budget, lambda batch: _estimate_cost(resolved, batch)),
-                        lambda batch, remaining, call_budget: resolved.decide_batch(
-                            batch, deadline_s=remaining, budget=call_budget),
-                        None if deadline is None else started + deadline, threads, "sem_decide")
+    if known_probability_gap(resolved, require_probabilities):
+        expired = deadline is not None and time.monotonic() >= started + deadline
+        outcomes = [_CallOutcome(skipped="deadline") if expired else _CallOutcome(returned=[
+            dataclasses.replace(unanswered_result(request_, question, provider=identity[0], model=identity[1],
+                                                  error_code="probabilities_unavailable", latency_ms=0.0, retry_count=0),
+                                cost_usd=0.0)
+            for request_ in batch for question in request_.questions]) for batch in calls]
+    else:
+        if run_budget is not None and run_budget.max_cost_usd is not None and calls \
+                and _estimate_cost(resolved, calls[0]) is None:
+            raise ValueError("budget.max_cost_usd is set but the provider cannot estimate cost; give the provider prices "
+                             "it can estimate with, or drop the cost cap")
+        outcomes = _execute(calls, _plan_calls(calls, run_budget, lambda batch: _estimate_cost(resolved, batch)),
+                            lambda batch, remaining, call_budget: resolved.decide_batch(
+                                batch, deadline_s=remaining, budget=call_budget),
+                            None if deadline is None else started + deadline, threads, "sem_decide")
     never_sent = [([request(position, coerced)], _CallOutcome(skipped=reason))
                   for position, reason in enumerate(rows.skip_reason) if reason is not None]
     position_of = {request_id: position for position, request_id in enumerate(rows.request_ids)}
@@ -470,5 +487,5 @@ def sem_decide(
             position = position_of[request_.request_id]
             for question in request_.questions:
                 grid[(position, question.id)] = _cell_result(request_, question, outcome, row, identity, capabilities,
-                                                             threshold, hashes[(position, question.id)])
+                                                             threshold, hashes[(position, question.id)], require_probabilities)
     return _with_columns(df, _result_columns(coerced, grid, len(rows.request_ids)))

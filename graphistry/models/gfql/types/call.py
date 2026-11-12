@@ -191,6 +191,7 @@ class SemDecideParams(TypedDict, total=False):
     budget: SemBudget
     max_rows: int
     min_p: float
+    require_probabilities: Union[bool, Literal["native"]]
     column_max_chars: int
     overwrite: bool
 

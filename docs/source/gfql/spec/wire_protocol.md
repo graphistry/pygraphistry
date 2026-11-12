@@ -429,8 +429,15 @@ any other call, but `gfql_remote()` refuses them before sending:
 ```json
 {"type": "Call", "function": "sem_decide", "params": {
   "questions": [{"id": "is_company", "kind": "predicate", "text": "Is this a company?"}],
-  "provider": "rules", "task_id": "companies", "evidence_cols": ["name"], "min_p": 0.8}}
+  "provider": "rules", "task_id": "companies", "evidence_cols": ["name"], "min_p": 0.8, "require_probabilities": false}}
 ```
+
+`sem_decide.params.require_probabilities` accepts `false` (default), `true` (native-decision or token-logprob
+probability for each successful value), or `"native"` (native-decision only). A successful answer lacking that
+probability becomes `error` / `probabilities_unavailable`, with no value or distribution. Validation precedes
+this policy, and `min_p` follows it. Answerless uncertain results, errors and skips are retained; uncertain results carrying a value must meet the requirement. Known incompatible
+shipped chat configurations fail locally without sending evidence, probing, reserving cost or consuming
+provider calls; eligible rows get capability errors before paid-work budget planning.
 
 `return_(...)` is serialized as `function: "select"` with equivalent `items`.
 

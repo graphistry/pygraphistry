@@ -534,7 +534,11 @@ behavior matches direct Plotter calls.
 - `umap`: UMAP dimensionality reduction for graph embeddings
 
 **Semantic Table Operators** (local only; providers bound with `bind_providers`)
-- `sem_decide`: Ask a model provider typed questions about every node or edge row
+- `sem_decide`: Ask a model provider typed questions about every node or edge row. Optional
+  `require_probabilities=true` requires native-decision or token-logprob probabilities for successful values;
+  `"native"` requires native-decision probabilities. The default `false` preserves value-only results.
+  Missing required probabilities produce `probabilities_unavailable`. See the builtin-call reference for
+  validation order, local capability errors and budget behavior.
 
 ### Validation
 

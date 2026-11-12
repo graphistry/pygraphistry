@@ -5,7 +5,7 @@ safelist reports it as E201.
 """
 import string
 from collections import Counter
-from typing import Callable, Dict, List, Mapping, Optional, Sequence, Tuple, Union
+from typing import Callable, Dict, List, Literal, Mapping, Optional, Sequence, Tuple, Union
 
 from graphistry.compute.gfql.identifiers import validate_column_name
 from graphistry.compute.semantic.contract import Budget, DecisionQuestion, canonicalize, finite_float
@@ -14,6 +14,7 @@ from graphistry.compute.semantic.contract import Budget, DecisionQuestion, canon
 Rule = Callable[[object], Union[bool, str]]
 QuestionLike = Union[DecisionQuestion, Mapping[str, object]]
 BudgetSpec = Union[Budget, Mapping[str, object], None]
+ProbabilityRequirement = Union[bool, Literal["native"]]
 
 DECISION_COLUMN_TYPES: Tuple[Tuple[str, str], ...] = (
     ("", "answer"), ("__status", "string"), ("__p", "float64"), ("__dist", "string"),
@@ -38,6 +39,11 @@ def positive_number(value: object) -> Union[bool, str]:
 def probability(value: object) -> Union[bool, str]:
     number = finite_float(canonicalize(value))
     return True if number is not None and 0 <= number <= 1 else "must be a number in [0, 1]"
+
+
+def probability_requirement(value: object) -> Union[bool, str]:
+    return True if isinstance(value, bool) or (isinstance(value, str) and value == "native") else (
+        "must be False, True or 'native'")
 
 
 def boolean(value: object) -> Union[bool, str]:
@@ -122,6 +128,7 @@ RULES: Dict[str, Rule] = {
     "budget": _message_of(_json_budget),
     "max_rows": positive_int,
     "min_p": probability,
+    "require_probabilities": probability_requirement,
     "column_max_chars": positive_int,
     "overwrite": boolean,
 }

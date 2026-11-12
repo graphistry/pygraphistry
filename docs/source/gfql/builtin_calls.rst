@@ -1919,6 +1919,11 @@ Answer typed questions per row: ``predicate`` (yes/no), ``choice`` (one of ``opt
      - number
      - No
      - ``ok`` answers whose probability ``q__p`` is below this (or undefined) become ``uncertain``
+   * - require_probabilities
+     - boolean or ``'native'``
+     - No
+     - ``False`` (default) preserves current behavior; ``True`` requires measured native or token-logprob
+       probabilities for successful values; ``'native'`` requires native-decision probabilities
    * - column_max_chars
      - integer
      - No
@@ -1936,6 +1941,23 @@ the answer; missing when undefined, so test it with ``isna()``), ``q__dist`` (JS
 confidence, status reason and extra metadata). Unparseable answers are errors, never default values; distributions are
 never fabricated. A row whose evidence columns are all null is ``skipped`` with status reason ``null_evidence``; no call
 is made for it.
+
+``require_probabilities=True`` checks each successful answer after result validation and before ``min_p``.
+It accepts ``native_decision`` and ``token_logprob`` distributions only when they include the returned value.
+``'native'`` accepts only ``native_decision``. A missing required probability produces an ``error`` with code
+``probabilities_unavailable`` and clears the answer, distribution and provider confidence. Zero is an available
+probability. Refusals, ties and other answerless uncertain results, errors and skipped rows keep their existing verdicts.
+An uncertain result that still carries a value must also meet the explicit probability requirement.
+With the default ``False``, value-only and ``verbalized`` results retain their current behavior, including ``min_p``.
+
+Known incompatible shipped chat configurations fail locally before evidence, probes, cost estimates or provider
+calls are sent. Eligible rows receive ``probabilities_unavailable`` with zero cost and retries; null-evidence,
+``max_rows`` and reached-deadline skips remain. This capability check precedes provider-call budget planning
+and consumes no request budget. Anthropic and LangChain adapters are always value-only. OpenAI chat can provide
+token logprobs, but cannot provide native-decision probabilities. An ``auto`` profile that includes logprobs
+is checked from its actual answers; its usual opt-in probe accounting still applies. Custom providers and
+subclasses are checked from their validated results rather than inferred from their type name.
+No path converts generated confidence or constrained tokens into probabilities.
 
 **Engines:** pandas and cuDF run natively; polars frames run through the off-engine call bridge, so GFQL results
 stay polars. Called directly as ``g.sem_decide(...)`` on a polars-bound graph, the result tables are pandas. Under
