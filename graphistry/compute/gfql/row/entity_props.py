@@ -80,7 +80,8 @@ def _list_series_from_python_rows(
     prototype: Optional[SeriesT] = None,
 ) -> SeriesT:
     if prototype is not None:
-        return type(prototype)([[] for _ in range(row_count)], dtype=prototype.dtype)
+        dtype = object if isinstance(prototype, pd.Series) else prototype.dtype
+        return type(prototype)([[] for _ in range(row_count)], dtype=dtype)
     return cast(SeriesT, template_df_cons(df, {col_name: [[] for _ in range(row_count)]})[col_name])
 
 
