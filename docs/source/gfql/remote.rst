@@ -47,9 +47,16 @@ Method :meth:`chain_remote <graphistry.compute.ComputeMixin.ComputeMixin.chain_r
     # Multi-stage pipeline (compiled locally, sent as Let wire format)
     g2 = g1.gfql_remote(
         "GRAPH g1 = GRAPH { MATCH (a)-[r]->(b) WHERE a.score > 10 } "
-        "GRAPH g2 = GRAPH { USE g1 CALL graphistry.degree.write() } "
-        "USE g2 MATCH (n) RETURN n.id, n.degree ORDER BY n.degree DESC"
+        "GRAPH g2 = GRAPH { USE g1 MATCH (n) WHERE n.score > 20 } "
+        "USE g2 MATCH (n) RETURN n.id, n.score ORDER BY n.score DESC"
     )
+
+Cypher procedures (``CALL``), residual ``GRAPH`` predicates such as property
+``OR`` expressions, and cross-alias ``WHERE`` inside ``GRAPH`` bindings raise
+``GFQLValidationError`` before upload or HTTP. The remote wire format cannot
+faithfully represent these forms. Execute them locally with ``g.gfql()``;
+supported per-alias ``GRAPH`` filters and flat-chain cross-alias ``WHERE``
+remain available remotely. Native safelisted GFQL calls are unchanged.
 
 Method :meth:`gfql_remote <graphistry.compute.ComputeMixin.ComputeMixin.gfql_remote>` runs the query remotely and fetches the computed graph.
 
