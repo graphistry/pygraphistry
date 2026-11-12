@@ -3,7 +3,10 @@ from __future__ import annotations
 import math
 from typing import TYPE_CHECKING, Optional, Union
 
+import numpy as np
+
 from graphistry.compute.typing import DataFrameT, SeriesT
+from graphistry.compute.dataframe_utils import is_cudf_obj
 from graphistry.Engine import (
     Engine,
     EngineAbstract,
@@ -15,7 +18,12 @@ from graphistry.Engine import (
 from graphistry.compute.exceptions import ErrorCode, GFQLUnsupportedError, GFQLValidationError
 from graphistry.compute.gfql.cypher.ast import CreateClause, CreateRelationship, CypherParams, CypherScalar, NodePattern, ParameterRef
 from graphistry.Plottable import Plottable
-from graphistry.compute.gfql.row.entity_props import MUTATION_NODE_ID, ID_PROPERTY_PRESENT
+from graphistry.compute.gfql.row.entity_props import (
+    ID_PROPERTY_PRESENT,
+    MUTATION_NODE_ID,
+    NULLISH_LABEL_NAMES,
+    label_flag_columns,
+)
 
 if TYPE_CHECKING:
     from graphistry.compute.typing import PolarsDType
@@ -333,6 +341,30 @@ def validate_create_node_reuse(creates: tuple[CreateClause, ...]) -> None:
                     bound.add(node.variable)
 
 
+def _validate_label_names(creates: tuple[CreateClause, ...]) -> None:
+    """Reject labels whose names cannot be represented as non-null flag text."""
+    for clause in creates:
+        for pattern in clause.patterns:
+            node_patterns = (
+                (pattern,)
+                if not isinstance(pattern, CreateRelationship)
+                else (pattern.source, pattern.destination)
+            )
+            for node_pattern in node_patterns:
+                unsupported_labels = sorted(set(node_pattern.labels) & NULLISH_LABEL_NAMES)
+                if unsupported_labels:
+                    raise GFQLMutationError(
+                        ErrorCode.E108,
+                        "CREATE cannot represent a null-like label name without silently dropping it",
+                        field="create",
+                        value=unsupported_labels,
+                        suggestion="Use a label that is not None, nan, or <NA>.",
+                        line=node_pattern.span.line,
+                        column=node_pattern.span.column,
+                        language="cypher",
+                    )
+
+
 def execute_create_nodes(
     self: Plottable,
     creates: tuple[CreateClause, ...],
@@ -342,6 +374,7 @@ def execute_create_nodes(
 ) -> tuple[Plottable, dict[str, CypherScalar]]:
     """Create node rows and return a new Plottable without changing the caller."""
     validate_create_node_reuse(creates)
+    _validate_label_names(creates)
     concrete_engine = resolve_engine(
         engine, self._edges if self._edges is not None else self._nodes,
     )
@@ -404,6 +437,7 @@ def execute_create_nodes(
                 MUTATION_NODE_ID: nodes[old_key], ID_PROPERTY_PRESENT: include_id,
             })
     node_key = MUTATION_NODE_ID
+    legacy_type_rendering = nodes is None or not any(label_flag_columns(nodes.columns))
     node_count = 0
     for clause in creates:
         seen_nodes: set[str] = set()
@@ -458,10 +492,15 @@ def execute_create_nodes(
                     field=sorted(missing_endpoint)[0], value=sorted(missing_endpoint), line=line, column=column, language="cypher",
                 )
             if edge_key is None:
+                if MUTATION_EDGE_ID in old_edges.columns:
+                    raise GFQLMutationError(
+                        ErrorCode.E108,
+                        "CREATE reserved edge metadata columns collide with input columns",
+                        field="create", value=[MUTATION_EDGE_ID], language="cypher",
+                    )
                 edge_key = MUTATION_EDGE_ID
                 old_edge_count = len(old_edges)
                 edge_identities = list(range(edge_count))
-                old_edge_identities = list(range(-old_edge_count, 0))
                 if is_polars_df(old_edges):
                     import polars as pl
                     if not isinstance(old_edges, pl.DataFrame):
@@ -470,9 +509,24 @@ def execute_create_nodes(
                             field="engine", value="lazy_frame", language="cypher",
                         )
                     old_edges = old_edges.with_columns(
-                        pl.Series(MUTATION_EDGE_ID, old_edge_identities, dtype=pl.Int64),
+                        pl.Series(MUTATION_EDGE_ID, np.arange(-old_edge_count, 0, dtype=np.int64), dtype=pl.Int64),
                     )
                 else:
+                    if is_cudf_obj(old_edges):
+                        import cupy as cp
+                        import cudf
+                        old_edge_identities = cudf.Series(
+                            cp.arange(-old_edge_count, 0, dtype=cp.int64),
+                            index=old_edges.index,
+                            dtype=cudf.dtype("int64"),
+                        )
+                    else:
+                        import pandas as pd
+                        old_edge_identities = pd.Series(
+                            np.arange(-old_edge_count, 0, dtype=np.int64),
+                            index=old_edges.index,
+                            dtype="int64",
+                        )
                     old_edges = old_edges.assign(**{MUTATION_EDGE_ID: old_edge_identities})
             elif edge_key not in old_edges.columns:
                 raise GFQLMutationError(
@@ -690,4 +744,5 @@ def execute_create_nodes(
             edges = new_edges
             result = result.edges(edges, source_key, destination_key, edge_key)
     result._gfql_mutation_identity = True
+    result._cypher_legacy_type_rendering = legacy_type_rendering
     return result, bindings

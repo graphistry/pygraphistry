@@ -4,6 +4,7 @@ import os
 from typing import Any
 
 import pandas as pd
+import numpy as np
 import pytest
 
 import graphistry
@@ -913,6 +914,57 @@ def test_reserved_metadata_collision(name):
     assert exc.value.context["field"] == "create"
     assert exc.value.context["value"] == [name]
     pd.testing.assert_frame_equal(source._nodes,before)
+
+
+@pytest.mark.parametrize("engine",ENGINES)
+def test_create_preserves_original_flag_precedence_over_legacy_type(engine):
+    source=graphistry.nodes(_foundation_frame(engine,{
+        "id":["old"],"label__Foo":[True],"type":["Business"],
+    }),"id")
+    before=_records(source._nodes)
+    result=source.gfql("CREATE (n:B {id:'new'})",engine=engine)
+    graph=result.gfql_graph
+    old_rows=graph.gfql("MATCH (old) WHERE old.id='old' RETURN old",engine=engine)
+    new_rows=graph.gfql("MATCH (new:B) RETURN new",engine=engine)
+    assert _entity_text_records(old_rows,{"old":"nodes"})==[{"old":"(:Foo)"}]
+    assert all(row["new"].startswith("(:B") for row in _entity_text_records(new_rows,{"new":"nodes"}))
+    assert _records(source._nodes)==before
+
+
+def test_create_rejects_reserved_existing_edge_identity_before_effects():
+    source=graphistry.nodes(_foundation_frame("pandas",{"id":[1,2]}),"id")
+    source=source.edges(pd.DataFrame({
+        "src":[1],"dst":[2],"__graphistry_edge_identity__":[99],
+    }),"src","dst")
+    before_edges=source._edges.copy(deep=True)
+    with pytest.raises(GFQLValidationError,match="reserved edge metadata columns collide"):
+        source.gfql("CREATE (a)-[:REL]->(b)",engine="pandas")
+    pd.testing.assert_frame_equal(source._edges,before_edges)
+
+
+@pytest.mark.parametrize("engine",ENGINES[:2])
+def test_keyless_existing_edge_backfill_is_native_signed_int64(engine):
+    source=graphistry.nodes(_foundation_frame(engine,{"id":[1,2]}),"id")
+    edges=graphistry.edges(_foundation_frame(engine,{
+        "src":[1],"dst":[2],"weight":[1.5],
+    }),"src","dst")
+    source=source.edges(edges._edges,"src","dst")
+    result=source.gfql("CREATE (a)-[:REL {weight:2.5}]->(b)",engine=engine)
+    assert pd.api.types.is_signed_integer_dtype(
+        result._edges["__graphistry_edge_identity__"].dtype
+    )
+    assert [row["__graphistry_edge_identity__"] for row in _records(result._edges)]==[-1,0]
+    again=result.gfql("CREATE (a)-[:REL]->(b)",engine=engine)
+    assert [row["__graphistry_edge_identity__"] for row in _records(again._edges)]==[-1,0,1]
+
+
+@pytest.mark.parametrize("label",["None","nan"])
+def test_create_declines_nullish_label_before_effects(label):
+    source=graphistry.nodes(_foundation_frame("pandas",{"id":[1,2]}),"id")
+    before=_records(source._nodes)
+    with pytest.raises(GFQLValidationError,match="null-like label name"):
+        source.gfql(f"CREATE (n:{label})",engine="pandas")
+    assert _records(source._nodes)==before
 
 @pytest.mark.parametrize("engine",ENGINES)
 def test_all_null_old_property_does_not_stringify_new_integer(engine):
