@@ -562,6 +562,11 @@ class _ParserLike:
         raise NotImplementedError
 
 
+class _ParserMeta(Protocol):
+    line: int
+    column: int
+
+
 class _TransformerLike(Protocol):
     def transform(self, tree: object) -> object:
         ...
@@ -1693,13 +1698,21 @@ def _build_transformer(source: str) -> _TransformerLike:
                 raise _to_syntax_error("Invalid query item", line=meta.line, column=meta.column)
             return items[0]
 
-        def create_clause(self, meta: Any, items: Sequence[Any]) -> CreateClause:
+        def create_clause(self, meta: _ParserMeta, items: Sequence[object]) -> CreateClause:
             if not items:
                 raise _to_syntax_error("CREATE clause must contain at least one node pattern", line=meta.line, column=meta.column)
-            patterns = tuple(cast(NodePattern, item) for item in items)
-            return CreateClause(patterns=patterns, span=_span_from_meta(meta))
+            patterns: list[NodePattern] = []
+            for item in items:
+                if not isinstance(item, NodePattern):
+                    raise _to_unsupported(
+                        "GFQL CREATE clauses may contain only node patterns",
+                        line=meta.line,
+                        column=meta.column,
+                    )
+                patterns.append(item)
+            return CreateClause(patterns=tuple(patterns), span=_span_from_meta(meta))
 
-        def create_node(self, meta: Any, items: Sequence[Any]) -> NodePattern:
+        def create_node(self, meta: _ParserMeta, items: Sequence[object]) -> NodePattern:
             if len(items) != 1 or not isinstance(items[0], NodePattern):
                 raise _to_unsupported(
                     "GFQL CREATE currently supports standalone node patterns only",

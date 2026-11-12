@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Optional
 
+from graphistry.compute.typing import DataFrameT, SeriesT
 from graphistry.Engine import (
     Engine,
     EngineAbstract,
@@ -52,7 +53,11 @@ def _property_value(value: object, *, params: Optional[dict[str, object]], span:
     )
 
 
-def _new_nodes_frame(engine: Engine, records: list[dict[str, object]], label_columns: set[str]):
+def _new_nodes_frame(
+    engine: Engine,
+    records: list[dict[str, object]],
+    label_columns: set[str],
+) -> DataFrameT:
     if engine in {Engine.PANDAS, Engine.CUDF, Engine.POLARS, Engine.POLARS_GPU}:
         import pandas as pd
         columns: list[str] = []
@@ -95,7 +100,7 @@ def _new_nodes_frame(engine: Engine, records: list[dict[str, object]], label_col
     )
 
 
-def _numeric_id_seed(nodes, node_key: str, *, line: int, column: int):
+def _numeric_id_seed(nodes: DataFrameT, node_key: str, *, line: int, column: int) -> int:
     import numpy as np
     import pandas as pd
 
@@ -169,7 +174,13 @@ def _numeric_id_seed(nodes, node_key: str, *, line: int, column: int):
     return maximum + 1
 
 
-def _boolean_label_column(nodes, label_column: str, *, line: int, column: int):
+def _boolean_label_column(
+    nodes: DataFrameT,
+    label_column: str,
+    *,
+    line: int,
+    column: int,
+) -> Optional[SeriesT]:
     import pandas as pd
 
     if label_column not in nodes.columns:
