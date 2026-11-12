@@ -106,6 +106,10 @@ def test_create_nodes_without_existing_nodes_preserves_inferred_graph(engine: st
     ]
     assert _records(result._edges) == [{"src": 7, "dst": 8, "type": "R"}]
     assert source._nodes is None
+    assert result.gfql_graph is result
+    _assert_served(engine, result._nodes)
+    count = result.gfql("MATCH (a)-[r]->(b) RETURN count(*) AS count", engine=engine)
+    assert _records(count._nodes) == [{"count": 1}]
 
 
 @pytest.mark.parametrize("engine", ENGINES)
@@ -169,8 +173,6 @@ def test_create_render_does_not_admit_null_or_nan_legacy_type_labels(engine: str
     )
 
     assert _entity_text_records(rows, {"old": "nodes"}) == [{"old": "()"}]
-    assert result.gfql_graph is result
-    _assert_served(engine, result._nodes)
 
 
 def test_create_preserves_string_existing_identity() -> None:
