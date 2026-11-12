@@ -86,7 +86,10 @@ def _new_nodes_frame(
                 isinstance(value, int) and not isinstance(value, bool)
                 for value in declared
             ):
-                if any(value < -(1 << 63) or value >= (1 << 63) for value in declared):
+                if any(
+                    value < -(1 << 63) or value >= (1 << 63)
+                    for value in declared if isinstance(value, int)
+                ):
                     raise GFQLMutationError(
                         ErrorCode.E105, "CREATE integer value is outside the signed 64-bit range",
                         field=column, value="integer_overflow", language="cypher",
@@ -200,8 +203,7 @@ def _numeric_id_seed(nodes: DataFrameT, node_key: str, *, count: int, line: int,
                     language="cypher",
                 )
     elif pd.api.types.is_integer_dtype(dtype):
-        numpy_dtype = dtype.numpy_dtype if isinstance(dtype, pd.api.extensions.ExtensionDtype) else dtype
-        info = np.iinfo(numpy_dtype)
+        info = np.iinfo(dtype.type)
         if maximum + count > info.max:
             raise GFQLMutationError(
                 ErrorCode.E105,
@@ -277,7 +279,7 @@ def _prepare_append_frames(nodes: DataFrameT, new_nodes: DataFrameT) -> tuple[Da
         for name in nodes.columns:
             dtype = nodes[name].dtype
             if pd.api.types.is_integer_dtype(dtype):
-                target = "UInt64" if pd.api.types.is_unsigned_integer_dtype(dtype) else "Int64"
+                target = pd.UInt64Dtype() if pd.api.types.is_unsigned_integer_dtype(dtype) else pd.Int64Dtype()
                 nullable[name] = nodes[name].astype(target)
             elif pd.api.types.is_bool_dtype(dtype):
                 nullable[name] = nodes[name].astype("boolean")
@@ -297,7 +299,7 @@ def _prepare_append_frames(nodes: DataFrameT, new_nodes: DataFrameT) -> tuple[Da
                 if family == "integer" and (
                     left != right or str(old.dtype).lower().startswith("u") != str(new.dtype).lower().startswith("u")
                 ):
-                    if bool((series.abs() > (1 << 53)).any()):
+                    if int(series.min()) < -(1 << 53) or int(series.max()) > (1 << 53):
                         incompatible = True
         if incompatible:
             raise GFQLMutationError(

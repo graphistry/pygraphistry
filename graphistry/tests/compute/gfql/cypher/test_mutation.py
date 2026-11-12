@@ -21,10 +21,10 @@ ENGINES = [
 
 
 def _records(frame: Any) -> list[dict[str, Any]]:
-    if hasattr(frame, "to_pandas"):
-        rows = frame.to_pandas().to_dict(orient="records")
-    else:
+    if isinstance(frame, pd.DataFrame):
         rows = frame.to_dict(orient="records")
+    else:
+        rows = frame.to_arrow().to_pylist()
     return [
         {key: None if pd.isna(value) else value for key, value in row.items()}
         for row in rows
