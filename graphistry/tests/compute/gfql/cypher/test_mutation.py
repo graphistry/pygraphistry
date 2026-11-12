@@ -7,8 +7,10 @@ import pandas as pd
 import pytest
 
 import graphistry
+import graphistry.compute.gfql.cypher as cypher_module
 from graphistry.compute.exceptions import GFQLValidationError
 from graphistry.compute.gfql.cypher.api import cypher_to_gfql
+from graphistry.compute.gfql.cypher.lowering import CompiledCypherMutationQuery
 
 
 ENGINES = [
@@ -171,6 +173,13 @@ def test_validate_mutation_does_not_touch_chain() -> None:
 
     assert report["ok"] is True
     assert report["compiled_kind"] == "mutation"
+
+
+def test_deprecated_compiled_mutation_lazy_export_matches_lowering() -> None:
+    with pytest.warns(DeprecationWarning, match="CompiledCypherMutationQuery"):
+        lazy_class = cypher_module.CompiledCypherMutationQuery
+
+    assert lazy_class is CompiledCypherMutationQuery
 
 
 def test_create_rejects_non_numeric_existing_identity() -> None:
