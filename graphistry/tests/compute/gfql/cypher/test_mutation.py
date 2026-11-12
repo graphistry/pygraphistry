@@ -81,6 +81,9 @@ def test_create_nodes_adds_identity_labels_and_properties(engine: str) -> None:
 
 @pytest.mark.parametrize("engine", ENGINES)
 def test_create_nodes_without_existing_nodes_preserves_inferred_graph(engine: str) -> None:
+    if engine == "polars":
+        pytest.importorskip("polars")
+
     edges = pd.DataFrame({"src": [7], "dst": [8], "type": ["R"]})
     source = graphistry.edges(edges, "src", "dst")
 
@@ -538,6 +541,9 @@ def test_remote_mutation_declines_before_any_request(monkeypatch, validate: bool
 
 @pytest.mark.parametrize("engine", ENGINES)
 def test_create_converts_pandas_input_to_the_explicit_native_engine(engine: str) -> None:
+    if engine == "polars":
+        pytest.importorskip("polars")
+
     source = _graph("pandas")
     before = source._nodes.copy(deep=True)
     result = source.gfql("CREATE (a:L)", engine=engine)
