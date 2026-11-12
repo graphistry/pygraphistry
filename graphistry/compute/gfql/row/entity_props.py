@@ -4,8 +4,8 @@ from typing import Any, Iterable, List, Literal, Optional, Sequence, Tuple, cast
 
 import pandas as pd
 
-from graphistry.compute.dataframe_utils import df_cons as template_df_cons
-from graphistry.Engine import is_cudf_df, is_polars_df
+from graphistry.compute.dataframe_utils import df_cons as template_df_cons, is_cudf_obj
+from graphistry.Engine import is_polars_df
 from graphistry.compute.gfql.series_str_compat import series_str_contains, series_str_extract, series_str_match
 from graphistry.compute.gfql.temporal.constructors import (
     DATETIME_CALL_TEXT_RE,
@@ -80,7 +80,7 @@ def _include_numeric_id_as_property(df: DataFrameT) -> bool:
 
 
 def _list_series_from_python_rows(df: DataFrameT, col_name: str, row_count: int) -> SeriesT:
-    if is_cudf_df(df) and row_count:
+    if is_cudf_obj(df) and row_count:
         import cudf
         # Keys are strings. Seed a typed literal child, then slice it away on
         # device: cuDF otherwise represents empty children as int8 even after
