@@ -1960,6 +1960,49 @@ OpenAI Decisions API and smaller limits set ``max_questions_per_request``, ``max
 on ``OpenAIDecisionsProvider``. Any object implementing the
 ``DecisionProvider`` protocol in ``graphistry.compute.semantic`` can be bound.
 
+Older and self-hosted chat APIs
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+``OpenAIChatProvider`` also accepts these explicit strategies:
+
+* ``json_mode`` sends ``response_format={"type": "json_object"}`` and validates the answer locally.
+* ``function`` sends legacy ``functions`` and a named ``function_call``.
+* ``vllm_choice``, ``vllm_regex`` and ``vllm_grammar`` use ``structured_outputs``.
+* ``guided_choice``, ``guided_regex`` and ``guided_grammar`` use the legacy vLLM fields.
+* ``sglang_regex`` and ``sglang_ebnf`` use SGLang's chat constraint fields.
+
+SGLang and vLLM JSON Schema endpoints can use the existing ``json_schema`` strategy.
+The provider compiles each question's answer codes to the selected constraint. Grammar replies
+must contain one code. JSON and function replies must contain only the ``answer`` field with
+one valid code. Invalid replies become ``invalid_provider_result``; the provider never chooses
+a default answer. These strategies return no probability or distribution, even when the host
+includes logprobs. Metadata records ``answer_strategy`` and, for the new strategies, ``semantic_level``.
+The semantic level describes the selected mechanism; it does not prove that a host enforced a constraint.
+Constraint and logprob fields in ``extra_body`` cannot override the selected strategy.
+
+Choose a known mechanism directly to avoid probes. For explicit fallback discovery, configure an
+ordered profile. For example::
+
+    provider = OpenAIChatProvider(
+        key, model, base_url="http://localhost:8000/v1",
+        strategy="auto", probe_strategies=("vllm_choice", "guided_choice", "text"),
+        max_tokens_field="max_tokens",
+    )
+
+The default profile stays ``logprobs``, ``json_schema``, ``tool``, ``text``. New rungs require an
+explicit profile. A profile probes synthetic evidence and caches only a validated reply for its
+endpoint, model, settings and ordered profile. Each rung can send up to ``max_retries + 1`` attempts.
+Probes use the remaining deadline. They are billed outside the kernel's ``budget.max_requests``
+and cost estimate; the caller must allow for their spend. A probe that fails on authentication,
+transport, rate limits or a server error returns that error without sending user evidence.
+A real row's failure is returned without resending it through a lower strategy.
+The existing cost estimate includes the selected constraint payload, or the largest profile payload
+before discovery. It estimates input cost and is not a bound on billed spend.
+
+Current vLLM uses ``structured_outputs``; ``guided_*`` fields target older servers and are not
+accepted by current releases. Grammar support depends on the server backend. Select and test the
+mechanism supported by the deployment rather than inferring support from its model name.
+
 Utility Methods
 ---------------
 

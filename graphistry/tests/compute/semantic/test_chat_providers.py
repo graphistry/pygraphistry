@@ -432,7 +432,7 @@ class TestFallbacks:
     def test_auth_rate_and_server_failures_keep_no_probe(self, failure: FakeResponse, code: str) -> None:
         session = FakeSession([failure])
         result = checked(openai(session, strategy="auto", max_retries=0), request((PRED,)))[0]
-        assert result.error_code == code and len(session.posts) == 2 and "logprobs" in session.posts[1]["json"]  # type: ignore[operator]
+        assert result.error_code == code and len(session.posts) == 1 and "logprobs" in session.posts[0]["json"]  # type: ignore[operator]
         again = FakeSession([chat_reply("A", top(A=0.8, B=0.1))])
         checked(openai(again, strategy="auto"), request((PRED,)))
         assert len(again.posts) == 2

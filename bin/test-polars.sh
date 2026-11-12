@@ -247,6 +247,7 @@ POLARS_TEST_FILES=(
     # semantic operators on Polars-bound graphs, incl. the engine='auto' provider-effect barrier
     graphistry/tests/compute/semantic/test_gfql_bindings.py
     graphistry/tests/compute/semantic/test_cost_cap.py
+    graphistry/tests/compute/semantic/test_chat_grammar.py
 )
 
 # PARALLELISM. The py3.12 cell of this lane is the coverage cell and has repeatedly run out
