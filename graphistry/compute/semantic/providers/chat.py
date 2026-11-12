@@ -668,6 +668,10 @@ class AnthropicMessagesProvider(_ChatDecisionProvider):
         unfinished = payload.get("stop_reason") in ("max_tokens", "model_context_window_exceeded", "pause_turn")
         if self.strategy == "text":
             return Reply(texts[0] if texts else None, None, refused, unfinished)
+        valid_blocks = isinstance(content, list) and all(
+            isinstance(block, dict) and isinstance(block.get("type"), str) for block in content)
+        if not valid_blocks:
+            return Reply(None, None, refused, unfinished, self.strategy)
         tools = [block for block in blocks if block.get("type") in ("tool_use", "server_tool_use")]
         if self.strategy == "json_schema":
             text = "".join(part for part in texts if isinstance(part, str))

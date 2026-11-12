@@ -158,3 +158,21 @@ def test_structured_anthropic_gfql_keeps_rows_and_missing_probabilities(engine: 
     result = out._nodes.to_pandas() if engine == "polars" else out._nodes
     assert result["p"].tolist() == [True, False] and result["id"].tolist() == [1, 2]
     assert result["p__p"].isna().all() and type(out._nodes) is type(frame)
+
+
+@pytest.mark.parametrize("strategy", ["json_schema", "tool"])
+@pytest.mark.parametrize("malformed", [None, 7, "unparsed", [], {}, {"type": None}])
+def test_structured_content_rejects_malformed_sibling_wrappers(strategy: AnthropicStrategy,
+                                                             malformed: object) -> None:
+    valid = text('{"answer":"A"}') if strategy == "json_schema" else tool({"answer": "A"})
+    reply = FakeResponse(200, {"content": [valid, malformed], "stop_reason": "end_turn"})
+    result = provider(FakeSession([reply]), strategy).decide_batch(
+        [request((PRED,))], deadline_s=None, budget=None)[0]
+    assert result.error_code == "invalid_provider_result" and result.value is None
+
+
+def test_text_mode_retains_existing_content_wrapper_tolerance() -> None:
+    reply = FakeResponse(200, {"content": [text("B"), None], "stop_reason": "end_turn"})
+    result = provider(FakeSession([reply]), "text").decide_batch(
+        [request((PRED,))], deadline_s=None, budget=None)[0]
+    assert result.status == "ok" and result.value is False
