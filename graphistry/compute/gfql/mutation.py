@@ -459,7 +459,21 @@ def execute_create_nodes(
                 )
             if edge_key is None:
                 edge_key = MUTATION_EDGE_ID
+                old_edge_count = len(old_edges)
                 edge_identities = list(range(edge_count))
+                old_edge_identities = list(range(-old_edge_count, 0))
+                if is_polars_df(old_edges):
+                    import polars as pl
+                    if not isinstance(old_edges, pl.DataFrame):
+                        raise GFQLUnsupportedError(
+                            ErrorCode.E108, "CREATE requires materialized Polars frames",
+                            field="engine", value="lazy_frame", language="cypher",
+                        )
+                    old_edges = old_edges.with_columns(
+                        pl.Series(MUTATION_EDGE_ID, old_edge_identities, dtype=pl.Int64),
+                    )
+                else:
+                    old_edges = old_edges.assign(**{MUTATION_EDGE_ID: old_edge_identities})
             elif edge_key not in old_edges.columns:
                 raise GFQLMutationError(
                     ErrorCode.E108, f"Existing edge frame is missing identity column {edge_key!r}",

@@ -153,7 +153,7 @@ def test_create_relationship_adds_nodes_edges_and_bindings(engine: str) -> None:
             "src": 1,
             "dst": 2,
             "type": "KNOWS",
-            "__graphistry_edge_identity__": None,
+            "__graphistry_edge_identity__": -1,
             "since": None,
         },
     ]
@@ -228,6 +228,20 @@ def test_create_relationship_reuses_and_allocates_in_source_order(engine: str) -
     assert len(result.gfql_graph._nodes) == 5
     graph = result.gfql_graph
     assert [row[MUTATION_NODE_ID] for row in _records(graph._nodes)][2:] == [3, 4, 5]
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_create_backfills_keyless_old_edge_identities(engine: str) -> None:
+    source = _graph(engine)
+
+    first = source.gfql("CREATE (a)-[:T]->(b)", engine=engine, language="cypher")
+    first_ids = [row["__graphistry_edge_identity__"] for row in _records(first._edges)]
+    assert first_ids == [-1, 0]
+
+    second = first.gfql("CREATE (c)-[:T]->(d)", engine=engine, language="cypher")
+    second_ids = [row["__graphistry_edge_identity__"] for row in _records(second._edges)]
+    assert second_ids == [-1, 0, 1]
+    assert len(set(second_ids)) == len(second_ids)
 
 
 def test_create_relationship_rejects_duplicate_alias_before_effects() -> None:
