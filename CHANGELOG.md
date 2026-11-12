@@ -8,6 +8,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [Development]
 <!-- Do Not Erase This Section - Used for tracking unreleased changes -->
 
+### Fixed
+
+- **GFQL default-engine GPU filters**: cross-alias `WHERE` queries on cuDF graphs now resolve the default `auto` engine to cuDF, matching explicit `engine='cudf'` for both Cypher projections and native chains instead of mixing pandas intermediates with GPU columns (#2289).
+
 ## [0.62.0] - 2026-11-11
 
 ### Deprecated
