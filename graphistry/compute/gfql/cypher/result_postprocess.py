@@ -80,20 +80,17 @@ def entity_projection_meta_entry(
 def _node_label_text(df: DataFrameT, alias_col: str) -> SeriesT:
     label_cols = label_flag_columns(df.columns)
     labels = _empty_text(df, alias_col)
-    flag_names: set[str] = set()
     for col, label_name in label_cols:
-        flag_names.add(label_name)
         mask = cast(SeriesT, cast(SeriesT, df[col]) == True)  # noqa: E712
         labels = cast(SeriesT, labels + _const_text(df, alias_col, ":" + label_name).where(mask, ""))
     if "type" in df.columns:
         type_series = cast(SeriesT, df["type"])
         rendered = _object_text(cast(SeriesT, type_series.where(~_is_null_mask(type_series), "").astype(str)))
-        type_in_flags = (
-            type_series.is_in(flag_names)
-            if is_polars_df(df)
-            else type_series.isin(flag_names)
-        )
-        type_mask = cast(SeriesT, ~_is_null_mask(type_series) & ~type_in_flags)
+        type_mask = cast(SeriesT, ~_is_null_mask(type_series))
+        for col, label_name in label_cols:
+            type_matches_flag = cast(SeriesT, type_series == label_name)
+            flag_is_true = cast(SeriesT, cast(SeriesT, df[col]) == True)  # noqa: E712
+            type_mask = cast(SeriesT, type_mask & ~(type_matches_flag & flag_is_true))
         labels = cast(SeriesT, labels + _const_text(df, alias_col, ":" + rendered).where(type_mask, ""))
     return labels
 
@@ -231,8 +228,8 @@ def render_entity_text(
         rows_df[field_cols].rename(columns={col: str(col)[len(prefix):] for col in field_cols}),
     )
     # Prefer source presence; legacy flattened results infer it from non-null fields.
-    present: Optional[SeriesT] = None
     presence = result._cypher_entity_projection_presence
+    present: Optional[SeriesT] = None
     marker_frame = presence.get(alias)
     if marker_frame is not None:
         marker_frame = df_to_engine(marker_frame, resolve_engine("auto", rows_df))
