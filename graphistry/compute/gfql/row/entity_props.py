@@ -77,7 +77,7 @@ def _list_series_from_python_rows(df: DataFrameT, col_name: str, row_count: int)
         import cudf
         # Keys are strings. Explicit construction avoids inferred int8 children,
         # which cannot fill a grouped string list in the native conditional copy.
-        return cast(SeriesT, cudf.Series([[]] * row_count, dtype=cudf.ListDtype("str")))
+        return cudf.Series([[]] * row_count, dtype=cudf.ListDtype("str"))
     return cast(SeriesT, template_df_cons(df, {col_name: [[] for _ in range(row_count)]})[col_name])
 
 
