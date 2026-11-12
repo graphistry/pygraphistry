@@ -75,8 +75,7 @@ def _include_numeric_id_as_property(df: DataFrameT) -> bool:
 def _list_series_from_python_rows(df: DataFrameT, col_name: str, row_count: int) -> SeriesT:
     if is_cudf_obj(df) and row_count:
         import cudf
-        # Keys are strings. Explicit construction avoids inferred int8 children,
-        # which cannot fill a grouped string list in the native conditional copy.
+        # Empty key lists require string children for the native conditional copy.
         return cudf.Series([[]] * row_count, dtype=cudf.ListDtype("str"))
     return cast(SeriesT, template_df_cons(df, {col_name: [[] for _ in range(row_count)]})[col_name])
 
