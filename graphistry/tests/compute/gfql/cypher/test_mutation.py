@@ -151,6 +151,7 @@ def test_create_rejects_unsupported_mixed_program() -> None:
 
 
 def test_create_declines_unavailable_polars_gpu(monkeypatch: pytest.MonkeyPatch) -> None:
+    pytest.importorskip("polars")
     from graphistry.compute.gfql.lazy import polars_gpu_available
 
     monkeypatch.setattr(
