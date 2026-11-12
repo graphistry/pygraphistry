@@ -93,6 +93,8 @@ DIFFERENTIAL_CORPUS = [
     "MATCH (n) RETURN CASE WHEN n.x > 1 THEN 'hi' ELSE 'lo' END AS bucket",
     "MATCH (n) RETURN CASE n.x WHEN 1 THEN 'a' ELSE 'b' END AS k",
     "RETURN 1 AS one",
+    "CREATE (a:L {name: 'x'}) RETURN a",
+    "CREATE (a:L), (b:L)",
     # WITH pipelines
     "MATCH (n) WITH n.city AS city, count(n) AS c WHERE c > 1 RETURN city, c",
     "MATCH (n) WITH n ORDER BY n.x LIMIT 3 RETURN n.id",

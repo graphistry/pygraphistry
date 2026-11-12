@@ -38,11 +38,13 @@ from graphistry.compute.exceptions import ErrorCode, GFQLValidationError
 from graphistry.compute.engine_coercion import ensure_engine_match
 from graphistry.compute.gfql.cypher.ast import CypherParams
 from graphistry.compute.gfql.cypher.parser import parse_cypher
+from graphistry.compute.gfql.mutation import execute_create_nodes
 from graphistry.compute.gfql.exec_context import attach_row_exec_context, clear_row_exec_context
 from graphistry.compute.gfql.cypher.aggregate_identity import ungrouped_aggregate_identity_row
 from graphistry.compute.gfql.cypher.lowering import (
     ConnectedMatchJoinPlan,
     CompiledCypherGraphQuery,
+    CompiledCypherMutationQuery,
     CompiledCypherQuery,
     CompiledCypherUnionQuery,
     CompiledGraphResidualFilter,
@@ -2916,6 +2918,12 @@ def _gfql_with_strictness(
             )
             if isinstance(compiled_query, CompiledCypherGraphQuery):
                 return _execute_graph_query(self, compiled_query, engine=engine, policy=expanded_policy, context=context)
+            if isinstance(compiled_query, CompiledCypherMutationQuery):
+                mutated = execute_create_nodes(
+                    self, compiled_query.creates, engine=engine, params=params
+                )
+                mutated._gfql_graph = mutated
+                return mutated
             if isinstance(compiled_query, CompiledCypherQuery):
                 if compiled_query.graph_bindings or compiled_query.use_ref:
                     return _execute_query_with_graph_context(self, compiled_query, engine=engine, policy=expanded_policy, context=context)

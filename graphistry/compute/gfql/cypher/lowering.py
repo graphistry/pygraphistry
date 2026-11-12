@@ -239,6 +239,7 @@ class CompiledCypherQuery:
     use_ref: Optional[str] = None
     graph_residual_filters: Tuple[CompiledGraphResidualFilter, ...] = ()
 
+
     @property
     def result_projection(self) -> Optional["ResultProjectionPlan"]:
         return None if self.post_processing is None else self.post_processing.result_projection
@@ -278,6 +279,14 @@ class CompiledCypherQuery:
     @property
     def logical_plan_defer_code(self) -> Optional[str]:
         return None if self.execution_extras is None else self.execution_extras.logical_plan_defer_code
+
+
+@dataclass(frozen=True)
+class CompiledCypherMutationQuery:
+    """A standalone write program whose semantics are owned by the mutation runtime."""
+
+    creates: Tuple[CreateClause, ...]
+    return_: Optional[ReturnClause] = None
 
 
 @dataclass(frozen=True)
@@ -9328,11 +9337,21 @@ def compile_cypher_query(
     *,
     params: Optional[Mapping[str, Any]] = None,
     node_dtypes: Optional[NodeDtypes] = None,
-) -> Union[CompiledCypherQuery, CompiledCypherUnionQuery, CompiledCypherGraphQuery]:
+) -> Union[CompiledCypherQuery, CompiledCypherMutationQuery, CompiledCypherUnionQuery, CompiledCypherGraphQuery]:
     from graphistry.compute.gfql.cypher import projection_planning as _projection
 
     if isinstance(query, CypherQuery):
         _reject_excessive_match_clauses(query.matches)
+        if query.creates:
+            if query.return_ is not None and not query.return_is_synthetic:
+                raise _unsupported(
+                    "GFQL CREATE with RETURN is not supported yet",
+                    field="return",
+                    value=None,
+                    line=query.return_.span.line,
+                    column=query.return_.span.column,
+                )
+            return CompiledCypherMutationQuery(creates=query.creates, return_=query.return_)
     elif isinstance(query, CypherUnionQuery):
         for branch in query.branches:
             _reject_excessive_match_clauses(branch.matches)
