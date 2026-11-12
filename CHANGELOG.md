@@ -10,6 +10,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Docs
 
+- **GFQL Let binding examples** (#2171): select named subgraphs with `output=` instead of nonexistent binding-marker columns; runnable examples assert nonempty results on pandas and Polars inputs while preserving matcher `name=` markers and service/GPU skips.
+
 - **GFQL quick reference examples run** (#2169): node and edge matcher examples use declarative predicates (`gt`, `lt`, `between`) instead of callables that validation rejects; `let()` examples select bindings with `output=`; remote references are shown as `let()` bindings; the engine section notes which features `auto` runs on pandas for Polars input. The docs example audit now finds code blocks nested under bullets, and every runnable quick-reference example executes on pandas and Polars-bound inputs with matching RETURN rows or graph node/edge identities.
 
 ## [0.62.1] - 2026-11-12

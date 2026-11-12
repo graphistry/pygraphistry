@@ -304,14 +304,12 @@ Traditional Python approach (manual variable management):
 
 GFQL Let approach (declarative DAG with named bindings):
 
-.. doc-test: skip
-
 .. code-block:: python
 
     from graphistry import let, ref, n, e_forward, ge
 
     # GFQL Let: Define a DAG of named operations
-    result = g.gfql(let({
+    stages = let({
         'persons': n({'type': 'person'}),
         'adults': ref('persons', [n({'age': ge(18)})]),  # Reference and filter persons
         'connections': [
@@ -319,11 +317,13 @@ GFQL Let approach (declarative DAG with named bindings):
             e_forward({'type': 'knows'}),
             n()  # Find connections from adults
         ]
-    }))
+    })
 
-    # Access any named result from the DAG
-    adults = result._nodes[result._nodes['adults']]
-    connections = result._edges[result._edges['connections']]
+    # Select a binding with output=; binding names do not create marker columns
+    adults = g.gfql(stages, output='adults')._nodes
+    connections = g.gfql(stages, output='connections')._edges
+    assert sorted(adults['id']) == ['a', 'b', 'd']
+    assert sorted(zip(connections['s'], connections['d'])) == [('a', 'b')]
 
 Key advantages of GFQL Let:
 - **Named subgraphs**: Create reusable named graph operations like constants in code
