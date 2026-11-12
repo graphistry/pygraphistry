@@ -242,6 +242,54 @@ def test_create_relationship_rejects_duplicate_alias_before_effects() -> None:
     assert _records(source._edges) == before
 
 
+@pytest.mark.parametrize("decorated", [":Bar", " {name:'again'}", " {}"])
+def test_create_rejects_decorated_repeated_alias_before_effects(decorated: str) -> None:
+    source = _graph("pandas")
+    before_nodes = _records(source._nodes)
+    before_edges = _records(source._edges)
+
+    with pytest.raises(GFQLValidationError, match="variable is already bound"):
+        source.gfql(
+            f"CREATE (n:Foo)\nCREATE (n{decorated})",
+            engine="pandas",
+            language="cypher",
+        )
+
+    assert _records(source._nodes) == before_nodes
+    assert _records(source._edges) == before_edges
+
+
+@pytest.mark.parametrize("decorated", [":Bar", " {name:'again'}", " {}"])
+def test_create_rejects_same_clause_decorated_repeated_alias_before_effects(decorated: str) -> None:
+    source = _graph("pandas")
+    before_nodes = _records(source._nodes)
+    before_edges = _records(source._edges)
+
+    with pytest.raises(GFQLValidationError, match="variable is already bound"):
+        source.gfql(
+            f"CREATE (n:Foo), (n{decorated})",
+            engine="pandas",
+            language="cypher",
+        )
+
+    assert _records(source._nodes) == before_nodes
+    assert _records(source._edges) == before_edges
+
+
+def test_create_preserves_bare_repeated_alias_for_self_loop() -> None:
+    source = _graph("pandas")
+
+    result = source.gfql("CREATE (a), (a)-[:T]->(a)", engine="pandas", language="cypher")
+
+    assert len(result._nodes) == 3
+    assert _records(result._edges)[-1] == {
+        "src": 3,
+        "dst": 3,
+        "type": "T",
+        "__graphistry_edge_identity__": 0,
+    }
+
+
 @pytest.mark.parametrize("property_key", ["type", "label__X", "__private"])
 def test_create_relationship_rejects_reserved_edge_properties(property_key: str) -> None:
     source = _graph("pandas")

@@ -67,6 +67,7 @@ class NodePattern:
     labels: Tuple[str, ...]
     properties: Tuple[PropertyEntry, ...]
     span: SourceSpan
+    explicit_properties: bool = False
 
 
 @dataclass(frozen=True)

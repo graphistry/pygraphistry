@@ -900,11 +900,13 @@ def _build_transformer(source: str) -> _TransformerLike:
                     labels = cast(Tuple[str, ...], item)
                 elif isinstance(item, tuple):
                     properties = cast(Tuple[PropertyEntry, ...], item)
+            span = _span_from_meta(meta)
             return NodePattern(
                 variable=variable,
                 labels=labels,
                 properties=properties,
-                span=_span_from_meta(meta),
+                span=span,
+                explicit_properties="{" in self._slice(span),
             )
 
         def _relationship(

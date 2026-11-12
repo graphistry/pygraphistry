@@ -486,6 +486,13 @@ def execute_create_nodes(
     def _node_record(pattern: NodePattern) -> CypherScalar:
         nonlocal identity_index
         if pattern.variable is not None and pattern.variable in node_bindings:
+            if pattern.labels or pattern.explicit_properties or pattern.properties:
+                raise GFQLMutationError(
+                    ErrorCode.E105, "CREATE node variable is already bound",
+                    field="create", value=pattern.variable,
+                    suggestion="Reference the bound node without labels or properties, or use a new variable.",
+                    line=pattern.span.line, column=pattern.span.column, language="cypher",
+                )
             return node_bindings[pattern.variable]
         identity = identities[identity_index]
         identity_index += 1
