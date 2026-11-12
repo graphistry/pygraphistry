@@ -86,6 +86,13 @@ def test_parse_create_with_return_is_standalone_query() -> None:
 def test_parse_rejects_unsupported_create_shapes(query: str) -> None:
     with pytest.raises(GFQLValidationError):
         parse_cypher(query)
+def test_parse_empty_property_map_does_not_replace_labels() -> None:
+    parsed = _parse_query("MATCH (n:Foo {}) RETURN n")
+
+    node = parsed.match.pattern[0]
+    assert node.variable == "n"
+    assert node.labels == ("Foo",)
+    assert node.properties == ()
 
 
 def test_parse_graph_property_access_allowed() -> None:
