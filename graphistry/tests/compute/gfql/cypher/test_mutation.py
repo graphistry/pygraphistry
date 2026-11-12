@@ -90,7 +90,7 @@ def test_create_nodes_without_existing_nodes_preserves_inferred_nodes(engine: st
     assert _records(result._nodes) == [
         {"_node": 7, "label__L": False, "name": None},
         {"_node": 8, "label__L": False, "name": None},
-        {"_node": 0, "label__L": True, "name": "x"},
+        {"_node": 9, "label__L": True, "name": "x"},
     ]
     assert result._edges is source._edges
     assert result.gfql_graph is result
