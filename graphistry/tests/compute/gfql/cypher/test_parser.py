@@ -44,6 +44,15 @@ def test_parse_minimal_match_return() -> None:
     assert parsed.trailing_semicolon is False
 
 
+def test_parse_empty_property_map_does_not_replace_labels() -> None:
+    parsed = _parse_query("MATCH (n:Foo {}) RETURN n")
+
+    node = parsed.match.pattern[0]
+    assert node.variable == "n"
+    assert node.labels == ("Foo",)
+    assert node.properties == ()
+
+
 def test_parse_graph_property_access_allowed() -> None:
     parsed = _parse_query("MATCH (n) RETURN n.graph")
 
