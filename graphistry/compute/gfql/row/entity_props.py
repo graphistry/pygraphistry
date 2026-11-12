@@ -4,7 +4,7 @@ from typing import Any, Iterable, List, Literal, Optional, Sequence, Tuple, cast
 
 import pandas as pd
 
-from graphistry.compute.dataframe_utils import df_cons as template_df_cons, is_cudf_obj
+from graphistry.compute.dataframe_utils import df_cons as template_df_cons
 from graphistry.Engine import is_polars_df
 from graphistry.compute.gfql.series_str_compat import series_str_contains, series_str_extract, series_str_match
 from graphistry.compute.gfql.temporal.constructors import (
@@ -72,11 +72,15 @@ def _include_numeric_id_as_property(df: DataFrameT) -> bool:
         return False
 
 
-def _list_series_from_python_rows(df: DataFrameT, col_name: str, row_count: int) -> SeriesT:
-    if is_cudf_obj(df) and row_count:
-        import cudf
-        # Empty key lists require string children for the native conditional copy.
-        return cudf.Series([[]] * row_count, dtype=cudf.ListDtype("str"))
+def _list_series_from_python_rows(
+    df: DataFrameT,
+    col_name: str,
+    row_count: int,
+    *,
+    prototype: Optional[SeriesT] = None,
+) -> SeriesT:
+    if prototype is not None:
+        return type(prototype)([[] for _ in range(row_count)], dtype=prototype.dtype)
     return cast(SeriesT, template_df_cons(df, {col_name: [[] for _ in range(row_count)]})[col_name])
 
 
@@ -561,6 +565,6 @@ def entity_keys_series(
     missing_mask = cast(SeriesT, out.isna())
     if bool(missing_mask.any()):
         fill_col = _fresh_col_name(df.columns, "__gfql_entity_key_fill__")
-        filled = _list_series_from_python_rows(df, fill_col, len(merged))
+        filled = _list_series_from_python_rows(df, fill_col, len(merged), prototype=out)
         out = cast(SeriesT, out.where(~missing_mask, filled))
     return out.reset_index(drop=True)
