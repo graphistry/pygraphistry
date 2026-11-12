@@ -9385,6 +9385,10 @@ def compile_cypher_query(
                     key=MUTATION_NODE_ID, value=ParameterRef(name=parameter, span=query.span), span=query.span,
                 ),), span=query.span),))
             if not patterns:
+                # Validate the user's original zero-binding scope before introducing
+                # the private execution anchor. It must never satisfy an unbound
+                # variable or expand an otherwise invalid RETURN *.
+                compile_cypher_query(replace(query, creates=()), params=params)
                 # A hidden created alias supplies the one input row for constant RETURN.
                 hidden_alias = "__gfql_created_return__"
                 parameter = "__gfql_created_return_id__"

@@ -5,7 +5,7 @@ from typing import Any, Iterable, List, Literal, Optional, Sequence, Tuple, cast
 import pandas as pd
 
 from graphistry.compute.dataframe_utils import df_cons as template_df_cons
-from graphistry.Engine import is_polars_df
+from graphistry.Engine import is_cudf_df, is_polars_df
 from graphistry.compute.gfql.series_str_compat import series_str_contains, series_str_extract, series_str_match
 from graphistry.compute.gfql.temporal.constructors import (
     DATETIME_CALL_TEXT_RE,
@@ -80,6 +80,12 @@ def _include_numeric_id_as_property(df: DataFrameT) -> bool:
 
 
 def _list_series_from_python_rows(df: DataFrameT, col_name: str, row_count: int) -> SeriesT:
+    if is_cudf_df(df) and row_count:
+        import cudf
+        # Keys are strings. Seed a typed literal child, then slice it away on
+        # device: cuDF otherwise represents empty children as int8 even after
+        # astype(ListDtype(str)), which cannot fill a grouped string list.
+        return cast(SeriesT, cudf.Series([[""]] * row_count).list.slice(0, 0))
     return cast(SeriesT, template_df_cons(df, {col_name: [[] for _ in range(row_count)]})[col_name])
 
 
@@ -575,8 +581,5 @@ def entity_keys_series(
     if bool(missing_mask.any()):
         fill_col = _fresh_col_name(df.columns, "__gfql_entity_key_fill__")
         filled = _list_series_from_python_rows(df, fill_col, len(merged))
-        # Empty cuDF lists infer a null child type; align it with the grouped
-        # string lists before the native conditional copy.
-        filled = filled.astype(out.dtype)
         out = cast(SeriesT, out.where(~missing_mask, filled))
     return out.reset_index(drop=True)

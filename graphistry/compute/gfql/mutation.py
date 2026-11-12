@@ -262,6 +262,12 @@ def _prepare_append_frames(nodes: DataFrameT, new_nodes: DataFrameT) -> tuple[Da
                 nullable[name] = nodes[name].astype("boolean")
         if nullable:
             nodes = nodes.assign(**nullable)
+    # An all-null existing property has no values whose dtype must be retained.
+    # Otherwise an empty string schema can stringify explicit integer literals.
+    null_old = [name for name in set(nodes.columns).intersection(new_nodes.columns)
+                if bool(nodes[name].is_null().all() if polars else nodes[name].isna().all())]
+    if null_old:
+        nodes = nodes.drop(null_old) if polars else nodes.drop(columns=null_old)
     for name in set(nodes.columns).intersection(new_nodes.columns):
         old, new = nodes[name], new_nodes[name]
         old_null = old.is_null().all() if polars else old.isna().all()
@@ -324,6 +330,19 @@ def execute_create_nodes(
         raise GFQLMutationError(
             ErrorCode.E108, f"Existing node frame is missing identity column {old_key!r}",
             field=old_key, value="missing", line=line, column=column, language="cypher",
+        )
+    if base_graph._gfql_mutation_identity and old_key != MUTATION_NODE_ID:
+        if nodes is not None and ({MUTATION_NODE_ID, ID_PROPERTY_PRESENT} & set(nodes.columns)):
+            raise GFQLMutationError(
+                ErrorCode.E108, "CREATE cannot reuse mutation metadata after rebinding physical identity",
+                field=old_key, value="rebound_mutation_identity", language="cypher",
+            )
+        base_graph = base_graph.bind()
+        base_graph._gfql_mutation_identity = False
+    if base_graph._gfql_mutation_identity and nodes is not None and ID_PROPERTY_PRESENT not in nodes.columns:
+        raise GFQLMutationError(
+            ErrorCode.E108, "CREATE mutation metadata is incomplete",
+            field=old_key, value="missing_property_membership", language="cypher",
         )
     if nodes is not None and not base_graph._gfql_mutation_identity:
         collisions = {MUTATION_NODE_ID, ID_PROPERTY_PRESENT} & set(nodes.columns)
