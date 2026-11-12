@@ -150,6 +150,21 @@ def test_mixed_batch_checks_each_answer_without_poisoning_other_rows_or_question
     pd.testing.assert_frame_equal(data, before)
 
 
+@pytest.mark.parametrize("requirement", [False, True, "native"])
+@pytest.mark.parametrize("kind", ["none", "token_logprob", "native_decision"])
+def test_provider_metadata_must_be_valid_before_probability_policy_can_clear_it(
+        requirement: ProbabilityRequirement, kind: ProbabilityKind) -> None:
+    class InvalidConfidence:
+        def __str__(self) -> str:
+            raise ValueError("synthetic invalid metadata")
+    distribution = None if kind == "none" else {"true": .8, "false": .2}
+    provider = Scripted(lambda index, requests: [result(req, "p", True, distribution, probability_kind=kind,
+                                                      confidence=InvalidConfidence()) for req in requests])
+    out = sem_decide(frame(1), questions=[P], provider=provider, task_id="t", evidence_cols=["name"],
+                     require_probabilities=requirement)
+    assert out["p__error_code"].tolist() == ["invalid_provider_result"] and out["p"].isna().all()
+
+
 @pytest.mark.parametrize("invalid", [None, 0, 1, "true", "token_logprob", [], {}, float("nan")])
 def test_requirement_parameter_is_strict_and_validated_before_calls(invalid: object) -> None:
     provider = Recording()

@@ -240,13 +240,14 @@ def _cell_result(request: DecisionRequest, question: DecisionQuestion, outcome: 
         result = None if row is None else _plain_answer(row[question.id])
         if result is not None and not check_decision_result(request, question, result, capabilities):
             result = dataclasses.replace(result, input_hash=input_hash, task_version=request.task_version)
-            result = enforce_probability(question, result, require_probabilities)
-            if min_p is not None and result.status == "ok":
-                probability = _probability_of_value(question, result)
-                if math.isnan(probability) or probability < min_p:
-                    result = dataclasses.replace(result, status="uncertain", status_reason="min_p")
-            if _meta_json_or_none(result) is not None:
-                return result
+            if require_probabilities is False or _meta_json_or_none(result) is not None:
+                result = enforce_probability(question, result, require_probabilities)
+                if min_p is not None and result.status == "ok":
+                    probability = _probability_of_value(question, result)
+                    if math.isnan(probability) or probability < min_p:
+                        result = dataclasses.replace(result, status="uncertain", status_reason="min_p")
+                if _meta_json_or_none(result) is not None:
+                    return result
         elif result is not None:
             retries = result.retry_count
             latency_ms = _nonnegative(result.latency_ms)
