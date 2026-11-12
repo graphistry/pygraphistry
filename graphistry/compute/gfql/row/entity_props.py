@@ -557,7 +557,7 @@ def entity_keys_series(
     )
 
     base_rows = cast(DataFrameT, template_df_cons(df, {row_col: range(len(df))}))
-    merged = cast(DataFrameT, base_rows.merge(grouped, on=row_col, how="left", sort=False))
+    merged = cast(DataFrameT, base_rows.merge(grouped, on=row_col, how="left", sort=False).sort_values(row_col))
     out = cast(SeriesT, merged[key_col])
     missing_mask = cast(SeriesT, out.isna())
     if bool(missing_mask.any()):

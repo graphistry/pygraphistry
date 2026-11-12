@@ -10,7 +10,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
-- **GFQL nullable entity keys on cuDF** (#2312): `keys(n)` now returns empty lists for rows with no non-null properties alongside populated rows. Native empty key lists use the string child type expected by the grouped result instead of failing inside a conditional copy.
+- **GFQL nullable entity keys on cuDF** (#2312): `keys(n)` now returns empty lists for rows with no non-null properties alongside populated rows. Native empty key lists use the string child type expected by the grouped result, and key lists remain aligned with their original entities after the native grouping join.
 
 ## [0.62.1] - 2026-11-12
 
