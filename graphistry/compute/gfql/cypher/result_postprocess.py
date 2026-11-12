@@ -406,7 +406,7 @@ def apply_result_projection(
                             for name in (MUTATION_NODE_ID, ID_PROPERTY_PRESENT)
                         ])
                     else:
-                        marker_frame = marker_frame.assign(**{
+                        marker_frame = cast(DataFrameT, marker_frame).assign(**{
                             name: source_view[name] for name in (MUTATION_NODE_ID, ID_PROPERTY_PRESENT)
                         })
                 presence[column.output_name] = marker_frame.clone() if is_polars_df(marker_frame) else marker_frame.copy()

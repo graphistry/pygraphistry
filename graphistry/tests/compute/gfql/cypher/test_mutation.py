@@ -9,6 +9,7 @@ import pytest
 import graphistry
 from graphistry.compute.exceptions import GFQLValidationError
 from graphistry.compute.gfql.cypher.api import cypher_to_gfql
+from graphistry.compute.gfql.row.entity_props import MUTATION_NODE_ID, ID_PROPERTY_PRESENT
 
 
 ENGINES = [
@@ -26,7 +27,7 @@ def _records(frame: Any) -> list[dict[str, Any]]:
     else:
         rows = frame.to_arrow().to_pylist()
     return [
-        {key: None if pd.isna(value) else value for key, value in row.items()}
+        {key: None if value is None or not isinstance(value, (list, dict)) and pd.isna(value) else value for key, value in row.items()}
         for row in rows
     ]
 
@@ -64,10 +65,10 @@ def test_create_nodes_adds_identity_labels_and_properties(engine: str) -> None:
     assert isinstance(result, type(source))
     assert result._edges is source._edges
     assert _records(result._nodes) == [
-        {"id": 1, "label__Person": True, "label__Admin": False, "name": None, "age": None},
-        {"id": 2, "label__Person": False, "label__Admin": False, "name": None, "age": None},
-        {"id": 3, "label__Person": False, "label__Admin": True, "name": "Ada", "age": 36},
-        {"id": 4, "label__Person": False, "label__Admin": True, "name": "Grace", "age": None},
+        {"id": 1, MUTATION_NODE_ID: 1, ID_PROPERTY_PRESENT: True, "label__Person": True, "label__Admin": False, "name": None, "age": None},
+        {"id": 2, MUTATION_NODE_ID: 2, ID_PROPERTY_PRESENT: True, "label__Person": False, "label__Admin": False, "name": None, "age": None},
+        {"id": None, MUTATION_NODE_ID: 3, ID_PROPERTY_PRESENT: False, "label__Person": False, "label__Admin": True, "name": "Ada", "age": 36},
+        {"id": None, MUTATION_NODE_ID: 4, ID_PROPERTY_PRESENT: False, "label__Person": False, "label__Admin": True, "name": "Grace", "age": None},
     ]
     assert _records(source._nodes) == [
         {"id": 1, "label__Person": True},
@@ -86,9 +87,9 @@ def test_create_nodes_without_existing_nodes_preserves_inferred_graph(engine: st
     result = source.gfql("CREATE (a:L {name: 'x'})", engine=engine, language="cypher")
 
     assert _records(result._nodes) == [
-        {"id": 7, "label__L": False, "name": None},
-        {"id": 8, "label__L": False, "name": None},
-        {"id": 9, "label__L": True, "name": "x"},
+        {"id": 7, MUTATION_NODE_ID: 7, ID_PROPERTY_PRESENT: True, "label__L": False, "name": None},
+        {"id": 8, MUTATION_NODE_ID: 8, ID_PROPERTY_PRESENT: True, "label__L": False, "name": None},
+        {"id": None, MUTATION_NODE_ID: 9, ID_PROPERTY_PRESENT: False, "label__L": True, "name": "x"},
     ]
     assert _records(result._edges) == [{"src": 7, "dst": 8, "type": "R"}]
     assert source._nodes is None
@@ -98,11 +99,12 @@ def test_create_nodes_without_existing_nodes_preserves_inferred_graph(engine: st
     _assert_served(engine, result._nodes)
 
 
-def test_create_rejects_non_numeric_existing_identity() -> None:
+def test_create_preserves_string_existing_identity() -> None:
     source = graphistry.nodes(pd.DataFrame({"id": ["a", "b"]}), "id")
-
-    with pytest.raises(GFQLValidationError, match="numeric node identities"):
-        source.gfql("CREATE (a:L)", engine="pandas", language="cypher")
+    result = source.gfql("CREATE ()", engine="pandas")
+    assert result._nodes[result._node].tolist()[:2] == ["a", "b"]
+    assert result._nodes[result._node].nunique() == 3
+    assert _records(source._nodes) == [{"id": "a"}, {"id": "b"}]
 
 
 def test_create_rejects_missing_existing_identity_column() -> None:
@@ -112,11 +114,12 @@ def test_create_rejects_missing_existing_identity_column() -> None:
         source.gfql("CREATE (a:L)", engine="pandas", language="cypher")
 
 
-def test_create_return_is_typed_supported_gap() -> None:
+def test_create_return_has_rows_and_same_execution_graph() -> None:
     source = _graph("pandas")
-
-    with pytest.raises(GFQLValidationError, match="CREATE with RETURN"):
-        source.gfql("CREATE (a:L) RETURN a", engine="pandas", language="cypher")
+    result = source.gfql("CREATE (a:L {name:'new'}) RETURN a.name AS name", engine="pandas")
+    assert _records(result._nodes) == [{"name": "new"}]
+    assert len(result.gfql_graph._nodes) == 3
+    assert result.gfql_graph._nodes[result.gfql_graph._node].tolist() == [1, 2, 3]
 
 
 def test_cypher_to_gfql_rejects_standalone_create() -> None:
@@ -185,7 +188,7 @@ def test_create_checks_the_entire_allocated_id_range(dtype: str, maximum: int) -
     before = source._nodes.copy(deep=True)
     with pytest.raises(GFQLValidationError) as exc:
         source.gfql("CREATE (a), (b)", engine="pandas")
-    assert exc.value.context["field"] == "id"
+    assert exc.value.context["field"] == MUTATION_NODE_ID
     pd.testing.assert_frame_equal(source._nodes, before)
 
 
@@ -315,3 +318,130 @@ def test_new_integer_does_not_truncate_existing_fractional_values(engine: str) -
     assert [row["score"] for row in _records(result._nodes)] == [1.5, -2.25, 2]
     assert _records(source._nodes) == before
     _assert_served(engine, result._nodes)
+
+
+def _foundation_frame(engine,data):
+    value=pd.DataFrame(data)
+    if engine=="cudf":
+        import cudf
+        return cudf.from_pandas(value)
+    if engine=="polars":
+        pl = pytest.importorskip("polars")
+        return pl.from_pandas(value)
+    return value
+
+@pytest.mark.parametrize("engine",ENGINES)
+@pytest.mark.parametrize("query,count,expected",[
+    ("CREATE ()",1,None),
+    ("CREATE (), ()",2,None),
+    ("CREATE (:A:B), (:B:C)",2,None),
+    ("CREATE (a {name:'foo'}) RETURN a.name AS p",1,[{"p":"foo"}]),
+    ("CREATE (a {id:12,name:null}) RETURN a.id AS id,a.name AS name",1,[{"id":12,"name":None}]),
+    ("CREATE (a {id:4611686018427387905}) RETURN a.id AS id",1,[{"id":4611686018427387905}]),
+    ("CREATE (), () RETURN 1 AS x",2,[{"x":1}]),
+    ("CREATE (a {name:'a'}),(b {name:'b'}) RETURN a.name AS a,b.name AS b",2,[{"a":"a","b":"b"}]),
+])
+def test_foundation(engine,query,count,expected):
+    source=graphistry.nodes(_foundation_frame(engine,{"id":pd.Series([],dtype="int64")}),"id")
+    before=_records(source._nodes)
+    result=source.gfql(query,engine=engine)
+    assert _records(source._nodes)==before
+    graph=result.gfql_graph
+    assert len(graph._nodes)==count
+    assert graph._node!="id"
+    assert type(graph._nodes).__module__.split(".")[0]==engine
+    if expected is not None:
+        assert _records(result._nodes)==expected
+        assert result._gfql_rows_base_graph is None
+        assert result._gfql_start_nodes is None
+        assert graph.gfql_graph is graph
+    else:
+        assert result is graph
+
+@pytest.mark.parametrize("engine",ENGINES)
+def test_legacy_string_id(engine):
+    source=graphistry.nodes(_foundation_frame(engine,{"id":["old"]}),"id")
+    result=source.gfql("CREATE (a {id:'new'}),(b) RETURN a.id AS explicit,b.id AS missing",engine=engine)
+    assert _records(result._nodes)==[{"explicit":"new","missing":None}]
+    graph=result.gfql_graph
+    assert graph._node!="id" and len(graph._nodes)==3
+    assert _records(source._nodes)==[{"id":"old"}]
+    again=graph.gfql("CREATE ()",engine=engine)
+    assert len(again._nodes)==4 and again._node==graph._node
+    assert list(again._nodes.columns)==list(graph._nodes.columns)
+
+@pytest.mark.parametrize("engine",["pandas","cudf"])
+@pytest.mark.parametrize("old",["old",10])
+def test_current_id_membership(engine,old):
+    explicit="new" if isinstance(old,str) else 20
+    source=graphistry.nodes(_foundation_frame(engine,{"id":[old]}),"id")
+    graph=source.gfql("CREATE (a {id:$id}),(b)",params={"id":explicit},engine=engine)
+    result=graph.gfql("MATCH (n) RETURN n.id AS id, keys(n) AS keys, properties(n) AS props",engine=engine)
+    got=_records(result._nodes)
+    assert [row["id"] for row in got]==[old,explicit,None]
+    assert [list(row["keys"]) for row in got]==[[] if isinstance(old,str) else ["id"],["id"],[]]
+    assert got[0]["props"]==("{}" if isinstance(old,str) else "{id: 10}")
+    assert got[1]["props"]==("{id: 'new'}" if isinstance(old,str) else "{id: 20}")
+    assert got[2]["props"]=="{}"
+
+@pytest.mark.parametrize("engine",ENGINES)
+def test_whole_entity_and_lifecycle(engine):
+    source=graphistry.nodes(_foundation_frame(engine,{"id":["old"],"label__Old":[True]}),"id")
+    result=source.gfql("CREATE (a:L {id:'new'}) RETURN a",engine=engine)
+    assert set(result._nodes.columns)=={"a.id","a.label__Old","a.label__L"}
+    assert _records(result._nodes)[0]["a.id"]=="new"
+    graph=result.gfql_graph
+    assert graph.gfql("MATCH (n) RETURN count(*) AS c",engine=engine)._nodes is not None
+    count=_records(graph.gfql("MATCH (n) RETURN count(*) AS c",engine=engine)._nodes)
+    assert count==[{"c":2}]
+    # Result association survives cleanup; graph transformations describe themselves.
+    assert result.gfql_graph is graph
+    assert graph.nodes(graph._nodes).gfql_graph is not graph
+    assert source.gfql_graph is source
+
+@pytest.mark.parametrize("name",["__graphistry_node_identity__","__gfql_id_property_present__"])
+def test_reserved_metadata_collision(name):
+    source=graphistry.nodes(pd.DataFrame({"id":[1],name:[False]}),"id")
+    before=source._nodes.copy(deep=True)
+    from graphistry.compute.exceptions import GFQLValidationError
+    with pytest.raises(GFQLValidationError,match="collide"):
+        source.gfql("CREATE ()",engine="pandas")
+    pd.testing.assert_frame_equal(source._nodes,before)
+
+@pytest.mark.parametrize("engine",ENGINES)
+def test_all_null_old_property_does_not_stringify_new_integer(engine):
+    source=graphistry.nodes(_foundation_frame(engine,{"id":[1],"p":pd.Series([None],dtype="string")}),"id")
+    before=_records(source._nodes)
+    result=source.gfql("CREATE (n {p:12}) RETURN n.p AS p",engine=engine)
+    assert _records(result._nodes)==[{"p":12}]
+    assert _records(source._nodes)==before
+
+
+@pytest.mark.parametrize("engine",ENGINES)
+@pytest.mark.parametrize("expression",["__gfql_created_return__ AS leaked","*"])
+def test_anonymous_scope_does_not_invent_a_public_binding(engine,expression):
+    source=graphistry.nodes(_foundation_frame(engine,{"id":pd.Series([],dtype="int64")}),"id")
+    with pytest.raises(GFQLValidationError):
+        source.gfql("CREATE () RETURN "+expression,engine=engine)
+    assert len(source._nodes)==0
+
+@pytest.mark.parametrize("engine",ENGINES)
+def test_replaced_ordinary_frame_is_readmitted(engine):
+    source=graphistry.nodes(_foundation_frame(engine,{"id":[1,2]}),"id")
+    created=source.gfql("CREATE ()",engine=engine)
+    replaced=created.nodes(_foundation_frame(engine,{"id":[10,20]}),"id")
+    before=_records(replaced._nodes)
+    result=replaced.gfql("CREATE ()",engine=engine)
+    assert len(result._nodes)==3
+    assert _records(replaced._nodes)==before
+    assert result._node!="id"
+    assert [row[result._node] for row in _records(result._nodes)][:2] == [10, 20]
+
+@pytest.mark.parametrize("engine",ENGINES)
+def test_rebinding_metadata_is_typed_not_silently_reused(engine):
+    source=graphistry.nodes(_foundation_frame(engine,{"id":[1,2]}),"id").gfql("CREATE ()",engine=engine)
+    rebound=source.bind(node="id")
+    before=_records(rebound._nodes)
+    with pytest.raises(GFQLValidationError):
+        rebound.gfql("CREATE ()",engine=engine)
+    assert _records(rebound._nodes)==before

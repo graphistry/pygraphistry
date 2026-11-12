@@ -9372,7 +9372,7 @@ def compile_cypher_query(
             if query.return_is_synthetic:
                 return CompiledCypherMutationQuery(creates=query.creates)
             from graphistry.compute.gfql.row.entity_props import MUTATION_NODE_ID
-            binding_params = []
+            binding_params: list[tuple[str, str]] = []
             occupied = set(params or {})
             patterns = []
             for variable in variables:

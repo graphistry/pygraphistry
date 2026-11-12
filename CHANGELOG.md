@@ -8,6 +8,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [Development]
 <!-- Do Not Erase This Section - Used for tracking unreleased changes -->
 
+### Added
+
+- **Functional GFQL node creation**: standalone Cypher `CREATE` supports named or anonymous nodes, labels, scalar literal/parameter properties, and optional `RETURN` on pandas, cuDF, and CPU Polars. Creation preserves the caller, existing endpoints, and exact supported numeric values; physical identities are separate from user `id` properties. Row results expose the updated graph through read-only `gfql_graph`. Unsupported mixed clauses, lossy type unions, remote mutation, and explicit Polars GPU creation fail before execution instead of ignoring semantics.
+
 ## [0.62.1] - 2026-11-12
 
 ### Fixed

@@ -411,7 +411,7 @@ def execute_create_nodes(
                 label_columns.add(label_column)
                 row[label_column] = True
             for entry in pattern.properties:
-                if entry.key.startswith(("label__", "__")):
+                if entry.key in {"labels", "type"} or entry.key.startswith(("label__", "__")):
                     raise GFQLMutationError(
                         ErrorCode.E108, "CREATE properties cannot use reserved metadata or label namespaces",
                         field=entry.key, value=entry.key, language="cypher",
