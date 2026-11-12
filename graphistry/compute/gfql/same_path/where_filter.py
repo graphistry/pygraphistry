@@ -102,9 +102,7 @@ def filter_edges_by_where(executor: "DFSamePathExecutor", edges_df: DataFrameT, 
     out_df = concat_frames(frames)
     if out_df is None:
         return edges_df.iloc[:0]
-    # Predicates here involve node properties only. Semijoin the original rows
-    # against qualifying endpoints, preserving parallel edges while preventing
-    # the two undirected orientations from duplicating the same physical row.
+    # Semijoin node-qualified endpoint pairs to preserve each original physical edge row.
     qualifying_pairs = out_df[[src_col, dst_col]].drop_duplicates()
     return edges_df.merge(qualifying_pairs, on=[src_col, dst_col], how="inner")
 
