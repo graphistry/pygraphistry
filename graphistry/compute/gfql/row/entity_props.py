@@ -18,12 +18,11 @@ from graphistry.compute.gfql.same_path_types import EDGE_IDENTITY_COLUMN
 from graphistry.compute.typing import DataFrameT, IndexT, SeriesT
 
 
-#: Node columns that are engine structure, not user properties.
-# Stable native metadata for graphs that have undergone functional mutation.
-# The runtime rejects user collisions before introducing these reserved columns.
+# Mutation metadata is internal and collision-checked before construction.
 MUTATION_NODE_ID = "__graphistry_node_identity__"
 ID_PROPERTY_PRESENT = "__gfql_id_property_present__"
 
+#: Node columns that are engine structure, not user properties.
 NODE_INTERNAL_COLS = frozenset({"id", "labels", "type"})
 _EDGE_INTERNAL_COLS = frozenset({"s", "d", "src", "dst", "edge_id", "type", EDGE_IDENTITY_COLUMN, "undirected"})
 
@@ -82,9 +81,8 @@ def _include_numeric_id_as_property(df: DataFrameT) -> bool:
 def _list_series_from_python_rows(df: DataFrameT, col_name: str, row_count: int) -> SeriesT:
     if is_cudf_obj(df) and row_count:
         import cudf
-        # Keys are strings. Explicit construction avoids inferred int8 children,
-        # which cannot fill a grouped string list in the native conditional copy.
-        return cast(SeriesT, cudf.Series([[]] * row_count, dtype=cudf.ListDtype("str")))
+        # Empty key lists require string children for the native conditional copy.
+        return cudf.Series([[]] * row_count, dtype=cudf.ListDtype("str"))
     return cast(SeriesT, template_df_cons(df, {col_name: [[] for _ in range(row_count)]})[col_name])
 
 
@@ -107,7 +105,7 @@ def property_present_mask(df: DataFrameT, column: str) -> SeriesT:
     mask = ~_is_null_mask(df[column])
     if column == "id" and ID_PROPERTY_PRESENT in df.columns and MUTATION_NODE_ID in df.columns:
         mask = mask & df[ID_PROPERTY_PRESENT].fillna(False)
-    return cast(SeriesT, mask)
+    return mask
 
 def edge_property_columns(df: DataFrameT, alias_col: str, excluded: Sequence[str]) -> list[str]:
     return [

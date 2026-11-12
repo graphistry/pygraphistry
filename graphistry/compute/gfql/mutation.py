@@ -267,8 +267,7 @@ def _prepare_append_frames(nodes: DataFrameT, new_nodes: DataFrameT) -> tuple[Da
                 nullable[name] = nodes[name].astype("boolean")
         if nullable:
             nodes = nodes.assign(**nullable)
-    # An all-null existing property has no values whose dtype must be retained.
-    # Otherwise an empty string schema can stringify explicit integer literals.
+    # All-null properties take the non-null created dtype without losing values.
     null_old = [name for name in set(nodes.columns).intersection(new_nodes.columns)
                 if bool(nodes[name].is_null().all() if polars else nodes[name].isna().all())]
     if null_old:
@@ -302,13 +301,12 @@ def execute_create_nodes(
     self: Plottable,
     creates: tuple[CreateClause, ...],
     *,
-    engine: EngineAbstract | str = EngineAbstract.AUTO,
+    engine: Union[EngineAbstract, Engine] = EngineAbstract.AUTO,
     params: Optional[CypherParams] = None,
 ) -> tuple[Plottable, dict[str, CypherScalar]]:
     """Create node rows and return a new Plottable without changing the caller."""
     concrete_engine = resolve_engine(
-        EngineAbstract(engine) if isinstance(engine, str) else engine,
-        self._edges if self._edges is not None else self._nodes,
+        engine, self._edges if self._edges is not None else self._nodes,
     )
     if concrete_engine == Engine.POLARS_GPU:
         raise GFQLUnsupportedError(

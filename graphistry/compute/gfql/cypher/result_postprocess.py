@@ -7,7 +7,7 @@ import pandas as pd
 
 from graphistry.Plottable import Plottable
 from graphistry.compute.typing import DataFrameT, SeriesT
-from graphistry.Engine import df_to_engine, is_polars_df, is_polars_series, resolve_engine
+from graphistry.Engine import df_cons, df_to_engine, is_polars_df, is_polars_series, resolve_engine
 from graphistry.compute.gfql.cypher.projection_columns import alias_field_sources
 from graphistry.compute.gfql.identifiers import shadow_restore_column
 from graphistry.compute.gfql.series_str_compat import is_non_textual_scalar_dtype
@@ -316,11 +316,9 @@ def _projection_alias_rows(
     if all(field == source for field, source in field_sources.items()):
         return rows_df
     source_fields = list(field_sources.values())
-    source_rows = rows_df[source_fields]
-    renames = {source: field for field, source in field_sources.items()}
-    if is_polars_df(source_rows):
-        return cast(DataFrameT, source_rows.rename(renames))
-    return source_rows.rename(columns=renames)
+    return rows_df[source_fields].rename(
+        columns={source: field for field, source in field_sources.items()}
+    )
 
 
 def apply_result_projection(
@@ -397,24 +395,17 @@ def apply_result_projection(
                         marker_frame = marker_frame.rename({marker_source: projection.alias})
                     else:
                         marker_frame = marker_frame.rename(columns={marker_source: projection.alias})
-                # Keep current property membership beside existing entity-presence
-                # provenance, never in public flattened columns.
-                metadata_sources = alias_field_sources(rows_df.columns, source_alias)
-                has_membership = metadata_sources is not None and all(
-                    name in metadata_sources for name in (MUTATION_NODE_ID, ID_PROPERTY_PRESENT)
-                )
-                source_view = _projection_alias_rows(rows_df, alias=source_alias) if has_membership else None
-                if source_view is not None:
-                    if is_polars_df(marker_frame):
-                        import polars as pl
-                        marker_frame = marker_frame.with_columns([
-                            source_view[name].alias(name)
+                # Keep membership beside entity-presence provenance, outside public fields.
+                if alias_sources is not None and all(
+                    name in alias_sources for name in (MUTATION_NODE_ID, ID_PROPERTY_PRESENT)
+                ):
+                    marker_frame = df_cons(resolve_engine("auto", marker_frame))({
+                        **{name: marker_frame[name] for name in marker_frame.columns},
+                        **{
+                            name: rows_df[alias_sources[name]]
                             for name in (MUTATION_NODE_ID, ID_PROPERTY_PRESENT)
-                        ])
-                    else:
-                        marker_frame = cast(DataFrameT, marker_frame).assign(**{
-                            name: source_view[name] for name in (MUTATION_NODE_ID, ID_PROPERTY_PRESENT)
-                        })
+                        },
+                    })
                 presence[column.output_name] = marker_frame.clone() if is_polars_df(marker_frame) else marker_frame.copy()
     out._cypher_entity_projection_presence = presence
     return out

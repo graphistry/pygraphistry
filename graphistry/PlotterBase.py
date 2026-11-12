@@ -1925,8 +1925,7 @@ class PlotterBase(Plottable):
             _warn_unused_nodes_edges_args('nodes', 'nodes', args, kwargs)
             res = copy.copy(base)
             res._nodes = nodes
-            # A replaced table describes a new graph, not the saved graph from
-            # a preceding mutation's RETURN. View-only bind()/cleanup keep it.
+            # Replacing data ends the previous mutation-result association.
             res._gfql_graph = None
         # for use in text_utils.py search index
         if hasattr(res, 'search_index'):

@@ -2920,7 +2920,9 @@ def _gfql_with_strictness(
                 return _execute_graph_query(self, compiled_query, engine=engine, policy=expanded_policy, context=context)
             if isinstance(compiled_query, CompiledCypherMutationQuery):
                 mutated, created_bindings = execute_create_nodes(
-                    self, compiled_query.creates, engine=engine, params=params
+                    self, compiled_query.creates,
+                    engine=EngineAbstract(engine) if isinstance(engine, str) else engine,
+                    params=params,
                 )
                 if compiled_query.return_query is None:
                     return mutated

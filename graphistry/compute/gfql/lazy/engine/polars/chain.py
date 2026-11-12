@@ -800,7 +800,10 @@ def chain_polars(self: Plottable, ops, start_nodes: Optional[Any] = None) -> Plo
                     )
                 _seen[_name] = _idx
 
-    if self._edges is None and self._nodes is not None and self._node is not None:
+    if (
+        self._edges is None and self._nodes is not None and self._node is not None
+        and any(isinstance(op, (ASTNode, ASTEdge)) for op in ops)
+    ):
         if any(isinstance(op, ASTEdge) for op in ops):
             from graphistry.compute.exceptions import ErrorCode, GFQLSchemaError
             raise GFQLSchemaError(
