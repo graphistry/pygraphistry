@@ -14,6 +14,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 - **GFQL default-engine GPU filters**: cross-alias `WHERE` queries on cuDF graphs now resolve the default `auto` engine to cuDF, matching explicit `engine='cudf'` for both Cypher projections and native chains instead of mixing pandas intermediates with GPU columns (#2289).
 
+- **Hypergraph GPU timedelta inputs**: coercing timedelta event columns to strings now creates a new frame instead of modifying the caller's cuDF or Dask-cuDF input. Existing event-ID columns and generated IDs retain their behavior (#2291).
+
 ## [0.62.0] - 2026-11-11
 
 ### Deprecated

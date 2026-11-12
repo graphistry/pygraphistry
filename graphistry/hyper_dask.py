@@ -719,7 +719,7 @@ def clean_events(
                     logger.debug('None -> nan workaround for col [ %s ] => %s', c, events[c])
                     events[c] = events[c].fillna(np.nan)
                     logger.debug('... with drop: %s', events[c].dropna())
-    out_events = df_coercion(events, engine, npartitions, chunksize, debug)
+    out_events = shallow_copy(df_coercion(events, engine, npartitions, chunksize, debug), engine)
     if debug and (engine in [Engine.DASK, Engine.DASK_CUDF]):
         out_events = out_events.persist()
         logger.debug('coerced events: %s', out_events.compute())
@@ -729,8 +729,6 @@ def clean_events(
             if out_events[c].dtype.name == 'timedelta64[ns]':
                 logger.debug('timedelta concats may conflict when nans; coerce col [ %s ] => str', c)
                 out_events[c] = out_events[c].astype(str)
-    
-    out_events = shallow_copy(out_events, engine)
 
     out_events = out_events.reset_index(drop=True)
     if debug and (engine in [Engine.DASK, Engine.DASK_CUDF]):
