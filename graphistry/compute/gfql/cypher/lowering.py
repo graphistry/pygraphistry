@@ -105,6 +105,7 @@ from graphistry.compute.gfql.expr_parser import (
 from graphistry.compute.gfql.cypher.reentry_plan import ReentryPlan
 from graphistry.compute.gfql.cypher.ast import (
     BooleanExpr,
+    CreateClause,
     CypherGraphQuery,
     CypherLiteral,
     CypherScalar,
