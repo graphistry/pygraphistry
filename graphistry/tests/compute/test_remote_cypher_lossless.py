@@ -9,14 +9,14 @@ import pytest
 import graphistry
 from graphistry.Engine import series_to_pylist
 from graphistry.compute import e_forward, let, n
-from graphistry.compute.ast import ASTRef, from_json
+from graphistry.compute.ast import ASTCall, ASTRef, from_json
 from graphistry.compute.chain import Chain
 from graphistry.compute.chain_remote import _compiled_to_let_json
 from graphistry.compute.exceptions import GFQLValidationError
 from graphistry.compute.gfql.cypher.lowering import compile_cypher_query
 from graphistry.compute.gfql.cypher.parser import parse_cypher
 from graphistry.compute.gfql.same_path_types import col, compare
-from graphistry.tests.compute.test_chain_remote_v2 import _mock_plottable
+from graphistry.tests.compute.test_chain_remote_v2 import _JSON_RESPONSE, _mock_plottable, _send
 
 
 def _graph():
@@ -42,15 +42,22 @@ def _graph():
 )
 def test_unrepresentable_cypher_declines_before_io(query, field, validate):
     g = _mock_plottable(dataset_id=None)
+    g.upload.return_value = _mock_plottable(dataset_id="uploaded-dataset")
     with patch("graphistry.compute.chain_remote.requests.post") as post:
+        post.return_value = _JSON_RESPONSE
         with pytest.raises(GFQLValidationError) as exc:
             from graphistry.compute.chain_remote import chain_remote_generic
 
-            chain_remote_generic(g, query, validate=validate)
+            chain_remote_generic(g, query, validate=validate, format="json")
         assert exc.value.context["field"] == field
     g.upload.assert_not_called()
     g._pygraphistry.refresh.assert_not_called()
     post.assert_not_called()
+
+
+def test_native_safelisted_call_still_serializes():
+    body = _send(Chain([ASTCall("get_degrees", {})]))
+    assert body["gfql_query"]["chain"][0]["function"] == "get_degrees"
 
 
 @pytest.mark.parametrize(
@@ -111,7 +118,8 @@ def test_remote_native_let_where_declines_before_http(serialized, nested):
     from graphistry.compute.chain_remote import chain_remote_generic
 
     with patch("graphistry.compute.chain_remote.requests.post") as post:
+        post.return_value = _JSON_RESPONSE
         with pytest.raises(GFQLValidationError) as exc:
-            chain_remote_generic(_mock_plottable(), query, validate=False)
+            chain_remote_generic(_mock_plottable(), query, validate=False, format="json")
     assert exc.value.context["field"] == "where"
     post.assert_not_called()
