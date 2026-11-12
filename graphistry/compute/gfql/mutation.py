@@ -13,7 +13,7 @@ from graphistry.Engine import (
     resolve_engine,
 )
 from graphistry.compute.exceptions import ErrorCode, GFQLValidationError
-from graphistry.compute.gfql.cypher.ast import CypherLiteral, CreateClause, ParameterRef
+from graphistry.compute.gfql.cypher.ast import CreateClause, CypherParams, ParameterRef
 from graphistry.Plottable import Plottable
 
 
@@ -21,7 +21,7 @@ class GFQLMutationError(GFQLValidationError):
     """Typed failure surface for unsupported or invalid mutation inputs."""
 
 
-def _property_value(value: object, *, params: Optional[dict[str, object]], span: object) -> object:
+def _property_value(value: object, *, params: Optional[CypherParams], span: object) -> object:
     span_line = getattr(span, "line", None)
     span_column = getattr(span, "column", None)
     if isinstance(value, ParameterRef):
@@ -38,8 +38,6 @@ def _property_value(value: object, *, params: Optional[dict[str, object]], span:
             )
         return params[value.name]
     if value is None or isinstance(value, (bool, int, float, str)):
-        return value
-    if isinstance(value, CypherLiteral):
         return value
     raise GFQLMutationError(
         ErrorCode.E108,
@@ -203,12 +201,13 @@ def execute_create_nodes(
     self: Plottable,
     creates: tuple[CreateClause, ...],
     *,
-    engine: EngineAbstract | Engine = EngineAbstract.AUTO,
-    params: Optional[dict[str, object]] = None,
+    engine: EngineAbstract | str = EngineAbstract.AUTO,
+    params: Optional[CypherParams] = None,
 ) -> Plottable:
     """Create node rows and return a new Plottable without changing the caller."""
     concrete_engine = resolve_engine(
-        engine, self._edges if self._edges is not None else self._nodes
+        EngineAbstract(engine) if isinstance(engine, str) else engine,
+        self._edges if self._edges is not None else self._nodes,
     )
     span = creates[0].span
     line, column = span.line, span.column

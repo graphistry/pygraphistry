@@ -7745,6 +7745,15 @@ def lower_cypher_query(
             suggestion="Execute the Cypher query through g.gfql(\"...\", language=\"cypher\") instead of cypher_to_gfql().",
             language="cypher",
         )
+    if isinstance(compiled, CompiledCypherMutationQuery):
+        raise GFQLValidationError(
+            ErrorCode.E108,
+            "Standalone Cypher CREATE cannot be represented as a single GFQL Chain",
+            field="create",
+            value=None,
+            suggestion="Execute the query through g.gfql(\"...\", language=\"cypher\") instead of cypher_to_gfql().",
+            language="cypher",
+        )
     if compiled.procedure_call is not None:
         raise GFQLValidationError(
             ErrorCode.E108,

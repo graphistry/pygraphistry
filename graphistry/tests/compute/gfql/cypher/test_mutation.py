@@ -8,6 +8,7 @@ import pytest
 
 import graphistry
 from graphistry.compute.exceptions import GFQLValidationError
+from graphistry.compute.gfql.cypher.api import cypher_to_gfql
 
 
 ENGINES = [
@@ -111,6 +112,11 @@ def test_create_return_is_typed_supported_gap() -> None:
 
     with pytest.raises(GFQLValidationError, match="CREATE with RETURN"):
         source.gfql("CREATE (a:L) RETURN a", engine="pandas", language="cypher")
+
+
+def test_cypher_to_gfql_rejects_standalone_create() -> None:
+    with pytest.raises(GFQLValidationError, match="Standalone Cypher CREATE"):
+        cypher_to_gfql("CREATE (a:L)")
 
 
 def test_gfql_graph_is_read_only() -> None:
