@@ -404,8 +404,10 @@ def test_reserved_metadata_collision(name):
     source=graphistry.nodes(pd.DataFrame({"id":[1],name:[False]}),"id")
     before=source._nodes.copy(deep=True)
     from graphistry.compute.exceptions import GFQLValidationError
-    with pytest.raises(GFQLValidationError,match="collide"):
+    with pytest.raises(GFQLValidationError) as exc:
         source.gfql("CREATE ()",engine="pandas")
+    assert exc.value.context["field"] == "create"
+    assert exc.value.context["value"] == [name]
     pd.testing.assert_frame_equal(source._nodes,before)
 
 @pytest.mark.parametrize("engine",ENGINES)
@@ -459,3 +461,13 @@ def test_functional_create_documentation_example() -> None:
             break
         code.append(line)
     exec(textwrap.dedent("\n".join(code)), {})
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_multi_alias_whole_entity_preserves_membership_without_helpers(engine):
+    source = graphistry.nodes(_foundation_frame(engine, {"id": ["old"]}), "id")
+    result = source.gfql("CREATE (a {id:'new'}), (b) RETURN a, b", engine=engine)
+    assert set(result._nodes.columns) == {"a.id", "b.id"}
+    assert _records(result._nodes) == [{"a.id": "new", "b.id": None}]
+    assert len(result.gfql_graph._nodes) == 3
+    assert _records(source._nodes) == [{"id": "old"}]
