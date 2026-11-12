@@ -471,3 +471,35 @@ def test_multi_alias_whole_entity_preserves_membership_without_helpers(engine):
     assert _records(result._nodes) == [{"a.id": "new", "b.id": None}]
     assert len(result.gfql_graph._nodes) == 3
     assert _records(source._nodes) == [{"id": "old"}]
+
+
+@pytest.mark.parametrize("engine",ENGINES)
+@pytest.mark.parametrize("transform",["nodes","edges","bind"])
+def test_unrelated_row_result_transforms_do_not_keep_saved_graph(engine,transform):
+    source=graphistry.nodes(_foundation_frame(engine,{"id":[1,2]}),"id")
+    rows=source.gfql("CREATE (n {name:'new'}) RETURN n.name AS name",engine=engine)
+    saved=rows.gfql_graph
+    if transform=="nodes":
+        changed=rows.nodes(_foundation_frame(engine,{"id":[10]}),"id")
+        count=changed.gfql("MATCH (n) RETURN count(*) AS count",engine=engine)
+        assert _records(count._nodes)==[{"count":1}]
+        assert count.gfql_graph is count
+    elif transform=="edges":
+        changed=rows.edges(_foundation_frame(engine,{"src":[],"dst":[]}),"src","dst")
+    else:
+        changed=rows.bind(node="name")
+    assert changed.gfql_graph is changed
+    assert rows.gfql_graph is saved and len(saved._nodes)==3
+    assert source.gfql_graph is source and len(source._nodes)==2
+
+@pytest.mark.parametrize("engine",ENGINES)
+def test_cleanup_and_view_bind_preserve_same_execution_association(engine):
+    source=graphistry.nodes(_foundation_frame(engine,{"id":[1,2]}),"id")
+    rows=source.gfql("CREATE (n {name:'new'}) RETURN n.name AS name",engine=engine)
+    saved=rows.gfql_graph
+    assert rows.bind().gfql_graph is saved
+    from graphistry.compute.gfql.exec_context import attach_row_exec_context, clear_row_exec_context
+    contextual=attach_row_exec_context(rows,rows_base_graph=source)
+    clean=clear_row_exec_context(contextual)
+    assert clean.gfql_graph is saved
+    assert clean._gfql_rows_base_graph is None and clean._gfql_start_nodes is None

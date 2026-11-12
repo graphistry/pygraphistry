@@ -319,7 +319,7 @@ def _projection_alias_rows(
     source_rows = rows_df[source_fields]
     renames = {source: field for field, source in field_sources.items()}
     if is_polars_df(source_rows):
-        return source_rows.rename(renames)
+        return cast(DataFrameT, source_rows.rename(renames))
     return source_rows.rename(columns=renames)
 
 

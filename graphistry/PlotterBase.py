@@ -1805,6 +1805,10 @@ class PlotterBase(Plottable):
         res._destination = destination or self._destination
         res._node = node or self._node
         res._edge = edge or self._edge
+        if (res._source, res._destination, res._node, res._edge) != (
+            self._source, self._destination, self._node, self._edge
+        ):
+            res._gfql_graph = None
 
         res._edge_title = edge_title or self._edge_title
         res._edge_label = edge_label or self._edge_label
@@ -1921,6 +1925,9 @@ class PlotterBase(Plottable):
             _warn_unused_nodes_edges_args('nodes', 'nodes', args, kwargs)
             res = copy.copy(base)
             res._nodes = nodes
+            # A replaced table describes a new graph, not the saved graph from
+            # a preceding mutation's RETURN. View-only bind()/cleanup keep it.
+            res._gfql_graph = None
         # for use in text_utils.py search index
         if hasattr(res, 'search_index'):
             delattr(res, 'search_index')  # reset so that g.search will rebuild index
@@ -2043,6 +2050,7 @@ class PlotterBase(Plottable):
             _warn_unused_nodes_edges_args('edges', 'edges', args, kwargs)
             res = copy.copy(base)
             res._edges = edges
+            res._gfql_graph = None
 
         if res._dataset_id is not None:
             res._dataset_id = None
