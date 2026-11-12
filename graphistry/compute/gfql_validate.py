@@ -33,6 +33,7 @@ from graphistry.compute.gfql.same_path_types import (
     normalize_where_entries,
     parse_where_json,
 )
+from graphistry.Engine import EngineAbstractType
 from graphistry.compute.validate.validate_schema import validate_chain_schema, validate_graph_shape
 
 
@@ -152,6 +153,7 @@ def _validate_cypher(
     params: Optional[Mapping[str, Any]],
     strict: StrictInput,
     schema: bool = True,
+    engine: EngineAbstractType = "auto",
 ) -> Dict[str, Any]:
     parsed = parse_cypher(query)
     level = resolve_strict_level(g, strict=strict)
@@ -409,6 +411,7 @@ def gfql_validate(
     strict: StrictInput = None,
     collect_all: bool = False,
     schema: bool = True,
+    engine: EngineAbstractType = "auto",
 ) -> Dict[str, Any]:
     """Validate a GFQL/Cypher query without executing it.
 
@@ -418,6 +421,8 @@ def gfql_validate(
     :param strict: Absent-name strictness -- ``"strict"`` raises, ``"warn"`` (default)
         warns once per absent name, ``"quiet"`` is silent. ``True``/``False`` map to
         ``"strict"``/``"quiet"``; ``None`` consults ``bind(schema=...)`` then the default.
+    :param engine: Engine route supplied by ``gfql_validate`` for preflight parity;
+        validation itself remains read-only.
     """
     try:
         if isinstance(query, str):
@@ -433,7 +438,14 @@ def gfql_validate(
                     suggestion="Use language='cypher' for now; Gremlin string compilation is not implemented yet.",
                     language="gfql",
                 )
-            return _validate_cypher(g, query, params=params, strict=strict, schema=schema)
+            return _validate_cypher(
+                g,
+                query,
+                params=params,
+                strict=strict,
+                schema=schema,
+                engine=engine,
+            )
 
         if language is not None:
             raise ValueError("language is only supported when query is a string")
