@@ -58,8 +58,9 @@ def _engine(frame_engine):
 def test_cross_alias_operand_order(frame_engine, predicate, expected):
     g = _graph(
         frame_engine,
-        {"id": ["u", "v", "x", "y", "p", "q"], "t": [1, 2, 5, 3, 4, 4]},
-        {"s": ["u", "x", "p"], "d": ["v", "y", "q"], "eid": ["rise", "fall", "equal"]},
+        {"id": ["u", "v", "x", "y", "p", "q", "missing"], "t": [1, 2, 5, 3, 4, 4, None]},
+        {"s": ["u", "x", "p", "missing", "v"], "d": ["v", "y", "q", "v", "missing"],
+         "eid": ["rise", "fall", "equal", "null_left", "null_right"]},
     )
     out = g.gfql(
         f"MATCH (a)-[r]->(b) WHERE {predicate} RETURN r.eid AS eid ORDER BY eid",
