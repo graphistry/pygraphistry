@@ -9,6 +9,8 @@ import pytest
 import graphistry
 from graphistry.compute.exceptions import GFQLValidationError
 from graphistry.compute.gfql.cypher.api import cypher_to_gfql
+from graphistry.compute.gfql.cypher.lowering import CompiledCypherMutationQuery, compile_cypher_query
+from graphistry.compute.gfql.cypher.parser import parse_cypher
 from graphistry.compute.gfql.row.entity_props import MUTATION_NODE_ID, ID_PROPERTY_PRESENT
 
 
@@ -274,6 +276,34 @@ def test_create_rejects_same_clause_decorated_repeated_alias_before_effects(deco
 
     assert _records(source._nodes) == before_nodes
     assert _records(source._edges) == before_edges
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
+        "CREATE (a), (a)-[:T]->(a)",
+        "CREATE (`a{`), (`a{`)-[:T]->(`a{`)",
+        "CREATE (a), (a /* { */)-[:T]->(a)",
+    ],
+)
+def test_compile_create_accepts_structurally_bare_repeated_alias(query: str) -> None:
+    compiled = compile_cypher_query(parse_cypher(query))
+
+    assert isinstance(compiled, CompiledCypherMutationQuery)
+    assert compiled.creates
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
+        "CREATE (n:Foo), (n {name:'again'})",
+        "CREATE (`a{`), (`a{` {name:'again'})",
+        "CREATE (a), (a /* { */ :Bar)",
+    ],
+)
+def test_compile_create_rejects_structurally_decorated_repeated_alias(query: str) -> None:
+    with pytest.raises(GFQLValidationError, match="variable is already bound"):
+        compile_cypher_query(parse_cypher(query))
 
 
 def test_create_preserves_bare_repeated_alias_for_self_loop() -> None:

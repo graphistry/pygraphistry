@@ -9354,6 +9354,9 @@ def compile_cypher_query(
     if isinstance(query, CypherQuery):
         _reject_excessive_match_clauses(query.matches)
         if query.creates:
+            from graphistry.compute.gfql.mutation import validate_create_node_reuse
+
+            validate_create_node_reuse(query.creates)
             if (
                 query.matches or query.reentry_matches or query.unwinds
                 or query.reentry_unwinds or query.with_stages or query.call is not None
@@ -9368,8 +9371,8 @@ def compile_cypher_query(
                 )
             variables: list[str] = []
             relationship_variables: list[str] = []
+            seen_node_variables: set[str] = set()
             for clause in query.creates:
-                seen_node_variables: set[str] = set()
                 seen_relationship_variables: set[str] = set()
                 for pattern in clause.patterns:
                     if isinstance(pattern, NodePattern):
@@ -9388,9 +9391,6 @@ def compile_cypher_query(
                 raise _unsupported("CREATE variable is already bound", field="create", value=variables, line=query.span.line, column=query.span.column)
             if len(set(relationship_variables)) != len(relationship_variables):
                 raise _unsupported("CREATE relationship variable is already bound", field="create", value=relationship_variables, line=query.span.line, column=query.span.column)
-            shared_variables = sorted(set(variables) & set(relationship_variables))
-            if shared_variables:
-                raise _unsupported("CREATE variable is already bound", field="create", value=shared_variables, line=query.span.line, column=query.span.column)
             if query.return_is_synthetic:
                 return CompiledCypherMutationQuery(creates=query.creates)
             from graphistry.compute.gfql.row.entity_props import MUTATION_NODE_ID

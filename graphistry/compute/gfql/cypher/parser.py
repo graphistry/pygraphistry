@@ -634,6 +634,10 @@ class _PrimitiveLiteral:
     span: SourceSpan
 
 
+class _PropertiesTuple(tuple):
+    """Marks a grammar-derived property map, including an explicit empty map."""
+
+
 def _unwrap_primitive_literal(value: object) -> object:
     if isinstance(value, _PrimitiveLiteral):
         return value.value
@@ -887,7 +891,7 @@ def _build_transformer(source: str) -> _TransformerLike:
             return PropertyEntry(key=key, value=value, span=_span_from_meta(meta))
 
         def properties(self, _meta: Any, items: Sequence[Any]) -> Tuple[PropertyEntry, ...]:
-            return tuple(cast(PropertyEntry, item) for item in items)
+            return _PropertiesTuple(cast(PropertyEntry, item) for item in items)
 
         def node_pattern(self, meta: Any, items: Sequence[Any]) -> NodePattern:
             variable: Optional[str] = None
@@ -906,7 +910,7 @@ def _build_transformer(source: str) -> _TransformerLike:
                 labels=labels,
                 properties=properties,
                 span=span,
-                explicit_properties="{" in self._slice(span),
+                explicit_properties=any(isinstance(item, _PropertiesTuple) for item in items),
             )
 
         def _relationship(

@@ -310,6 +310,29 @@ def _prepare_append_frames(nodes: DataFrameT, new_nodes: DataFrameT) -> tuple[Da
     return nodes, new_nodes
 
 
+def validate_create_node_reuse(creates: tuple[CreateClause, ...]) -> None:
+    """Reject decorated re-declaration of a bound CREATE node before any effects."""
+    bound: set[str] = set()
+    for clause in creates:
+        for pattern in clause.patterns:
+            candidates: tuple[NodePattern, ...] = (
+                (pattern,) if isinstance(pattern, NodePattern)
+                else (pattern.source, pattern.destination)
+            )
+            for node in candidates:
+                if node.variable is not None and node.variable in bound and (
+                    node.labels or node.explicit_properties or node.properties
+                ):
+                    raise GFQLMutationError(
+                        ErrorCode.E105, "CREATE node variable is already bound",
+                        field="create", value=node.variable,
+                        suggestion="Reference the bound node without labels or properties, or use a new variable.",
+                        line=node.span.line, column=node.span.column, language="cypher",
+                    )
+                if node.variable is not None:
+                    bound.add(node.variable)
+
+
 def execute_create_nodes(
     self: Plottable,
     creates: tuple[CreateClause, ...],
@@ -318,6 +341,7 @@ def execute_create_nodes(
     params: Optional[CypherParams] = None,
 ) -> tuple[Plottable, dict[str, CypherScalar]]:
     """Create node rows and return a new Plottable without changing the caller."""
+    validate_create_node_reuse(creates)
     concrete_engine = resolve_engine(
         engine, self._edges if self._edges is not None else self._nodes,
     )
