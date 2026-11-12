@@ -8,6 +8,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [Development]
 <!-- Do Not Erase This Section - Used for tracking unreleased changes -->
 
+- **GFQL Cypher empty relationship property maps**: an explicit `{}` no longer replaces relationship types with an empty tuple, so `MATCH ()-[r:R {}]->()` matches only typed `R` relationships on every supported engine, while the untyped `r {}` control remains untyped (#2318).
+
 ## [0.62.1] - 2026-11-12
 
 ### Fixed
