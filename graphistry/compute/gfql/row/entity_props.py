@@ -4,7 +4,7 @@ from typing import Any, Iterable, List, Literal, Optional, Sequence, Tuple, cast
 
 import pandas as pd
 
-from graphistry.compute.dataframe_utils import df_cons as template_df_cons
+from graphistry.compute.dataframe_utils import df_cons as template_df_cons, is_cudf_obj
 from graphistry.Engine import is_polars_df
 from graphistry.compute.gfql.series_str_compat import series_str_contains, series_str_extract, series_str_match
 from graphistry.compute.gfql.temporal.constructors import (
@@ -73,6 +73,11 @@ def _include_numeric_id_as_property(df: DataFrameT) -> bool:
 
 
 def _list_series_from_python_rows(df: DataFrameT, col_name: str, row_count: int) -> SeriesT:
+    if is_cudf_obj(df) and row_count:
+        import cudf
+        # Keys are strings. Explicit construction avoids inferred int8 children,
+        # which cannot fill a grouped string list in the native conditional copy.
+        return cast(SeriesT, cudf.Series([[]] * row_count, dtype=cudf.ListDtype("str")))
     return cast(SeriesT, template_df_cons(df, {col_name: [[] for _ in range(row_count)]})[col_name])
 
 
