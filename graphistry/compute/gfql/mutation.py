@@ -303,7 +303,7 @@ def _infer_nodes_from_edges(
     column: int,
 ) -> DataFrameT:
     """Materialize endpoint identities implied by an edges-only graph without changing edges."""
-    edges = self._edges
+    edges = df_to_engine(self._edges, engine)
     if edges is None:
         raise GFQLMutationError(
             ErrorCode.E108,

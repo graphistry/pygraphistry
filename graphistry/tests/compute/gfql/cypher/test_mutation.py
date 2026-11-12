@@ -81,13 +81,17 @@ def test_create_nodes_adds_identity_labels_and_properties(engine: str) -> None:
 
 
 @pytest.mark.parametrize("engine", ENGINES)
-def test_create_nodes_without_existing_nodes_uses_identity_zero(engine: str) -> None:
+def test_create_nodes_without_existing_nodes_preserves_inferred_nodes(engine: str) -> None:
     edges = pd.DataFrame({"src": [7], "dst": [8], "type": ["R"]})
     source = graphistry.edges(edges, "src", "dst")
 
     result = source.gfql("CREATE (a:L {name: 'x'})", engine=engine, language="cypher")
 
-    assert _records(result._nodes) == [{"_node": 0, "label__L": True, "name": "x"}]
+    assert _records(result._nodes) == [
+        {"_node": 7, "label__L": False, "name": None},
+        {"_node": 8, "label__L": False, "name": None},
+        {"_node": 0, "label__L": True, "name": "x"},
+    ]
     assert result._edges is source._edges
     assert result.gfql_graph is result
     _assert_served(engine, result._nodes)
