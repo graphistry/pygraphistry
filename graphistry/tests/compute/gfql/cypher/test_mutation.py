@@ -11,6 +11,7 @@ from graphistry.compute.exceptions import GFQLValidationError
 from graphistry.compute.gfql.cypher.api import cypher_to_gfql
 from graphistry.compute.gfql.cypher.lowering import CompiledCypherMutationQuery, compile_cypher_query
 from graphistry.compute.gfql.cypher.parser import parse_cypher
+from graphistry.compute.gfql.cypher.result_postprocess import render_entity_text
 from graphistry.tests.compute.gfql.cypher._whole_entity_compat import entity_text_records
 from graphistry.compute.gfql.row.entity_props import MUTATION_NODE_ID, ID_PROPERTY_PRESENT
 
@@ -38,8 +39,22 @@ def _records(frame: Any) -> list[dict[str, Any]]:
 def _entity_text_records(result: Any, entities: dict[str, str]) -> list[dict[str, Any]]:
     nodes = result._nodes
     if nodes is not None and not isinstance(nodes, pd.DataFrame):
+        legacy_rendering = bool(
+            getattr(result, "_cypher_legacy_type_rendering", False)
+            or (
+                result._gfql_graph is not None
+                and getattr(result._gfql_graph, "_cypher_legacy_type_rendering", False)
+            )
+        )
         result = graphistry.nodes(nodes.to_pandas(), result._node)
+        result._cypher_legacy_type_rendering = legacy_rendering
     return entity_text_records(result, entities)
+
+
+def _series_records(series: Any) -> list[Any]:
+    if isinstance(series, pd.Series):
+        return series.tolist()
+    return series.to_pandas().tolist()
 
 
 def _assert_served(engine: str, frame: Any) -> None:
@@ -143,6 +158,20 @@ def test_create_new_label_and_old_type_label_render_both_sources(engine: str) ->
 
     assert _entity_text_records(old_rows, {"old": "nodes"}) == [{"old": "(:Old)"}]
     assert _entity_text_records(new_rows, {"new": "nodes"}) == [{"new": "(:New)"}]
+    if engine != "polars":
+        assert _series_records(render_entity_text(old_rows, "old")) == ["(:Old)"]
+        assert _series_records(render_entity_text(new_rows, "new")) == ["(:New)"]
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_plain_read_ignores_legacy_type_when_label_flags_exist(engine: str) -> None:
+    source = graphistry.nodes(
+        _foundation_frame(engine, {"id": ["old"], "type": ["Business"], "label__Foo": [True]}),
+        "id",
+    )
+    rows = source.gfql("MATCH (old) RETURN old", engine=engine, language="cypher")
+
+    assert _entity_text_records(rows, {"old": "nodes"}) == [{"old": "(:Foo)"}]
 
 
 @pytest.mark.parametrize("engine", ENGINES)

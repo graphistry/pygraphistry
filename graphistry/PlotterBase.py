@@ -296,6 +296,7 @@ class PlotterBase(Plottable):
         self._cypher_entity_projection_kinds = None
         self._cypher_entity_projection_presence = {}
         self._cypher_entity_projection_meta = {}
+        self._cypher_legacy_type_rendering = False
 
         # Bindings
         self._edges : Any = None

@@ -77,13 +77,13 @@ def entity_projection_meta_entry(
     return entity_meta[output_name]
 
 
-def _node_label_text(df: DataFrameT, alias_col: str) -> SeriesT:
+def _node_label_text(df: DataFrameT, alias_col: str, *, include_legacy_type: bool) -> SeriesT:
     label_cols = label_flag_columns(df.columns)
     labels = _empty_text(df, alias_col)
     for col, label_name in label_cols:
         mask = cast(SeriesT, cast(SeriesT, df[col]) == True)  # noqa: E712
         labels = cast(SeriesT, labels + _const_text(df, alias_col, ":" + label_name).where(mask, ""))
-    if "type" in df.columns:
+    if include_legacy_type and "type" in df.columns:
         type_series = cast(SeriesT, df["type"])
         rendered = _object_text(cast(SeriesT, type_series.where(~_is_null_mask(type_series), "").astype(str)))
         type_mask = cast(SeriesT, ~_is_null_mask(type_series))
@@ -95,9 +95,11 @@ def _node_label_text(df: DataFrameT, alias_col: str) -> SeriesT:
     return labels
 
 
-def _format_node_entities(df: DataFrameT, projection: ResultProjectionPlan) -> SeriesT:
+def _format_node_entities(
+    df: DataFrameT, projection: ResultProjectionPlan, *, include_legacy_type: bool
+) -> SeriesT:
     alias_col = projection.alias
-    labels = _node_label_text(df, alias_col)
+    labels = _node_label_text(df, alias_col, include_legacy_type=include_legacy_type)
     prop_text, has_props = append_property_segments(
         df,
         alias_col,
@@ -248,7 +250,16 @@ def render_entity_text(
     # row, then null absent rows below.
     frame = cast(DataFrameT, frame.assign(**{alias: True}))
     projection = ResultProjectionPlan(alias=alias, table=table, columns=(), exclude_columns=())
-    rendered = _format_node_entities(frame, projection) if table == "nodes" else _format_edge_entities(frame, projection)
+    mutation_graph = result._gfql_graph
+    include_legacy_type = bool(
+        result._cypher_legacy_type_rendering
+        or (mutation_graph is not None and mutation_graph._cypher_legacy_type_rendering)
+    )
+    rendered = (
+        _format_node_entities(frame, projection, include_legacy_type=include_legacy_type)
+        if table == "nodes"
+        else _format_edge_entities(frame, projection)
+    )
     if present is not None:
         # Null absent rows. ``other=None`` fills NaN/None (valid pandas/cuDF);
         # the pandas-stubs ``where`` overload is stricter than runtime here.
@@ -442,6 +453,11 @@ def _apply_result_projection_pandas(
     rows_df = cast(Optional[DataFrameT], result._nodes)
     if rows_df is None:
         return result
+    mutation_graph = result._gfql_graph
+    include_legacy_type = bool(
+        result._cypher_legacy_type_rendering
+        or (mutation_graph is not None and mutation_graph._cypher_legacy_type_rendering)
+    )
     alias_rows_df = _projection_alias_rows(rows_df, alias=projection.alias)
     if alias_rows_df is None or projection.alias not in alias_rows_df.columns:
         return result
@@ -490,14 +506,18 @@ def _apply_result_projection_pandas(
                 # OPTIONAL/reentry machinery consumes. Real rows always carry flat
                 # field columns and take the branch above.
                 projected_data[column.output_name] = (
-                    _format_node_entities(source_rows_df, source_projection)
+                    _format_node_entities(
+                        source_rows_df, source_projection, include_legacy_type=include_legacy_type
+                    )
                     if source_projection.table == "nodes"
                     else _format_edge_entities(source_rows_df, source_projection)
                 )
                 output_columns.append(column.output_name)
             else:
                 projected_data[column.output_name] = (
-                    _format_node_entities(source_rows_df, source_projection)
+                    _format_node_entities(
+                        source_rows_df, source_projection, include_legacy_type=include_legacy_type
+                    )
                     if source_projection.table == "nodes"
                     else _format_edge_entities(source_rows_df, source_projection)
                 )

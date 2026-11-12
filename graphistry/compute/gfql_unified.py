@@ -2924,6 +2924,7 @@ def _gfql_with_strictness(
                     engine=EngineAbstract(engine) if isinstance(engine, str) else engine,
                     params=params,
                 )
+                mutated._cypher_legacy_type_rendering = True
                 if compiled_query.return_query is None:
                     return mutated
                 from .gfql.cypher.lowering import compile_cypher_query
@@ -2939,6 +2940,7 @@ def _gfql_with_strictness(
                     raise TypeError("CREATE RETURN must compile to a read projection")
                 result = _execute_compiled_query(mutated, compiled_query=compiled_return, engine=engine, policy=expanded_policy, context=context)
                 result._gfql_graph = mutated
+                result._cypher_legacy_type_rendering = True
                 return result
             if isinstance(compiled_query, CompiledCypherQuery):
                 if compiled_query.graph_bindings or compiled_query.use_ref:
