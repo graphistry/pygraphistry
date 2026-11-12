@@ -175,6 +175,17 @@ def test_plain_read_ignores_legacy_type_when_label_flags_exist(engine: str) -> N
 
 
 @pytest.mark.parametrize("engine", ENGINES)
+def test_plain_read_retains_legacy_type_without_label_flags(engine: str) -> None:
+    source = graphistry.nodes(
+        _foundation_frame(engine, {"id": ["old"], "type": ["Business"]}),
+        "id",
+    )
+    rows = source.gfql("MATCH (old) RETURN old", engine=engine, language="cypher")
+
+    assert _entity_text_records(rows, {"old": "nodes"}) == [{"old": "(:Business)"}]
+
+
+@pytest.mark.parametrize("engine", ENGINES)
 def test_create_does_not_duplicate_same_label_from_type(engine: str) -> None:
     source = graphistry.nodes(
         _foundation_frame(engine, {"id": ["old"], "type": ["Shared"]}),

@@ -83,7 +83,9 @@ def _node_label_text(df: DataFrameT, alias_col: str, *, include_legacy_type: boo
     for col, label_name in label_cols:
         mask = cast(SeriesT, cast(SeriesT, df[col]) == True)  # noqa: E712
         labels = cast(SeriesT, labels + _const_text(df, alias_col, ":" + label_name).where(mask, ""))
-    if include_legacy_type and "type" in df.columns:
+    # Plain reads preserve the legacy type label only when no explicit flags
+    # exist. CREATE provenance also permits it so both label sources are visible.
+    if "type" in df.columns and (include_legacy_type or not label_cols):
         type_series = cast(SeriesT, df["type"])
         rendered = _object_text(cast(SeriesT, type_series.where(~_is_null_mask(type_series), "").astype(str)))
         type_mask = cast(SeriesT, ~_is_null_mask(type_series))
