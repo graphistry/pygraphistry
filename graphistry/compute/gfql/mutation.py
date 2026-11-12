@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import math
-from typing import TYPE_CHECKING, Optional, Union
+from typing import TYPE_CHECKING, Optional, Union, cast
 
 from graphistry.compute.typing import DataFrameT, SeriesT
 from graphistry.Engine import (
@@ -481,8 +481,11 @@ def execute_create_nodes(
             import polars as pl
 
             for label_column in sorted(label_columns):
-                new_nodes = new_nodes.with_columns(
-                    pl.col(label_column).fill_null(False).cast(pl.Boolean)
+                new_nodes = cast(
+                    DataFrameT,
+                    new_nodes.with_columns(
+                        pl.col(label_column).fill_null(False).cast(pl.Boolean)
+                    ),
                 )
         else:
             for label_column in sorted(label_columns):
