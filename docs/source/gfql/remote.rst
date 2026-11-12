@@ -51,12 +51,16 @@ Method :meth:`chain_remote <graphistry.compute.ComputeMixin.ComputeMixin.chain_r
         "USE g2 MATCH (n) RETURN n.id, n.score ORDER BY n.score DESC"
     )
 
+The following programs were identified as unsupported in remote mode:
 Cypher procedures (``CALL``), residual ``GRAPH`` predicates such as property
-``OR`` expressions, and cross-alias ``WHERE`` inside ``GRAPH`` bindings raise
-``GFQLValidationError`` before upload or HTTP. The remote wire format cannot
-faithfully represent these forms. Execute them locally with ``g.gfql()``;
+``OR`` expressions, and cross-alias ``WHERE`` inside ``GRAPH``/``Let`` bindings.
+They now raise ``GFQLValidationError`` before upload or HTTP because the
+existing wire/executor contract cannot preserve their semantics.
+Execute supported local forms with ``g.gfql()``;
 supported per-alias ``GRAPH`` filters and flat-chain cross-alias ``WHERE``
 remain available remotely. Native safelisted GFQL calls are unchanged.
+Faithful support for these remote programs is tracked in
+`issue #2304 <https://github.com/graphistry/pygraphistry/issues/2304>`_.
 
 Method :meth:`gfql_remote <graphistry.compute.ComputeMixin.ComputeMixin.gfql_remote>` runs the query remotely and fetches the computed graph.
 

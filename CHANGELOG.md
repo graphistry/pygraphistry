@@ -10,7 +10,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
-- **GFQL remote query fidelity**: Cypher procedures and GRAPH predicates that cannot be preserved by the wire format now raise a structured error before upload or HTTP instead of sending an empty or unfiltered query. Compiled GRAPH references preserve case-insensitive Cypher name resolution, and local Let bindings execute their Chain `where` predicates (#2277, #2278, #2285, #2286, #2287).
+- **GFQL remote unsupported-program detection**: identified Cypher procedure calls, GRAPH residual predicates, and cross-alias predicates in GRAPH/Let bindings as unsupported remote-mode programs. They now raise a structured error before upload or HTTP instead of being sent with omitted procedure or filter semantics. [Faithful remote support is tracked separately](https://github.com/graphistry/pygraphistry/issues/2304). Compiled GRAPH references preserve case-insensitive Cypher name resolution, and local Let bindings execute their Chain `where` predicates (#2277, #2278, #2285, #2286, #2287).
 
 ## [0.62.0] - 2026-11-11
 
