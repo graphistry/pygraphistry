@@ -248,6 +248,7 @@ POLARS_TEST_FILES=(
     graphistry/tests/compute/semantic/test_gfql_bindings.py
     graphistry/tests/compute/semantic/test_cost_cap.py
     graphistry/tests/compute/semantic/test_chat_grammar.py
+    graphistry/tests/compute/semantic/test_langchain_provider.py
     graphistry/tests/compute/semantic/test_anthropic_structured.py
 )
 

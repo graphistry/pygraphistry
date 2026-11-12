@@ -2003,6 +2003,51 @@ Current vLLM uses ``structured_outputs``; ``guided_*`` fields target older serve
 accepted by current releases. Grammar support depends on the server backend. Select and test the
 mechanism supported by the deployment rather than inferring support from its model name.
 
+LangChain chat models
+~~~~~~~~~~~~~~~~~~~~~
+
+``LangChainDecisionProvider`` wraps a supplied chat model or Runnable. PyGraphistry does not import
+LangChain or add it as a required dependency. Install and configure the model integration separately.::
+
+    from graphistry.compute.semantic import LangChainDecisionProvider, bind_providers
+
+    provider = LangChainDecisionProvider(chat_model, model="deployment", strategy="json_schema")
+    with bind_providers({"classifier": provider}):
+        result = g.sem_decide(provider="classifier", questions=questions,
+                              task_id="classification", evidence_cols=["text"])
+
+Strategies ``json_schema``, ``function_calling`` and ``json_mode`` pass that method to
+``with_structured_output(..., include_raw=True)``. ``structured`` uses the model's default structured
+method. ``tool`` uses ``bind_tools`` to request one tool named ``answer``; no tool is executed.
+``text`` validates a code or its matching label echo. Each structured answer must contain exactly
+one ``answer`` field with a valid code; refusals, unfinished answers and malformed replies do not
+become successful values. All strategies return no probabilities, even when the model exposes logprobs.
+Metadata records the selected strategy and semantic level.
+
+The default ``auto`` tries structured binding, tool binding, then text locally, before invoking the
+model. Only an absent interface or ``NotImplementedError`` permits this selection. Bindings are
+cached per provider and answer-code domain. There are no billed probes. A parse or invocation error
+never triggers another strategy or resend. Explicit strategies return ``unsupported_strategy`` when
+their local binding is unavailable. A method exposed by an integration can still be rejected by its
+remote host; select the deployment's supported strategy before starting another run.
+
+The supplied model controls its network timeouts, retries and tracing. Configure these for the run's
+budget and data policy. The adapter adds no retries and makes one invocation per question.
+``invoke_kwargs`` passes supported invocation settings, including Runnable ``config``. Set
+``timeout_kwarg`` only when the integration accepts that timeout keyword; the adapter caps its value
+by ``timeout_s`` and the remaining deadline. Generic Runnable config has no portable hard timeout;
+GFQL abandons results after its deadline. Each model invocation can contain client-owned HTTP retries.
+``budget.max_requests`` counts provider calls, as for other adapters.
+
+Caller-supplied ``TokenPrices`` estimates input and schema cost, or uses ``per_question``. It is not
+a bound on output, retry or tracing charges. Actual cost uses normalized ``usage_metadata`` when
+available; missing usage or prices leave cost unknown. Unsupported package/provider combinations
+must be tested separately. The adapter does not infer capability from a package version or model name.
+No-network compatibility smoke checks cover Python 3.12 with ``langchain-core==0.3.49`` /
+``langchain-openai==0.3.10`` and ``langchain-core==1.2.15`` / ``langchain-openai==1.1.10``.
+They exercise actual structured/tool bindings against an in-memory transport; remote host support
+depends on the deployment. The adapter itself and fake-model tests also run on Python 3.8.
+
 Anthropic structured answers
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
