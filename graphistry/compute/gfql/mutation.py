@@ -321,13 +321,15 @@ def execute_create_nodes(
                     **{property_column: nodes[property_column].astype("Int64")}
                 )
     else:
-        import polars as pl
-        for label_column in sorted(label_columns):
-            if is_polars_df(new_nodes):
+        if is_polars_df(new_nodes):
+            import polars as pl
+
+            for label_column in sorted(label_columns):
                 new_nodes = new_nodes.with_columns(
                     pl.col(label_column).fill_null(False).cast(pl.Boolean)
                 )
-            else:
+        else:
+            for label_column in sorted(label_columns):
                 new_nodes = new_nodes.assign(
                     **{label_column: new_nodes[label_column].fillna(False).astype(bool)}
                 )
