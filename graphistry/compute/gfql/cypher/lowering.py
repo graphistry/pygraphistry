@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field, replace
 import math
 import re
-from typing import TYPE_CHECKING, AbstractSet, Any, Callable, Dict, Iterable, List, Mapping, Optional, Sequence, Set, Tuple, Union, cast
+from typing import TYPE_CHECKING, AbstractSet, Any, Callable, Dict, Iterable, List, Mapping, Optional, Protocol, Sequence, Set, Tuple, Union, cast
 from typing_extensions import Literal
 import pandas as pd
 
@@ -672,6 +672,15 @@ def _unsupported_at_span(message: str, *, field: str, value: Any, span: SourceSp
         line=span.line,
         column=span.column,
     )
+
+
+class _Spanned(Protocol):
+    @property
+    def span(self) -> SourceSpan: ...
+
+
+def _span_or_fallback(value: Optional[_Spanned], fallback: SourceSpan) -> SourceSpan:
+    return value.span if value is not None else fallback
 
 
 _MAX_MATCH_CLAUSES = 512
@@ -9359,8 +9368,8 @@ def compile_cypher_query(
 
             unsupported_mutation_fields: Tuple[Tuple[str, Any, Callable[[], SourceSpan]], ...] = (
                 ("MATCH", typed_query.matches, lambda: _first_span(typed_query.matches)),
-                ("WHERE", typed_query.where, lambda: cast(Any, typed_query.where).span),
-                ("CALL", typed_query.call, lambda: cast(Any, typed_query.call).span),
+                ("WHERE", typed_query.where, lambda: _span_or_fallback(typed_query.where, typed_query.span)),
+                ("CALL", typed_query.call, lambda: _span_or_fallback(typed_query.call, typed_query.span)),
                 ("UNWIND", typed_query.unwinds, lambda: _first_span(typed_query.unwinds)),
                 ("WITH", typed_query.with_stages, lambda: _first_span(typed_query.with_stages)),
                 ("GRAPH", typed_query.graph_bindings, lambda: _first_span(typed_query.graph_bindings)),
