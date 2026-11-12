@@ -12,6 +12,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 - **GFQL cross-alias filters**: reversing the operands of an ordering comparison now preserves its meaning, parallel edges retain their multiplicity, and empty relationship projections keep their schema without an explicit edge-ID binding. Applies to Cypher and native same-path queries on pandas and cuDF (#2282, #2283, #2284).
 
+- **GFQL default-engine GPU filters**: cross-alias `WHERE` queries on cuDF graphs now resolve the default `auto` engine to cuDF, matching explicit `engine='cudf'` for both Cypher projections and native chains instead of mixing pandas intermediates with GPU columns (#2289).
+
 ## [0.62.0] - 2026-11-11
 
 ### Deprecated

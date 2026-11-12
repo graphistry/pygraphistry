@@ -3064,12 +3064,13 @@ def _chain_dispatch(
             ),
             None,
         )
+        abstract_engine = EngineAbstract(engine) if isinstance(engine, str) else engine
+        is_cudf = resolve_engine(abstract_engine, g) == Engine.CUDF
+        engine_enum = Engine.CUDF if is_cudf else Engine.PANDAS
         if first_row_pipeline_idx is not None:
             same_path_prefix = chain_obj.chain[:first_row_pipeline_idx]
             row_suffix = chain_obj.chain[first_row_pipeline_idx:]
             validate_chain_schema(g, same_path_prefix, collect_all=False)
-            is_cudf = engine == EngineAbstract.CUDF or engine == "cudf"
-            engine_enum = Engine.CUDF if is_cudf else Engine.PANDAS
             inputs = build_same_path_inputs(
                 g,
                 same_path_prefix,
@@ -3081,8 +3082,6 @@ def _chain_dispatch(
             matched = _materialize_split_alias_columns(executor.run(), executor)
             return chain_impl(matched, row_suffix, engine, policy=policy, context=context)
         validate_chain_schema(g, chain_obj.chain, collect_all=False)
-        is_cudf = engine == EngineAbstract.CUDF or engine == "cudf"
-        engine_enum = Engine.CUDF if is_cudf else Engine.PANDAS
         inputs = build_same_path_inputs(
             g,
             chain_obj.chain,
