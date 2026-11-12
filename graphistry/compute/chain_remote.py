@@ -131,15 +131,15 @@ def _compiled_to_let_json(compiled: CompiledQueryLike) -> Dict[str, Any]:
 
 def _reject_let_where(query: Dict[str, Any], *, within_let: bool = False) -> None:
     """Older Let executors ignore Chain.where; never send that predicate silently."""
-    kind = query.get("type")
+    kind = query.get("type", "Chain")
     if kind == "Let":
         bindings = query.get("bindings")
         if isinstance(bindings, dict):
             for binding in bindings.values():
                 if isinstance(binding, dict):
                     _reject_let_where(binding, within_let=True)
-    elif within_let and kind in ("Chain", "Ref"):
-        if query.get("where"):
+    elif kind in ("Chain", "Ref"):
+        if within_let and query.get("where"):
             raise GFQLValidationError(
                 ErrorCode.E108,
                 "Remote Let bindings cannot preserve cross-alias WHERE on older servers",
@@ -150,7 +150,7 @@ def _reject_let_where(query: Dict[str, Any], *, within_let: bool = False) -> Non
         if isinstance(ops, list):
             for op in ops:
                 if isinstance(op, dict):
-                    _reject_let_where(op, within_let=True)
+                    _reject_let_where(op, within_let=within_let)
 
 
 def _refresh_url_from_dataset_id(g: Plottable) -> None:
@@ -271,8 +271,7 @@ def chain_remote_generic(
     else:
         raise TypeError(f"gfql_remote() query must be Chain, List, ASTLet, Dict, or str. Got {type(chain)}")
 
-    if is_let:
-        _reject_let_where(chain_json)
+    _reject_let_where(chain_json)
 
     if output is not None and not is_let:
         raise GFQLSyntaxError(

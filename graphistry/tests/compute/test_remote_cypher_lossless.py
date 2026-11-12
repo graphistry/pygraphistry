@@ -123,3 +123,63 @@ def test_remote_native_let_where_declines_before_http(serialized, nested):
             chain_remote_generic(_mock_plottable(), query, validate=False, format="json")
     assert exc.value.context["field"] == "where"
     post.assert_not_called()
+
+
+@pytest.mark.parametrize("validate", [False, True])
+@pytest.mark.parametrize("root_form", ["chain", "list", "serialized", "legacy"])
+def test_nested_let_where_in_chain_root_declines_before_io(root_form, validate):
+    nested = let({"filtered": Chain(
+        [n(name="a"), e_forward(name="r"), n(name="b")],
+        where=[compare(col("a", "t"), "<", col("b", "t"))],
+    )})
+    query = Chain([nested])
+    if root_form == "list":
+        query = [nested]
+    elif root_form in ("serialized", "legacy"):
+        query = query.to_json()
+        if root_form == "legacy":
+            query.pop("type")
+    g = _mock_plottable(dataset_id=None)
+    g.upload.return_value = _mock_plottable(dataset_id="uploaded-dataset")
+    from graphistry.compute.chain_remote import chain_remote_generic
+
+    with patch("graphistry.compute.chain_remote.requests.post") as post:
+        post.return_value = _JSON_RESPONSE
+        with pytest.raises(GFQLValidationError) as exc:
+            chain_remote_generic(g, query, validate=validate, format="json")
+        assert exc.value.context["field"] == "where"
+    g.upload.assert_not_called()
+    g._pygraphistry.refresh.assert_not_called()
+    post.assert_not_called()
+
+
+@pytest.mark.parametrize("root_form", ["chain", "serialized", "legacy"])
+def test_flat_chain_where_remains_remote_supported(root_form):
+    query = Chain(
+        [n(name="a"), e_forward(name="r"), n(name="b")],
+        where=[compare(col("a", "t"), "<", col("b", "t"))],
+    )
+    if root_form != "chain":
+        query = query.to_json()
+        if root_form == "legacy":
+            query.pop("type")
+    body = _send(query)
+    assert body["gfql_query"]["where"] == [{"lt": {"left": "a.t", "right": "b.t"}}]
+
+
+def test_chain_nested_let_without_where_still_serializes():
+    body = _send(Chain([let({"filtered": n({"where": 1})})]))
+    assert body["gfql_query"]["chain"][0]["bindings"]["filtered"]["filter_dict"] == {"where": 1}
+
+
+def test_guard_does_not_inspect_call_parameter_values():
+    from graphistry.compute.chain_remote import _reject_let_where
+
+    payload = {"type": "Chain", "chain": [
+        {"type": "Call", "function": "filter_nodes_by_dict", "params": {
+            "filter_dict": {"property": {"type": "Let", "bindings": {
+                "data": {"type": "Chain", "where": [{"lt": {"left": "a.x", "right": "b.x"}}]}
+            }}}
+        }}
+    ]}
+    _reject_let_where(payload)
