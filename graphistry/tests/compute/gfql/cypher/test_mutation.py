@@ -182,14 +182,17 @@ def test_create_declines_boolean_numeric_column_union(engine: str) -> None:
     assert _records(source._nodes) == before
 
 
+@pytest.mark.parametrize("engine", ENGINES)
 @pytest.mark.parametrize("dtype,maximum", [("int8", 127), ("int16", 32767), ("int64", (1 << 63) - 1)])
-def test_create_checks_the_entire_allocated_id_range(dtype: str, maximum: int) -> None:
-    source = graphistry.nodes(pd.DataFrame({"id": pd.Series([maximum - 1], dtype=dtype)}), "id")
-    before = source._nodes.copy(deep=True)
+def test_create_checks_the_entire_allocated_id_range(engine: str, dtype: str, maximum: int) -> None:
+    source = graphistry.nodes(_foundation_frame(engine, {"id": pd.Series([maximum - 1], dtype=dtype)}), "id")
+    before = _records(source._nodes)
+    before_dtypes = list(map(str, source._nodes.dtypes))
     with pytest.raises(GFQLValidationError) as exc:
-        source.gfql("CREATE (a), (b)", engine="pandas")
+        source.gfql("CREATE (a), (b)", engine=engine)
     assert exc.value.context["field"] == MUTATION_NODE_ID
-    pd.testing.assert_frame_equal(source._nodes, before)
+    assert _records(source._nodes) == before
+    assert list(map(str, source._nodes.dtypes)) == before_dtypes
 
 
 @pytest.mark.parametrize("suffix", [
