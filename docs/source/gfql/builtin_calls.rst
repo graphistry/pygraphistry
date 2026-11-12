@@ -1961,7 +1961,7 @@ on ``OpenAIDecisionsProvider``. Any object implementing the
 ``DecisionProvider`` protocol in ``graphistry.compute.semantic`` can be bound.
 
 Older and self-hosted chat APIs
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 ``OpenAIChatProvider`` also accepts these explicit strategies:
 
