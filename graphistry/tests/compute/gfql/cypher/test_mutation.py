@@ -158,6 +158,45 @@ def test_create_relationship_adds_nodes_edges_and_bindings(engine: str) -> None:
 
 
 @pytest.mark.parametrize("engine", ENGINES)
+def test_create_reverse_relationship_uses_semantic_endpoint_order(engine: str) -> None:
+    source = _graph(engine)
+
+    result = source.gfql(
+        "CREATE (a {name:'A'})<-[:T]-(b {name:'B'})",
+        engine=engine,
+        language="cypher",
+    )
+
+    rows = _records(result._edges)
+    assert rows[-1] == {
+        "src": 4,
+        "dst": 3,
+        "type": "T",
+        "__graphistry_edge_identity__": 0,
+    }
+    assert _records(result._nodes)[-1]["name"] in {"A", "B"}
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_create_parallel_and_reverse_relationships_preserve_multiplicity(engine: str) -> None:
+    source = _graph(engine)
+
+    result = source.gfql(
+        "CREATE (a), (b), (a)-[:T]->(b), (a)<-[:T]-(b), (a)-[:U]->(b)",
+        engine=engine,
+        language="cypher",
+    )
+
+    rows = _records(result._edges)
+    assert [(row["src"], row["dst"], row["type"]) for row in rows[1:]] == [
+        (3, 4, "T"),
+        (4, 3, "T"),
+        (3, 4, "U"),
+    ]
+    assert [row["__graphistry_edge_identity__"] for row in rows[1:]] == [0, 1, 2]
+
+
+@pytest.mark.parametrize("engine", ENGINES)
 def test_create_relationship_reuses_and_allocates_in_source_order(engine: str) -> None:
     source = _graph(engine)
 
@@ -239,6 +278,58 @@ def test_create_relationship_allocates_existing_custom_edge_key(engine: str) -> 
     assert result._nodes is not source._nodes
     assert _records(source._edges) == [{"src": 1, "dst": 2, "eid": 100, "type": "OLD"}]
     _assert_served(engine, result._edges)
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_create_relationship_allocates_existing_string_edge_key(engine: str) -> None:
+    edges = pd.DataFrame({"src": [1], "dst": [2], "eid": ["e0"], "type": ["OLD"]})
+    nodes = pd.DataFrame({"id": [1, 2]})
+    if engine == "cudf":
+        import cudf
+        edges = cudf.from_pandas(edges)
+        nodes = cudf.from_pandas(nodes)
+    elif engine == "polars":
+        polars = pytest.importorskip("polars")
+        edges = polars.from_pandas(edges)
+        nodes = polars.from_pandas(nodes)
+    source = graphistry.nodes(nodes, "id").edges(edges, "src", "dst", edge="eid")
+
+    result = source.gfql(
+        "CREATE (a {name:'new'})-[r:T {weight:2}]->(b)",
+        engine=engine,
+        language="cypher",
+    )
+
+    assert _records(result._edges) == [
+        {"src": 1, "dst": 2, "eid": "e0", "type": "OLD", "weight": None},
+        {"src": 3, "dst": 4, "eid": "__gfql_edge_0", "type": "T", "weight": 2},
+    ]
+    _assert_served(engine, result._edges)
+
+
+def test_create_relationship_rejects_shared_node_relationship_alias() -> None:
+    source = _graph("pandas")
+    before_nodes = _records(source._nodes)
+    before_edges = _records(source._edges)
+
+    with pytest.raises(GFQLValidationError, match="variable is already bound"):
+        source.gfql("CREATE (a)-[a:T]->(b)", engine="pandas", language="cypher")
+
+    assert _records(source._nodes) == before_nodes
+    assert _records(source._edges) == before_edges
+
+
+def test_create_relationship_rejects_configured_missing_edge_key() -> None:
+    edges = pd.DataFrame({"src": [1], "dst": [2]})
+    source = graphistry.nodes(pd.DataFrame({"id": [1, 2]}), "id").edges(
+        edges, "src", "dst", edge="eid"
+    )
+    before = _records(source._edges)
+
+    with pytest.raises(GFQLValidationError, match="missing identity column 'eid'"):
+        source.gfql("CREATE (a)-[r:T]->(b)", engine="pandas", language="cypher")
+
+    assert _records(source._edges) == before
 
 
 def test_create_relationship_rejects_edge_key_property_override() -> None:

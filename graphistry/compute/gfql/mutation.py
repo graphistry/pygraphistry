@@ -436,13 +436,22 @@ def execute_create_nodes(
             if edge_key is None:
                 edge_key = MUTATION_EDGE_ID
                 edge_identities = list(range(edge_count))
-            elif edge_key in old_edges.columns:
+            elif edge_key not in old_edges.columns:
+                raise GFQLMutationError(
+                    ErrorCode.E108, f"Existing edge frame is missing identity column {edge_key!r}",
+                    field=edge_key, value="missing", line=line, column=column, language="cypher",
+                )
+            else:
                 edge_family = _column_family(old_edges[edge_key])
                 if edge_family == "string":
                     edge_offset = 0
                     while True:
                         edge_identities = [f"__gfql_edge_{edge_offset + i}" for i in range(edge_count)]
-                        hits = old_edges[edge_key].isin(edge_identities)
+                        values = old_edges[edge_key]
+                        if is_polars_df(old_edges):
+                            hits = values.is_in(edge_identities)
+                        else:
+                            hits = values.isin(edge_identities)
                         if not bool(hits.any()):
                             break
                         edge_offset += edge_count
@@ -519,8 +528,12 @@ def execute_create_nodes(
                 )
             edge_identity = edge_identities[len(edge_records)]
             assert edge_key is not None
-            source_identity = _node_record(pattern.source)
-            destination_identity = _node_record(pattern.destination)
+            if pattern.relationship.direction == "reverse":
+                source_identity = _node_record(pattern.destination)
+                destination_identity = _node_record(pattern.source)
+            else:
+                source_identity = _node_record(pattern.source)
+                destination_identity = _node_record(pattern.destination)
             edge_row: dict[str, object] = {
                 source_key: source_identity,
                 destination_key: destination_identity,

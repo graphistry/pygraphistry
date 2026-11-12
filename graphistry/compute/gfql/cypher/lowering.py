@@ -9388,6 +9388,9 @@ def compile_cypher_query(
                 raise _unsupported("CREATE variable is already bound", field="create", value=variables, line=query.span.line, column=query.span.column)
             if len(set(relationship_variables)) != len(relationship_variables):
                 raise _unsupported("CREATE relationship variable is already bound", field="create", value=relationship_variables, line=query.span.line, column=query.span.column)
+            shared_variables = sorted(set(variables) & set(relationship_variables))
+            if shared_variables:
+                raise _unsupported("CREATE variable is already bound", field="create", value=shared_variables, line=query.span.line, column=query.span.column)
             if query.return_is_synthetic:
                 return CompiledCypherMutationQuery(creates=query.creates)
             from graphistry.compute.gfql.row.entity_props import MUTATION_NODE_ID

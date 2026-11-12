@@ -1855,7 +1855,7 @@ def _build_transformer(source: str) -> _TransformerLike:
                 elif isinstance(item, CreateClause):
                     if match_clauses or reentry_match_clauses or stages or unwind_clauses or call_clause is not None:
                         raise _to_unsupported(
-                            "GFQL CREATE is currently supported only before an optional RETURN in standalone node mutations",
+                            "GFQL CREATE is currently supported only before an optional RETURN in standalone node or relationship mutations",
                             line=item.span.line,
                             column=item.span.column,
                         )
