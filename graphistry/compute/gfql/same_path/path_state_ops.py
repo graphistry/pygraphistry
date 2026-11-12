@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Dict, Optional, TYPE_CHECKING
 
+from graphistry.Engine import df_concat
 from graphistry.Plottable import Plottable
 from graphistry.compute.ast import ASTEdge
 from graphistry.compute.gfql.same_path.edge_semantics import EdgeSemantics
@@ -212,6 +213,9 @@ def materialize_filtered(executor: "DFSamePathExecutor", state: PathState) -> Pl
         if isinstance(op, ASTEdge) and (edges := executor.edges_df_for_step(idx, state)) is not None
     ]
     concatenated_edges = concat_frames(edge_frames)
+    if concatenated_edges is None and edge_frames:
+        # An empty result still needs each edge step's relationship aliases.
+        concatenated_edges = df_concat(executor.inputs.engine)(edge_frames, ignore_index=True)
     edges_df = concatenated_edges if concatenated_edges is not None else executor.inputs.graph._edges
 
     if nodes_df is None or edges_df is None or node_id is None or src is None or dst is None:

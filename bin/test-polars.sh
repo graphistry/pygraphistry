@@ -21,6 +21,7 @@ python -m pytest --version
 # `graphistry/tests/compute/gfql/test_polars_lane_completeness.py` parses this array and
 # fails if any module-level polars-gated test file is absent from it (or listed but gone).
 POLARS_TEST_FILES=(
+    graphistry/tests/compute/gfql/cypher/test_cross_alias_where_correctness.py
     graphistry/tests/compute/gfql/index/test_sorted_csr_build_ownership.py
     # #2268 S1: engine-native empty-row helper test is engine-parametrized; its Polars
     # eager/lazy/GPU params only run in this lane because importorskip is dynamic
