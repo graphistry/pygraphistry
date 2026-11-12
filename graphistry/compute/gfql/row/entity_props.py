@@ -21,7 +21,7 @@ from graphistry.compute.typing import DataFrameT, IndexT, SeriesT
 #: Node columns that are engine structure, not user properties.
 # Stable native metadata for graphs that have undergone functional mutation.
 # The runtime rejects user collisions before introducing these reserved columns.
-MUTATION_NODE_ID = "__gfql_mutation_node_id__"
+MUTATION_NODE_ID = "__graphistry_node_identity__"
 ID_PROPERTY_PRESENT = "__gfql_id_property_present__"
 
 NODE_INTERNAL_COLS = frozenset({"id", "labels", "type"})
