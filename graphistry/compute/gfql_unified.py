@@ -2969,7 +2969,6 @@ def _gfql_with_strictness(
                             start_nodes=start_nodes,
                         )
                         result._gfql_graph = mutated
-                        result._cypher_legacy_type_rendering = mutated._cypher_legacy_type_rendering
                         return result
                     return mutated
                 mutated, created_bindings = execute_create_nodes(
@@ -3040,9 +3039,6 @@ def _gfql_with_strictness(
                     policy=expanded_policy,
                     context=context,
                 )
-                result._cypher_legacy_type_rendering = bool(
-                    getattr(self, "_cypher_legacy_type_rendering", False)
-                )
                 return result
             if isinstance(query, ASTLet):
                 logger.debug('GFQL executing as DAG')
@@ -3062,9 +3058,6 @@ def _gfql_with_strictness(
                         engine=engine,
                         policy=expanded_policy,
                         context=context,
-                    )
-                    result._cypher_legacy_type_rendering = bool(
-                        getattr(self, "_cypher_legacy_type_rendering", False)
                     )
                     return result
                 return _chain_dispatch(dispatch_self, query, engine, expanded_policy, context)

@@ -9423,6 +9423,29 @@ def compile_cypher_query(
                 column=query.span.column,
             )
         if query.sets:
+            _reject_excessive_match_clauses(query.matches)
+            if len(query.matches) != 1 or len(query.matches[0].patterns) != 1:
+                match = query.matches[0] if query.matches else None
+                span = match.span if match is not None else query.span
+                value = (
+                    "repeated_match" if len(query.matches) > 1 else "comma_patterns"
+                )
+                raise _unsupported_at_span(
+                    "GFQL SET currently supports one MATCH clause with one node pattern",
+                    field="set",
+                    value=value,
+                    span=span,
+                )
+            if any(
+                not isinstance(pattern, NodePattern)
+                for pattern in query.matches[0].patterns[0]
+            ):
+                raise _unsupported_at_span(
+                    "GFQL SET currently supports one MATCH clause with one node pattern",
+                    field="set",
+                    value="relationship_pattern",
+                    span=query.matches[0].span,
+                )
             if (
                 any(match.optional for match in query.matches)
                 or query.unwinds or query.reentry_matches or query.reentry_unwinds

@@ -1082,6 +1082,9 @@ def test_set_declines_unfaithful_or_unbound_targets(query: str, target: str) -> 
 
 @pytest.mark.parametrize("query,expected_field", [
     ("MATCH (n) CREATE (m:L) SET n.x = 1", "create"),
+    ("MATCH (n) WHERE n.id = 1 MATCH (m) WHERE m.id = 2 SET n.score = 20", "set"),
+    ("MATCH (n), (m) SET n.score = 20", "set"),
+    ("MATCH (n)-[r]->(m) SET n.score = 20", "set"),
     ("MATCH (n) UNWIND [1] AS x SET n.x = x", "set"),
     ("MATCH (n) WITH n AS m SET m.x = 1 RETURN m", "set"),
 ])

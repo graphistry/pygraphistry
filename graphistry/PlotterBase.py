@@ -1927,7 +1927,6 @@ class PlotterBase(Plottable):
             res._nodes = nodes
             # Replacing data ends the previous mutation-result association.
             res._gfql_graph = None
-            res._cypher_legacy_type_rendering = False
         # for use in text_utils.py search index
         if hasattr(res, 'search_index'):
             delattr(res, 'search_index')  # reset so that g.search will rebuild index
