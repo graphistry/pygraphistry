@@ -112,6 +112,7 @@ from graphistry.compute.gfql.cypher.ast import (
     CypherScalar,
     CypherQuery,
     CypherUnionQuery,
+    LimitClause,
     ExpressionText,
     GraphBinding,
     GraphConstructor,
@@ -130,6 +131,7 @@ from graphistry.compute.gfql.cypher.ast import (
     ReturnItem,
     SetClause,
     SetProperty,
+    SkipClause,
     SourceSpan,
     UnwindClause,
     WhereClause,
@@ -9427,13 +9429,24 @@ def compile_cypher_query(
             assignments: list[SetProperty] = [
                 assignment for clause in query.sets for assignment in clause.assignments
             ]
-            if query.skip is not None or query.limit is not None:
-                pagination = query.skip if query.skip is not None else query.limit
+            pagination: Optional[Union[SkipClause, LimitClause]]
+            if query.skip is not None:
+                pagination = query.skip
+            elif query.limit is not None:
+                pagination = query.limit
+            else:
+                pagination = None
+            if pagination is not None:
+                pagination_span = (
+                    pagination.value.span
+                    if isinstance(pagination.value, ExpressionText)
+                    else pagination.span
+                )
                 raise _unsupported_at_span(
                     "GFQL SET currently supports RETURN without SKIP or LIMIT",
                     field="set",
                     value="return_pagination",
-                    span=pagination.span,
+                    span=pagination_span,
                 )
             if query.return_ is not None and not query.return_is_synthetic:
                 for return_item in query.return_.items:
@@ -9539,7 +9552,17 @@ def compile_cypher_query(
                         line=assignment.span.line, column=assignment.span.column,
                     )
                 try:
-                    set_value_expr = parse_expr(assignment.value.text)
+                    if isinstance(assignment.value, ExpressionText):
+                        set_value_text = assignment.value.text
+                    elif assignment.value is None:
+                        set_value_text = "None"
+                    else:
+                        from graphistry.compute.gfql.cypher.expression_text import (
+                            cypher_literal_expr_text,
+                        )
+
+                        set_value_text = cypher_literal_expr_text(assignment.value)
+                    set_value_expr = parse_expr(set_value_text)
                 except GFQLExprParseError:
                     continue
                 if isinstance(set_value_expr, ExprLiteral) and set_value_expr.value is None:
