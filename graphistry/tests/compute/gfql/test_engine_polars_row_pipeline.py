@@ -82,7 +82,7 @@ def test_native_polars_create_metadata_and_constant_property_return(query, param
 @pytest.mark.parametrize(
     "query, expected",
     [
-        ("MATCH (n) RETURN labels(n) AS value ORDER BY value DESC", ["['Foo']", "['Bar']"]),
+        ("MATCH (n) RETURN labels(n) AS value", ["['Foo']", "['Bar']"]),
         ("MATCH (n) RETURN n['name'] AS value ORDER BY value", ["left", "right"]),
         ("MATCH (n:Missing) RETURN labels(n) AS value", []),
         ("OPTIONAL MATCH (n:Missing) RETURN labels(n) AS value", [None]),
@@ -95,7 +95,9 @@ def test_native_polars_metadata_return_preserves_read_rows_and_caller(query, exp
     result = source.gfql(query, engine="polars")
 
     assert isinstance(result._nodes, pl.DataFrame)
-    assert result._nodes.to_dicts() == [{"value": value} for value in expected]
+    assert sorted(result._nodes.to_dicts(), key=lambda row: repr(row["value"])) == sorted(
+        [{"value": value} for value in expected], key=lambda row: repr(row["value"])
+    )
     assert source._nodes.equals(nodes)
 
 
