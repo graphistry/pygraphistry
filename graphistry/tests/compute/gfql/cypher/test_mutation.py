@@ -571,5 +571,5 @@ def test_create_admits_all_null_legacy_type_with_new_canonical_label(engine):
     source=graphistry.nodes(_foundation_frame(engine,{"id":["old"],"type":[None]}),"id")
     result=source.gfql("CREATE (:New)",engine=engine)
     assert len(result._nodes)==2
-    assert result._nodes["label__New"].tolist()==[False,True]
+    assert [row["label__New"] for row in _records(result._nodes)]==[False,True]
     assert _records(source._nodes)==[{"id":"old","type":None}]
