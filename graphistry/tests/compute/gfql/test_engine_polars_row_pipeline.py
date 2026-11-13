@@ -59,22 +59,31 @@ def _assert_parity(query, *, order_sensitive=True):
         ("CREATE (n {name: 'Apa'}) RETURN n['missing'] AS value", None, None),
     ],
 )
-def test_native_polars_create_metadata_and_constant_property_return(query, params, expected):
-    source = graphistry.bind()
+@pytest.mark.parametrize("empty_labels_column", [False, True])
+def test_native_polars_create_metadata_and_constant_property_return(query, params, expected, empty_labels_column):
+    source = (
+        graphistry.nodes(pl.DataFrame(schema={"id": pl.String, "labels": pl.String}), "id")
+        if empty_labels_column else graphistry.bind()
+    )
     result = source.gfql(query, params=params, engine="polars")
 
     assert isinstance(result._nodes, pl.DataFrame)
     assert result._nodes.to_dicts() == [{"value": expected}]
     assert isinstance(result.gfql_graph._nodes, pl.DataFrame)
     assert result.gfql_graph._nodes.height == 1
-    assert source._nodes is None and source._edges is None
+    if empty_labels_column:
+        assert source._nodes.height == 0
+        assert source._nodes.schema == {"id": pl.String, "labels": pl.String}
+    else:
+        assert source._nodes is None
+    assert source._edges is None
 
 
 @pytest.mark.parametrize(
     "query, expected",
     [
-        ("MATCH (n) RETURN labels(n) AS value ORDER BY n.id", ["['Foo']", "['Bar']"]),
-        ("MATCH (n) RETURN n['name'] AS value ORDER BY n.id", ["left", "right"]),
+        ("MATCH (n) RETURN labels(n) AS value ORDER BY value DESC", ["['Foo']", "['Bar']"]),
+        ("MATCH (n) RETURN n['name'] AS value ORDER BY value", ["left", "right"]),
         ("MATCH (n:Missing) RETURN labels(n) AS value", []),
         ("OPTIONAL MATCH (n:Missing) RETURN labels(n) AS value", [None]),
     ],

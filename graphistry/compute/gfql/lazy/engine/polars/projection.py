@@ -194,8 +194,10 @@ def _native_node_labels_text_expr(view: _AliasView) -> typing.Optional[pl.Expr]:
     import polars as pl
 
     schema = view.frame.schema
-    if "labels" in schema:
+    if "labels" in schema and schema["labels"] not in (pl.String, pl.Null):
         return None  # list-backed legacy labels need their own parity contract
+    # The pandas reader ignores actual string labels columns (including the
+    # empty TCK fixture's String placeholder); only list-valued labels override flags.
     label_columns = label_flag_columns(schema)
     if any(schema[column] not in (pl.Boolean, pl.Null) for column, _ in label_columns):
         return None
