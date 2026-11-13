@@ -748,6 +748,14 @@ def lower_expr(node: ExprNode, columns: Sequence[str]) -> Optional[pl.Expr]:
                 return pl.col(node_id)
         return None
     if isinstance(node, SubscriptExpr) and isinstance(node.value, Identifier):
+        alias = node.value.name
+        node_id = _NODE_ID.get()
+        entity_alias = alias in columns and node_id is not None and (
+            (_SCHEMA.get().get(alias) == pl.Boolean and node_id in columns)
+            or f"{alias}.{node_id}" in columns
+        )
+        if not entity_alias:
+            return None
         key = _constant_string_key(node.key)
         if key is not None:
             return lower_expr(PropertyAccessExpr(node.value, key), columns)

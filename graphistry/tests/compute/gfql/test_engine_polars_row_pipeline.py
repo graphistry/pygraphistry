@@ -101,6 +101,16 @@ def test_native_polars_metadata_return_preserves_read_rows_and_caller(query, exp
     assert source._nodes.equals(nodes)
 
 
+def test_polars_constant_map_subscript_cannot_read_an_unrelated_outer_column():
+    from graphistry.compute import rows, select
+
+    nodes = pl.DataFrame({"id": [1], "m": [{"name": "inside"}], "name": ["outside"]})
+    source = graphistry.nodes(nodes, "id")
+    with pytest.raises(NotImplementedError):
+        source.gfql([rows(), select([("value", "m['name']")])], engine="polars")
+    assert source._nodes.equals(nodes)
+
+
 SUPPORTED = [
     # whole-entity RETURN (pure projection, no row-pipeline op)
     "MATCH (n) RETURN n",
