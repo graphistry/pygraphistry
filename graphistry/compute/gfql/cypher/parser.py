@@ -1888,6 +1888,8 @@ def _build_transformer(source: str) -> _TransformerLike:
                     if match_clauses or reentry_match_clauses or stages or unwind_clauses or call_clause is not None:
                         raise _to_unsupported(
                             "GFQL CREATE is currently supported only before an optional RETURN in standalone node or relationship mutations",
+                            field="create",
+                            value="mixed_clauses",
                             line=item.span.line,
                             column=item.span.column,
                         )
@@ -1896,6 +1898,8 @@ def _build_transformer(source: str) -> _TransformerLike:
                     if reentry_match_clauses or stages or unwind_clauses or call_clause is not None:
                         raise _to_unsupported(
                             "GFQL SET is currently supported only directly after a single MATCH",
+                            field="set",
+                            value="mixed_clauses",
                             line=item.span.line,
                             column=item.span.column,
                         )

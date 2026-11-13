@@ -8,7 +8,7 @@ import numpy as np
 import pytest
 
 import graphistry
-from graphistry.compute.exceptions import GFQLValidationError
+from graphistry.compute.exceptions import GFQLValidationError, ErrorCode
 from graphistry.compute.gfql.cypher.api import cypher_to_gfql
 from graphistry.compute.gfql.cypher.lowering import CompiledCypherMutationQuery, compile_cypher_query
 from graphistry.compute.gfql.cypher.parser import parse_cypher
@@ -1144,19 +1144,24 @@ def test_set_declines_unfaithful_or_unbound_targets(query: str, target: str) -> 
     assert exc.value.context["value"] == target
 
 
-@pytest.mark.parametrize("query", [
-    "MATCH (n) CREATE (m:L) SET n.x = 1",
-    "MATCH (n) UNWIND [1] AS x SET n.x = x",
-    "MATCH (n) WITH n AS m SET m.x = 1 RETURN m",
+@pytest.mark.parametrize("query,expected_field", [
+    ("MATCH (n) CREATE (m:L) SET n.x = 1", "create"),
+    ("MATCH (n) UNWIND [1] AS x SET n.x = x", "set"),
+    ("MATCH (n) WITH n AS m SET m.x = 1 RETURN m", "set"),
 ])
-def test_set_declines_unsupported_mixed_programs(query: str) -> None:
-    with pytest.raises(GFQLValidationError):
+def test_set_declines_unsupported_mixed_programs(query: str, expected_field: str) -> None:
+    with pytest.raises(GFQLValidationError) as exc:
         compile_cypher_query(parse_cypher(query))
+    assert exc.value.code == ErrorCode.E108
+    assert exc.value.context["field"] == expected_field
 
 
 def test_set_declines_optional_match() -> None:
-    with pytest.raises(GFQLValidationError):
+    with pytest.raises(GFQLValidationError) as exc:
         compile_cypher_query(parse_cypher("MATCH (n) OPTIONAL MATCH (m) SET n.x = 1"))
+    assert exc.value.code == ErrorCode.E108
+    assert exc.value.context["field"] == "set"
+    assert exc.value.context["value"] == "optional_match"
 
 
 @pytest.mark.parametrize("engine", ENGINES)
