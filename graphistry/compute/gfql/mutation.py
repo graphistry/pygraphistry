@@ -705,17 +705,16 @@ def _validate_legacy_label_transition(
         return
     if label_flag_columns(nodes.columns):
         return
-    created_labels = {
-        label
-        for clause in creates
-        for pattern in clause.patterns
-        for label in (
-            (pattern,)
-            if not isinstance(pattern, CreateRelationship)
-            else (pattern.source, pattern.destination)
-        )
-        for label in pattern.labels
-    }
+    created_labels: set[str] = set()
+    for clause in creates:
+        for pattern in clause.patterns:
+            node_patterns: tuple[NodePattern, ...]
+            if isinstance(pattern, CreateRelationship):
+                node_patterns = (pattern.source, pattern.destination)
+            else:
+                node_patterns = (pattern,)
+            for node_pattern in node_patterns:
+                created_labels.update(node_pattern.labels)
     if not created_labels:
         return
     type_series = nodes["type"]

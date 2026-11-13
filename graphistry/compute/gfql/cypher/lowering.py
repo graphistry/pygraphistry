@@ -9558,6 +9558,7 @@ def compile_cypher_query(
                     alias=f"__gfql_set_identity_{alias_index}__",
                     span=span,
                 ))
+            value_text: str
             for assignment_index, assignment in enumerate(assignments):
                 value = assignment.value
                 if isinstance(value, ExpressionText):
