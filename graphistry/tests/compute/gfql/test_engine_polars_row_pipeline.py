@@ -111,6 +111,29 @@ def test_polars_constant_map_subscript_cannot_read_an_unrelated_outer_column():
     assert source._nodes.equals(nodes)
 
 
+@pytest.mark.parametrize("argument", ["scalar", {"property": 1}])
+def test_polars_labels_non_node_column_cannot_read_unrelated_label_flags(argument):
+    from graphistry.compute import rows, select
+
+    nodes = pl.DataFrame({"id": [1], "argument": [argument], "label__Foo": [True]})
+    source = graphistry.nodes(nodes, "id")
+    with pytest.raises(NotImplementedError):
+        source.gfql([rows(), select([("value", "labels(argument)")])], engine="polars")
+    assert source._nodes.equals(nodes)
+
+
+def test_polars_labels_relationship_cannot_use_an_ordinary_id_property_as_node_identity():
+    from graphistry.compute import rows, select
+
+    nodes = pl.DataFrame({"id": [1, 2]})
+    edges = pl.DataFrame({"src": [1], "dst": [2], "edge_id": [7], "id": [999],
+                          "type": ["R"], "r": [True], "label__Foo": [True]})
+    source = graphistry.nodes(nodes, "id").edges(edges, "src", "dst", edge="edge_id")
+    with pytest.raises(NotImplementedError):
+        source.gfql([rows(table="edges", source="r"), select([("value", "labels(r)")])], engine="polars")
+    assert source._nodes.equals(nodes) and source._edges.equals(edges)
+
+
 SUPPORTED = [
     # whole-entity RETURN (pure projection, no row-pipeline op)
     "MATCH (n) RETURN n",

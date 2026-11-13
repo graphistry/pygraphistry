@@ -20,6 +20,12 @@ SCHEMA: "contextvars.ContextVar[dict]" = contextvars.ContextVar("gfql_polars_sch
 #: the identity sentinel then declines to an honest NIE rather than resolving to a wrong column.
 NODE_ID: "contextvars.ContextVar[Optional[str]]" = contextvars.ContextVar("gfql_polars_node_id", default=None)
 
+#: Declared node bindings from the existing row execution metadata. Scalar or
+#: relationship columns must not be interpreted as nodes merely because they exist.
+NODE_ALIASES: "contextvars.ContextVar[frozenset[str]]" = contextvars.ContextVar(
+    "gfql_polars_node_aliases", default=frozenset()
+)
+
 #: Caller's declaration that every FLOAT COLUMN of the frame being lowered is already NaN-free, so
 #: a comparison whose operand is a DIRECT COLUMN REFERENCE may skip the IEEE NaN mask ``_nan_guard``
 #: would otherwise add. Set ONLY by callers filtering a frame that came through gfql ingest, where
