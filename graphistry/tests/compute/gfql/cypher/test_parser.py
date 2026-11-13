@@ -111,6 +111,13 @@ def test_parse_standalone_create_reverse_relationship() -> None:
     assert created.relationship.direction == "reverse"
 
 
+def test_parse_standalone_create_anonymous_nodes() -> None:
+    parsed = _parse_query("CREATE (:L), (x:L)")
+
+    assert len(parsed.creates) == 1
+    assert [pattern.labels for pattern in parsed.creates[0].patterns] == [("L",), ("L",)]
+
+
 @pytest.mark.parametrize(
     "query",
     [
@@ -125,6 +132,22 @@ def test_parse_standalone_create_reverse_relationship() -> None:
 def test_parse_rejects_unsupported_create_shapes(query: str) -> None:
     with pytest.raises(GFQLValidationError):
         parse_cypher(query)
+def test_parse_empty_property_map_does_not_replace_labels() -> None:
+    parsed = _parse_query("MATCH (n:Foo {}) RETURN n")
+
+    node = parsed.match.pattern[0]
+    assert node.variable == "n"
+    assert node.labels == ("Foo",)
+    assert node.properties == ()
+
+
+def test_parse_empty_relationship_property_map_does_not_replace_types() -> None:
+    parsed = _parse_query("MATCH ()-[r:R {}]->() RETURN r")
+
+    relationship = parsed.match.pattern[1]
+    assert relationship.variable == "r"
+    assert relationship.types == ("R",)
+    assert relationship.properties == ()
 
 
 def test_parse_graph_property_access_allowed() -> None:
