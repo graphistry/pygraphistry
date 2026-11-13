@@ -11,6 +11,7 @@ from graphistry.Engine import (
     df_to_engine,
     is_polars_df,
     resolve_engine,
+    series_not_null_mask,
 )
 from graphistry.compute.exceptions import ErrorCode, GFQLUnsupportedError, GFQLValidationError
 from graphistry.compute.gfql.cypher.ast import (
@@ -23,7 +24,6 @@ from graphistry.compute.gfql.cypher.ast import (
 from graphistry.Plottable import Plottable
 from graphistry.compute.gfql.row.entity_props import (
     ID_PROPERTY_PRESENT,
-    _is_null_mask,
     MUTATION_NODE_ID,
     label_flag_columns,
 )
@@ -325,7 +325,7 @@ def _validate_legacy_label_transition(
     if not created_labels:
         return
     type_series = nodes["type"]
-    has_legacy_label = bool((~_is_null_mask(type_series)).any())
+    has_legacy_label = bool(series_not_null_mask(type_series).any())
     if has_legacy_label:
         raise GFQLMutationError(
             ErrorCode.E108,
