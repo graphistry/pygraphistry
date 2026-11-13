@@ -2943,9 +2943,30 @@ def _gfql_with_strictness(
                         )
                         if not isinstance(compiled_output, CompiledCypherQuery):
                             raise TypeError("SET output must compile to a read projection")
+                        start_nodes: Optional[DataFrameT] = None
+                        if compiled_query.set_seed_identity_column is not None:
+                            seed_alias = compiled_query.set_start_alias
+                            assert seed_alias is not None and mutated._node is not None
+                            matched_frame = matched_rows._nodes
+                            assert matched_frame is not None
+                            seed_column = compiled_query.set_seed_identity_column
+                            mutated_frame = mutated._nodes
+                            assert mutated_frame is not None
+                            if is_polars_df(matched_frame):
+                                import polars as pl
+                                assert isinstance(matched_frame, pl.DataFrame)
+                                assert isinstance(mutated_frame, pl.DataFrame)
+                                start_nodes = mutated_frame.filter(
+                                    pl.col(mutated._node).is_in(matched_frame[seed_column]),
+                                )
+                            else:
+                                start_nodes = mutated_frame[
+                                    mutated_frame[mutated._node].isin(matched_frame[seed_column])
+                                ]
                         result = _execute_compiled_query(
                             mutated, compiled_query=compiled_output, engine=engine,
                             policy=expanded_policy, context=context,
+                            start_nodes=start_nodes,
                         )
                         result._gfql_graph = mutated
                         result._cypher_legacy_type_rendering = mutated._cypher_legacy_type_rendering

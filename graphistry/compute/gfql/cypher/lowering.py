@@ -295,6 +295,8 @@ class CompiledCypherMutationQuery:
     output_query: Optional[CypherQuery] = None
     set_alias_kinds: Tuple[Tuple[str, Literal["node", "edge"]], ...] = ()
     return_bindings: Tuple[Tuple[str, str], ...] = ()
+    set_start_alias: Optional[str] = None
+    set_seed_identity_column: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -9497,15 +9499,34 @@ def compile_cypher_query(
                     )
                 if assignment.target.alias not in aliases:
                     aliases.append(assignment.target.alias)
+            first_node_alias = next(
+                (
+                    pattern.variable
+                    for match in query.matches
+                    for pattern_group in match.patterns
+                    for pattern in pattern_group
+                    if isinstance(pattern, NodePattern) and pattern.variable is not None
+                ),
+                None,
+            )
             if query.return_ is not None and not query.return_is_synthetic:
                 updated_properties = {assignment.target.property for assignment in assignments}
-                if _set_return_reads_assigned_property(query, updated_properties):
+                if first_node_alias is None and _set_return_reads_assigned_property(query, updated_properties):
                     raise _unsupported(
                         "SET RETURN cannot rematch on a predicate that reads assigned properties",
                         field="return", value="mutation_rematch",
                         line=query.span.line, column=query.span.column,
                     )
             return_items: list[ReturnItem] = []
+            seed_identity_column = "__gfql_set_seed_identity__"
+            if query.return_ is not None and first_node_alias is not None:
+                return_items.append(ReturnItem(
+                    expression=ExpressionText(
+                        text=f"__node_identity__({first_node_alias})", span=query.span,
+                    ),
+                    alias=seed_identity_column,
+                    span=query.span,
+                ))
             for alias_index, alias in enumerate(aliases):
                 assignments_for_alias = [a for a in assignments if a.target.alias == alias]
                 span = assignments_for_alias[0].target.span
@@ -9548,12 +9569,40 @@ def compile_cypher_query(
             compile_cypher_query(read_query, params=params)
             output_query: Optional[CypherQuery] = None
             if query.return_ is not None and not query.return_is_synthetic:
-                output_query = replace(query, sets=())
+                if first_node_alias is not None:
+                    output_query = replace(
+                        query,
+                        sets=(),
+                        where=None,
+                        matches=tuple(
+                            replace(
+                                match,
+                                where=None,
+                                patterns=tuple(
+                                    tuple(
+                                        replace(pattern, properties=())
+                                        if isinstance(pattern, NodePattern)
+                                        and pattern.variable == first_node_alias
+                                        else pattern
+                                        for pattern in pattern_group
+                                    )
+                                    for pattern_group in match.patterns
+                                ),
+                            )
+                            for match in query.matches
+                        ),
+                    )
+                else:
+                    output_query = replace(query, sets=())
                 compile_cypher_query(output_query, params=params)
             return CompiledCypherMutationQuery(
                 creates=(),
                 sets=query.sets, return_query=read_query, output_query=output_query,
                 set_alias_kinds=tuple(alias_kinds.items()),
+                set_start_alias=first_node_alias,
+                set_seed_identity_column=(
+                    seed_identity_column if first_node_alias is not None else None
+                ),
             )
         if query.creates:
             from graphistry.compute.gfql.mutation import validate_create_node_reuse

@@ -307,8 +307,13 @@ def execute_set_properties(
             assert isinstance(frame, pl.DataFrame)
             for property_name, values in combined_properties.items():
                 assert isinstance(values, pl.DataFrame)
-                new_value = f"__gfql_set_new_{property_name}__"
-                matched = f"__gfql_set_matched_{property_name}__"
+                from graphistry.compute.util import generate_safe_column_name
+                new_value = generate_safe_column_name(
+                    f"set_new_{property_name}", frame, prefix="__gfql_", suffix="__",
+                )
+                matched = generate_safe_column_name(
+                    f"set_matched_{property_name}", frame, prefix="__gfql_", suffix="__",
+                )
                 update = values.select(
                     pl.col(SET_IDENTITY),
                     pl.col(SET_VALUE).alias(new_value),
@@ -332,8 +337,13 @@ def execute_set_properties(
                 edges = frame
         else:
             for property_name, values in combined_properties.items():
-                new_value = f"__gfql_set_new_{property_name}__"
-                matched = f"__gfql_set_matched_{property_name}__"
+                from graphistry.compute.util import generate_safe_column_name
+                new_value = generate_safe_column_name(
+                    f"set_new_{property_name}", frame, prefix="__gfql_", suffix="__",
+                )
+                matched = generate_safe_column_name(
+                    f"set_matched_{property_name}", frame, prefix="__gfql_", suffix="__",
+                )
                 update = values.rename(columns={SET_IDENTITY: key, SET_VALUE: new_value})
                 update[matched] = True
                 frame = frame.merge(update, how="left", on=key, sort=False)

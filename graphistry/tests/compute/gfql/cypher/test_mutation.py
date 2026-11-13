@@ -1112,8 +1112,9 @@ def test_set_compiles_to_node_identity_mutation() -> None:
     assert compiled.set_alias_kinds == (("n", "node"),)
     assert compiled.output_query is not None
     assert compiled.return_query is not None
-    assert compiled.return_query.return_.items[0].alias == "__gfql_set_identity_0__"
-    assert [item.alias for item in compiled.return_query.return_.items[1:]] == [
+    assert compiled.return_query.return_.items[0].alias == "__gfql_set_seed_identity__"
+    assert compiled.return_query.return_.items[1].alias == "__gfql_set_identity_0__"
+    assert [item.alias for item in compiled.return_query.return_.items[2:]] == [
         "__gfql_set_value_0__",
         "__gfql_set_value_1__",
     ]
@@ -1201,18 +1202,88 @@ def test_set_detects_conflicting_updates_for_the_same_property(engine: str) -> N
 
 
 @pytest.mark.parametrize("engine", ENGINES)
-def test_set_return_declines_unfaithful_rematch(engine: str) -> None:
+def test_set_return_preserves_changed_predicate_binding(engine: str) -> None:
     source = graphistry.nodes(
         _foundation_frame(engine, {"id": [1, 2], "score": [5, 100]}), "id"
     )
     before = _records(source._nodes)
-    with pytest.raises(GFQLValidationError) as exc:
-        source.gfql(
+    result = source.gfql(
         "MATCH (n) WHERE n.score < 10 SET n.score = 100 RETURN n.id, n.score",
         engine=engine,
         language="cypher",
     )
-    assert exc.value.context["value"] == "mutation_rematch"
+    assert _records(result._nodes) == [{"n.id": 1, "n.score": 100}]
+    assert _records(source._nodes) == before
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_set_return_preserves_original_predicate_binding(engine: str) -> None:
+    source = graphistry.nodes(
+        _foundation_frame(engine, {"id": [1, 2], "name": ["Andres", "Andres"]}),
+        "id",
+    )
+    result = source.gfql(
+        "MATCH (n) WHERE n.name = 'Andres' SET n.name = 'Michael' RETURN n.id, n.name",
+        engine=engine,
+        language="cypher",
+    )
+
+    assert _records(result._nodes) == [
+        {"n.id": 1, "n.name": "Michael"},
+        {"n.id": 2, "n.name": "Michael"},
+    ]
+    assert result.gfql_graph is not None
+    updated = {row["id"]: row["name"] for row in _records(result.gfql_graph._nodes)}
+    assert updated == {1: "Michael", 2: "Michael"}
+    _assert_served(engine, result._nodes)
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_set_return_preserves_pattern_property_binding(engine: str) -> None:
+    source = graphistry.nodes(
+        _foundation_frame(engine, {"id": [1, 2], "name": ["Andres", "Taylor"]}),
+        "id",
+    )
+    result = source.gfql(
+        "MATCH (n {name: 'Andres'}) SET n.name = 'Michael' RETURN n.id, n.name",
+        engine=engine,
+        language="cypher",
+    )
+
+    assert _records(result._nodes) == [{"n.id": 1, "n.name": "Michael"}]
+    updated = {row["id"]: row["name"] for row in _records(result.gfql_graph._nodes)}
+    assert updated == {1: "Michael", 2: "Taylor"}
+    _assert_served(engine, result._nodes)
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_set_preserves_internal_marker_columns(engine: str) -> None:
+    marker_frame = _foundation_frame(
+        engine,
+        {
+            "id": [1, 2],
+            "score": [5, 100],
+            "__gfql_set_new_score__": ["new", "old"],
+            "__gfql_set_matched_score__": [False, True],
+        },
+    )
+    source = graphistry.nodes(marker_frame, "id")
+    before = _records(source._nodes)
+    result = source.gfql(
+        "MATCH (n) WHERE n.score = 5 SET n.score = 10 RETURN n.id, n.score",
+        engine=engine,
+        language="cypher",
+    )
+
+    assert _records(result._nodes) == [{"n.id": 1, "n.score": 10}]
+    updated = {
+        row["id"]: row for row in _records(result.gfql_graph._nodes)
+    }
+    assert updated[1]["score"] == 10
+    assert updated[1]["__gfql_set_new_score__"] == "new"
+    assert updated[1]["__gfql_set_matched_score__"] is False
+    assert updated[2]["__gfql_set_new_score__"] == "old"
+    assert updated[2]["__gfql_set_matched_score__"] is True
     assert _records(source._nodes) == before
 
 
