@@ -2943,10 +2943,13 @@ def _gfql_with_strictness(
                         )
                         if not isinstance(compiled_output, CompiledCypherQuery):
                             raise TypeError("SET output must compile to a read projection")
-                        return _execute_compiled_query(
+                        result = _execute_compiled_query(
                             mutated, compiled_query=compiled_output, engine=engine,
                             policy=expanded_policy, context=context,
                         )
+                        result._gfql_graph = mutated
+                        result._cypher_legacy_type_rendering = mutated._cypher_legacy_type_rendering
+                        return result
                     return mutated
                 mutated, created_bindings = execute_create_nodes(
                     dispatch_self, compiled_query.creates,

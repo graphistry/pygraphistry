@@ -1168,6 +1168,10 @@ def test_set_updates_literal_expression_and_multiple_properties(engine: str) -> 
     )
 
     assert _records(result._nodes) == [{"n.id": 2, "n.score": 20, "n.name": "two"}]
+    assert result.gfql_graph is not None
+    assert len(result.gfql_graph._nodes) == 2
+    updated_graph = {row["id"]: row["score"] for row in _records(result.gfql_graph._nodes)}
+    assert updated_graph == {1: None, 2: 20}
     _assert_served(engine, result._nodes)
 
 
