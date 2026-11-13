@@ -1311,7 +1311,7 @@ def test_empty_return_retains_updated_graph_same_execution(engine):
 
 
 @pytest.mark.parametrize("engine",ENGINES)
-def test_create_declines_old_legacy_type_with_new_canonical_label(engine):
+def test_create_declines_old_legacy_type_with_new_canonical_label_and_source_retained(engine):
     source=graphistry.nodes(_foundation_frame(engine,{"id":["old"],"type":["Old"]}),"id")
     with pytest.raises(GFQLValidationError,match="legacy type labels"):
         source.gfql("CREATE (:New)",engine=engine)
@@ -1319,7 +1319,7 @@ def test_create_declines_old_legacy_type_with_new_canonical_label(engine):
 
 
 @pytest.mark.parametrize("engine",ENGINES)
-def test_create_declines_same_legacy_and_canonical_label(engine):
+def test_create_declines_same_legacy_and_canonical_label_and_source_retained(engine):
     source=graphistry.nodes(_foundation_frame(engine,{"id":["old"],"type":["Shared"]}),"id")
     with pytest.raises(GFQLValidationError,match="legacy type labels"):
         source.gfql("CREATE (:Shared)",engine=engine)
@@ -1327,7 +1327,7 @@ def test_create_declines_same_legacy_and_canonical_label(engine):
 
 
 @pytest.mark.parametrize("engine",ENGINES)
-def test_create_declines_any_nonnull_legacy_type_with_new_canonical_label(engine):
+def test_create_declines_any_nonnull_legacy_type_with_new_canonical_label_and_source_retained(engine):
     source=graphistry.nodes(_foundation_frame(engine,{"id":["old","new"],"type":["Old",None]}),"id")
     with pytest.raises(GFQLValidationError) as exc:
         source.gfql("CREATE (:New)",engine=engine)
