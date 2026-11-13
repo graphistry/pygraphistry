@@ -9424,6 +9424,9 @@ def compile_cypher_query(
             )
         if query.sets:
             _reject_excessive_match_clauses(query.matches)
+            assignments: list[SetProperty] = [
+                assignment for clause in query.sets for assignment in clause.assignments
+            ]
             if query.skip is not None or query.limit is not None:
                 pagination = query.skip if query.skip is not None else query.limit
                 raise _unsupported_at_span(
@@ -9455,7 +9458,7 @@ def compile_cypher_query(
                     span=span,
                 )
             null_assignments = [
-                assignment for assignment in query.sets if assignment.value is None
+                assignment for assignment in assignments if assignment.value is None
             ]
             if null_assignments:
                 raise _unsupported_at_span(
@@ -9499,9 +9502,6 @@ def compile_cypher_query(
                     line=query.span.line,
                     column=query.span.column,
                 )
-            assignments: list[SetProperty] = [
-                assignment for clause in query.sets for assignment in clause.assignments
-            ]
             alias_kinds: dict[str, Literal["node", "edge"]] = {}
             for match in query.matches:
                 for pattern in match.pattern:
