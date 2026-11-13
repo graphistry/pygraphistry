@@ -186,6 +186,7 @@ node creation. At a high level, that includes:
 - ``ORDER BY``, ``SKIP``, ``LIMIT``, and ``DISTINCT``
 - ``UNWIND``
 - standalone node ``CREATE``, with optional ``RETURN``
+- standalone node ``SET`` after ``MATCH``, with optional ``RETURN``
 - supported ``UNION`` / ``UNION ALL`` and ``CALL graphistry.*`` flows when executed
   directly through ``g.gfql("...")``
 
@@ -232,7 +233,10 @@ Support Matrix
    * - Standalone node ``CREATE``
      - Supported
      - Named or anonymous nodes, labels, scalar properties, optional ``RETURN``.
-   * - Relationship ``CREATE``, ``MATCH ... CREATE``, ``DELETE``, ``SET``, ``REMOVE``, ``MERGE``
+   * - Node ``SET`` after ``MATCH``
+     - Supported
+     - Literal scalar property updates on existing nodes, with optional ``RETURN``.
+   * - Relationship ``CREATE``, ``MATCH ... CREATE``, ``DELETE``, relationship ``SET``, ``REMOVE``, ``MERGE``
      - Not supported
      - These mutation clauses remain outside this initial creation subset.
    * - Multiple disconnected ``MATCH`` patterns and arbitrary joins
@@ -604,7 +608,7 @@ Not Supported Today
   ``MATCH ... WITH ... MATCH ... RETURN`` form.
 - ``RETURN *`` after unsupported re-entry shapes or when it would require
   unsupported multi-alias/path projection shaping.
-- Relationship ``CREATE``, ``MATCH ... CREATE``, ``DELETE``, ``SET``, ``REMOVE``, and ``MERGE``.
+- Relationship ``CREATE``, ``MATCH ... CREATE``, ``DELETE``, relationship ``SET``, ``REMOVE``, and ``MERGE``.
 - Generic database procedures outside ``CALL graphistry.*``.
 - The full Cypher expression/function surface.
 
@@ -635,6 +639,33 @@ uses the existing row-result interface and its read-only ``gfql_graph`` property
 provides the updated graph from that same execution. On an ordinary graph,
 ``gfql_graph`` returns that graph itself. ``output=`` retains its existing role
 as the selector for a native GFQL DAG binding.
+
+Functional Node SET
+-------------------
+
+Standalone ``MATCH ... SET`` updates scalar properties on selected nodes and
+returns the updated graph. The caller's frames stay unchanged. Optional
+``RETURN`` provides row results bound to the same execution.
+
+.. code-block:: python
+
+   import graphistry
+   import pandas as pd
+
+   source = graphistry.nodes(
+       pd.DataFrame({"id": ["a", "b"], "name": ["Ada", "Bob"]}), "id"
+   )
+   updated = source.gfql(
+       "MATCH (n) WHERE n.id = 'a' SET n.name = 'Grace', n.age = 36 RETURN n.name AS name",
+       engine="pandas",
+       language="cypher",
+   )
+   assert updated._nodes["name"].tolist() == ["Grace"]
+   assert len(source._nodes) == 2
+
+Unsupported edge SET, combined SET+CREATE, repeated or relationship SET,
+OPTIONAL MATCH SET, reserved identity fields, and conflicting updates fail
+with structured errors before effects.
 
 Physical node identity is separate from properties: ``CREATE (n {id: 12})``
 writes an ordinary ``id`` property, while ``CREATE (n)`` leaves that property

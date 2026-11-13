@@ -48,6 +48,92 @@ def _assert_parity(query, *, order_sensitive=True):
         pd.testing.assert_frame_equal(a_sorted, b_sorted, check_dtype=False)
 
 
+@pytest.mark.parametrize(
+    "query, params, expected",
+    [
+        ("CREATE (n) RETURN labels(n) AS value", None, "[]"),
+        ("CREATE (n:Foo:Bar) RETURN labels(n) AS value", None, "['Foo', 'Bar']"),
+        ("CREATE (n :Foo:Bar) RETURN labels(n) AS value", None, "['Foo', 'Bar']"),
+        ("CREATE (n {name: 'Apa'}) RETURN n['nam' + 'e'] AS value", None, "Apa"),
+        ("CREATE (n {name: 'Apa'}) RETURN n[$idx] AS value", {"idx": "name"}, "Apa"),
+        ("CREATE (n {name: 'Apa'}) RETURN n['missing'] AS value", None, None),
+    ],
+)
+@pytest.mark.parametrize("empty_labels_column", [False, True])
+def test_native_polars_create_metadata_and_constant_property_return(query, params, expected, empty_labels_column):
+    source = (
+        graphistry.nodes(pl.DataFrame(schema={"id": pl.String, "labels": pl.String}), "id")
+        if empty_labels_column else graphistry.bind()
+    )
+    result = source.gfql(query, params=params, engine="polars")
+
+    assert isinstance(result._nodes, pl.DataFrame)
+    assert result._nodes.to_dicts() == [{"value": expected}]
+    assert isinstance(result.gfql_graph._nodes, pl.DataFrame)
+    assert result.gfql_graph._nodes.height == 1
+    if empty_labels_column:
+        assert source._nodes.height == 0
+        assert source._nodes.schema == {"id": pl.String, "labels": pl.String}
+    else:
+        assert source._nodes is None
+    assert source._edges is None
+
+
+@pytest.mark.parametrize(
+    "query, expected",
+    [
+        ("MATCH (n) RETURN labels(n) AS value", ["['Foo']", "['Bar']"]),
+        ("MATCH (n) RETURN n['name'] AS value ORDER BY value", ["left", "right"]),
+        ("MATCH (n:Missing) RETURN labels(n) AS value", []),
+        ("OPTIONAL MATCH (n:Missing) RETURN labels(n) AS value", [None]),
+    ],
+)
+def test_native_polars_metadata_return_preserves_read_rows_and_caller(query, expected):
+    nodes = pl.DataFrame({"id": [1, 2], "name": ["left", "right"],
+                          "label__Foo": [True, False], "label__Bar": [False, True]})
+    source = graphistry.nodes(nodes, "id")
+    result = source.gfql(query, engine="polars")
+
+    assert isinstance(result._nodes, pl.DataFrame)
+    assert sorted(result._nodes.to_dicts(), key=lambda row: repr(row["value"])) == sorted(
+        [{"value": value} for value in expected], key=lambda row: repr(row["value"])
+    )
+    assert source._nodes.equals(nodes)
+
+
+def test_polars_constant_map_subscript_cannot_read_an_unrelated_outer_column():
+    from graphistry.compute import rows, select
+
+    nodes = pl.DataFrame({"id": [1], "m": [{"name": "inside"}], "name": ["outside"]})
+    source = graphistry.nodes(nodes, "id")
+    with pytest.raises(NotImplementedError):
+        source.gfql([rows(), select([("value", "m['name']")])], engine="polars")
+    assert source._nodes.equals(nodes)
+
+
+@pytest.mark.parametrize("argument", ["scalar", {"property": 1}])
+def test_polars_labels_non_node_column_cannot_read_unrelated_label_flags(argument):
+    from graphistry.compute import rows, select
+
+    nodes = pl.DataFrame({"id": [1], "argument": [argument], "label__Foo": [True]})
+    source = graphistry.nodes(nodes, "id")
+    with pytest.raises(NotImplementedError):
+        source.gfql([rows(), select([("value", "labels(argument)")])], engine="polars")
+    assert source._nodes.equals(nodes)
+
+
+def test_polars_labels_relationship_cannot_use_an_ordinary_id_property_as_node_identity():
+    from graphistry.compute import rows, select
+
+    nodes = pl.DataFrame({"id": [1, 2]})
+    edges = pl.DataFrame({"src": [1], "dst": [2], "edge_id": [7], "id": [999],
+                          "type": ["R"], "r": [True], "label__Foo": [True]})
+    source = graphistry.nodes(nodes, "id").edges(edges, "src", "dst", edge="edge_id")
+    with pytest.raises(NotImplementedError):
+        source.gfql([rows(table="edges", source="r"), select([("value", "labels(r)")])], engine="polars")
+    assert source._nodes.equals(nodes) and source._edges.equals(edges)
+
+
 SUPPORTED = [
     # whole-entity RETURN (pure projection, no row-pipeline op)
     "MATCH (n) RETURN n",
@@ -340,10 +426,62 @@ def test_node_identity_sentinel_resolution():
         assert expr.meta.root_names() == ["id"]
     finally:
         rp._NODE_ID.reset(tok)
+
+
+def test_native_node_label_rendering_declines_non_contract_dtypes():
+    import polars as pl
+
+    from graphistry.compute.gfql.lazy.engine.polars.projection import (
+        _AliasView,
+        _native_node_labels_text_expr,
+    )
+
+    def view(frame):
+        return _AliasView(
+            frame=frame,
+            columns={},
+            presence_column="n",
+            presence_source="n",
+            node_id_column=None,
+        )
+
+    list_labels = pl.DataFrame({"n": [1], "labels": [["Legacy"]]})
+    assert _native_node_labels_text_expr(view(list_labels)) is None
+
+    non_boolean_flag = pl.DataFrame({"n": [1], "label__Legacy": ["yes"]})
+    assert _native_node_labels_text_expr(view(non_boolean_flag)) is None
+
+    numeric_type = pl.DataFrame({"n": [1], "type": [1]})
+    assert _native_node_labels_text_expr(view(numeric_type)) is None
+
+    string_type = pl.DataFrame({"n": [1], "type": ["Legacy"]})
+    rendered = _native_node_labels_text_expr(view(string_type))
+    assert rendered is not None
+    assert string_type.select(rendered.alias("labels"))["labels"].to_list() == ["['Legacy']"]
+
+
+def test_polars_subscript_declines_non_string_constant_key():
+    import polars as pl
+
+    from graphistry.compute.gfql.expr_parser import Identifier, Literal, SubscriptExpr
+    from graphistry.compute.gfql.lazy.engine.polars import row_pipeline as rp
+
+    node = SubscriptExpr(Identifier("n"), Literal(1))
+    columns = ["id", "n", "n.id"]
+    node_aliases = rp._NODE_ALIASES.set({"n"})
+    node_id = rp._NODE_ID.set("id")
+    schema = rp._SCHEMA.set({"n": pl.Boolean})
+    try:
+        assert rp._constant_string_key(Literal(1)) is None
+        assert rp.lower_expr(node, columns) is None
+    finally:
+        rp._SCHEMA.reset(schema)
+        rp._NODE_ID.reset(node_id)
+        rp._NODE_ALIASES.reset(node_aliases)
     # published but absent from frame -> decline (never invent a column)
     tok = rp._NODE_ID.set("node_id_missing")
     try:
-        assert rp.lower_expr_str("__gfql_node_id__", cols) is None
+        assert rp.lower_expr_str("__gfql_node_id__", ["id", "val", "kind"]) is None
     finally:
         rp._NODE_ID.reset(tok)
 

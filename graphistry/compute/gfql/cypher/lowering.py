@@ -104,6 +104,7 @@ from graphistry.compute.gfql.expr_parser import (
 )
 from graphistry.compute.gfql.cypher.reentry_plan import ReentryPlan
 from graphistry.compute.gfql.cypher.ast import (
+    CreateRelationship,
     BooleanExpr,
     CreateClause,
     CypherGraphQuery,
@@ -111,6 +112,7 @@ from graphistry.compute.gfql.cypher.ast import (
     CypherScalar,
     CypherQuery,
     CypherUnionQuery,
+    LimitClause,
     ExpressionText,
     GraphBinding,
     GraphConstructor,
@@ -127,6 +129,9 @@ from graphistry.compute.gfql.cypher.ast import (
     RelationshipPattern,
     ReturnClause,
     ReturnItem,
+    SetClause,
+    SetProperty,
+    SkipClause,
     SourceSpan,
     UnwindClause,
     WhereClause,
@@ -287,8 +292,13 @@ class CompiledCypherMutationQuery:
     """A standalone write program whose semantics are owned by the mutation runtime."""
 
     creates: Tuple[CreateClause, ...]
+    sets: Tuple["SetClause", ...] = ()
     return_query: Optional[CypherQuery] = None
+    output_query: Optional[CypherQuery] = None
+    set_alias_kinds: Tuple[Tuple[str, Literal["node", "edge"]], ...] = ()
     return_bindings: Tuple[Tuple[str, str], ...] = ()
+    set_start_alias: Optional[str] = None
+    set_seed_identity_column: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -9343,6 +9353,59 @@ def _maybe_pushdown_row_prefilters(
     return replace(result, chain=new_chain)
 
 
+def _set_return_reads_assigned_property(
+    query: CypherQuery, updated_properties: set[str]
+) -> bool:
+    def predicate_reads(predicate: object) -> bool:
+        if isinstance(predicate, WherePredicate):
+            references: list[PropertyRef] = []
+            if isinstance(predicate.left, PropertyRef):
+                references.append(predicate.left)
+            if isinstance(predicate.right, PropertyRef):
+                references.append(predicate.right)
+            return any(
+                reference.property in updated_properties for reference in references
+            )
+        if isinstance(predicate, WherePatternPredicate):
+            properties = [
+                entry.key
+                for element in predicate.pattern
+                for entry in element.properties
+            ]
+            return any(property_name in updated_properties for property_name in properties)
+        return False
+
+    def tree_reads(tree: object) -> bool:
+        if not isinstance(tree, BooleanExpr):
+            return False
+        if tree.atom_text is not None:
+            for alias_property in updated_properties:
+                if re.search(rf"\b{re.escape(alias_property)}\b", tree.atom_text):
+                    return True
+            return False
+        return tree_reads(tree.left) or tree_reads(tree.right)
+
+    def where_reads(where: Optional[WhereClause]) -> bool:
+        if where is None:
+            return False
+        if any(predicate_reads(predicate) for predicate in where.predicates):
+            return True
+        return tree_reads(where.expr_tree)
+
+    pattern_properties = [
+        entry.key
+        for match in query.matches
+        for pattern_group in match.patterns
+        for element in pattern_group
+        for entry in element.properties
+    ]
+    wheres = [query.where] + [match.where for match in query.matches]
+    return (
+        any(property_name in updated_properties for property_name in pattern_properties)
+        or any(where_reads(where) for where in wheres)
+    )
+
+
 def compile_cypher_query(
     query: Union[CypherQuery, CypherUnionQuery, CypherGraphQuery],
     *,
@@ -9353,6 +9416,277 @@ def compile_cypher_query(
 
     if isinstance(query, CypherQuery):
         _reject_excessive_match_clauses(query.matches)
+        if query.sets and query.creates:
+            raise _unsupported(
+                "Cypher SET cannot be combined with CREATE in the current GFQL mutation compiler",
+                field="set",
+                value=None,
+                line=query.span.line,
+                column=query.span.column,
+            )
+        if query.sets:
+            _reject_excessive_match_clauses(query.matches)
+            assignments: list[SetProperty] = [
+                assignment for clause in query.sets for assignment in clause.assignments
+            ]
+            pagination: Optional[Union[SkipClause, LimitClause]]
+            if query.skip is not None:
+                pagination = query.skip
+            elif query.limit is not None:
+                pagination = query.limit
+            else:
+                pagination = None
+            if pagination is not None:
+                pagination_span = (
+                    pagination.value.span
+                    if isinstance(pagination.value, ExpressionText)
+                    else pagination.span
+                )
+                raise _unsupported_at_span(
+                    "GFQL SET currently supports RETURN without SKIP or LIMIT",
+                    field="set",
+                    value="return_pagination",
+                    span=pagination_span,
+                )
+            if query.return_ is not None and not query.return_is_synthetic:
+                for return_item in query.return_.items:
+                    return_expr = parse_expr(return_item.expression.text)
+                    if _contains_aggregate_call(return_expr):
+                        raise _unsupported_at_span(
+                            "GFQL SET currently supports RETURN without aggregation",
+                            field="set",
+                            value="aggregate_return",
+                            span=return_item.span,
+                        )
+            if len(query.matches) != 1 or len(query.matches[0].patterns) != 1:
+                match = query.matches[0] if query.matches else None
+                span = match.span if match is not None else query.span
+                value = (
+                    "repeated_match" if len(query.matches) > 1 else "comma_patterns"
+                )
+                raise _unsupported_at_span(
+                    "GFQL SET currently supports one MATCH clause with one node pattern",
+                    field="set",
+                    value=value,
+                    span=span,
+                )
+            if any(
+                not isinstance(pattern, NodePattern)
+                for pattern in query.matches[0].patterns[0]
+            ):
+                raise _unsupported_at_span(
+                    "GFQL SET currently supports one MATCH clause with one node pattern",
+                    field="set",
+                    value="relationship_pattern",
+                    span=query.matches[0].span,
+                )
+            if (
+                any(match.optional for match in query.matches)
+                or query.unwinds or query.reentry_matches or query.reentry_unwinds
+                or query.with_stages or query.call is not None
+                or query.graph_bindings or query.use is not None
+            ):
+                raise _unsupported(
+                    "GFQL SET is currently supported only for non-OPTIONAL MATCH ... SET [RETURN ...]",
+                    field="set",
+                    value="optional_match" if any(match.optional for match in query.matches) else "mixed_clauses",
+                    line=query.span.line,
+                    column=query.span.column,
+                )
+            if (
+                query.unwinds or query.reentry_matches or query.reentry_unwinds
+                or query.with_stages or query.call is not None
+                or query.graph_bindings or query.use is not None
+            ):
+                raise _unsupported(
+                    "GFQL SET is currently supported only for MATCH ... SET [RETURN ...]",
+                    field="set",
+                    value="mixed_clauses",
+                    line=query.span.line,
+                    column=query.span.column,
+                )
+            alias_kinds: dict[str, Literal["node", "edge"]] = {}
+            for match in query.matches:
+                for pattern in match.pattern:
+                    if isinstance(pattern, RelationshipPattern) and pattern.variable is not None:
+                        if pattern.variable in alias_kinds and alias_kinds[pattern.variable] != "edge":
+                            raise _unsupported(
+                                "Cypher SET cannot use the same alias as node and relationship",
+                                field="set", value=pattern.variable,
+                                line=pattern.span.line, column=pattern.span.column,
+                            )
+                        alias_kinds[pattern.variable] = "edge"
+                    elif isinstance(pattern, NodePattern) and pattern.variable is not None:
+                        if pattern.variable in alias_kinds and alias_kinds[pattern.variable] != "node":
+                            raise _unsupported(
+                                "Cypher SET cannot use the same alias as node and relationship",
+                                field="set", value=pattern.variable,
+                                line=pattern.span.line, column=pattern.span.column,
+                            )
+                        alias_kinds[pattern.variable] = "node"
+            aliases: list[str] = []
+            if any(kind == "edge" for kind in alias_kinds.values()):
+                edge_alias = next(alias for alias, kind in alias_kinds.items() if kind == "edge")
+                raise _unsupported(
+                    "GFQL SET currently supports node properties only; relationship property SET requires edge identity plumbing",
+                    field="set", value=edge_alias,
+                    line=query.span.line, column=query.span.column,
+                )
+            for assignment in assignments:
+                if assignment.target.alias not in alias_kinds:
+                    raise _unsupported(
+                        "Cypher SET aliases must be bound by MATCH",
+                        field="set", value=assignment.target.alias,
+                        line=assignment.span.line, column=assignment.span.column,
+                    )
+                if assignment.target.property in {"labels", "type"} or assignment.target.property.startswith("__") or assignment.target.property.startswith("label__"):
+                    raise _unsupported(
+                        "GFQL SET supports ordinary scalar properties only",
+                        field="set", value=assignment.target.property,
+                        line=assignment.span.line, column=assignment.span.column,
+                    )
+                if assignment.target.property == "id":
+                    raise _unsupported(
+                        "Cypher SET of the ordinary id property is not supported by the bounded mutation route",
+                        field="set", value=assignment.target.property,
+                        line=assignment.span.line, column=assignment.span.column,
+                    )
+                try:
+                    if isinstance(assignment.value, ExpressionText):
+                        set_value_text = assignment.value.text
+                    elif assignment.value is None:
+                        set_value_text = "None"
+                    else:
+                        from graphistry.compute.gfql.cypher.expression_text import (
+                            cypher_literal_expr_text,
+                        )
+
+                        set_value_text = cypher_literal_expr_text(assignment.value)
+                    set_value_expr = parse_expr(set_value_text)
+                except GFQLExprParseError:
+                    continue
+                if isinstance(set_value_expr, ExprLiteral) and set_value_expr.value is None:
+                    raise _unsupported_at_span(
+                        "GFQL SET cannot remove properties with a null assignment",
+                        field="set",
+                        value="null_assignment",
+                        span=assignment.span,
+                    )
+                if isinstance(set_value_expr, (ListLiteral, ListComprehension, MapLiteral)):
+                    raise _unsupported_at_span(
+                        "GFQL SET supports ordinary scalar properties only",
+                        field="set",
+                        value="non_scalar_value",
+                        span=assignment.span,
+                    )
+                if assignment.target.alias not in aliases:
+                    aliases.append(assignment.target.alias)
+            first_node_alias = next(
+                (
+                    pattern.variable
+                    for match in query.matches
+                    for pattern_group in match.patterns
+                    for pattern in pattern_group
+                    if isinstance(pattern, NodePattern) and pattern.variable is not None
+                ),
+                None,
+            )
+            if query.return_ is not None and not query.return_is_synthetic:
+                updated_properties = {assignment.target.property for assignment in assignments}
+                if first_node_alias is None and _set_return_reads_assigned_property(query, updated_properties):
+                    raise _unsupported(
+                        "SET RETURN cannot rematch on a predicate that reads assigned properties",
+                        field="return", value="mutation_rematch",
+                        line=query.span.line, column=query.span.column,
+                    )
+            return_items: list[ReturnItem] = []
+            seed_identity_column = "__gfql_set_seed_identity__"
+            if query.return_ is not None and first_node_alias is not None:
+                return_items.append(ReturnItem(
+                    expression=ExpressionText(
+                        text=f"__node_identity__({first_node_alias})", span=query.span,
+                    ),
+                    alias=seed_identity_column,
+                    span=query.span,
+                ))
+            for alias_index, alias in enumerate(aliases):
+                assignments_for_alias = [a for a in assignments if a.target.alias == alias]
+                span = assignments_for_alias[0].target.span
+                return_items.append(ReturnItem(
+                    expression=ExpressionText(text=f"__node_identity__({alias})", span=span),
+                    alias=f"__gfql_set_identity_{alias_index}__",
+                    span=span,
+                ))
+            value_text: str
+            for assignment_index, assignment in enumerate(assignments):
+                property_value = assignment.value
+                if isinstance(property_value, ExpressionText):
+                    value_text = property_value.text
+                    value_span = property_value.span
+                elif property_value is None:
+                    value_text = "None"
+                    value_span = assignment.span
+                else:
+                    from graphistry.compute.gfql.cypher.expression_text import cypher_literal_expr_text
+                    value_text = cypher_literal_expr_text(property_value)
+                    value_span = assignment.span
+                return_items.append(ReturnItem(
+                    expression=ExpressionText(text=value_text, span=value_span),
+                    alias=f"__gfql_set_value_{assignment_index}__",
+                    span=assignment.span,
+                ))
+            synthetic_return = ReturnClause(
+                items=tuple(return_items), distinct=False, kind="return", span=query.span,
+            )
+            read_query = replace(
+                query,
+                sets=(),
+                row_sequence=(),
+                with_stages=(),
+                unwinds=(),
+                return_=synthetic_return,
+                order_by=None,
+                skip=None,
+                limit=None,
+            )
+            compile_cypher_query(read_query, params=params)
+            output_query: Optional[CypherQuery] = None
+            if query.return_ is not None and not query.return_is_synthetic:
+                if first_node_alias is not None:
+                    output_query = replace(
+                        query,
+                        sets=(),
+                        where=None,
+                        matches=tuple(
+                            replace(
+                                match,
+                                where=None,
+                                patterns=tuple(
+                                    tuple(
+                                        replace(pattern, properties=())
+                                        if isinstance(pattern, NodePattern)
+                                        and pattern.variable == first_node_alias
+                                        else pattern
+                                        for pattern in pattern_group
+                                    )
+                                    for pattern_group in match.patterns
+                                ),
+                            )
+                            for match in query.matches
+                        ),
+                    )
+                else:
+                    output_query = replace(query, sets=())
+                compile_cypher_query(output_query, params=params)
+            return CompiledCypherMutationQuery(
+                creates=(),
+                sets=query.sets, return_query=read_query, output_query=output_query,
+                set_alias_kinds=tuple(alias_kinds.items()),
+                set_start_alias=first_node_alias,
+                set_seed_identity_column=(
+                    seed_identity_column if first_node_alias is not None else None
+                ),
+            )
         if query.creates:
             from graphistry.compute.gfql.mutation import validate_create_node_reuse
 
@@ -9375,19 +9709,21 @@ def compile_cypher_query(
             for clause in query.creates:
                 seen_relationship_variables: set[str] = set()
                 clause_node_variables: set[str] = set()
-                for pattern in clause.patterns:
-                    if isinstance(pattern, NodePattern):
-                        if pattern.variable is not None and pattern.variable not in seen_node_variables:
-                            variables.append(pattern.variable)
-                            seen_node_variables.add(pattern.variable)
-                            clause_node_variables.add(pattern.variable)
+                for create_pattern in clause.patterns:
+                    if isinstance(create_pattern, NodePattern):
+                        if create_pattern.variable is not None and create_pattern.variable not in seen_node_variables:
+                            variables.append(create_pattern.variable)
+                            seen_node_variables.add(create_pattern.variable)
+                            clause_node_variables.add(create_pattern.variable)
                     else:
-                        for endpoint in (pattern.source, pattern.destination):
+                        if not isinstance(create_pattern, CreateRelationship):
+                            raise _unsupported("CREATE supports node and directed relationship patterns only", field="create", value=type(create_pattern).__name__, line=query.span.line, column=query.span.column)
+                        for endpoint in (create_pattern.source, create_pattern.destination):
                             if endpoint.variable is not None and endpoint.variable not in seen_node_variables:
                                 variables.append(endpoint.variable)
                                 seen_node_variables.add(endpoint.variable)
                                 clause_node_variables.add(endpoint.variable)
-                        for endpoint in (pattern.source, pattern.destination):
+                        for endpoint in (create_pattern.source, create_pattern.destination):
                             if (
                                 endpoint.variable is not None
                                 and endpoint.variable not in clause_node_variables
@@ -9400,9 +9736,9 @@ def compile_cypher_query(
                                     line=query.span.line,
                                     column=query.span.column,
                                 )
-                        if pattern.relationship.variable is not None and pattern.relationship.variable not in seen_relationship_variables:
-                            relationship_variables.append(pattern.relationship.variable)
-                            seen_relationship_variables.add(pattern.relationship.variable)
+                        if create_pattern.relationship.variable is not None and create_pattern.relationship.variable not in seen_relationship_variables:
+                            relationship_variables.append(create_pattern.relationship.variable)
+                            seen_relationship_variables.add(create_pattern.relationship.variable)
             if len(set(variables)) != len(variables):
                 raise _unsupported("CREATE variable is already bound", field="create", value=variables, line=query.span.line, column=query.span.column)
             if len(set(relationship_variables)) != len(relationship_variables):

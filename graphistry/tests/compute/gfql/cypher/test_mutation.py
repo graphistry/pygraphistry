@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib.util
 import os
 from typing import Any
 
@@ -23,7 +24,10 @@ ENGINES = [
     pytest.param("cudf", marks=pytest.mark.skipif(
         os.environ.get("TEST_CUDF") != "1", reason="cudf tests need TEST_CUDF=1"
     )),
-    pytest.param("polars"),
+    pytest.param("polars", marks=pytest.mark.skipif(
+        importlib.util.find_spec("polars") is None,
+        reason="polars is not installed",
+    )),
 ]
 
 
@@ -68,6 +72,49 @@ def _graph(engine: str) -> Any:
         nodes = polars.from_pandas(nodes)
         edges = polars.from_pandas(edges)
     return graphistry.nodes(nodes, "id").edges(edges, "src", "dst")
+
+
+@pytest.mark.parametrize("source_engine,target_engine", [
+    pytest.param("pandas", "polars", marks=pytest.mark.skipif(
+        importlib.util.find_spec("polars") is None,
+        reason="polars is not installed",
+    )),
+    ("polars", "pandas"),
+    pytest.param("pandas", "cudf", marks=pytest.mark.skipif(
+        os.environ.get("TEST_CUDF") != "1", reason="cudf tests need TEST_CUDF=1",
+    )),
+])
+def test_set_normalizes_target_frames_to_explicit_engine_and_retains_caller(source_engine, target_engine):
+    source = _graph(source_engine)
+    nodes, edges = source._nodes, source._edges
+    before_nodes, before_edges = _records(nodes), _records(edges)
+
+    result = source.gfql(
+        "MATCH (n:Person) SET n.score = 20 RETURN n.score AS score", engine=target_engine,
+    )
+
+    _assert_served(target_engine, result._nodes)
+    _assert_served(target_engine, result.gfql_graph._nodes)
+    _assert_served(target_engine, result.gfql_graph._edges)
+    assert _records(result._nodes) == [{"score": 20}]
+    assert sorted((row["id"], row["score"]) for row in _records(result.gfql_graph._nodes)) == [(1, 20), (2, None)]
+    assert _records(result.gfql_graph._edges) == before_edges
+    assert source._nodes is nodes and source._edges is edges
+    assert _records(nodes) == before_nodes and _records(edges) == before_edges
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_set_list_assignment_declines_before_value_hashing_without_effects(engine):
+    source = _graph(engine)
+    before_nodes, before_edges = _records(source._nodes), _records(source._edges)
+
+    with pytest.raises(GFQLValidationError) as caught:
+        source.gfql("MATCH (n:Person) SET n.values = [1, 2, 3] RETURN n", engine=engine)
+
+    assert caught.value.code == ErrorCode.E108
+    assert caught.value.context["field"] == "set"
+    assert caught.value.context["value"] == "non_scalar_value"
+    assert _records(source._nodes) == before_nodes and _records(source._edges) == before_edges
 
 
 @pytest.mark.parametrize("engine", ENGINES)
@@ -1086,6 +1133,204 @@ def test_cleanup_and_view_bind_preserve_same_execution_association(engine):
     assert clean._gfql_rows_base_graph is None and clean._gfql_start_nodes is None
 
 
+def test_set_compiles_to_node_identity_mutation() -> None:
+    parsed = parse_cypher("MATCH (n:L) SET n.x = 1, n.y = $v RETURN n")
+    compiled = compile_cypher_query(parsed, params={"v": "ok"})
+
+    assert isinstance(compiled, CompiledCypherMutationQuery)
+    assert compiled.creates == ()
+    assert compiled.set_alias_kinds == (("n", "node"),)
+    assert compiled.output_query is not None
+    assert compiled.return_query is not None
+    assert compiled.return_query.return_.items[0].alias == "__gfql_set_seed_identity__"
+    assert compiled.return_query.return_.items[1].alias == "__gfql_set_identity_0__"
+    assert [item.alias for item in compiled.return_query.return_.items[2:]] == [
+        "__gfql_set_value_0__",
+        "__gfql_set_value_1__",
+    ]
+
+
+def test_set_without_return_compiles_to_the_mutated_graph() -> None:
+    parsed = parse_cypher("MATCH (n) SET n.x = 1")
+    compiled = compile_cypher_query(parsed)
+
+    assert isinstance(compiled, CompiledCypherMutationQuery)
+    assert compiled.output_query is None
+    assert compiled.return_query is not None
+
+
+@pytest.mark.parametrize("query,target", [
+    ("MATCH (a)-[r]->(b) SET r.w = 1 RETURN a", "r"),
+    ("MATCH (n) SET m.x = 1 RETURN n", "m"),
+    ("MATCH (n) SET n.id = 1 RETURN n", "id"),
+    ("MATCH (n) SET n.labels = ['L'] RETURN n", "labels"),
+    ("MATCH (n) SET n.type = 'L' RETURN n", "type"),
+    ("MATCH (n) SET n.label__L = True RETURN n", "label__L"),
+    ("MATCH (n) SET n.__secret__ = 1 RETURN n", "__secret__"),
+])
+def test_set_declines_unfaithful_or_unbound_targets(query: str, target: str) -> None:
+    with pytest.raises(GFQLValidationError) as exc:
+        compile_cypher_query(parse_cypher(query))
+    if target == "r":
+        target = "relationship_pattern"
+    assert exc.value.context["value"] == target
+
+
+@pytest.mark.parametrize("query,expected_field", [
+    ("MATCH (n) CREATE (m:L) SET n.x = 1", "create"),
+    ("MATCH (n) WHERE n.id = 1 MATCH (m) WHERE m.id = 2 SET n.score = 20", "set"),
+    ("MATCH (n), (m) SET n.score = 20", "set"),
+    ("MATCH (n)-[r]->(m) SET n.score = 20", "set"),
+    ("MATCH (n) UNWIND [1] AS x SET n.x = x", "set"),
+    ("MATCH (n) WITH n AS m SET m.x = 1 RETURN m", "set"),
+    ("MATCH (n) SET n.score = null RETURN n", "set"),
+    ("MATCH (n) SET n.score = 20 RETURN n LIMIT 1", "set"),
+    ("MATCH (n) SET n.score = 20 RETURN n SKIP 1", "set"),
+    ("MATCH (n) SET n.score = 20 RETURN sum(n.score) AS total", "set"),
+])
+def test_set_declines_unsupported_mixed_programs(query: str, expected_field: str) -> None:
+    with pytest.raises(GFQLValidationError) as exc:
+        compile_cypher_query(parse_cypher(query))
+    assert exc.value.code == ErrorCode.E108
+    assert exc.value.context["field"] == expected_field
+
+
+def test_set_declines_optional_match() -> None:
+    with pytest.raises(GFQLValidationError) as exc:
+        compile_cypher_query(parse_cypher("MATCH (n) OPTIONAL MATCH (m) SET n.x = 1"))
+    assert exc.value.code == ErrorCode.E108
+    assert exc.value.context["field"] == "set"
+    assert exc.value.context["value"] == "repeated_match"
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_set_updates_literal_expression_and_multiple_properties(engine: str) -> None:
+    source = _graph(engine)
+    result = source.gfql(
+        "MATCH (n) WHERE n.id = 2 SET n.score = n.id * 10, n.name = 'two' RETURN n.id, n.score, n.name",
+        engine=engine,
+        language="cypher",
+    )
+
+    assert _records(result._nodes) == [{"n.id": 2, "n.score": 20, "n.name": "two"}]
+    assert result.gfql_graph is not None
+    assert len(result.gfql_graph._nodes) == 2
+    updated_graph = {row["id"]: row["score"] for row in _records(result.gfql_graph._nodes)}
+    assert updated_graph == {1: None, 2: 20}
+    _assert_served(engine, result._nodes)
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_set_without_return_preserves_caller(engine: str) -> None:
+    source = _graph(engine)
+    before = _records(source._nodes)
+    result = source.gfql("MATCH (n) WHERE n.id = 2 SET n.score = 7", engine=engine)
+
+    updated = {row["id"]: row["score"] for row in _records(result._nodes)}
+    assert updated == {1: None, 2: 7}
+    assert _records(source._nodes) == before
+    _assert_served(engine, result._nodes)
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_set_detects_conflicting_updates_for_the_same_property(engine: str) -> None:
+    source = _graph(engine)
+    before = _records(source._nodes)
+    from graphistry.compute.exceptions import ErrorCode
+    with pytest.raises(GFQLValidationError) as exc:
+        source.gfql("MATCH (n) WHERE n.id = 2 SET n.x = 1 SET n.x = 2", engine=engine)
+
+    assert exc.value.code == ErrorCode.E105
+    assert exc.value.context["value"] == "conflicting_updates"
+    assert _records(source._nodes) == before
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_set_return_preserves_changed_predicate_binding(engine: str) -> None:
+    source = graphistry.nodes(
+        _foundation_frame(engine, {"id": [1, 2], "score": [5, 100]}), "id"
+    )
+    before = _records(source._nodes)
+    result = source.gfql(
+        "MATCH (n) WHERE n.score < 10 SET n.score = 100 RETURN n.id, n.score",
+        engine=engine,
+        language="cypher",
+    )
+    assert _records(result._nodes) == [{"n.id": 1, "n.score": 100}]
+    assert _records(source._nodes) == before
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_set_return_preserves_original_predicate_binding(engine: str) -> None:
+    source = graphistry.nodes(
+        _foundation_frame(engine, {"id": [1, 2], "name": ["Andres", "Andres"]}),
+        "id",
+    )
+    result = source.gfql(
+        "MATCH (n) WHERE n.name = 'Andres' SET n.name = 'Michael' RETURN n.id, n.name",
+        engine=engine,
+        language="cypher",
+    )
+
+    assert _records(result._nodes) == [
+        {"n.id": 1, "n.name": "Michael"},
+        {"n.id": 2, "n.name": "Michael"},
+    ]
+    assert result.gfql_graph is not None
+    updated = {row["id"]: row["name"] for row in _records(result.gfql_graph._nodes)}
+    assert updated == {1: "Michael", 2: "Michael"}
+    _assert_served(engine, result._nodes)
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_set_return_preserves_pattern_property_binding(engine: str) -> None:
+    source = graphistry.nodes(
+        _foundation_frame(engine, {"id": [1, 2], "name": ["Andres", "Taylor"]}),
+        "id",
+    )
+    result = source.gfql(
+        "MATCH (n {name: 'Andres'}) SET n.name = 'Michael' RETURN n.id, n.name",
+        engine=engine,
+        language="cypher",
+    )
+
+    assert _records(result._nodes) == [{"n.id": 1, "n.name": "Michael"}]
+    updated = {row["id"]: row["name"] for row in _records(result.gfql_graph._nodes)}
+    assert updated == {1: "Michael", 2: "Taylor"}
+    _assert_served(engine, result._nodes)
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_set_preserves_internal_marker_columns(engine: str) -> None:
+    marker_frame = _foundation_frame(
+        engine,
+        {
+            "id": [1, 2],
+            "score": [5, 100],
+            "__gfql_set_new_score__": ["new", "old"],
+            "__gfql_set_matched_score__": [False, True],
+        },
+    )
+    source = graphistry.nodes(marker_frame, "id")
+    before = _records(source._nodes)
+    result = source.gfql(
+        "MATCH (n) WHERE n.score = 5 SET n.score = 10 RETURN n.id, n.score",
+        engine=engine,
+        language="cypher",
+    )
+
+    assert _records(result._nodes) == [{"n.id": 1, "n.score": 10}]
+    updated = {
+        row["id"]: row for row in _records(result.gfql_graph._nodes)
+    }
+    assert updated[1]["score"] == 10
+    assert updated[1]["__gfql_set_new_score__"] == "new"
+    assert updated[1]["__gfql_set_matched_score__"] is False
+    assert updated[2]["__gfql_set_new_score__"] == "old"
+    assert updated[2]["__gfql_set_matched_score__"] is True
+    assert _records(source._nodes) == before
+
+
 @pytest.mark.parametrize("value",[[1],{"a":1},float("nan")],ids=["list","map","nan"])
 @pytest.mark.parametrize("mode",["validate_only","execute","execute_validate"])
 def test_known_unsupported_property_parameters_decline_consistently(value,mode):
@@ -1110,3 +1355,45 @@ def test_empty_return_retains_updated_graph_same_execution(engine):
     assert len(graph._nodes)==3 and graph.gfql_graph is graph
     assert len(graph.gfql("CREATE ()",engine=engine)._nodes)==4
     assert _records(source._nodes)==[{"id":1},{"id":2}]
+
+
+@pytest.mark.parametrize("engine",ENGINES)
+def test_create_declines_old_legacy_type_with_new_canonical_label_and_source_retained(engine):
+    source=graphistry.nodes(_foundation_frame(engine,{"id":["old"],"type":["Old"]}),"id")
+    with pytest.raises(GFQLValidationError,match="legacy type labels"):
+        source.gfql("CREATE (:New)",engine=engine)
+    assert _records(source._nodes)==[{"id":"old","type":"Old"}]
+
+
+@pytest.mark.parametrize("engine",ENGINES)
+def test_create_declines_same_legacy_and_canonical_label_and_source_retained(engine):
+    source=graphistry.nodes(_foundation_frame(engine,{"id":["old"],"type":["Shared"]}),"id")
+    with pytest.raises(GFQLValidationError,match="legacy type labels"):
+        source.gfql("CREATE (:Shared)",engine=engine)
+    assert _records(source._nodes)==[{"id":"old","type":"Shared"}]
+
+
+@pytest.mark.parametrize("engine",ENGINES)
+def test_create_declines_any_nonnull_legacy_type_with_new_canonical_label_and_source_retained(engine):
+    source=graphistry.nodes(_foundation_frame(engine,{"id":["old","new"],"type":["Old",None]}),"id")
+    with pytest.raises(GFQLValidationError) as exc:
+        source.gfql("CREATE (:New)",engine=engine)
+    from graphistry.compute.exceptions import ErrorCode
+    assert exc.value.code==ErrorCode.E108
+    assert exc.value.context["field"]=="create"
+    assert exc.value.context["value"]==["New"]
+    assert _records(source._nodes)==[{"id":"old","type":"Old"},{"id":"new","type":None}]
+
+
+def test_parse_declines_standalone_create_combined_with_set():
+    with pytest.raises(GFQLValidationError, match="CREATE and SET"):
+        parse_cypher("CREATE () SET n.x = 1")
+
+
+@pytest.mark.parametrize("engine",ENGINES)
+def test_create_admits_all_null_legacy_type_with_new_canonical_label(engine):
+    source=graphistry.nodes(_foundation_frame(engine,{"id":["old"],"type":[None]}),"id")
+    result=source.gfql("CREATE (:New)",engine=engine)
+    assert len(result._nodes)==2
+    assert [row["label__New"] for row in _records(result._nodes)]==[False,True]
+    assert _records(source._nodes)==[{"id":"old","type":None}]

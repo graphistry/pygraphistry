@@ -96,6 +96,11 @@ DIFFERENTIAL_CORPUS = [
     "CREATE (a:L {name: 'x'}) RETURN a",
     "CREATE (a:L), (b:L)",
     "CREATE (a:L)-[r:R {since: 1}]->(b:L)",
+    # SET mutation clauses
+    "MATCH (n) SET n.x = 1 RETURN n",
+    "MATCH (n) SET n.x = 1, n.y = 'a'",
+    "MATCH (n) SET n.x = n.y + 1, n.z = $v RETURN n",
+    "MATCH (a)-[r]->(b) SET a.x = 1 RETURN a",
     # WITH pipelines
     "MATCH (n) WITH n.city AS city, count(n) AS c WHERE c > 1 RETURN city, c",
     "MATCH (n) WITH n ORDER BY n.x LIMIT 3 RETURN n.id",

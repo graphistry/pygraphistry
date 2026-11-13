@@ -120,6 +120,21 @@ class CreateRelationship:
     destination: NodePattern
     span: SourceSpan
 
+
+@dataclass(frozen=True)
+class SetProperty:
+    target: PropertyRef
+    value: CypherPropertyValue
+    span: SourceSpan
+
+
+@dataclass(frozen=True)
+class SetClause:
+    """A standalone SET clause of scalar property assignments."""
+
+    assignments: Tuple[SetProperty, ...]
+    span: SourceSpan
+
 @dataclass(frozen=True)
 class UnwindClause:
     expression: ExpressionText
@@ -346,6 +361,7 @@ class CypherQuery:
     reentry_wheres: Tuple[Optional[WhereClause], ...] = ()
     reentry_unwinds: Tuple[UnwindClause, ...] = ()
     creates: Tuple[CreateClause, ...] = ()
+    sets: Tuple[SetClause, ...] = ()
     graph_bindings: Tuple[GraphBinding, ...] = ()
     use: Optional[UseClause] = None
     return_is_reentry_carry: bool = False

@@ -2919,8 +2919,60 @@ def _gfql_with_strictness(
             if isinstance(compiled_query, CompiledCypherGraphQuery):
                 return _execute_graph_query(self, compiled_query, engine=engine, policy=expanded_policy, context=context)
             if isinstance(compiled_query, CompiledCypherMutationQuery):
+                if compiled_query.sets:
+                    from .gfql.cypher.lowering import compile_cypher_query
+                    from .gfql.mutation import execute_set_properties
+
+                    if compiled_query.return_query is None:
+                        raise TypeError("SET requires a compiled identity projection")
+                    compiled_return = compile_cypher_query(compiled_query.return_query, params=params)
+                    if not isinstance(compiled_return, CompiledCypherQuery):
+                        raise TypeError("SET identity projection must compile to a read query")
+                    matched_rows = _execute_compiled_query(
+                        dispatch_self, compiled_query=compiled_return, engine=engine,
+                        policy=expanded_policy, context=context,
+                    )
+                    mutated = execute_set_properties(
+                        dispatch_self, matched_rows, compiled_query.sets,
+                        alias_kinds=compiled_query.set_alias_kinds,
+                        engine=EngineAbstract(engine) if isinstance(engine, str) else engine,
+                    )
+                    if compiled_query.output_query is not None:
+                        compiled_output = compile_cypher_query(
+                            compiled_query.output_query, params=params,
+                        )
+                        if not isinstance(compiled_output, CompiledCypherQuery):
+                            raise TypeError("SET output must compile to a read projection")
+                        start_nodes: Optional[DataFrameT] = None
+                        if compiled_query.set_seed_identity_column is not None:
+                            seed_alias = compiled_query.set_start_alias
+                            assert seed_alias is not None and mutated._node is not None
+                            matched_frame = matched_rows._nodes
+                            assert matched_frame is not None
+                            seed_column = compiled_query.set_seed_identity_column
+                            mutated_frame = mutated._nodes
+                            assert mutated_frame is not None
+                            if is_polars_df(matched_frame):
+                                import polars as pl
+                                assert isinstance(matched_frame, pl.DataFrame)
+                                assert isinstance(mutated_frame, pl.DataFrame)
+                                start_nodes = mutated_frame.filter(
+                                    pl.col(mutated._node).is_in(matched_frame[seed_column]),
+                                )
+                            else:
+                                start_nodes = mutated_frame[
+                                    mutated_frame[mutated._node].isin(matched_frame[seed_column])
+                                ]
+                        result = _execute_compiled_query(
+                            mutated, compiled_query=compiled_output, engine=engine,
+                            policy=expanded_policy, context=context,
+                            start_nodes=start_nodes,
+                        )
+                        result._gfql_graph = mutated
+                        return result
+                    return mutated
                 mutated, created_bindings = execute_create_nodes(
-                    self, compiled_query.creates,
+                    dispatch_self, compiled_query.creates,
                     engine=EngineAbstract(engine) if isinstance(engine, str) else engine,
                     params=params,
                 )
@@ -2980,13 +3032,14 @@ def _gfql_with_strictness(
         try:
             if compiled_query is not None and not isinstance(query, Chain):
                 logger.debug('GFQL executing compiled string program')
-                return _execute_compiled_query(
+                result = _execute_compiled_query(
                     self,
                     compiled_query=compiled_query,
                     engine=engine,
                     policy=expanded_policy,
                     context=context,
                 )
+                return result
             if isinstance(query, ASTLet):
                 logger.debug('GFQL executing as DAG')
                 return chain_let_impl(dispatch_self, query, engine, output, policy=expanded_policy, context=context)
@@ -2999,13 +3052,14 @@ def _gfql_with_strictness(
                         raise ValueError("where provided for Chain that already includes where")
                     query = Chain(query.chain, where=where_param)
                 if compiled_query is not None:
-                    return _execute_compiled_query_with_reentry(
+                    result = _execute_compiled_query_with_reentry(
                         self,
                         compiled_query=compiled_query,
                         engine=engine,
                         policy=expanded_policy,
                         context=context,
                     )
+                    return result
                 return _chain_dispatch(dispatch_self, query, engine, expanded_policy, context)
             elif isinstance(query, ASTObject):
                 logger.debug('GFQL executing single ASTObject as chain')

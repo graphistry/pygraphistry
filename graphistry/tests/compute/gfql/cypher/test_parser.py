@@ -111,6 +111,13 @@ def test_parse_standalone_create_reverse_relationship() -> None:
     assert created.relationship.direction == "reverse"
 
 
+def test_parse_standalone_create_anonymous_nodes() -> None:
+    parsed = _parse_query("CREATE (:L), (x:L)")
+
+    assert len(parsed.creates) == 1
+    assert [pattern.labels for pattern in parsed.creates[0].patterns] == [("L",), ("L",)]
+
+
 @pytest.mark.parametrize(
     "query",
     [
@@ -123,6 +130,62 @@ def test_parse_standalone_create_reverse_relationship() -> None:
     ],
 )
 def test_parse_rejects_unsupported_create_shapes(query: str) -> None:
+    with pytest.raises(GFQLValidationError):
+        parse_cypher(query)
+def test_parse_empty_property_map_does_not_replace_labels() -> None:
+    parsed = _parse_query("MATCH (n:Foo {}) RETURN n")
+
+    node = parsed.match.pattern[0]
+    assert node.variable == "n"
+    assert node.labels == ("Foo",)
+    assert node.properties == ()
+
+
+def test_parse_empty_relationship_property_map_does_not_replace_types() -> None:
+    parsed = _parse_query("MATCH ()-[r:R {}]->() RETURN r")
+
+    relationship = parsed.match.pattern[1]
+    assert relationship.variable == "r"
+    assert relationship.types == ("R",)
+    assert relationship.properties == ()
+
+
+def test_parse_set_clause() -> None:
+    parsed = _parse_query("MATCH (n:L) SET n.x = 1, n.y = $v RETURN n")
+
+    assert len(parsed.sets) == 1
+    assignments = parsed.sets[0].assignments
+    assert len(assignments) == 2
+    assert assignments[0].target.alias == "n"
+    assert assignments[0].target.property == "x"
+    assert assignments[1].target.property == "y"
+
+
+def test_parse_set_expression_value() -> None:
+    parsed = _parse_query("MATCH (a)-[r]->(b) SET a.x = b.y + 1 RETURN a")
+
+    assignment = parsed.sets[0].assignments[0]
+    assert assignment.target.alias == "a"
+    assert assignment.target.property == "x"
+    assert assignment.value.text == "b.y + 1"
+
+
+def test_parse_set_without_return_is_a_mutation_query() -> None:
+    parsed = _parse_query("MATCH (n) SET n.x = 1")
+
+    assert len(parsed.sets) == 1
+    assert parsed.return_is_synthetic is True
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
+        "MATCH (n) WITH n AS m SET m.x = 1 RETURN m",
+        "MATCH (n) CREATE (m:L) SET n.x = 1",
+        "MATCH (n) UNWIND [1] AS x SET n.x = x",
+    ],
+)
+def test_parse_rejects_unsupported_set_positions(query: str) -> None:
     with pytest.raises(GFQLValidationError):
         parse_cypher(query)
 
