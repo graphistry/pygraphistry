@@ -9,8 +9,7 @@
    :align: center
 
 **GFQL (GraphFrame Query Language)** queries the dataframes in your Python workflow
-without an external graph database. With ``engine='polars'``, GFQL runs dataframe
-operations in Polars' Rust engine on CPU. GFQL also supports GPU execution.
+without an external graph database. With ``engine='polars'``, GFQL runs vectorized dataframe operations in Rust on CPU. Use ``engine='polars-gpu'`` for GPU acceleration.
 
 In this guide, we'll explore the basics of GFQL in just 10 minutes. You'll learn how to:
 

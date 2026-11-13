@@ -23,7 +23,7 @@ PyGraphistry is an open source Python library for data scientists and developers
 
 * [**Python dataframe-native graph processing:**](https://pygraphistry.readthedocs.io/en/latest/10min.html) Quickly ingest & prepare data in many formats, shapes, and scales as graphs. Use tools like Pandas, Spark, [RAPIDS (GPU)](https://www.rapids.ai), and [Apache Arrow](https://arrow.apache.org/).
 
-* [**Query graphs with GFQL:**](https://pygraphistry.readthedocs.io/en/latest/gfql/index.html) Query relationships in dataframes with Cypher syntax or Python chains. With `engine='polars'`, GFQL runs dataframe operations in Polars' Rust engine on CPU. GFQL also supports GPU execution. Run queries locally through `g.gfql(...)` or remotely through `g.gfql_remote([...])`.
+* [**Query graphs with GFQL:**](https://pygraphistry.readthedocs.io/en/latest/gfql/index.html) Query relationships in dataframes with Cypher syntax or Python chains. With `engine='polars'`, GFQL runs vectorized dataframe operations in Rust on CPU. Use `engine='polars-gpu'` for GPU acceleration. Run queries locally through `g.gfql(...)` or remotely through `g.gfql_remote([...])`.
 
 * [**Integrations:**](https://pygraphistry.readthedocs.io/en/latest/plugins.html) Connect to graph databases, data platforms, Python tools, and more.
 

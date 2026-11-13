@@ -8,8 +8,8 @@ Overview of GFQL
    :align: center
 
 GFQL runs Cypher queries directly on dataframes without a graph database. With
-``engine='polars'``, GFQL runs dataframe operations in Polars' Rust engine on CPU.
-GFQL also supports GPU execution.
+``engine='polars'``, GFQL runs vectorized dataframe operations in Rust on CPU.
+Use ``engine='polars-gpu'`` for GPU acceleration.
 
 A query compiles to batched dataframe operations on pandas, Polars, or NVIDIA cuDF.
 This brings columnar, vectorized execution to graph pattern matching.
