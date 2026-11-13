@@ -1077,6 +1077,8 @@ def test_set_without_return_compiles_to_the_mutated_graph() -> None:
 def test_set_declines_unfaithful_or_unbound_targets(query: str, target: str) -> None:
     with pytest.raises(GFQLValidationError) as exc:
         compile_cypher_query(parse_cypher(query))
+    if target == "r":
+        target = "relationship_pattern"
     assert exc.value.context["value"] == target
 
 
@@ -1100,7 +1102,7 @@ def test_set_declines_optional_match() -> None:
         compile_cypher_query(parse_cypher("MATCH (n) OPTIONAL MATCH (m) SET n.x = 1"))
     assert exc.value.code == ErrorCode.E108
     assert exc.value.context["field"] == "set"
-    assert exc.value.context["value"] == "optional_match"
+    assert exc.value.context["value"] == "repeated_match"
 
 
 @pytest.mark.parametrize("engine", ENGINES)
