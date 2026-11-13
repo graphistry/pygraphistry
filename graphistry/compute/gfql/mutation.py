@@ -521,10 +521,14 @@ def execute_create_nodes(
         if is_polars_df(new_nodes):
             import polars as pl
 
+            polars_new_nodes = new_nodes
             for label_column in sorted(label_columns):
-                new_nodes = new_nodes.with_columns(
+                polars_new_nodes = polars_new_nodes.with_columns(
                     pl.col(label_column).fill_null(False).cast(pl.Boolean)
                 )
+            result = base_graph.nodes(polars_new_nodes, node_key)
+            result._gfql_mutation_identity = True
+            return result, bindings
         else:
             for label_column in sorted(label_columns):
                 new_nodes = new_nodes.assign(
