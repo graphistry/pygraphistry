@@ -373,7 +373,7 @@ def _validate_legacy_label_transition(
         return
     if label_flag_columns(nodes.columns):
         return
-    created_labels = set()
+    created_labels: set[Optional[str]] = set()
     for clause in creates:
         for pattern in clause.patterns:
             node_patterns = (
