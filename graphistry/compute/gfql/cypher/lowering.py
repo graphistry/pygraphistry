@@ -9560,16 +9560,16 @@ def compile_cypher_query(
                 ))
             value_text: str
             for assignment_index, assignment in enumerate(assignments):
-                value = assignment.value
-                if isinstance(value, ExpressionText):
-                    value_text = value.text
-                    value_span = value.span
-                elif value is None:
+                property_value = assignment.value
+                if isinstance(property_value, ExpressionText):
+                    value_text = property_value.text
+                    value_span = property_value.span
+                elif property_value is None:
                     value_text = "None"
                     value_span = assignment.span
                 else:
                     from graphistry.compute.gfql.cypher.expression_text import cypher_literal_expr_text
-                    value_text = cypher_literal_expr_text(value)
+                    value_text = cypher_literal_expr_text(property_value)
                     value_span = assignment.span
                 return_items.append(ReturnItem(
                     expression=ExpressionText(text=value_text, span=value_span),
