@@ -4,7 +4,7 @@ from typing import Any, Iterable, List, Literal, Optional, Sequence, Tuple, cast
 
 import pandas as pd
 
-from graphistry.compute.dataframe_utils import df_cons as template_df_cons
+from graphistry.compute.dataframe_utils import df_cons as template_df_cons, is_cudf_obj
 from graphistry.Engine import is_polars_df
 from graphistry.compute.gfql.series_str_compat import series_str_contains, series_str_extract, series_str_match
 from graphistry.compute.gfql.temporal.constructors import (
@@ -17,6 +17,10 @@ from graphistry.compute.gfql.temporal.constructors import (
 from graphistry.compute.gfql.same_path_types import EDGE_IDENTITY_COLUMN
 from graphistry.compute.typing import DataFrameT, IndexT, SeriesT
 
+
+# Mutation metadata is internal and collision-checked before construction.
+MUTATION_NODE_ID = "__graphistry_node_identity__"
+ID_PROPERTY_PRESENT = "__gfql_id_property_present__"
 
 #: Node columns that are engine structure, not user properties.
 NODE_INTERNAL_COLS = frozenset({"id", "labels", "type"})
@@ -61,6 +65,8 @@ def _fresh_col_name(columns: Sequence[object] | IndexT, prefix: str) -> str:
 def _include_numeric_id_as_property(df: DataFrameT) -> bool:
     if "id" not in df.columns:
         return False
+    if ID_PROPERTY_PRESENT in df.columns and MUTATION_NODE_ID in df.columns:
+        return True
     try:
         # polars frames: pd.api.types.is_numeric_dtype doesn't understand polars
         # dtypes; use the dtype's own numeric check so structured whole-entity
@@ -72,7 +78,16 @@ def _include_numeric_id_as_property(df: DataFrameT) -> bool:
         return False
 
 
-def _list_series_from_python_rows(df: DataFrameT, col_name: str, row_count: int) -> SeriesT:
+def _list_series_from_python_rows(
+    df: DataFrameT,
+    col_name: str,
+    row_count: int,
+    *,
+    prototype: Optional[SeriesT] = None,
+) -> SeriesT:
+    if prototype is not None:
+        dtype = object if isinstance(prototype, pd.Series) else prototype.dtype
+        return type(prototype)([[] for _ in range(row_count)], dtype=dtype)
     return cast(SeriesT, template_df_cons(df, {col_name: [[] for _ in range(row_count)]})[col_name])
 
 
@@ -88,6 +103,14 @@ def node_property_columns(df: DataFrameT, alias_col: str, excluded: Sequence[str
         and (str(col) not in NODE_INTERNAL_COLS or (include_id and str(col) == "id"))
     ]
 
+
+
+def property_present_mask(df: DataFrameT, column: str) -> SeriesT:
+    """Current property membership, including the legacy string-id exception."""
+    mask = ~_is_null_mask(df[column])
+    if column == "id" and ID_PROPERTY_PRESENT in df.columns and MUTATION_NODE_ID in df.columns:
+        mask = mask & df[ID_PROPERTY_PRESENT].fillna(False)
+    return mask
 
 def edge_property_columns(df: DataFrameT, alias_col: str, excluded: Sequence[str]) -> list[str]:
     return [
@@ -393,7 +416,7 @@ def append_property_segments(
     has_props = _false_mask(df, alias_col)
     for col in property_columns:
         series = cast(SeriesT, df[col])
-        include = cast(SeriesT, ~_is_null_mask(series))
+        include = property_present_mask(df, col)
         value_text = render_scalar_value_text(df, alias_col, series)
         segment = _const_text(df, alias_col, f"{col}: ") + value_text
         prefix = cast(SeriesT, _const_text(df, alias_col, ", ").where(has_props & include, ""))
@@ -534,6 +557,8 @@ def entity_keys_series(
     present_col = _fresh_col_name(df.columns, "__gfql_entity_key_present__")
 
     presence = cast(DataFrameT, df[property_cols].notna().copy())
+    if "id" in property_cols:
+        presence["id"] = property_present_mask(df, "id")
     presence[row_col] = range(len(df))
 
     melted = cast(
@@ -552,11 +577,11 @@ def entity_keys_series(
     )
 
     base_rows = cast(DataFrameT, template_df_cons(df, {row_col: range(len(df))}))
-    merged = cast(DataFrameT, base_rows.merge(grouped, on=row_col, how="left", sort=False))
+    merged = cast(DataFrameT, base_rows.merge(grouped, on=row_col, how="left", sort=False).sort_values(row_col))
     out = cast(SeriesT, merged[key_col])
     missing_mask = cast(SeriesT, out.isna())
     if bool(missing_mask.any()):
         fill_col = _fresh_col_name(df.columns, "__gfql_entity_key_fill__")
-        filled = _list_series_from_python_rows(df, fill_col, len(merged))
+        filled = _list_series_from_python_rows(df, fill_col, len(merged), prototype=out)
         out = cast(SeriesT, out.where(~missing_mask, filled))
     return out.reset_index(drop=True)

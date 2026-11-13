@@ -75,6 +75,7 @@ from .varlen_rows import (
 from .lowering_context import (
     SCHEMA as _SCHEMA,
     NODE_ID as _NODE_ID,
+    NODE_ALIASES as _NODE_ALIASES,
     COLUMNS_NAN_FREE as _COLUMNS_NAN_FREE,
 )
 from graphistry.compute.gfql.same_path_types import NODE_IDENTITY_COLUMN as _NODE_ID_TOKEN
@@ -180,20 +181,24 @@ def _lower_function(node: FunctionCall, columns: Sequence[str]) -> Optional[pl.E
                 # Bare binding rows may store the graph's native ID under the alias.
                 return pl.col(alias.name)
         return None
-    if name == "__node_entity__" and node.args:
+    if (name == "__node_entity__" and node.args) or (name == "labels" and len(node.args) == 1):
         from graphistry.compute.gfql.expr_parser import Identifier, Literal
         alias_node = node.args[0]
         if not isinstance(alias_node, Identifier) or alias_node.name not in columns:
             return None
+        if name == "labels" and not _is_node_binding(alias_node.name, columns):
+            return None
         schema = dict(_SCHEMA.get())
         if not schema:
             return None
-        from .projection import _alias_view_polars, _native_node_entity_text_expr
+        from .projection import _alias_view_polars, _native_node_entity_text_expr, _native_node_labels_text_expr
         view = _alias_view_polars(
             pl.DataFrame(schema=schema), alias_node.name, _NODE_ID.get()
         )
         if view is None:
             return None
+        if name == "labels":
+            return _native_node_labels_text_expr(view)
         excluded = []
         for arg in node.args[1:]:
             if isinstance(arg, Identifier):
@@ -697,12 +702,37 @@ def _lower_in(left: pl.Expr, items: Sequence[ExprNode], columns: Sequence[str]) 
     return pl.when(left.is_null()).then(pl.lit(None, dtype=pl.Boolean)).otherwise(member_expr.is_in(values))
 
 
+def _is_node_binding(alias: str, columns: Sequence[str]) -> bool:
+    """Require both declared node provenance and a surviving physical identity shape."""
+    import polars as pl
+
+    node_id = _NODE_ID.get()
+    return alias in _NODE_ALIASES.get() and alias in columns and node_id is not None and (
+        (_SCHEMA.get().get(alias) == pl.Boolean and node_id in columns)
+        or f"{alias}.{node_id}" in columns
+    )
+
+
+def _constant_string_key(node: ExprNode) -> Optional[str]:
+    """Resolve only schema-independent string keys; row-varying keys still defer."""
+    from graphistry.compute.gfql.expr_parser import BinaryOp, Literal
+
+    if isinstance(node, Literal) and isinstance(node.value, str):
+        return node.value
+    if isinstance(node, BinaryOp) and node.op == "+":
+        left = _constant_string_key(node.left)
+        right = _constant_string_key(node.right)
+        if left is not None and right is not None:
+            return left + right
+    return None
+
+
 def lower_expr(node: ExprNode, columns: Sequence[str]) -> Optional[pl.Expr]:
     """Lower a parsed cypher ExprNode to a polars expression, or None to defer."""
     import polars as pl
     from graphistry.compute.gfql.expr_parser import (
         Identifier, Literal, BinaryOp, UnaryOp, IsNullOp, PropertyAccessExpr, FunctionCall, CaseWhen,
-        ListLiteral,
+        ListLiteral, SubscriptExpr,
     )
 
     if isinstance(node, Literal):
@@ -730,6 +760,13 @@ def lower_expr(node: ExprNode, columns: Sequence[str]) -> Optional[pl.Expr]:
             node_id = _NODE_ID.get()
             if node_id is not None and node_id in columns:
                 return pl.col(node_id)
+        return None
+    if isinstance(node, SubscriptExpr) and isinstance(node.value, Identifier):
+        if not _is_node_binding(node.value.name, columns):
+            return None
+        key = _constant_string_key(node.key)
+        if key is not None:
+            return lower_expr(PropertyAccessExpr(node.value, key), columns)
         return None
     if isinstance(node, PropertyAccessExpr):
         if isinstance(node.value, Identifier):
@@ -1278,22 +1315,24 @@ _LowerT = TypeVar("_LowerT")
 
 
 def _lower_with_schema(table: "pl.DataFrame", fn: Callable[[], _LowerT],
-                       node_id: Optional[str] = None) -> _LowerT:
+                       node_id: Optional[str] = None, node_aliases: Sequence[str] = ()) -> _LowerT:
     """Run a lowering callable with the table schema published to ``_SCHEMA`` (float-operand
     inference for the NaN guard) and the graph node-id column published to ``_NODE_ID`` (bare
     ``__gfql_node_id__`` identity-sentinel resolution)."""
-    return _lower_with_schema_map(dict(table.schema), fn, node_id=node_id)
+    return _lower_with_schema_map(dict(table.schema), fn, node_id=node_id, node_aliases=node_aliases)
 
 
 def _lower_with_schema_map(schema: "Mapping[str, pl.DataType]", fn: Callable[[], _LowerT],
-                           node_id: Optional[str] = None) -> _LowerT:
+                           node_id: Optional[str] = None, node_aliases: Sequence[str] = ()) -> _LowerT:
     """`_lower_with_schema` for callers holding a schema mapping rather than an eager frame
     (LazyFrame call sites resolve via ``collect_schema`` — no ``.schema`` warning/collect)."""
     schema_token = _SCHEMA.set(dict(schema))
     node_id_token = _NODE_ID.set(node_id)
+    node_aliases_token = _NODE_ALIASES.set(frozenset(node_aliases))
     try:
         return fn()
     finally:
+        _NODE_ALIASES.reset(node_aliases_token)
         _SCHEMA.reset(schema_token)
         _NODE_ID.reset(node_id_token)
 
@@ -1472,11 +1511,12 @@ def _project_polars(g: Plottable, items: Sequence[SelectItem], extend: bool) -> 
     """Shared body of ``select_polars`` / ``with_columns_polars``; None if any item isn't
     lowerable (honest NIE, no pandas bridge)."""
     table = _active_table(g)
-    exprs = _lower_with_schema(table, lambda: lower_select_items(items, list(table.columns)), node_id=g._node)
+    node_aliases = tuple(g._gfql_rows_node_aliases or ())
+    exprs = _lower_with_schema(table, lambda: lower_select_items(items, list(table.columns)), node_id=g._node, node_aliases=node_aliases)
     if exprs is None:
         return None
     out = None if extend else _lower_with_schema(
-        table, lambda: _project_eager_columns(table, items, exprs), node_id=g._node,
+        table, lambda: _project_eager_columns(table, items, exprs), node_id=g._node, node_aliases=node_aliases,
     )
     if out is None:
         out = table.with_columns(exprs) if extend else _project_preserving_height(table, exprs)

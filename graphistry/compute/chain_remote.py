@@ -14,7 +14,7 @@ from graphistry.Plottable import Plottable
 from graphistry.client_session import DatasetInfo
 from graphistry.compute.ast import ASTLet, ASTObject
 from graphistry.compute.chain import Chain
-from graphistry.compute.gfql.cypher.lowering import compile_cypher_query
+from graphistry.compute.gfql.cypher.lowering import CompiledCypherMutationQuery, compile_cypher_query
 from graphistry.compute.gfql.cypher.parser import parse_cypher
 from graphistry.compute.gfql.strictness import (
     DEFAULT_STRICT_LEVEL, StrictInput, resolve_strict_level, schema_declared_names, strictness_scope)
@@ -224,6 +224,14 @@ def chain_remote_generic(
         # Cypher string: compile locally, serialize result
         parsed = parse_cypher(chain)
         compiled = compile_cypher_query(parsed, params=params)
+        if isinstance(compiled, CompiledCypherMutationQuery):
+            raise GFQLValidationError(
+                ErrorCode.E108,
+                "Cypher mutations are supported only by local execution",
+                field="query", value="mutation",
+                suggestion="Execute this program with g.gfql() on the local graph.",
+                language="cypher",
+            )
         if _is_compiled_union_query_shape(compiled):
             raise ValueError(
                 "UNION queries are not yet supported for remote execution via gfql_remote(). "

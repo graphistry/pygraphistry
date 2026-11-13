@@ -9,8 +9,10 @@ from graphistry.Plottable import Plottable
 from graphistry.compute.ast import ASTLet, ASTObject, ASTNode, ASTEdge, ASTCall, ASTRef, from_json
 from graphistry.compute.chain import Chain
 from graphistry.compute.exceptions import ErrorCode, GFQLSyntaxError, GFQLValidationError
+from graphistry.compute.gfql.cypher.ast import CypherQuery
 from graphistry.compute.gfql.cypher.lowering import (
     CompiledCypherGraphQuery,
+    CompiledCypherMutationQuery,
     CompiledCypherQuery,
     CompiledCypherUnionQuery,
     compile_cypher_query,
@@ -153,6 +155,18 @@ def _validate_cypher(
     schema: bool = True,
 ) -> Dict[str, Any]:
     parsed = parse_cypher(query)
+    if isinstance(parsed, CypherQuery) and parsed.creates:
+        from graphistry.compute.gfql.mutation import validate_create_parameters
+        compiled = compile_cypher_query(parsed, params=params)
+        assert isinstance(compiled, CompiledCypherMutationQuery)
+        validate_create_parameters(compiled.creates, params)
+        return {
+            "ok": True,
+            "query_type": "mutation",
+            "language": "cypher",
+            "diagnostics": [],
+            "compiled_kind": "mutation",
+        }
     level = resolve_strict_level(g, strict=strict)
     declared = schema_declared_names(g)
     can_judge_names = schema or declared is not None  # schema=False holds no frames; a declared schema is names without data

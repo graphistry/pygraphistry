@@ -7,6 +7,7 @@ import pytest
 from graphistry.compute.exceptions import ErrorCode, GFQLSyntaxError, GFQLValidationError
 from graphistry.compute.gfql.cypher import (
     CallClause,
+    CreateClause,
     CypherGraphQuery,
     CypherQuery,
     ExpressionText,
@@ -42,6 +43,71 @@ def test_parse_minimal_match_return() -> None:
     assert parsed.skip is None
     assert parsed.limit is None
     assert parsed.trailing_semicolon is False
+
+
+def test_parse_standalone_create_nodes() -> None:
+    parsed = _parse_query(
+        "CREATE (a:Person {name: 'Ada', age: 36, active: true}), "
+        "(b:Person:Admin {name: $name})"
+    )
+
+    assert parsed.matches == ()
+    assert parsed.creates == tuple(sorted(parsed.creates, key=lambda clause: clause.span.start_pos))
+    assert len(parsed.creates) == 1
+    created = parsed.creates[0]
+    assert isinstance(created, CreateClause)
+    assert [pattern.variable for pattern in created.patterns] == ["a", "b"]
+    assert created.patterns[0].labels == ("Person",)
+    assert created.patterns[1].labels == ("Person", "Admin")
+    assert created.patterns[0].properties[0].key == "name"
+    assert created.patterns[0].properties[0].value == "Ada"
+    assert created.patterns[0].properties[1].value == 36
+    assert created.patterns[0].properties[2].value is True
+    assert created.patterns[1].properties[0].value.name == "name"
+
+
+def test_parse_create_with_return_is_standalone_query() -> None:
+    parsed = _parse_query("CREATE (a:L) RETURN a")
+
+    assert len(parsed.creates) == 1
+    assert parsed.return_.items[0].expression.text == "a"
+
+
+def test_parse_standalone_create_anonymous_nodes() -> None:
+    parsed = _parse_query("CREATE (:L), (x:L)")
+
+    assert len(parsed.creates) == 1
+    assert [pattern.labels for pattern in parsed.creates[0].patterns] == [("L",), ("L",)]
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
+        "CREATE (a)-[:R]->(b)",
+        "MATCH (a) CREATE (b:L)",
+        "CALL proc() CREATE (a:L)",
+        "UNWIND [1] AS x CREATE (a:L)",
+    ],
+)
+def test_parse_rejects_unsupported_create_shapes(query: str) -> None:
+    with pytest.raises(GFQLValidationError):
+        parse_cypher(query)
+def test_parse_empty_property_map_does_not_replace_labels() -> None:
+    parsed = _parse_query("MATCH (n:Foo {}) RETURN n")
+
+    node = parsed.match.pattern[0]
+    assert node.variable == "n"
+    assert node.labels == ("Foo",)
+    assert node.properties == ()
+
+
+def test_parse_empty_relationship_property_map_does_not_replace_types() -> None:
+    parsed = _parse_query("MATCH ()-[r:R {}]->() RETURN r")
+
+    relationship = parsed.match.pattern[1]
+    assert relationship.variable == "r"
+    assert relationship.types == ("R",)
+    assert relationship.properties == ()
 
 
 def test_parse_graph_property_access_allowed() -> None:

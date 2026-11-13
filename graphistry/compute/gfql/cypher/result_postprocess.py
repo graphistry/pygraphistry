@@ -7,13 +7,15 @@ import pandas as pd
 
 from graphistry.Plottable import Plottable
 from graphistry.compute.typing import DataFrameT, SeriesT
-from graphistry.Engine import df_to_engine, is_polars_df, is_polars_series, resolve_engine
+from graphistry.Engine import df_cons, df_to_engine, is_polars_df, is_polars_series, resolve_engine
 from graphistry.compute.gfql.cypher.projection_columns import alias_field_sources
 from graphistry.compute.gfql.identifiers import shadow_restore_column
 from graphistry.compute.gfql.series_str_compat import is_non_textual_scalar_dtype
 
 from .lowering import ResultProjectionColumn, ResultProjectionPlan
 from graphistry.compute.gfql.row.entity_props import (
+    MUTATION_NODE_ID,
+    ID_PROPERTY_PRESENT,
     _const_text,
     _empty_text,
     _is_null_mask,
@@ -148,7 +150,8 @@ def _flat_entity_field_names(
         extra = ["type"] if "type" in source_rows_df.columns else []
 
     fields: list[str] = []
-    for col in [id_column, *prop_cols, *extra]:
+    public_id = id_column if id_column is None or not id_column.startswith("__") else None
+    for col in [public_id, *prop_cols, *extra]:
         if col is not None and col in source_rows_df.columns and col not in fields:
             fields.append(str(col))
     return fields
@@ -212,6 +215,9 @@ def render_entity_text(
             raise ValueError("entity presence metadata is not aligned with result rows")
         present = marker_frame[marker_frame.columns[0]].notna()
         present.index = rows_df.index
+        for metadata_col in (MUTATION_NODE_ID, ID_PROPERTY_PRESENT):
+            if metadata_col in marker_frame.columns:
+                frame[metadata_col] = marker_frame[metadata_col]
     else:
         for field in frame.columns:
             not_na: SeriesT = frame[field].notna()
@@ -358,6 +364,7 @@ def apply_result_projection(
             source_alias = column.source_name or projection.alias
             marker_frame = None
             marker_source = None
+            marker_column = None
             if projection.table == "nodes":
                 entity_id_column = result._node if result._node is not None else source_node_id
             else:
@@ -389,6 +396,18 @@ def apply_result_projection(
                         marker_frame = marker_frame.rename({marker_source: projection.alias})
                     else:
                         marker_frame = marker_frame.rename(columns={marker_source: projection.alias})
+                # Keep membership beside entity-presence provenance, outside public fields.
+                presence_source = marker_source if marker_source is not None else marker_column
+                if presence_source is not None and alias_sources is not None and all(
+                    name in alias_sources for name in (MUTATION_NODE_ID, ID_PROPERTY_PRESENT)
+                ):
+                    marker_frame = df_cons(resolve_engine("auto", marker_frame))({
+                        marker_frame.columns[0]: rows_df[presence_source],
+                        **{
+                            name: rows_df[alias_sources[name]]
+                            for name in (MUTATION_NODE_ID, ID_PROPERTY_PRESENT)
+                        },
+                    })
                 presence[column.output_name] = marker_frame.clone() if is_polars_df(marker_frame) else marker_frame.copy()
     out._cypher_entity_projection_presence = presence
     return out

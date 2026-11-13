@@ -3,7 +3,7 @@
 Cypher Syntax In GFQL
 =====================
 
-PyGraphistry supports a read-only Cypher surface directly through GFQL on a
+PyGraphistry supports a bounded Cypher surface directly through GFQL on a
 bound graph. This is the on-ramp for Cypher users who want familiar
 declarative syntax and graph-pattern semantics, but executed by GFQL's fully
 vectorized columnar engine and open-source GPU runtime instead of a
@@ -177,14 +177,15 @@ constructor — use them in the outer query after ``USE``.
 Supported Cypher Surface Through ``g.gfql()``
 ---------------------------------------------
 
-The current GFQL Cypher compiler intentionally supports a bounded read-only
-surface. At a high level, that includes:
+The current GFQL Cypher compiler supports bounded reads and functional standalone
+node creation. At a high level, that includes:
 
 - ``MATCH`` and a bounded ``OPTIONAL MATCH`` subset
 - ``WHERE``
 - ``RETURN`` and ``WITH``
 - ``ORDER BY``, ``SKIP``, ``LIMIT``, and ``DISTINCT``
 - ``UNWIND``
+- standalone node ``CREATE``, with optional ``RETURN``
 - supported ``UNION`` / ``UNION ALL`` and ``CALL graphistry.*`` flows when executed
   directly through ``g.gfql("...")``
 
@@ -228,9 +229,12 @@ Support Matrix
        variable-length ``WHERE`` pattern predicates in the current row-shaped
        subset. Path/list-carrier uses and unsupported path/row-shaping cases
        still fail fast.
-   * - ``CREATE`` / ``DELETE`` / ``SET``
+   * - Standalone node ``CREATE``
+     - Supported
+     - Named or anonymous nodes, labels, scalar properties, optional ``RETURN``.
+   * - Relationship ``CREATE``, ``MATCH ... CREATE``, ``DELETE``, ``SET``, ``REMOVE``, ``MERGE``
      - Not supported
-     - GFQL's Cypher surface is read-only.
+     - These mutation clauses remain outside this initial creation subset.
    * - Multiple disconnected ``MATCH`` patterns and arbitrary joins
      - Not supported
      - Split the work into separate GFQL / dataframe steps.
@@ -600,9 +604,51 @@ Not Supported Today
   ``MATCH ... WITH ... MATCH ... RETURN`` form.
 - ``RETURN *`` after unsupported re-entry shapes or when it would require
   unsupported multi-alias/path projection shaping.
-- ``CREATE``, ``DELETE``, ``SET``, and other write clauses.
+- Relationship ``CREATE``, ``MATCH ... CREATE``, ``DELETE``, ``SET``, ``REMOVE``, and ``MERGE``.
 - Generic database procedures outside ``CALL graphistry.*``.
 - The full Cypher expression/function surface.
+
+Functional Node Creation
+------------------------
+
+Standalone ``CREATE`` adds named or anonymous nodes and returns a new graph.
+The caller's frames and bindings stay unchanged. Labels and scalar literal or
+parameter properties are supported on pandas, cuDF, and CPU Polars.
+
+.. code-block:: python
+
+   import graphistry
+   import pandas as pd
+
+   source = graphistry.nodes(pd.DataFrame({"id": pd.Series([], dtype="int64")}), "id")
+   created = source.gfql("CREATE (:Person {name: 'Ada'})", engine="pandas")
+   rows = created.gfql(
+       "CREATE (p:Person {id: 'analyst', name: 'Grace'}) RETURN p.name AS name",
+       engine="pandas",
+   )
+   assert rows._nodes["name"].tolist() == ["Grace"]
+   assert len(rows.gfql_graph._nodes) == 2
+   assert len(source._nodes) == 0
+
+Without ``RETURN``, the result is the updated graph. With ``RETURN``, the result
+uses the existing row-result interface and its read-only ``gfql_graph`` property
+provides the updated graph from that same execution. On an ordinary graph,
+``gfql_graph`` returns that graph itself. ``output=`` retains its existing role
+as the selector for a native GFQL DAG binding.
+
+Physical node identity is separate from properties: ``CREATE (n {id: 12})``
+writes an ordinary ``id`` property, while ``CREATE (n)`` leaves that property
+absent. Allocation does not become an implicit property. Existing node identities
+and edge endpoints are retained, including string identities; repeated creation
+reuses the graph's physical identity binding.
+
+This initial subset requires unique non-null integer or string physical
+identities and compatible scalar property columns. Unsupported value unions,
+reserved metadata/label property names, identity exhaustion, and ambiguous
+rebinding fail with a structured error. Relationship creation, read/write clause
+combinations, and other mutation operators remain unsupported. Explicit
+``engine="polars-gpu"`` and remote mutation execution decline before dispatch;
+CPU Polars and native cuDF routes are available.
 
 Validation And Unsupported Shapes
 ---------------------------------

@@ -23,6 +23,7 @@ from graphistry.compute.gfql.cypher.ast import (
     CypherQuery,
     CypherUnionQuery,
     CypherYieldItem,
+    CreateClause,
     GraphBinding,
     GraphConstructor,
     LimitClause,
@@ -99,6 +100,7 @@ union_op: "UNION"i "ALL"i       -> union_all
         | "UNION"i              -> union_distinct
 
 query_item: match_clause
+          | create_clause
           | call_clause
           | unwind_clause
           | use_clause
@@ -121,6 +123,9 @@ match_item: pattern
           | NAME "=" "shortestPath"i "(" pattern ")"          -> shortest_path_pattern
           | NAME "=" "allShortestPaths"i "(" pattern ")"      -> all_shortest_paths_pattern
 pattern: node_pattern (relationship_pattern node_pattern)*
+
+create_clause: "CREATE"i create_item ("," create_item)*
+create_item: node_pattern -> create_node
 
 node_pattern: "(" variable? labels? properties? ")"
 labels: label+
@@ -557,6 +562,11 @@ class _ParserLike:
         raise NotImplementedError
 
 
+class _ParserMeta(Protocol):
+    line: int
+    column: int
+
+
 class _TransformerLike(Protocol):
     def transform(self, tree: object) -> object:
         ...
@@ -619,6 +629,10 @@ class _PrimitiveLiteral:
     value: Union[None, bool, int, float, str]
     text: str
     span: SourceSpan
+
+
+class _PropertiesTuple(tuple):
+    """Marks a grammar-derived property map, including an explicit empty map."""
 
 
 def _unwrap_primitive_literal(value: object) -> object:
@@ -874,7 +888,7 @@ def _build_transformer(source: str) -> _TransformerLike:
             return PropertyEntry(key=key, value=value, span=_span_from_meta(meta))
 
         def properties(self, _meta: Any, items: Sequence[Any]) -> Tuple[PropertyEntry, ...]:
-            return tuple(cast(PropertyEntry, item) for item in items)
+            return _PropertiesTuple(cast(PropertyEntry, item) for item in items)
 
         def node_pattern(self, meta: Any, items: Sequence[Any]) -> NodePattern:
             variable: Optional[str] = None
@@ -883,10 +897,10 @@ def _build_transformer(source: str) -> _TransformerLike:
             for item in items:
                 if isinstance(item, str):
                     variable = item
+                elif isinstance(item, _PropertiesTuple):
+                    properties = cast(Tuple[PropertyEntry, ...], item)
                 elif isinstance(item, tuple) and all(isinstance(v, str) for v in item):
                     labels = cast(Tuple[str, ...], item)
-                elif isinstance(item, tuple):
-                    properties = cast(Tuple[PropertyEntry, ...], item)
             return NodePattern(
                 variable=variable,
                 labels=labels,
@@ -910,10 +924,10 @@ def _build_transformer(source: str) -> _TransformerLike:
                     min_hops = cast(Optional[int], item.get("min_hops"))
                     max_hops = cast(Optional[int], item.get("max_hops"))
                     to_fixed_point = bool(item.get("to_fixed_point", False))
+                elif isinstance(item, _PropertiesTuple):
+                    properties = cast(Tuple[PropertyEntry, ...], item)
                 elif isinstance(item, tuple) and all(isinstance(v, str) for v in item):
                     rel_types = cast(Tuple[str, ...], item)
-                elif isinstance(item, tuple):
-                    properties = cast(Tuple[PropertyEntry, ...], item)
             return RelationshipPattern(
                 direction=cast(Any, direction),
                 variable=variable,
@@ -1688,6 +1702,29 @@ def _build_transformer(source: str) -> _TransformerLike:
                 raise _to_syntax_error("Invalid query item", line=meta.line, column=meta.column)
             return items[0]
 
+        def create_clause(self, meta: _ParserMeta, items: Sequence[object]) -> CreateClause:
+            if not items:
+                raise _to_syntax_error("CREATE clause must contain at least one node pattern", line=meta.line, column=meta.column)
+            patterns: list[NodePattern] = []
+            for item in items:
+                if not isinstance(item, NodePattern):
+                    raise _to_unsupported(
+                        "GFQL CREATE clauses may contain only node patterns",
+                        line=meta.line,
+                        column=meta.column,
+                    )
+                patterns.append(item)
+            return CreateClause(patterns=tuple(patterns), span=_span_from_meta(meta))
+
+        def create_node(self, meta: _ParserMeta, items: Sequence[object]) -> NodePattern:
+            if len(items) != 1 or not isinstance(items[0], NodePattern):
+                raise _to_unsupported(
+                    "GFQL CREATE currently supports standalone node patterns only",
+                    line=meta.line,
+                    column=meta.column,
+                )
+            return items[0]
+
         def query_body(self, meta: Any, items: Sequence[Any]) -> CypherQuery:
             # The grammar bundles WHERE onto its MATCH clause (there is no
             # standalone WHERE item), so this state machine consumes
@@ -1705,6 +1742,7 @@ def _build_transformer(source: str) -> _TransformerLike:
             use_clause_node: Optional[UseClause] = None
             stages: List[ProjectionStage] = []
             ordered_row_items: List[Union[ProjectionStage, UnwindClause]] = []
+            creates: List[CreateClause] = []
             seen_stage = False
             for item in items:
                 if isinstance(item, UseClause):
@@ -1786,6 +1824,14 @@ def _build_transformer(source: str) -> _TransformerLike:
                         staged_graph_unwind_span = item.span
                     unwind_clauses.append(item)
                     ordered_row_items.append(item)
+                elif isinstance(item, CreateClause):
+                    if match_clauses or reentry_match_clauses or stages or unwind_clauses or call_clause is not None:
+                        raise _to_unsupported(
+                            "GFQL CREATE is currently supported only before an optional RETURN in standalone node mutations",
+                            line=item.span.line,
+                            column=item.span.column,
+                        )
+                    creates.append(item)
                 elif isinstance(item, ProjectionStage):
                     if call_clause is not None and reentry_match_clauses:
                         raise _to_syntax_error(
@@ -1804,7 +1850,7 @@ def _build_transformer(source: str) -> _TransformerLike:
                     seen_stage = True
                     if reentry_where_pending_with_idx is not None and item.clause.kind == "with":
                         reentry_where_pending_with_idx = None
-            if len(stages) == 0 and call_clause is None:
+            if len(stages) == 0 and call_clause is None and not creates:
                 raise _to_syntax_error(
                     "Cypher query must contain a RETURN/WITH clause",
                     line=meta.line,
@@ -1855,6 +1901,7 @@ def _build_transformer(source: str) -> _TransformerLike:
                     column=where_clause.span.column,
                 )
             row_sequence: Tuple[Union[ProjectionStage, UnwindClause], ...] = ()
+            return_is_synthetic = False
             if call_clause is not None and len(stages) == 0:
                 synthetic_item = ReturnItem(
                     expression=ExpressionText(text="*", span=call_clause.span),
@@ -1877,16 +1924,33 @@ def _build_transformer(source: str) -> _TransformerLike:
                 )
                 final_stage = synthetic_stage
                 ordered_row_items.append(synthetic_stage)
+                return_is_synthetic = True
             if final_stage is None:
-                raise _to_syntax_error(
-                    "Cypher query must contain a RETURN/WITH clause or a supported CALL",
-                    line=meta.line,
-                    column=meta.column,
+                synthetic_item = ReturnItem(
+                    expression=ExpressionText(text="*", span=_span_from_meta(meta)),
+                    alias=None,
+                    span=_span_from_meta(meta),
                 )
+                synthetic_clause = ReturnClause(
+                    items=(synthetic_item,),
+                    distinct=False,
+                    kind="return",
+                    span=_span_from_meta(meta),
+                )
+                final_stage = ProjectionStage(
+                    clause=synthetic_clause,
+                    where=None,
+                    order_by=None,
+                    skip=None,
+                    limit=None,
+                    span=_span_from_meta(meta),
+                )
+                return_is_synthetic = True
             if not match_clauses and where_clause is None:
                 row_sequence = tuple(ordered_row_items)
             return CypherQuery(
                 matches=tuple(match_clauses),
+                creates=tuple(creates),
                 where=where_clause,
                 call=call_clause,
                 unwinds=tuple(unwind_clauses),
@@ -1902,6 +1966,7 @@ def _build_transformer(source: str) -> _TransformerLike:
                 reentry_wheres=tuple(reentry_where_clauses),
                 reentry_unwinds=tuple(reentry_unwind_clauses),
                 use=use_clause_node,
+                return_is_synthetic=return_is_synthetic,
             )
 
         def union_all(self, _meta: Any, _items: Sequence[Any]) -> str:
