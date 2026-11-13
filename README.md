@@ -23,6 +23,8 @@ PyGraphistry is an open source Python library for data scientists and developers
 
 * [**Python dataframe-native graph processing:**](https://pygraphistry.readthedocs.io/en/latest/10min.html) Quickly ingest & prepare data in many formats, shapes, and scales as graphs. Use tools like Pandas, Spark, [RAPIDS (GPU)](https://www.rapids.ai), and [Apache Arrow](https://arrow.apache.org/).
 
+* [**Query graphs with GFQL:**](https://pygraphistry.readthedocs.io/en/latest/gfql/index.html) Query relationships in dataframes with Cypher syntax or Python chains. With `engine='polars'`, GFQL runs dataframe operations in Polars' Rust engine on CPU. GFQL also supports GPU execution. Run queries locally through `g.gfql(...)` or remotely through `g.gfql_remote([...])`.
+
 * [**Integrations:**](https://pygraphistry.readthedocs.io/en/latest/plugins.html) Connect to graph databases, data platforms, Python tools, and more.
 
   | Category | Connector Tutorials |
@@ -34,8 +36,6 @@ PyGraphistry is an open source Python library for data scientists and developers
   *[View all connectors →](https://pygraphistry.readthedocs.io/en/latest/notebooks/plugins.connectors.html)*
 
 * [**Prototype locally and deploy remotely:**](https://www.graphistry.com/get-started) Prototype from notebooks like Jupyter and Databricks using local CPUs & GPUs, and then power production dashboards & pipelines with Graphistry Hub and your own self-hosted servers.
-
-* [**Query graphs with GFQL:**](https://pygraphistry.readthedocs.io/en/latest/gfql/index.html) Query relationships in dataframes with Cypher syntax or Python chains. With `engine='polars'`, GFQL runs dataframe operations in Polars' Rust engine on CPU. GFQL also supports GPU execution. Run queries locally through `g.gfql(...)` or remotely through `g.gfql_remote([...])`.
 
 * [**graphistry[ai]:**](https://pygraphistry.readthedocs.io/en/latest/gfql/combo.html#) Call streamlined graph ML & AI methods to benefit from clustering, UMAP embeddings, graph neural networks, automatic feature engineering, and more.
 
