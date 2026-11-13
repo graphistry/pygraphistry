@@ -660,7 +660,7 @@ returns the updated graph. The caller's frames stay unchanged. Optional
        engine="pandas",
        language="cypher",
    )
-   assert updated._nodes.loc[updated._nodes["id"] == "a", "name"].tolist() == ["Grace"]
+   assert updated._nodes["name"].tolist() == ["Grace"]
    assert len(source._nodes) == 2
 
 Unsupported edge SET, combined SET+CREATE, repeated or relationship SET,
