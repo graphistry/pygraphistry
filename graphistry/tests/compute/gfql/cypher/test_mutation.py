@@ -75,7 +75,10 @@ def _graph(engine: str) -> Any:
 
 
 @pytest.mark.parametrize("source_engine,target_engine", [
-    ("pandas", "polars"),
+    pytest.param("pandas", "polars", marks=pytest.mark.skipif(
+        importlib.util.find_spec("polars") is None,
+        reason="polars is not installed",
+    )),
     ("polars", "pandas"),
     pytest.param("pandas", "cudf", marks=pytest.mark.skipif(
         os.environ.get("TEST_CUDF") != "1", reason="cudf tests need TEST_CUDF=1",
