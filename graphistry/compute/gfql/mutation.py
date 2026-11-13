@@ -25,6 +25,7 @@ from graphistry.Plottable import Plottable
 from graphistry.compute.gfql.row.entity_props import (
     ID_PROPERTY_PRESENT,
     MUTATION_NODE_ID,
+    NULLISH_LABEL_NAMES,
     label_flag_columns,
 )
 
@@ -308,6 +309,19 @@ def _prepare_append_frames(nodes: DataFrameT, new_nodes: DataFrameT) -> tuple[Da
     return nodes, new_nodes
 
 
+def _validate_label_names(creates: tuple[CreateClause, ...]) -> None:
+    """Decline literal label names suppressed by the established flag reader."""
+    for clause in creates:
+        for pattern in clause.patterns:
+            unsupported = sorted(set(pattern.labels) & NULLISH_LABEL_NAMES)
+            if unsupported:
+                raise GFQLMutationError(
+                    ErrorCode.E108, "CREATE cannot faithfully represent this label name",
+                    field="create", value=unsupported, language="cypher",
+                    line=pattern.span.line, column=pattern.span.column,
+                )
+
+
 def _validate_legacy_label_transition(
     creates: tuple[CreateClause, ...], nodes: Optional[DataFrameT]
 ) -> None:
@@ -407,6 +421,7 @@ def execute_create_nodes(
                 MUTATION_NODE_ID: nodes[old_key], ID_PROPERTY_PRESENT: include_id,
             })
     node_key = MUTATION_NODE_ID
+    _validate_label_names(creates)
     _validate_legacy_label_transition(creates, nodes)
     count = sum(len(clause.patterns) for clause in creates)
     identities: list[Union[int, str]]
