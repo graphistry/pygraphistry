@@ -13,9 +13,19 @@ from graphistry.Engine import (
     resolve_engine,
 )
 from graphistry.compute.exceptions import ErrorCode, GFQLUnsupportedError, GFQLValidationError
-from graphistry.compute.gfql.cypher.ast import CreateClause, CypherParams, CypherScalar, ParameterRef
+from graphistry.compute.gfql.cypher.ast import (
+    CreateClause,
+    CypherParams,
+    CypherScalar,
+    NodePattern,
+    ParameterRef,
+)
 from graphistry.Plottable import Plottable
-from graphistry.compute.gfql.row.entity_props import MUTATION_NODE_ID, ID_PROPERTY_PRESENT
+from graphistry.compute.gfql.row.entity_props import (
+    ID_PROPERTY_PRESENT,
+    MUTATION_NODE_ID,
+    label_flag_columns,
+)
 
 if TYPE_CHECKING:
     from graphistry.compute.typing import PolarsDType
@@ -297,6 +307,35 @@ def _prepare_append_frames(nodes: DataFrameT, new_nodes: DataFrameT) -> tuple[Da
     return nodes, new_nodes
 
 
+def _validate_legacy_label_transition(
+    creates: tuple[CreateClause, ...], nodes: Optional[DataFrameT]
+) -> None:
+    """Reject the lossy move from legacy ``type`` labels to canonical flags."""
+    if nodes is None or len(nodes) == 0 or "type" not in nodes.columns:
+        return
+    if label_flag_columns(nodes.columns):
+        return
+    created_labels = {
+        label
+        for clause in creates
+        for pattern in clause.patterns
+        for label in pattern.labels
+    }
+    if not created_labels:
+        return
+    type_series = nodes["type"]
+    has_legacy_label = bool(type_series.notna().any())
+    if has_legacy_label:
+        raise GFQLMutationError(
+            ErrorCode.E108,
+            "CREATE cannot preserve existing legacy type labels while adding canonical label flags",
+            field="create",
+            value=sorted(created_labels),
+            suggestion="Use canonical label flags in the source graph, or CREATE without labels.",
+            language="cypher",
+        )
+
+
 def execute_create_nodes(
     self: Plottable,
     creates: tuple[CreateClause, ...],
@@ -367,6 +406,7 @@ def execute_create_nodes(
                 MUTATION_NODE_ID: nodes[old_key], ID_PROPERTY_PRESENT: include_id,
             })
     node_key = MUTATION_NODE_ID
+    _validate_legacy_label_transition(creates, nodes)
     count = sum(len(clause.patterns) for clause in creates)
     identities: list[Union[int, str]]
     string_identity = nodes is not None and _column_family(nodes[node_key]) == "string"
