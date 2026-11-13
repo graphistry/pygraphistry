@@ -104,6 +104,7 @@ from graphistry.compute.gfql.expr_parser import (
 )
 from graphistry.compute.gfql.cypher.reentry_plan import ReentryPlan
 from graphistry.compute.gfql.cypher.ast import (
+    CreateRelationship,
     BooleanExpr,
     CreateClause,
     CypherGraphQuery,
@@ -9580,19 +9581,27 @@ def compile_cypher_query(
             for clause in query.creates:
                 seen_relationship_variables: set[str] = set()
                 clause_node_variables: set[str] = set()
-                for pattern in clause.patterns:
-                    if isinstance(pattern, NodePattern):
-                        if pattern.variable is not None and pattern.variable not in seen_node_variables:
-                            variables.append(pattern.variable)
-                            seen_node_variables.add(pattern.variable)
-                            clause_node_variables.add(pattern.variable)
+                for create_pattern in clause.patterns:
+                    if isinstance(create_pattern, NodePattern):
+                        if create_pattern.variable is not None and create_pattern.variable not in seen_node_variables:
+                            variables.append(create_pattern.variable)
+                            seen_node_variables.add(create_pattern.variable)
+                            clause_node_variables.add(create_pattern.variable)
                     else:
-                        for endpoint in (pattern.source, pattern.destination):
+                        if not isinstance(create_pattern, CreateRelationship):
+                            raise _unsupported(
+                                "CREATE supports node and directed relationship patterns only",
+                                field="create",
+                                value=type(create_pattern).__name__,
+                                line=query.span.line,
+                                column=query.span.column,
+                            )
+                        for endpoint in (create_pattern.source, create_pattern.destination):
                             if endpoint.variable is not None and endpoint.variable not in seen_node_variables:
                                 variables.append(endpoint.variable)
                                 seen_node_variables.add(endpoint.variable)
                                 clause_node_variables.add(endpoint.variable)
-                        for endpoint in (pattern.source, pattern.destination):
+                        for endpoint in (create_pattern.source, create_pattern.destination):
                             if (
                                 endpoint.variable is not None
                                 and endpoint.variable not in clause_node_variables
@@ -9605,9 +9614,9 @@ def compile_cypher_query(
                                     line=query.span.line,
                                     column=query.span.column,
                                 )
-                        if pattern.relationship.variable is not None and pattern.relationship.variable not in seen_relationship_variables:
-                            relationship_variables.append(pattern.relationship.variable)
-                            seen_relationship_variables.add(pattern.relationship.variable)
+                        if create_pattern.relationship.variable is not None and create_pattern.relationship.variable not in seen_relationship_variables:
+                            relationship_variables.append(create_pattern.relationship.variable)
+                            seen_relationship_variables.add(create_pattern.relationship.variable)
             if len(set(variables)) != len(variables):
                 raise _unsupported("CREATE variable is already bound", field="create", value=variables, line=query.span.line, column=query.span.column)
             if len(set(relationship_variables)) != len(relationship_variables):

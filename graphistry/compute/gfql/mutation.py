@@ -77,7 +77,7 @@ def _scalar_family(value: object) -> str:
     )
 
 
-def _frame_family(frame: object, column: str) -> str:
+def _frame_family(frame: DataFrameT, column: str) -> str:
     import pandas as pd
 
     if is_polars_df(frame):
@@ -173,8 +173,8 @@ def _combine_assignment_frames(
 
 def _validate_set_updates(
     updates: Mapping[str, Mapping[str, DataFrameT]],
-    nodes: object,
-    edges: Optional[object],
+    nodes: Optional[DataFrameT],
+    edges: Optional[DataFrameT],
     alias_kinds: Mapping[str, str],
     update_families: Mapping[str, Mapping[str, set[str]]],
 ) -> None:
@@ -200,7 +200,7 @@ def _validate_set_updates(
 
 def execute_set_properties(
     self: Plottable,
-    matched_rows: object,
+    matched_rows: Plottable,
     sets: tuple[SetClause, ...],
     *,
     alias_kinds: tuple[tuple[str, Literal["node", "edge"]], ...],
@@ -229,6 +229,7 @@ def execute_set_properties(
 
     updates: dict[str, dict[str, list[DataFrameT]]] = {}
     update_families: dict[str, dict[str, set[str]]] = {}
+    assignment_spans: dict[tuple[str, str], object] = {}
     alias_positions: dict[str, int] = {}
     assignment_index = 0
     for clause in sets:
@@ -241,10 +242,11 @@ def execute_set_properties(
             assignment_index += 1
             updates.setdefault(alias, {}).setdefault(assignment.target.property, [])
             update_families.setdefault(alias, {}).setdefault(assignment.target.property, set())
+            assignment_spans[(alias, assignment.target.property)] = assignment.span
             if is_polars_df(frame):
                 import polars as pl
                 assert isinstance(frame, pl.DataFrame)
-                assignment_frame: DataFrameT = frame.select(
+                assignment_frame = frame.select(
                     pl.col(identity_column).alias(SET_IDENTITY),
                     pl.col(value_column).alias(SET_VALUE),
                 )
@@ -252,7 +254,7 @@ def execute_set_properties(
                 assignment_frame = frame[[identity_column]].rename(
                     columns={identity_column: SET_IDENTITY}
                 )
-                assignment_frame[SET_VALUE] = frame[value_column]
+                assignment_frame = assignment_frame.assign(**{SET_VALUE: frame[value_column]})
             update_families[alias][assignment.target.property].add(
                 _assignment_value_family(assignment_frame, SET_VALUE)
             )
@@ -283,18 +285,19 @@ def execute_set_properties(
                 field=key, value="physical_identity", language="cypher",
             )
     combined_updates: dict[str, dict[str, DataFrameT]] = {}
-    for alias, properties in updates.items():
+    for alias, source_properties in updates.items():
         combined_updates[alias] = {}
-        for property_name, assignment_frames in properties.items():
+        for property_name, assignment_frames in source_properties.items():
             combined_updates[alias][property_name] = _combine_assignment_frames(
-                assignment_frames, concrete_engine, assignment.span,
+                assignment_frames, concrete_engine,
+                assignment_spans[(alias, property_name)],
             )
     _validate_set_updates(
         combined_updates,
         nodes, edges, alias_kind_map, update_families,
     )
 
-    for alias, properties in combined_updates.items():
+    for alias, combined_properties in combined_updates.items():
         kind = alias_kind_map[alias]
         frame = nodes if kind == "node" else edges
         key = node_key if kind == "node" else edge_key
@@ -302,7 +305,8 @@ def execute_set_properties(
         if is_polars_df(frame):
             import polars as pl
             assert isinstance(frame, pl.DataFrame)
-            for property_name, values in properties.items():
+            for property_name, values in combined_properties.items():
+                assert isinstance(values, pl.DataFrame)
                 new_value = f"__gfql_set_new_{property_name}__"
                 matched = f"__gfql_set_matched_{property_name}__"
                 update = values.select(
@@ -327,7 +331,7 @@ def execute_set_properties(
             else:
                 edges = frame
         else:
-            for property_name, values in properties.items():
+            for property_name, values in combined_properties.items():
                 new_value = f"__gfql_set_new_{property_name}__"
                 matched = f"__gfql_set_matched_{property_name}__"
                 update = values.rename(columns={SET_IDENTITY: key, SET_VALUE: new_value})
