@@ -73,6 +73,13 @@ def test_parse_create_with_return_is_standalone_query() -> None:
     assert parsed.return_.items[0].expression.text == "a"
 
 
+def test_parse_standalone_create_anonymous_nodes() -> None:
+    parsed = _parse_query("CREATE (:L), (x:L)")
+
+    assert len(parsed.creates) == 1
+    assert [pattern.labels for pattern in parsed.creates[0].patterns] == [("L",), ("L",)]
+
+
 @pytest.mark.parametrize(
     "query",
     [
@@ -80,7 +87,6 @@ def test_parse_create_with_return_is_standalone_query() -> None:
         "MATCH (a) CREATE (b:L)",
         "CALL proc() CREATE (a:L)",
         "UNWIND [1] AS x CREATE (a:L)",
-        "CREATE (:L)",
     ],
 )
 def test_parse_rejects_unsupported_create_shapes(query: str) -> None:
