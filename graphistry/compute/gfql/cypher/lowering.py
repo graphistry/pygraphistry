@@ -9427,30 +9427,6 @@ def compile_cypher_query(
             assignments: list[SetProperty] = [
                 assignment for clause in query.sets for assignment in clause.assignments
             ]
-            for assignment in assignments:
-                try:
-                    set_value_expr = parse_expr(assignment.value.text)
-                except GFQLExprParseError as exc:
-                    raise _unsupported_at_span(
-                        "GFQL SET value must be a scalar literal or supported scalar expression",
-                        field="set",
-                        value=assignment.value.text,
-                        span=assignment.value.span,
-                    ) from exc
-                if isinstance(set_value_expr, ExprLiteral) and set_value_expr.value is None:
-                    raise _unsupported_at_span(
-                        "GFQL SET cannot remove properties with a null assignment",
-                        field="set",
-                        value="null_assignment",
-                        span=assignment.span,
-                    )
-                if isinstance(set_value_expr, (ListLiteral, ListComprehension, MapLiteral)):
-                    raise _unsupported_at_span(
-                        "GFQL SET supports ordinary scalar properties only",
-                        field="set",
-                        value="non_scalar_value",
-                        span=assignment.span,
-                    )
             if query.skip is not None or query.limit is not None:
                 pagination = query.skip if query.skip is not None else query.limit
                 raise _unsupported_at_span(
@@ -9561,6 +9537,24 @@ def compile_cypher_query(
                         "Cypher SET of the ordinary id property is not supported by the bounded mutation route",
                         field="set", value=assignment.target.property,
                         line=assignment.span.line, column=assignment.span.column,
+                    )
+                try:
+                    set_value_expr = parse_expr(assignment.value.text)
+                except GFQLExprParseError:
+                    continue
+                if isinstance(set_value_expr, ExprLiteral) and set_value_expr.value is None:
+                    raise _unsupported_at_span(
+                        "GFQL SET cannot remove properties with a null assignment",
+                        field="set",
+                        value="null_assignment",
+                        span=assignment.span,
+                    )
+                if isinstance(set_value_expr, (ListLiteral, ListComprehension, MapLiteral)):
+                    raise _unsupported_at_span(
+                        "GFQL SET supports ordinary scalar properties only",
+                        field="set",
+                        value="non_scalar_value",
+                        span=assignment.span,
                     )
                 if assignment.target.alias not in aliases:
                     aliases.append(assignment.target.alias)
