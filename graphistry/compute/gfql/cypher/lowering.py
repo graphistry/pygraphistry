@@ -9348,6 +9348,59 @@ def _maybe_pushdown_row_prefilters(
     return replace(result, chain=new_chain)
 
 
+def _set_return_reads_assigned_property(
+    query: CypherQuery, updated_properties: set[str]
+) -> bool:
+    def predicate_reads(predicate: object) -> bool:
+        if isinstance(predicate, WherePredicate):
+            references: list[PropertyRef] = []
+            if isinstance(predicate.left, PropertyRef):
+                references.append(predicate.left)
+            if isinstance(predicate.right, PropertyRef):
+                references.append(predicate.right)
+            return any(
+                reference.property in updated_properties for reference in references
+            )
+        if isinstance(predicate, WherePatternPredicate):
+            properties = [
+                entry.key
+                for element in predicate.pattern
+                for entry in element.properties
+            ]
+            return any(property_name in updated_properties for property_name in properties)
+        return False
+
+    def tree_reads(tree: object) -> bool:
+        if not isinstance(tree, BooleanExpr):
+            return False
+        if tree.atom_text is not None:
+            for alias_property in updated_properties:
+                if re.search(rf"\b{re.escape(alias_property)}\b", tree.atom_text):
+                    return True
+            return False
+        return tree_reads(tree.left) or tree_reads(tree.right)
+
+    def where_reads(where: Optional[WhereClause]) -> bool:
+        if where is None:
+            return False
+        if any(predicate_reads(predicate) for predicate in where.predicates):
+            return True
+        return tree_reads(where.expr_tree)
+
+    pattern_properties = [
+        entry.key
+        for match in query.matches
+        for pattern_group in match.patterns
+        for element in pattern_group
+        for entry in element.properties
+    ]
+    wheres = [query.where] + [match.where for match in query.matches]
+    return (
+        any(property_name in updated_properties for property_name in pattern_properties)
+        or any(where_reads(where) for where in wheres)
+    )
+
+
 def compile_cypher_query(
     query: Union[CypherQuery, CypherUnionQuery, CypherGraphQuery],
     *,
@@ -9367,6 +9420,19 @@ def compile_cypher_query(
                 column=query.span.column,
             )
         if query.sets:
+            if (
+                any(match.optional for match in query.matches)
+                or query.unwinds or query.reentry_matches or query.reentry_unwinds
+                or query.with_stages or query.call is not None
+                or query.graph_bindings or query.use is not None
+            ):
+                raise _unsupported(
+                    "GFQL SET is currently supported only for non-OPTIONAL MATCH ... SET [RETURN ...]",
+                    field="set",
+                    value="optional_match" if any(match.optional for match in query.matches) else "mixed_clauses",
+                    line=query.span.line,
+                    column=query.span.column,
+                )
             if (
                 query.unwinds or query.reentry_matches or query.reentry_unwinds
                 or query.with_stages or query.call is not None
@@ -9416,7 +9482,11 @@ def compile_cypher_query(
                         field="set", value=assignment.target.alias,
                         line=assignment.span.line, column=assignment.span.column,
                     )
-                if assignment.target.property in {"labels", "type"} or assignment.target.property.startswith("__"):
+                if (
+                    assignment.target.property in {"labels", "type"}
+                    or assignment.target.property.startswith("__")
+                    or assignment.target.property.startswith("label__")
+                ):
                     raise _unsupported(
                         "GFQL SET supports ordinary scalar properties only",
                         field="set", value=assignment.target.property,
@@ -9424,12 +9494,20 @@ def compile_cypher_query(
                     )
                 if assignment.target.property == "id":
                     raise _unsupported(
-                        "Cypher SET of id would rekey physical identity; use a distinct property name",
+                        "Cypher SET of the ordinary id property is not supported by the bounded mutation route",
                         field="set", value=assignment.target.property,
                         line=assignment.span.line, column=assignment.span.column,
                     )
                 if assignment.target.alias not in aliases:
                     aliases.append(assignment.target.alias)
+            if query.return_ is not None and not query.return_is_synthetic:
+                updated_properties = {assignment.target.property for assignment in assignments}
+                if _set_return_reads_assigned_property(query, updated_properties):
+                    raise _unsupported(
+                        "SET RETURN cannot rematch on a predicate that reads assigned properties",
+                        field="return", value="mutation_rematch",
+                        line=query.span.line, column=query.span.column,
+                    )
             return_items: list[ReturnItem] = []
             for alias_index, alias in enumerate(aliases):
                 assignments_for_alias = [a for a in assignments if a.target.alias == alias]

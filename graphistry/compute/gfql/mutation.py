@@ -105,19 +105,86 @@ def _frame_family(frame: object, column: str) -> str:
     return "other"
 
 
+def _assignment_value_family(frame: DataFrameT, column: str) -> str:
+    if is_polars_df(frame):
+        import polars as pl
+        assert isinstance(frame, pl.DataFrame)
+        if frame.height and frame.select(pl.col(column).is_null().all()).item():
+            return "null"
+        return _frame_family(frame, column)
+    if len(frame) and bool(frame[column].isna().all()):
+        return "null"
+    return _frame_family(frame, column)
+
+
+SET_IDENTITY = "__gfql_set_identity__"
+SET_VALUE = "__gfql_set_value__"
+
+
+def _combine_assignment_frames(
+    assignment_frames: list[DataFrameT],
+    engine: Engine,
+    span: object,
+) -> DataFrameT:
+    if len(assignment_frames) == 1:
+        combined = assignment_frames[0]
+    elif is_polars_df(assignment_frames[0]):
+        import polars as pl
+        assert all(is_polars_df(part) for part in assignment_frames)
+        combined = pl.concat(assignment_frames, how="vertical_relaxed")
+    else:
+        combined = df_concat(engine)(assignment_frames, ignore_index=True, sort=False)
+
+    line = getattr(span, "line", None)
+    column = getattr(span, "column", None)
+    if is_polars_df(combined):
+        import polars as pl
+        assert isinstance(combined, pl.DataFrame)
+        if combined.select(pl.col(SET_IDENTITY).is_null().any()).item():
+            raise GFQLMutationError(
+                ErrorCode.E105, "SET requires non-null matched entity identities",
+                field=SET_IDENTITY, value="null", language="cypher",
+            )
+        conflicts = combined.unique(subset=[SET_IDENTITY, SET_VALUE], maintain_order=True)
+        counts = conflicts.group_by(SET_IDENTITY).len()
+        if counts.filter(pl.col("len") > 1).height:
+            raise GFQLMutationError(
+                ErrorCode.E105, "SET assigns conflicting values to a matched entity",
+                field=SET_VALUE, value="conflicting_updates",
+                line=line, column=column, language="cypher",
+            )
+        return combined.unique(subset=[SET_IDENTITY], keep="first", maintain_order=True)
+
+    if combined[SET_IDENTITY].isna().any():
+        raise GFQLMutationError(
+            ErrorCode.E105, "SET requires non-null matched entity identities",
+            field=SET_IDENTITY, value="null", language="cypher",
+        )
+    distinct_pairs = combined.drop_duplicates(subset=[SET_IDENTITY, SET_VALUE])
+    identity_counts = distinct_pairs.groupby(SET_IDENTITY, sort=False).size()
+    if bool((identity_counts > 1).any()):
+        raise GFQLMutationError(
+            ErrorCode.E105, "SET assigns conflicting values to a matched entity",
+            field=SET_VALUE, value="conflicting_updates",
+            line=line, column=column, language="cypher",
+        )
+    return combined.drop_duplicates(subset=[SET_IDENTITY], keep="first")
+
+
 def _validate_set_updates(
-    updates: Mapping[str, Mapping[object, object]],
+    updates: Mapping[str, Mapping[str, DataFrameT]],
     nodes: object,
     edges: Optional[object],
     alias_kinds: Mapping[str, str],
+    update_families: Mapping[str, Mapping[str, set[str]]],
 ) -> None:
     for alias, properties in updates.items():
         family = "node" if alias_kinds[alias] == "node" else "edge"
         frame = nodes if family == "node" else edges
         assert frame is not None
-        for property_name, values in properties.items():
+        for property_name, update_frame in properties.items():
             existing_family = _frame_family(frame, property_name) if property_name in frame.columns else None
-            new_families = {_scalar_family(value) for value in values.values() if not _is_null_scalar(value)}
+            new_families = update_families[alias][property_name]
             if existing_family in {None, "string"} and "other" not in new_families:
                 continue
             if existing_family == "float" and new_families <= {"integer", "float"}:
@@ -160,7 +227,8 @@ def execute_set_properties(
             field="set", value="missing_projection", language="cypher",
         )
 
-    updates: dict[str, dict[str, dict[object, object]]] = {}
+    updates: dict[str, dict[str, list[DataFrameT]]] = {}
+    update_families: dict[str, dict[str, set[str]]] = {}
     alias_positions: dict[str, int] = {}
     assignment_index = 0
     for clause in sets:
@@ -171,29 +239,24 @@ def execute_set_properties(
             identity_column = f"__gfql_set_identity_{alias_positions[alias]}__"
             value_column = f"__gfql_set_value_{assignment_index}__"
             assignment_index += 1
-            updates.setdefault(alias, {}).setdefault(assignment.target.property, {})
+            updates.setdefault(alias, {}).setdefault(assignment.target.property, [])
+            update_families.setdefault(alias, {}).setdefault(assignment.target.property, set())
             if is_polars_df(frame):
                 import polars as pl
                 assert isinstance(frame, pl.DataFrame)
-                rows = frame.select([identity_column, value_column]).rows()
+                assignment_frame: DataFrameT = frame.select(
+                    pl.col(identity_column).alias(SET_IDENTITY),
+                    pl.col(value_column).alias(SET_VALUE),
+                )
             else:
-                identities = frame[identity_column]
-                values = frame[value_column]
-                rows = list(zip(identities.to_numpy(), values.to_numpy()))
-            for identity, value in rows:
-                if _is_null_scalar(identity):
-                    raise GFQLMutationError(
-                        ErrorCode.E105, "SET requires non-null matched entity identities",
-                        field=identity_column, value="null", language="cypher",
-                    )
-                current = updates[alias][assignment.target.property].setdefault(identity, value)
-                if current != value and not (_is_null_scalar(current) and _is_null_scalar(value)):
-                    raise GFQLMutationError(
-                        ErrorCode.E105,
-                        f"SET assigns conflicting values to {alias}.{assignment.target.property}",
-                        field=assignment.target.property, value="conflicting_updates",
-                        line=assignment.span.line, column=assignment.span.column, language="cypher",
-                    )
+                assignment_frame = frame[[identity_column]].rename(
+                    columns={identity_column: SET_IDENTITY}
+                )
+                assignment_frame[SET_VALUE] = frame[value_column]
+            update_families[alias][assignment.target.property].add(
+                _assignment_value_family(assignment_frame, SET_VALUE)
+            )
+            updates[alias][assignment.target.property].append(assignment_frame)
     alias_kind_map = dict(alias_kinds)
     nodes = _copy_frame(self._nodes) if self._nodes is not None else None
     edges = _copy_frame(self._edges) if self._edges is not None else None
@@ -219,12 +282,19 @@ def execute_set_properties(
                 f"SET cannot rekey physical identity column {key!r}",
                 field=key, value="physical_identity", language="cypher",
             )
+    combined_updates: dict[str, dict[str, DataFrameT]] = {}
+    for alias, properties in updates.items():
+        combined_updates[alias] = {}
+        for property_name, assignment_frames in properties.items():
+            combined_updates[alias][property_name] = _combine_assignment_frames(
+                assignment_frames, concrete_engine, assignment.span,
+            )
     _validate_set_updates(
-        updates,
-        nodes, edges, alias_kind_map,
+        combined_updates,
+        nodes, edges, alias_kind_map, update_families,
     )
 
-    for alias, properties in updates.items():
+    for alias, properties in combined_updates.items():
         kind = alias_kind_map[alias]
         frame = nodes if kind == "node" else edges
         key = node_key if kind == "node" else edge_key
@@ -233,25 +303,44 @@ def execute_set_properties(
             import polars as pl
             assert isinstance(frame, pl.DataFrame)
             for property_name, values in properties.items():
-                expression = pl.col(property_name) if property_name in frame.columns else pl.lit(None)
-                for identity, value in values.items():
-                    expression = pl.when(pl.col(key) == pl.lit(identity)).then(pl.lit(value)).otherwise(expression)
-                frame = frame.with_columns(expression.alias(property_name))
+                new_value = f"__gfql_set_new_{property_name}__"
+                matched = f"__gfql_set_matched_{property_name}__"
+                update = values.select(
+                    pl.col(SET_IDENTITY),
+                    pl.col(SET_VALUE).alias(new_value),
+                    pl.lit(True).alias(matched),
+                )
+                frame = frame.join(update, left_on=key, right_on=SET_IDENTITY, how="left")
+                existing = (
+                    pl.col(property_name)
+                    if property_name in frame.columns
+                    else pl.lit(None)
+                )
+                frame = frame.with_columns(
+                    pl.when(pl.col(matched).fill_null(False))
+                    .then(pl.col(new_value))
+                    .otherwise(existing)
+                    .alias(property_name)
+                ).drop([new_value, matched])
             if kind == "node":
                 nodes = frame
             else:
                 edges = frame
         else:
             for property_name, values in properties.items():
-                mask = frame[key].isin(list(values))
-                if is_cudf_obj(frame):
-                    mapped = frame[key].map(values)
-                    if property_name in frame.columns:
-                        frame[property_name] = mapped.where(mask, frame[property_name])
-                    else:
-                        frame[property_name] = mapped.where(mask, None)
+                new_value = f"__gfql_set_new_{property_name}__"
+                matched = f"__gfql_set_matched_{property_name}__"
+                update = values.rename(columns={SET_IDENTITY: key, SET_VALUE: new_value})
+                update[matched] = True
+                frame = frame.merge(update, how="left", on=key, sort=False)
+                update_mask = frame[matched].fillna(False).astype(bool)
+                if property_name in frame.columns:
+                    frame[property_name] = frame[property_name].where(
+                        ~update_mask, frame[new_value]
+                    )
                 else:
-                    frame.loc[mask, property_name] = frame.loc[mask, key].map(values)
+                    frame[property_name] = frame[new_value]
+                frame = frame.drop(columns=[new_value, matched])
             if kind == "node":
                 nodes = frame
             else:

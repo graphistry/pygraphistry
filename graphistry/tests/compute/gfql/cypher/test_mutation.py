@@ -1134,6 +1134,7 @@ def test_set_without_return_compiles_to_the_mutated_graph() -> None:
     ("MATCH (n) SET n.id = 1 RETURN n", "id"),
     ("MATCH (n) SET n.labels = ['L'] RETURN n", "labels"),
     ("MATCH (n) SET n.type = 'L' RETURN n", "type"),
+    ("MATCH (n) SET n.label__L = True RETURN n", "label__L"),
     ("MATCH (n) SET n.__secret__ = 1 RETURN n", "__secret__"),
 ])
 def test_set_declines_unfaithful_or_unbound_targets(query: str, target: str) -> None:
@@ -1150,6 +1151,11 @@ def test_set_declines_unfaithful_or_unbound_targets(query: str, target: str) -> 
 def test_set_declines_unsupported_mixed_programs(query: str) -> None:
     with pytest.raises(GFQLValidationError):
         compile_cypher_query(parse_cypher(query))
+
+
+def test_set_declines_optional_match() -> None:
+    with pytest.raises(GFQLValidationError):
+        compile_cypher_query(parse_cypher("MATCH (n) OPTIONAL MATCH (m) SET n.x = 1"))
 
 
 @pytest.mark.parametrize("engine", ENGINES)
@@ -1187,6 +1193,22 @@ def test_set_detects_conflicting_updates_for_the_same_property(engine: str) -> N
 
     assert exc.value.code == ErrorCode.E105
     assert exc.value.context["value"] == "conflicting_updates"
+    assert _records(source._nodes) == before
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_set_return_declines_unfaithful_rematch(engine: str) -> None:
+    source = graphistry.nodes(
+        _foundation_frame(engine, {"id": [1, 2], "score": [5, 100]}), "id"
+    )
+    before = _records(source._nodes)
+    with pytest.raises(GFQLValidationError) as exc:
+        source.gfql(
+        "MATCH (n) WHERE n.score < 10 SET n.score = 100 RETURN n.id, n.score",
+        engine=engine,
+        language="cypher",
+    )
+    assert exc.value.context["value"] == "mutation_rematch"
     assert _records(source._nodes) == before
 
 
