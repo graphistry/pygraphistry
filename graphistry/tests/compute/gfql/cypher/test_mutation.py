@@ -74,6 +74,46 @@ def _graph(engine: str) -> Any:
     return graphistry.nodes(nodes, "id").edges(edges, "src", "dst")
 
 
+@pytest.mark.parametrize("source_engine,target_engine", [
+    ("pandas", "polars"),
+    ("polars", "pandas"),
+    pytest.param("pandas", "cudf", marks=pytest.mark.skipif(
+        os.environ.get("TEST_CUDF") != "1", reason="cudf tests need TEST_CUDF=1",
+    )),
+])
+def test_set_normalizes_target_frames_to_explicit_engine_and_retains_caller(source_engine, target_engine):
+    source = _graph(source_engine)
+    nodes, edges = source._nodes, source._edges
+    before_nodes, before_edges = _records(nodes), _records(edges)
+
+    result = source.gfql(
+        "MATCH (n:Person) SET n.score = 20 RETURN n.score AS score", engine=target_engine,
+    )
+
+    _assert_served(target_engine, result._nodes)
+    _assert_served(target_engine, result.gfql_graph._nodes)
+    _assert_served(target_engine, result.gfql_graph._edges)
+    assert _records(result._nodes) == [{"score": 20}]
+    assert sorted((row["id"], row["score"]) for row in _records(result.gfql_graph._nodes)) == [(1, 20), (2, None)]
+    assert _records(result.gfql_graph._edges) == before_edges
+    assert source._nodes is nodes and source._edges is edges
+    assert _records(nodes) == before_nodes and _records(edges) == before_edges
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_set_list_assignment_declines_before_value_hashing_without_effects(engine):
+    source = _graph(engine)
+    before_nodes, before_edges = _records(source._nodes), _records(source._edges)
+
+    with pytest.raises(GFQLValidationError) as caught:
+        source.gfql("MATCH (n:Person) SET n.values = [1, 2, 3] RETURN n", engine=engine)
+
+    assert caught.value.code == ErrorCode.E108
+    assert caught.value.context["field"] == "set"
+    assert caught.value.context["value"] == "non_scalar_value"
+    assert _records(source._nodes) == before_nodes and _records(source._edges) == before_edges
+
+
 @pytest.mark.parametrize("engine", ENGINES)
 def test_create_nodes_adds_identity_labels_and_properties(engine: str) -> None:
     source = _graph(engine)

@@ -115,6 +115,14 @@ def _assignment_value_family(frame: DataFrameT, column: str) -> str:
         return _frame_family(frame, column)
     if len(frame) and bool(frame[column].isna().all()):
         return "null"
+    import pandas as pd
+    if isinstance(frame, pd.DataFrame) and pd.api.types.is_object_dtype(frame[column].dtype):
+        inferred = pd.api.types.infer_dtype(frame[column], skipna=True)
+        return {
+            "string": "string", "unicode": "string", "boolean": "bool",
+            "integer": "integer", "floating": "float", "mixed-integer-float": "float",
+            "empty": "null",
+        }.get(inferred, "other")
     return _frame_family(frame, column)
 
 
@@ -256,13 +264,18 @@ def execute_set_properties(
                     columns={identity_column: SET_IDENTITY}
                 )
                 assignment_frame = assignment_frame.assign(**{SET_VALUE: frame[value_column]})
-            update_families[alias][assignment.target.property].add(
-                _assignment_value_family(assignment_frame, SET_VALUE)
-            )
+            value_family = _assignment_value_family(assignment_frame, SET_VALUE)
+            if value_family == "other":
+                raise GFQLMutationError(
+                    ErrorCode.E108, "SET properties support scalar values only",
+                    field="set", value="non_scalar_value", language="cypher",
+                    line=assignment.span.line, column=assignment.span.column,
+                )
+            update_families[alias][assignment.target.property].add(value_family)
             updates[alias][assignment.target.property].append(assignment_frame)
     alias_kind_map = dict(alias_kinds)
-    nodes = _copy_frame(self._nodes) if self._nodes is not None else None
-    edges = _copy_frame(self._edges) if self._edges is not None else None
+    nodes = _copy_frame(df_to_engine(self._nodes, concrete_engine)) if self._nodes is not None else None
+    edges = _copy_frame(df_to_engine(self._edges, concrete_engine)) if self._edges is not None else None
     node_key = self._node
     edge_key = self._edge
     if any(alias_kind_map[alias] == "node" for alias in updates) and node_key is None:
