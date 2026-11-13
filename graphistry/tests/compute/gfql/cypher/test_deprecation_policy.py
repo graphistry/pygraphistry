@@ -46,6 +46,7 @@ def _access_deprecated_attr(name: str):
 @pytest.mark.parametrize("name", [
     "CompiledCypherQuery",
     "CompiledCypherUnionQuery",
+    "CompiledCypherMutationQuery",
     "compile_cypher_query",
     "CompiledCypherProcedureCall",
 ])
@@ -58,6 +59,7 @@ def test_deprecated_module_attr_emits_deprecation_warning(name):
 @pytest.mark.parametrize("name", [
     "CompiledCypherQuery",
     "CompiledCypherUnionQuery",
+    "CompiledCypherMutationQuery",
     "compile_cypher_query",
     "CompiledCypherProcedureCall",
 ])
