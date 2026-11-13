@@ -931,6 +931,48 @@ def test_create_preserves_original_flag_precedence_over_legacy_type(engine):
     assert _records(source._nodes)==before
 
 
+@pytest.mark.parametrize("engine", ENGINES)
+def test_create_rendering_survives_repeated_create(engine):
+    source = graphistry.nodes(
+        _foundation_frame(engine, {"id": ["old"], "type": ["Old"]}), "id"
+    )
+    before = _records(source._nodes)
+    first = source.gfql("CREATE (:New)", engine=engine, language="cypher")
+    first_rows = first.gfql(
+        "MATCH (old) WHERE old.id = 'old' RETURN old",
+        engine=engine,
+        language="cypher",
+    )
+    repeated = first.gfql("CREATE (:Next)", engine=engine, language="cypher")
+    repeated_rows = repeated.gfql(
+        "MATCH (old) WHERE old.id = 'old' RETURN old",
+        engine=engine,
+        language="cypher",
+    )
+
+    assert _entity_text_records(first_rows, {"old": "nodes"}) == [{"old": "(:Old)"}]
+    assert _entity_text_records(repeated_rows, {"old": "nodes"}) == [{"old": "(:Old)"}]
+    assert _records(source._nodes) == before
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_rebinding_nodes_ends_previous_create_rendering(engine):
+    source = graphistry.nodes(
+        _foundation_frame(engine, {"id": ["old"], "type": ["Old"]}), "id"
+    )
+    created = source.gfql("CREATE (:New)", engine=engine, language="cypher")
+    fresh = _foundation_frame(engine, {"id": [1], "label__Foo": [True], "type": ["Business"]})
+    rebound = created.nodes(fresh, "id")
+    rows = rebound.gfql("MATCH (n) RETURN n", engine=engine, language="cypher")
+    direct = graphistry.nodes(fresh, "id").gfql(
+        "MATCH (n) RETURN n", engine=engine, language="cypher"
+    )
+
+    assert _entity_text_records(rows, {"n": "nodes"}) == [{"n": "(:Foo {id: 1})"}]
+    assert _entity_text_records(direct, {"n": "nodes"}) == [{"n": "(:Foo {id: 1})"}]
+    assert created._cypher_legacy_type_rendering is True
+
+
 def test_create_rejects_reserved_existing_edge_identity_before_effects():
     source=graphistry.nodes(_foundation_frame("pandas",{"id":[1,2]}),"id")
     source=source.edges(pd.DataFrame({

@@ -666,7 +666,11 @@ def execute_create_nodes(
                 MUTATION_NODE_ID: nodes[old_key], ID_PROPERTY_PRESENT: include_id,
             })
     node_key = MUTATION_NODE_ID
-    legacy_type_rendering = nodes is None or not any(label_flag_columns(nodes.columns))
+    admitted_policy = bool(getattr(self, "_cypher_legacy_type_rendering", False))
+    legacy_type_rendering = admitted_policy or (
+        nodes is None
+        or not any(label_flag_columns(nodes.columns))
+    )
     node_count = 0
     for clause in creates:
         seen_nodes: set[str] = set()

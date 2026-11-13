@@ -2929,11 +2929,11 @@ def _gfql_with_strictness(
                     if not isinstance(compiled_return, CompiledCypherQuery):
                         raise TypeError("SET identity projection must compile to a read query")
                     matched_rows = _execute_compiled_query(
-                        self, compiled_query=compiled_return, engine=engine,
+                        dispatch_self, compiled_query=compiled_return, engine=engine,
                         policy=expanded_policy, context=context,
                     )
                     mutated = execute_set_properties(
-                        self, matched_rows, compiled_query.sets,
+                        dispatch_self, matched_rows, compiled_query.sets,
                         alias_kinds=compiled_query.set_alias_kinds,
                         engine=EngineAbstract(engine) if isinstance(engine, str) else engine,
                     )
@@ -2949,7 +2949,7 @@ def _gfql_with_strictness(
                         )
                     return mutated
                 mutated, created_bindings = execute_create_nodes(
-                    self, compiled_query.creates,
+                    dispatch_self, compiled_query.creates,
                     engine=EngineAbstract(engine) if isinstance(engine, str) else engine,
                     params=params,
                 )
@@ -3013,13 +3013,17 @@ def _gfql_with_strictness(
         try:
             if compiled_query is not None and not isinstance(query, Chain):
                 logger.debug('GFQL executing compiled string program')
-                return _execute_compiled_query(
+                result = _execute_compiled_query(
                     self,
                     compiled_query=compiled_query,
                     engine=engine,
                     policy=expanded_policy,
                     context=context,
                 )
+                result._cypher_legacy_type_rendering = bool(
+                    getattr(self, "_cypher_legacy_type_rendering", False)
+                )
+                return result
             if isinstance(query, ASTLet):
                 logger.debug('GFQL executing as DAG')
                 return chain_let_impl(dispatch_self, query, engine, output, policy=expanded_policy, context=context)
@@ -3032,13 +3036,17 @@ def _gfql_with_strictness(
                         raise ValueError("where provided for Chain that already includes where")
                     query = Chain(query.chain, where=where_param)
                 if compiled_query is not None:
-                    return _execute_compiled_query_with_reentry(
+                    result = _execute_compiled_query_with_reentry(
                         self,
                         compiled_query=compiled_query,
                         engine=engine,
                         policy=expanded_policy,
                         context=context,
                     )
+                    result._cypher_legacy_type_rendering = bool(
+                        getattr(self, "_cypher_legacy_type_rendering", False)
+                    )
+                    return result
                 return _chain_dispatch(dispatch_self, query, engine, expanded_policy, context)
             elif isinstance(query, ASTObject):
                 logger.debug('GFQL executing single ASTObject as chain')
