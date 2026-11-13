@@ -906,10 +906,10 @@ def _build_transformer(source: str) -> _TransformerLike:
             for item in items:
                 if isinstance(item, str):
                     variable = item
+                elif isinstance(item, _PropertiesTuple):
+                    properties = cast(Tuple[PropertyEntry, ...], item)
                 elif isinstance(item, tuple) and all(isinstance(v, str) for v in item):
                     labels = cast(Tuple[str, ...], item)
-                elif isinstance(item, tuple):
-                    properties = cast(Tuple[PropertyEntry, ...], item)
             span = _span_from_meta(meta)
             return NodePattern(
                 variable=variable,
@@ -935,10 +935,10 @@ def _build_transformer(source: str) -> _TransformerLike:
                     min_hops = cast(Optional[int], item.get("min_hops"))
                     max_hops = cast(Optional[int], item.get("max_hops"))
                     to_fixed_point = bool(item.get("to_fixed_point", False))
+                elif isinstance(item, _PropertiesTuple):
+                    properties = cast(Tuple[PropertyEntry, ...], item)
                 elif isinstance(item, tuple) and all(isinstance(v, str) for v in item):
                     rel_types = cast(Tuple[str, ...], item)
-                elif isinstance(item, tuple):
-                    properties = cast(Tuple[PropertyEntry, ...], item)
             return RelationshipPattern(
                 direction=cast(Any, direction),
                 variable=variable,

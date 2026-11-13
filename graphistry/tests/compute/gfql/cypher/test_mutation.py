@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib.util
 import os
 from typing import Any
 
@@ -23,7 +24,10 @@ ENGINES = [
     pytest.param("cudf", marks=pytest.mark.skipif(
         os.environ.get("TEST_CUDF") != "1", reason="cudf tests need TEST_CUDF=1"
     )),
-    pytest.param("polars"),
+    pytest.param("polars", marks=pytest.mark.skipif(
+        importlib.util.find_spec("polars") is None,
+        reason="polars is not installed",
+    )),
 ]
 
 
