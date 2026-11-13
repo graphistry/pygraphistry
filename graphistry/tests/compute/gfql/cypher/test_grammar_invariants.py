@@ -95,6 +95,7 @@ DIFFERENTIAL_CORPUS = [
     "RETURN 1 AS one",
     "CREATE (a:L {name: 'x'}) RETURN a",
     "CREATE (a:L), (b:L)",
+    "CREATE (a:L)-[r:R {since: 1}]->(b:L)",
     # WITH pipelines
     "MATCH (n) WITH n.city AS city, count(n) AS c WHERE c > 1 RETURN city, c",
     "MATCH (n) WITH n ORDER BY n.x LIMIT 3 RETURN n.id",

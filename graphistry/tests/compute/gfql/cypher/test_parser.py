@@ -22,7 +22,13 @@ from graphistry.compute.gfql.cypher import (
     parse_cypher,
 )
 from graphistry.compute.gfql.cypher._boolean_expr_text import boolean_expr_to_text
-from graphistry.compute.gfql.cypher.ast import BooleanExpr, GraphBinding, GraphConstructor, UseClause
+from graphistry.compute.gfql.cypher.ast import (
+    BooleanExpr,
+    CreateRelationship,
+    GraphBinding,
+    GraphConstructor,
+    UseClause,
+)
 
 
 def _parse_query(query: str) -> CypherQuery:
@@ -73,14 +79,47 @@ def test_parse_create_with_return_is_standalone_query() -> None:
     assert parsed.return_.items[0].expression.text == "a"
 
 
+def test_parse_standalone_create_relationship() -> None:
+    parsed = _parse_query(
+        "CREATE (a:Person {name: 'Ada'})-[r:KNOWS {since: 2020}]->(b:Person {name: 'Bob'})"
+    )
+
+    assert parsed.matches == ()
+    assert len(parsed.creates) == 1
+    assert len(parsed.creates[0].patterns) == 1
+    created = parsed.creates[0].patterns[0]
+    assert isinstance(created, CreateRelationship)
+    assert created.source.variable == "a"
+    assert created.source.labels == ("Person",)
+    assert created.destination.variable == "b"
+    assert created.destination.labels == ("Person",)
+    assert created.relationship.variable == "r"
+    assert created.relationship.types == ("KNOWS",)
+    assert created.relationship.direction == "forward"
+    assert created.relationship.properties[0].key == "since"
+    assert created.relationship.properties[0].value == 2020
+
+
+def test_parse_standalone_create_reverse_relationship() -> None:
+    parsed = _parse_query("CREATE (a)<-[:KNOWS]-(b)")
+
+    created = parsed.creates[0].patterns[0]
+    assert isinstance(created, CreateRelationship)
+    assert created.source.variable == "a"
+    assert created.destination.variable == "b"
+    assert created.relationship.types == ("KNOWS",)
+    assert created.relationship.direction == "reverse"
+
+
 @pytest.mark.parametrize(
     "query",
     [
-        "CREATE (a)-[:R]->(b)",
         "MATCH (a) CREATE (b:L)",
         "CALL proc() CREATE (a:L)",
         "UNWIND [1] AS x CREATE (a:L)",
-        "CREATE (:L)",
+        "CREATE (a)-[:R|:S]->(b)",
+        "CREATE (a)-[:R*1..2]->(b)",
+        "CREATE (a)-[:R]-(b)",
     ],
 )
 def test_parse_rejects_unsupported_create_shapes(query: str) -> None:

@@ -9354,6 +9354,9 @@ def compile_cypher_query(
     if isinstance(query, CypherQuery):
         _reject_excessive_match_clauses(query.matches)
         if query.creates:
+            from graphistry.compute.gfql.mutation import validate_create_node_reuse
+
+            validate_create_node_reuse(query.creates)
             if (
                 query.matches or query.reentry_matches or query.unwinds
                 or query.reentry_unwinds or query.with_stages or query.call is not None
@@ -9366,9 +9369,47 @@ def compile_cypher_query(
                     line=query.span.line,
                     column=query.span.column,
                 )
-            variables = [pattern.variable for clause in query.creates for pattern in clause.patterns if pattern.variable is not None]
+            variables: list[str] = []
+            relationship_variables: list[str] = []
+            seen_node_variables: set[str] = set()
+            for clause in query.creates:
+                seen_relationship_variables: set[str] = set()
+                clause_node_variables: set[str] = set()
+                for pattern in clause.patterns:
+                    if isinstance(pattern, NodePattern):
+                        if pattern.variable is not None and pattern.variable not in seen_node_variables:
+                            variables.append(pattern.variable)
+                            seen_node_variables.add(pattern.variable)
+                            clause_node_variables.add(pattern.variable)
+                    else:
+                        for endpoint in (pattern.source, pattern.destination):
+                            if endpoint.variable is not None and endpoint.variable not in seen_node_variables:
+                                variables.append(endpoint.variable)
+                                seen_node_variables.add(endpoint.variable)
+                                clause_node_variables.add(endpoint.variable)
+                        for endpoint in (pattern.source, pattern.destination):
+                            if (
+                                endpoint.variable is not None
+                                and endpoint.variable not in clause_node_variables
+                                and endpoint.variable in seen_node_variables
+                            ):
+                                raise _unsupported(
+                                    "CREATE relationship cannot reuse a node from another clause",
+                                    field="create",
+                                    value=endpoint.variable,
+                                    line=query.span.line,
+                                    column=query.span.column,
+                                )
+                        if pattern.relationship.variable is not None and pattern.relationship.variable not in seen_relationship_variables:
+                            relationship_variables.append(pattern.relationship.variable)
+                            seen_relationship_variables.add(pattern.relationship.variable)
             if len(set(variables)) != len(variables):
                 raise _unsupported("CREATE variable is already bound", field="create", value=variables, line=query.span.line, column=query.span.column)
+            if len(set(relationship_variables)) != len(relationship_variables):
+                raise _unsupported("CREATE relationship variable is already bound", field="create", value=relationship_variables, line=query.span.line, column=query.span.column)
+            shared_variables = sorted(set(variables) & set(relationship_variables))
+            if shared_variables:
+                raise _unsupported("CREATE variable is already bound", field="create", value=shared_variables, line=query.span.line, column=query.span.column)
             if query.return_is_synthetic:
                 return CompiledCypherMutationQuery(creates=query.creates)
             from graphistry.compute.gfql.row.entity_props import MUTATION_NODE_ID

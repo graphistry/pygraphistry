@@ -24,6 +24,8 @@ from graphistry.compute.gfql.cypher.ast import (
     CypherUnionQuery,
     CypherYieldItem,
     CreateClause,
+    CreatePattern,
+    CreateRelationship,
     GraphBinding,
     GraphConstructor,
     LimitClause,
@@ -126,6 +128,7 @@ pattern: node_pattern (relationship_pattern node_pattern)*
 
 create_clause: "CREATE"i create_item ("," create_item)*
 create_item: node_pattern -> create_node
+           | node_pattern relationship_pattern node_pattern -> create_relationship
 
 node_pattern: "(" variable? labels? properties? ")"
 labels: label+
@@ -631,6 +634,10 @@ class _PrimitiveLiteral:
     span: SourceSpan
 
 
+class _PropertiesTuple(tuple):
+    """Marks a grammar-derived property map, including an explicit empty map."""
+
+
 def _unwrap_primitive_literal(value: object) -> object:
     if isinstance(value, _PrimitiveLiteral):
         return value.value
@@ -884,7 +891,7 @@ def _build_transformer(source: str) -> _TransformerLike:
             return PropertyEntry(key=key, value=value, span=_span_from_meta(meta))
 
         def properties(self, _meta: Any, items: Sequence[Any]) -> Tuple[PropertyEntry, ...]:
-            return tuple(cast(PropertyEntry, item) for item in items)
+            return _PropertiesTuple(cast(PropertyEntry, item) for item in items)
 
         def node_pattern(self, meta: Any, items: Sequence[Any]) -> NodePattern:
             variable: Optional[str] = None
@@ -897,11 +904,13 @@ def _build_transformer(source: str) -> _TransformerLike:
                     labels = cast(Tuple[str, ...], item)
                 elif isinstance(item, tuple):
                     properties = cast(Tuple[PropertyEntry, ...], item)
+            span = _span_from_meta(meta)
             return NodePattern(
                 variable=variable,
                 labels=labels,
                 properties=properties,
-                span=_span_from_meta(meta),
+                span=span,
+                explicit_properties=any(isinstance(item, _PropertiesTuple) for item in items),
             )
 
         def _relationship(
@@ -1700,26 +1709,55 @@ def _build_transformer(source: str) -> _TransformerLike:
 
         def create_clause(self, meta: _ParserMeta, items: Sequence[object]) -> CreateClause:
             if not items:
-                raise _to_syntax_error("CREATE clause must contain at least one node pattern", line=meta.line, column=meta.column)
-            patterns: list[NodePattern] = []
+                raise _to_syntax_error("CREATE clause must contain at least one pattern", line=meta.line, column=meta.column)
+            patterns: list[CreatePattern] = []
             for item in items:
-                if not isinstance(item, NodePattern):
-                    raise _to_unsupported(
-                        "GFQL CREATE clauses may contain only node patterns",
-                        line=meta.line,
-                        column=meta.column,
-                    )
-                patterns.append(item)
+                if isinstance(item, (NodePattern, CreateRelationship)):
+                    patterns.append(item)
+                else:
+                    raise _to_syntax_error("Invalid CREATE pattern", line=meta.line, column=meta.column)
             return CreateClause(patterns=tuple(patterns), span=_span_from_meta(meta))
 
         def create_node(self, meta: _ParserMeta, items: Sequence[object]) -> NodePattern:
             if len(items) != 1 or not isinstance(items[0], NodePattern):
-                raise _to_unsupported(
-                    "GFQL CREATE currently supports standalone node patterns only",
-                    line=meta.line,
-                    column=meta.column,
-                )
+                raise _to_syntax_error("Invalid CREATE node pattern")
             return items[0]
+
+        def create_relationship(
+            self,
+            meta: _ParserMeta,
+            items: Sequence[object],
+        ) -> CreateRelationship:
+            if len(items) != 3 or not all(isinstance(item, (NodePattern, RelationshipPattern)) for item in items):
+                raise _to_syntax_error("Invalid CREATE relationship pattern", line=meta.line, column=meta.column)
+            first, second, third = items
+            if not isinstance(first, NodePattern) or not isinstance(second, RelationshipPattern) or not isinstance(third, NodePattern):
+                raise _to_syntax_error("Invalid CREATE relationship pattern", line=meta.line, column=meta.column)
+            source, relationship, destination = first, second, third
+            if relationship.direction == "undirected":
+                raise _to_unsupported(
+                    "GFQL CREATE requires a directed relationship pattern",
+                    line=relationship.span.line,
+                    column=relationship.span.column,
+                )
+            if relationship.min_hops is not None or relationship.max_hops is not None or relationship.to_fixed_point:
+                raise _to_unsupported(
+                    "GFQL CREATE does not support variable-length relationships",
+                    line=relationship.span.line,
+                    column=relationship.span.column,
+                )
+            if len(relationship.types) != 1:
+                raise _to_syntax_error(
+                    "CREATE relationship requires exactly one type",
+                    line=relationship.span.line,
+                    column=relationship.span.column,
+                )
+            return CreateRelationship(
+                source=source,
+                relationship=relationship,
+                destination=destination,
+                span=_span_from_meta(meta),
+            )
 
         def query_body(self, meta: Any, items: Sequence[Any]) -> CypherQuery:
             # The grammar bundles WHERE onto its MATCH clause (there is no
@@ -1823,7 +1861,7 @@ def _build_transformer(source: str) -> _TransformerLike:
                 elif isinstance(item, CreateClause):
                     if match_clauses or reentry_match_clauses or stages or unwind_clauses or call_clause is not None:
                         raise _to_unsupported(
-                            "GFQL CREATE is currently supported only before an optional RETURN in standalone node mutations",
+                            "GFQL CREATE is currently supported only before an optional RETURN in standalone node or relationship mutations",
                             line=item.span.line,
                             column=item.span.column,
                         )

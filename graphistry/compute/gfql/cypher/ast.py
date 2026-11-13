@@ -67,6 +67,7 @@ class NodePattern:
     labels: Tuple[str, ...]
     properties: Tuple[PropertyEntry, ...]
     span: SourceSpan
+    explicit_properties: bool = False
 
 
 @dataclass(frozen=True)
@@ -82,6 +83,7 @@ class RelationshipPattern:
 
 
 PatternElement = Union[NodePattern, RelationshipPattern]
+CreatePattern = Union[NodePattern, "CreateRelationship"]
 PathPatternKind = Literal["pattern", "shortestPath", "allShortestPaths"]
 
 
@@ -103,15 +105,20 @@ class MatchClause:
 
 @dataclass(frozen=True)
 class CreateClause:
-    """A standalone node-pattern CREATE clause.
+    """A standalone CREATE clause containing directed node/relationship patterns."""
 
-    Relationship patterns and MATCH-bound variables are intentionally excluded
-    until their multiplicity, identity, and own-write semantics are implemented.
-    """
-
-    patterns: Tuple[NodePattern, ...]
+    patterns: Tuple[CreatePattern, ...]
     span: SourceSpan
 
+
+@dataclass(frozen=True)
+class CreateRelationship:
+    """A directed one-hop relationship and endpoints in a CREATE clause."""
+
+    source: NodePattern
+    relationship: RelationshipPattern
+    destination: NodePattern
+    span: SourceSpan
 
 @dataclass(frozen=True)
 class UnwindClause:
