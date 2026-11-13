@@ -13,7 +13,8 @@ GFQL is the only open-source Cypher implementation that runs in-process on
 dataframes, with no database to install, load, or keep in sync. It brings the
 columnar, vectorized execution model that DuckDB and ClickHouse made standard
 for analytics to graph pattern matching. A query compiles to batched dataframe
-operations over Arrow-backed columns on pandas, Polars, or NVIDIA cuDF. The
+operations over Arrow-backed columns on pandas, Polars, or NVIDIA cuDF. With
+``engine='polars'``, these operations run in Polars' Rust engine on CPU. The
 same query therefore runs on a laptop CPU or on a GPU, faster than the graph databases
 it was measured against (see :doc:`performance`), and without the hassle of standing up
 a database to get there.

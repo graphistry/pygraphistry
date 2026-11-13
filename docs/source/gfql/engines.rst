@@ -81,7 +81,7 @@ The four engines
      - CPU
      - ``polars``
      - ``auto`` for Polars input, or explicit
-     - Columnar CPU execution with combined operations and indexed lookups.
+     - Columnar CPU execution in Polars' Rust engine.
    * - ``cudf``
      - NVIDIA GPU
      - ``cudf``

@@ -81,8 +81,9 @@ GFQL is part of the open-source ``graphistry`` library. Install it using pip:
 
     pip install graphistry
 
-GFQL runs on ``pandas`` (installed with ``graphistry``), ``polars``, or ``cudf``. Install the
-one you want to query with; :doc:`engines` explains which to pick for CPU or GPU.
+The base installation includes pandas. With ``engine='polars'``, GFQL runs dataframe
+operations in Polars' Rust engine. See :doc:`engines` for installation and CPU or GPU
+engine selection.
 
 Two Syntax Styles
 ------------------
