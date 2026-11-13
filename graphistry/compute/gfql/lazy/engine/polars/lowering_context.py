@@ -9,7 +9,7 @@ the lowering's ambient state is discoverable rather than inlined across the exec
 polars-lowering contextvars SHOULD be added here.
 """
 import contextvars
-from typing import Optional
+from typing import FrozenSet, Optional
 
 #: Table schema (column name -> polars dtype) of the frame being lowered — lets float-operand
 #: inference run for the NaN guard without a scan.
@@ -22,7 +22,7 @@ NODE_ID: "contextvars.ContextVar[Optional[str]]" = contextvars.ContextVar("gfql_
 
 #: Declared node bindings from the existing row execution metadata. Scalar or
 #: relationship columns must not be interpreted as nodes merely because they exist.
-NODE_ALIASES: "contextvars.ContextVar[frozenset[str]]" = contextvars.ContextVar(
+NODE_ALIASES: "contextvars.ContextVar[FrozenSet[str]]" = contextvars.ContextVar(
     "gfql_polars_node_aliases", default=frozenset()
 )
 
