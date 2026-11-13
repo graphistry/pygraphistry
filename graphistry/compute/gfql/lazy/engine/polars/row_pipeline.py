@@ -180,7 +180,7 @@ def _lower_function(node: FunctionCall, columns: Sequence[str]) -> Optional[pl.E
                 # Bare binding rows may store the graph's native ID under the alias.
                 return pl.col(alias.name)
         return None
-    if name == "__node_entity__" and node.args:
+    if (name == "__node_entity__" and node.args) or (name == "labels" and len(node.args) == 1):
         from graphistry.compute.gfql.expr_parser import Identifier, Literal
         alias_node = node.args[0]
         if not isinstance(alias_node, Identifier) or alias_node.name not in columns:
@@ -188,12 +188,14 @@ def _lower_function(node: FunctionCall, columns: Sequence[str]) -> Optional[pl.E
         schema = dict(_SCHEMA.get())
         if not schema:
             return None
-        from .projection import _alias_view_polars, _native_node_entity_text_expr
+        from .projection import _alias_view_polars, _native_node_entity_text_expr, _native_node_labels_text_expr
         view = _alias_view_polars(
             pl.DataFrame(schema=schema), alias_node.name, _NODE_ID.get()
         )
         if view is None:
             return None
+        if name == "labels":
+            return _native_node_labels_text_expr(view)
         excluded = []
         for arg in node.args[1:]:
             if isinstance(arg, Identifier):
@@ -697,12 +699,26 @@ def _lower_in(left: pl.Expr, items: Sequence[ExprNode], columns: Sequence[str]) 
     return pl.when(left.is_null()).then(pl.lit(None, dtype=pl.Boolean)).otherwise(member_expr.is_in(values))
 
 
+def _constant_string_key(node: ExprNode) -> Optional[str]:
+    """Resolve only schema-independent string keys; row-varying keys still defer."""
+    from graphistry.compute.gfql.expr_parser import BinaryOp, Literal
+
+    if isinstance(node, Literal) and isinstance(node.value, str):
+        return node.value
+    if isinstance(node, BinaryOp) and node.op == "+":
+        left = _constant_string_key(node.left)
+        right = _constant_string_key(node.right)
+        if left is not None and right is not None:
+            return left + right
+    return None
+
+
 def lower_expr(node: ExprNode, columns: Sequence[str]) -> Optional[pl.Expr]:
     """Lower a parsed cypher ExprNode to a polars expression, or None to defer."""
     import polars as pl
     from graphistry.compute.gfql.expr_parser import (
         Identifier, Literal, BinaryOp, UnaryOp, IsNullOp, PropertyAccessExpr, FunctionCall, CaseWhen,
-        ListLiteral,
+        ListLiteral, SubscriptExpr,
     )
 
     if isinstance(node, Literal):
@@ -730,6 +746,11 @@ def lower_expr(node: ExprNode, columns: Sequence[str]) -> Optional[pl.Expr]:
             node_id = _NODE_ID.get()
             if node_id is not None and node_id in columns:
                 return pl.col(node_id)
+        return None
+    if isinstance(node, SubscriptExpr) and isinstance(node.value, Identifier):
+        key = _constant_string_key(node.key)
+        if key is not None:
+            return lower_expr(PropertyAccessExpr(node.value, key), columns)
         return None
     if isinstance(node, PropertyAccessExpr):
         if isinstance(node.value, Identifier):
