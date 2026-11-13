@@ -2919,6 +2919,35 @@ def _gfql_with_strictness(
             if isinstance(compiled_query, CompiledCypherGraphQuery):
                 return _execute_graph_query(self, compiled_query, engine=engine, policy=expanded_policy, context=context)
             if isinstance(compiled_query, CompiledCypherMutationQuery):
+                if compiled_query.sets:
+                    from .gfql.cypher.lowering import compile_cypher_query
+                    from .gfql.mutation import execute_set_properties
+
+                    if compiled_query.return_query is None:
+                        raise TypeError("SET requires a compiled identity projection")
+                    compiled_return = compile_cypher_query(compiled_query.return_query, params=params)
+                    if not isinstance(compiled_return, CompiledCypherQuery):
+                        raise TypeError("SET identity projection must compile to a read query")
+                    matched_rows = _execute_compiled_query(
+                        self, compiled_query=compiled_return, engine=engine,
+                        policy=expanded_policy, context=context,
+                    )
+                    mutated = execute_set_properties(
+                        self, matched_rows, compiled_query.sets,
+                        alias_kinds=compiled_query.set_alias_kinds,
+                        engine=EngineAbstract(engine) if isinstance(engine, str) else engine,
+                    )
+                    if compiled_query.output_query is not None:
+                        compiled_output = compile_cypher_query(
+                            compiled_query.output_query, params=params,
+                        )
+                        if not isinstance(compiled_output, CompiledCypherQuery):
+                            raise TypeError("SET output must compile to a read projection")
+                        return _execute_compiled_query(
+                            mutated, compiled_query=compiled_output, engine=engine,
+                            policy=expanded_policy, context=context,
+                        )
+                    return mutated
                 mutated, created_bindings = execute_create_nodes(
                     self, compiled_query.creates,
                     engine=EngineAbstract(engine) if isinstance(engine, str) else engine,

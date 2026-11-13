@@ -127,6 +127,8 @@ from graphistry.compute.gfql.cypher.ast import (
     RelationshipPattern,
     ReturnClause,
     ReturnItem,
+    SetClause,
+    SetProperty,
     SourceSpan,
     UnwindClause,
     WhereClause,
@@ -287,7 +289,10 @@ class CompiledCypherMutationQuery:
     """A standalone write program whose semantics are owned by the mutation runtime."""
 
     creates: Tuple[CreateClause, ...]
+    sets: Tuple["SetClause", ...] = ()
     return_query: Optional[CypherQuery] = None
+    output_query: Optional[CypherQuery] = None
+    set_alias_kinds: Tuple[Tuple[str, Literal["node", "edge"]], ...] = ()
     return_bindings: Tuple[Tuple[str, str], ...] = ()
 
 
@@ -9353,6 +9358,128 @@ def compile_cypher_query(
 
     if isinstance(query, CypherQuery):
         _reject_excessive_match_clauses(query.matches)
+        if query.sets and query.creates:
+            raise _unsupported(
+                "Cypher SET cannot be combined with CREATE in the current GFQL mutation compiler",
+                field="set",
+                value=None,
+                line=query.span.line,
+                column=query.span.column,
+            )
+        if query.sets:
+            if (
+                query.unwinds or query.reentry_matches or query.reentry_unwinds
+                or query.with_stages or query.call is not None
+                or query.graph_bindings or query.use is not None
+            ):
+                raise _unsupported(
+                    "GFQL SET is currently supported only for MATCH ... SET [RETURN ...]",
+                    field="set",
+                    value="mixed_clauses",
+                    line=query.span.line,
+                    column=query.span.column,
+                )
+            assignments: list[SetProperty] = [
+                assignment for clause in query.sets for assignment in clause.assignments
+            ]
+            alias_kinds: dict[str, Literal["node", "edge"]] = {}
+            for match in query.matches:
+                for pattern in match.pattern:
+                    if isinstance(pattern, RelationshipPattern) and pattern.variable is not None:
+                        if pattern.variable in alias_kinds and alias_kinds[pattern.variable] != "edge":
+                            raise _unsupported(
+                                "Cypher SET cannot use the same alias as node and relationship",
+                                field="set", value=pattern.variable,
+                                line=pattern.span.line, column=pattern.span.column,
+                            )
+                        alias_kinds[pattern.variable] = "edge"
+                    elif isinstance(pattern, NodePattern) and pattern.variable is not None:
+                        if pattern.variable in alias_kinds and alias_kinds[pattern.variable] != "node":
+                            raise _unsupported(
+                                "Cypher SET cannot use the same alias as node and relationship",
+                                field="set", value=pattern.variable,
+                                line=pattern.span.line, column=pattern.span.column,
+                            )
+                        alias_kinds[pattern.variable] = "node"
+            aliases: list[str] = []
+            if any(kind == "edge" for kind in alias_kinds.values()):
+                edge_alias = next(alias for alias, kind in alias_kinds.items() if kind == "edge")
+                raise _unsupported(
+                    "GFQL SET currently supports node properties only; relationship property SET requires edge identity plumbing",
+                    field="set", value=edge_alias,
+                    line=query.span.line, column=query.span.column,
+                )
+            for assignment in assignments:
+                if assignment.target.alias not in alias_kinds:
+                    raise _unsupported(
+                        "Cypher SET aliases must be bound by MATCH",
+                        field="set", value=assignment.target.alias,
+                        line=assignment.span.line, column=assignment.span.column,
+                    )
+                if assignment.target.property in {"labels", "type"} or assignment.target.property.startswith("__"):
+                    raise _unsupported(
+                        "GFQL SET supports ordinary scalar properties only",
+                        field="set", value=assignment.target.property,
+                        line=assignment.span.line, column=assignment.span.column,
+                    )
+                if assignment.target.property == "id":
+                    raise _unsupported(
+                        "Cypher SET of id would rekey physical identity; use a distinct property name",
+                        field="set", value=assignment.target.property,
+                        line=assignment.span.line, column=assignment.span.column,
+                    )
+                if assignment.target.alias not in aliases:
+                    aliases.append(assignment.target.alias)
+            return_items: list[ReturnItem] = []
+            for alias_index, alias in enumerate(aliases):
+                assignments_for_alias = [a for a in assignments if a.target.alias == alias]
+                span = assignments_for_alias[0].target.span
+                return_items.append(ReturnItem(
+                    expression=ExpressionText(text=f"__node_identity__({alias})", span=span),
+                    alias=f"__gfql_set_identity_{alias_index}__",
+                    span=span,
+                ))
+            for assignment_index, assignment in enumerate(assignments):
+                value = assignment.value
+                if isinstance(value, ExpressionText):
+                    value_text = value.text
+                    value_span = value.span
+                elif value is None:
+                    value_text = "None"
+                    value_span = assignment.span
+                else:
+                    from graphistry.compute.gfql.cypher.expression_text import cypher_literal_expr_text
+                    value_text = cypher_literal_expr_text(value)
+                    value_span = assignment.span
+                return_items.append(ReturnItem(
+                    expression=ExpressionText(text=value_text, span=value_span),
+                    alias=f"__gfql_set_value_{assignment_index}__",
+                    span=assignment.span,
+                ))
+            synthetic_return = ReturnClause(
+                items=tuple(return_items), distinct=False, kind="return", span=query.span,
+            )
+            read_query = replace(
+                query,
+                sets=(),
+                row_sequence=(),
+                with_stages=(),
+                unwinds=(),
+                return_=synthetic_return,
+                order_by=None,
+                skip=None,
+                limit=None,
+            )
+            compile_cypher_query(read_query, params=params)
+            output_query: Optional[CypherQuery] = None
+            if query.return_ is not None and not query.return_is_synthetic:
+                output_query = replace(query, sets=())
+                compile_cypher_query(output_query, params=params)
+            return CompiledCypherMutationQuery(
+                creates=(),
+                sets=query.sets, return_query=read_query, output_query=output_query,
+                set_alias_kinds=tuple(alias_kinds.items()),
+            )
         if query.creates:
             from graphistry.compute.gfql.mutation import validate_create_node_reuse
 

@@ -1061,6 +1061,93 @@ def test_cleanup_and_view_bind_preserve_same_execution_association(engine):
     assert clean._gfql_rows_base_graph is None and clean._gfql_start_nodes is None
 
 
+def test_set_compiles_to_node_identity_mutation() -> None:
+    parsed = parse_cypher("MATCH (n:L) SET n.x = 1, n.y = $v RETURN n")
+    compiled = compile_cypher_query(parsed, params={"v": "ok"})
+
+    assert isinstance(compiled, CompiledCypherMutationQuery)
+    assert compiled.creates == ()
+    assert compiled.set_alias_kinds == (("n", "node"),)
+    assert compiled.output_query is not None
+    assert compiled.return_query is not None
+    assert compiled.return_query.return_.items[0].alias == "__gfql_set_identity_0__"
+    assert [item.alias for item in compiled.return_query.return_.items[1:]] == [
+        "__gfql_set_value_0__",
+        "__gfql_set_value_1__",
+    ]
+
+
+def test_set_without_return_compiles_to_the_mutated_graph() -> None:
+    parsed = parse_cypher("MATCH (n) SET n.x = 1")
+    compiled = compile_cypher_query(parsed)
+
+    assert isinstance(compiled, CompiledCypherMutationQuery)
+    assert compiled.output_query is None
+    assert compiled.return_query is not None
+
+
+@pytest.mark.parametrize("query,target", [
+    ("MATCH (a)-[r]->(b) SET r.w = 1 RETURN a", "r"),
+    ("MATCH (n) SET m.x = 1 RETURN n", "m"),
+    ("MATCH (n) SET n.id = 1 RETURN n", "id"),
+    ("MATCH (n) SET n.labels = ['L'] RETURN n", "labels"),
+    ("MATCH (n) SET n.type = 'L' RETURN n", "type"),
+    ("MATCH (n) SET n.__secret__ = 1 RETURN n", "__secret__"),
+])
+def test_set_declines_unfaithful_or_unbound_targets(query: str, target: str) -> None:
+    with pytest.raises(GFQLValidationError) as exc:
+        compile_cypher_query(parse_cypher(query))
+    assert exc.value.context["value"] == target
+
+
+@pytest.mark.parametrize("query", [
+    "MATCH (n) CREATE (m:L) SET n.x = 1",
+    "MATCH (n) UNWIND [1] AS x SET n.x = x",
+    "MATCH (n) WITH n AS m SET m.x = 1 RETURN m",
+])
+def test_set_declines_unsupported_mixed_programs(query: str) -> None:
+    with pytest.raises(GFQLValidationError):
+        compile_cypher_query(parse_cypher(query))
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_set_updates_literal_expression_and_multiple_properties(engine: str) -> None:
+    source = _graph(engine)
+    result = source.gfql(
+        "MATCH (n) WHERE n.id = 2 SET n.score = n.id * 10, n.name = 'two' RETURN n.id, n.score, n.name",
+        engine=engine,
+        language="cypher",
+    )
+
+    assert _records(result._nodes) == [{"n.id": 2, "n.score": 20, "n.name": "two"}]
+    _assert_served(engine, result._nodes)
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_set_without_return_preserves_caller(engine: str) -> None:
+    source = _graph(engine)
+    before = _records(source._nodes)
+    result = source.gfql("MATCH (n) WHERE n.id = 2 SET n.score = 7", engine=engine)
+
+    updated = {row["id"]: row["score"] for row in _records(result._nodes)}
+    assert updated == {1: None, 2: 7}
+    assert _records(source._nodes) == before
+    _assert_served(engine, result._nodes)
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_set_detects_conflicting_updates_for_the_same_property(engine: str) -> None:
+    source = _graph(engine)
+    before = _records(source._nodes)
+    from graphistry.compute.exceptions import ErrorCode
+    with pytest.raises(GFQLValidationError) as exc:
+        source.gfql("MATCH (n) WHERE n.id = 2 SET n.x = 1 SET n.x = 2", engine=engine)
+
+    assert exc.value.code == ErrorCode.E105
+    assert exc.value.context["value"] == "conflicting_updates"
+    assert _records(source._nodes) == before
+
+
 @pytest.mark.parametrize("value",[[1],{"a":1},float("nan")],ids=["list","map","nan"])
 @pytest.mark.parametrize("mode",["validate_only","execute","execute_validate"])
 def test_known_unsupported_property_parameters_decline_consistently(value,mode):

@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import math
-from typing import TYPE_CHECKING, Optional, Union
+from typing import TYPE_CHECKING, Mapping, Optional, Union
+from typing_extensions import Literal
 
 import numpy as np
 
@@ -16,7 +17,16 @@ from graphistry.Engine import (
     resolve_engine,
 )
 from graphistry.compute.exceptions import ErrorCode, GFQLUnsupportedError, GFQLValidationError
-from graphistry.compute.gfql.cypher.ast import CreateClause, CreateRelationship, CypherParams, CypherScalar, NodePattern, ParameterRef
+from graphistry.compute.gfql.cypher.ast import (
+    CreateClause,
+    CreateRelationship,
+    CypherParams,
+    CypherScalar,
+    NodePattern,
+    ParameterRef,
+    SetClause,
+    SetProperty,
+)
 from graphistry.Plottable import Plottable
 from graphistry.compute.gfql.row.entity_props import (
     ID_PROPERTY_PRESENT,
@@ -24,6 +34,7 @@ from graphistry.compute.gfql.row.entity_props import (
     NULLISH_LABEL_NAMES,
     label_flag_columns,
 )
+from graphistry.compute.gfql.same_path_types import EDGE_IDENTITY_COLUMN, NODE_IDENTITY_COLUMN
 
 if TYPE_CHECKING:
     from graphistry.compute.typing import PolarsDType
@@ -34,6 +45,217 @@ class GFQLMutationError(GFQLValidationError):
 
 
 MUTATION_EDGE_ID = "__graphistry_edge_identity__"
+
+
+def _is_null_scalar(value: object) -> bool:
+    if value is None:
+        return True
+    return isinstance(value, float) and math.isnan(value)
+
+
+def _copy_frame(frame: DataFrameT) -> DataFrameT:
+    return frame.clone() if is_polars_df(frame) else frame.copy()
+
+
+def _scalar_family(value: object) -> str:
+    if isinstance(value, np.generic):
+        value = value.item()
+    if _is_null_scalar(value):
+        return "null"
+    if isinstance(value, bool):
+        return "bool"
+    if isinstance(value, int):
+        return "integer"
+    if isinstance(value, float):
+        return "float"
+    if isinstance(value, str):
+        return "string"
+    raise GFQLMutationError(
+        ErrorCode.E108,
+        "SET properties support scalar values only",
+        field="set", value=type(value).__name__, language="cypher",
+    )
+
+
+def _frame_family(frame: object, column: str) -> str:
+    import pandas as pd
+
+    if is_polars_df(frame):
+        import polars as pl
+        assert isinstance(frame, pl.DataFrame)
+        dtype = frame.schema[column]
+        if dtype == pl.Boolean:
+            return "bool"
+        if dtype.is_integer():
+            return "integer"
+        if dtype.is_float():
+            return "float"
+        if dtype == pl.String:
+            return "string"
+        return "other"
+    dtype = frame[column].dtype
+    if pd.api.types.is_bool_dtype(dtype):
+        return "bool"
+    if pd.api.types.is_integer_dtype(dtype):
+        return "integer"
+    if pd.api.types.is_float_dtype(dtype):
+        return "float"
+    if pd.api.types.is_string_dtype(dtype) or pd.api.types.is_object_dtype(dtype):
+        return "string"
+    return "other"
+
+
+def _validate_set_updates(
+    updates: Mapping[str, Mapping[object, object]],
+    nodes: object,
+    edges: Optional[object],
+    alias_kinds: Mapping[str, str],
+) -> None:
+    for alias, properties in updates.items():
+        family = "node" if alias_kinds[alias] == "node" else "edge"
+        frame = nodes if family == "node" else edges
+        assert frame is not None
+        for property_name, values in properties.items():
+            existing_family = _frame_family(frame, property_name) if property_name in frame.columns else None
+            new_families = {_scalar_family(value) for value in values.values() if not _is_null_scalar(value)}
+            if existing_family in {None, "string"} and "other" not in new_families:
+                continue
+            if existing_family == "float" and new_families <= {"integer", "float"}:
+                continue
+            if existing_family in new_families:
+                continue
+            raise GFQLMutationError(
+                ErrorCode.E108,
+                f"SET cannot change {family} property {property_name!r} to incompatible values",
+                field=property_name, value=sorted(new_families), language="cypher",
+            )
+
+
+def execute_set_properties(
+    self: Plottable,
+    matched_rows: object,
+    sets: tuple[SetClause, ...],
+    *,
+    alias_kinds: tuple[tuple[str, Literal["node", "edge"]], ...],
+    engine: EngineAbstract = EngineAbstract.AUTO,
+) -> Plottable:
+    """Return a new Plottable with properties updated by matched physical identity."""
+    if not sets:
+        return self
+    concrete_engine = resolve_engine(
+        engine, self._edges if self._edges is not None else self._nodes,
+    )
+    if concrete_engine == Engine.POLARS_GPU:
+        raise GFQLUnsupportedError(
+            ErrorCode.E108,
+            "SET does not yet have a native Polars GPU execution route",
+            field="engine", value=concrete_engine.value,
+            suggestion="Use engine='polars' on CPU or engine='cudf' for the native cuDF route.",
+            language="cypher",
+        )
+    frame = matched_rows._nodes
+    if frame is None:
+        raise GFQLMutationError(
+            ErrorCode.E108, "SET produced no matched rows",
+            field="set", value="missing_projection", language="cypher",
+        )
+
+    updates: dict[str, dict[str, dict[object, object]]] = {}
+    alias_positions: dict[str, int] = {}
+    assignment_index = 0
+    for clause in sets:
+        for assignment in clause.assignments:
+            if assignment.target.alias not in alias_positions:
+                alias_positions[assignment.target.alias] = len(alias_positions)
+            alias = assignment.target.alias
+            identity_column = f"__gfql_set_identity_{alias_positions[alias]}__"
+            value_column = f"__gfql_set_value_{assignment_index}__"
+            assignment_index += 1
+            updates.setdefault(alias, {}).setdefault(assignment.target.property, {})
+            if is_polars_df(frame):
+                import polars as pl
+                assert isinstance(frame, pl.DataFrame)
+                rows = frame.select([identity_column, value_column]).rows()
+            else:
+                identities = frame[identity_column]
+                values = frame[value_column]
+                rows = list(zip(identities.to_numpy(), values.to_numpy()))
+            for identity, value in rows:
+                if _is_null_scalar(identity):
+                    raise GFQLMutationError(
+                        ErrorCode.E105, "SET requires non-null matched entity identities",
+                        field=identity_column, value="null", language="cypher",
+                    )
+                current = updates[alias][assignment.target.property].setdefault(identity, value)
+                if current != value and not (_is_null_scalar(current) and _is_null_scalar(value)):
+                    raise GFQLMutationError(
+                        ErrorCode.E105,
+                        f"SET assigns conflicting values to {alias}.{assignment.target.property}",
+                        field=assignment.target.property, value="conflicting_updates",
+                        line=assignment.span.line, column=assignment.span.column, language="cypher",
+                    )
+    alias_kind_map = dict(alias_kinds)
+    nodes = _copy_frame(self._nodes) if self._nodes is not None else None
+    edges = _copy_frame(self._edges) if self._edges is not None else None
+    node_key = self._node
+    edge_key = self._edge
+    if any(alias_kind_map[alias] == "node" for alias in updates) and node_key is None:
+        raise GFQLMutationError(
+            ErrorCode.E108, "SET requires a node identity column",
+            field="node", value="missing", language="cypher",
+        )
+    if any(alias_kind_map[alias] == "edge" for alias in updates) and edge_key is None:
+        raise GFQLMutationError(
+            ErrorCode.E108, "SET requires an edge identity column",
+            field="edge", value="missing", language="cypher",
+        )
+    for alias, properties in updates.items():
+        frame = nodes if alias_kind_map[alias] == "node" else edges
+        key = node_key if alias_kind_map[alias] == "node" else edge_key
+        assert frame is not None and key is not None
+        if key in properties:
+            raise GFQLMutationError(
+                ErrorCode.E108,
+                f"SET cannot rekey physical identity column {key!r}",
+                field=key, value="physical_identity", language="cypher",
+            )
+    _validate_set_updates(
+        updates,
+        nodes, edges, alias_kind_map,
+    )
+
+    for alias, properties in updates.items():
+        kind = alias_kind_map[alias]
+        frame = nodes if kind == "node" else edges
+        key = node_key if kind == "node" else edge_key
+        assert frame is not None and key is not None
+        if is_polars_df(frame):
+            import polars as pl
+            assert isinstance(frame, pl.DataFrame)
+            for property_name, values in properties.items():
+                expression = pl.col(property_name) if property_name in frame.columns else pl.lit(None)
+                for identity, value in values.items():
+                    expression = pl.when(pl.col(key) == pl.lit(identity)).then(pl.lit(value)).otherwise(expression)
+                frame = frame.with_columns(expression.alias(property_name))
+            if kind == "node":
+                nodes = frame
+            else:
+                edges = frame
+        else:
+            for property_name, values in properties.items():
+                mask = frame[key].isin(list(values))
+                frame.loc[mask, property_name] = frame.loc[mask, key].map(values)
+            if kind == "node":
+                nodes = frame
+            else:
+                edges = frame
+
+    result = self.bind()
+    if nodes is not None:
+        result = result.nodes(nodes, node_key)
+    if edges is not None:
+        result = result.edges(edges, self._source, self._destination, edge_key)
+    return result
 
 
 def validate_create_parameters(creates: tuple[CreateClause, ...], params: Optional[CypherParams]) -> None:
