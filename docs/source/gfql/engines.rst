@@ -4,8 +4,10 @@ Choosing a GFQL Engine: pandas, Polars, cuDF, Polars-GPU
 ========================================================
 
 GFQL runs the same query on four execution engines. You choose the engine with one
-keyword, ``engine=``, on ``g.gfql()`` and ``g.hop()``. Supported queries return the
-same results across engines. Set an explicit engine to control execution; the default
+keyword, ``engine=``, on ``g.gfql()`` and ``g.hop()``. With ``engine='polars'``,
+GFQL runs vectorized dataframe operations in Rust on CPU.
+Use ``engine='polars-gpu'`` for GPU acceleration. Supported queries
+return the same results across engines. Set an explicit engine to control execution; the default
 ``engine='auto'`` selects from the input frames.
 
 This page assumes you have a graph ``g`` and a ``query``. If not, start with
