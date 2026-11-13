@@ -1385,6 +1385,11 @@ def test_create_declines_any_nonnull_legacy_type_with_new_canonical_label_and_so
     assert _records(source._nodes)==[{"id":"old","type":"Old"},{"id":"new","type":None}]
 
 
+def test_parse_declines_standalone_create_combined_with_set():
+    with pytest.raises(GFQLValidationError, match="CREATE and SET"):
+        parse_cypher("CREATE () SET n.x = 1")
+
+
 @pytest.mark.parametrize("engine",ENGINES)
 def test_create_admits_all_null_legacy_type_with_new_canonical_label(engine):
     source=graphistry.nodes(_foundation_frame(engine,{"id":["old"],"type":[None]}),"id")
