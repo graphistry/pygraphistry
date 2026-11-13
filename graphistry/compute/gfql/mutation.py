@@ -244,7 +244,14 @@ def execute_set_properties(
         else:
             for property_name, values in properties.items():
                 mask = frame[key].isin(list(values))
-                frame.loc[mask, property_name] = frame.loc[mask, key].map(values)
+                if is_cudf_obj(frame):
+                    mapped = frame[key].map(values)
+                    if property_name in frame.columns:
+                        frame[property_name] = mapped.where(mask, frame[property_name])
+                    else:
+                        frame[property_name] = mapped.where(mask, None)
+                else:
+                    frame.loc[mask, property_name] = frame.loc[mask, key].map(values)
             if kind == "node":
                 nodes = frame
             else:
