@@ -8,7 +8,8 @@ import numpy as np
 import pytest
 
 import graphistry
-from graphistry.compute.exceptions import ErrorCode, GFQLValidationError
+from graphistry.compute.exceptions import ErrorCode
+from graphistry.compute.exceptions import GFQLValidationError
 from graphistry.compute.gfql.cypher.api import cypher_to_gfql
 from graphistry.compute.gfql.cypher.lowering import CompiledCypherMutationQuery, compile_cypher_query
 from graphistry.compute.gfql.cypher.parser import parse_cypher
