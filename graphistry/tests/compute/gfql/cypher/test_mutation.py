@@ -1180,6 +1180,10 @@ def test_set_declines_unfaithful_or_unbound_targets(query: str, target: str) -> 
     ("MATCH (n)-[r]->(m) SET n.score = 20", "set"),
     ("MATCH (n) UNWIND [1] AS x SET n.x = x", "set"),
     ("MATCH (n) WITH n AS m SET m.x = 1 RETURN m", "set"),
+    ("MATCH (n) SET n.score = null RETURN n", "set"),
+    ("MATCH (n) SET n.score = 20 RETURN n LIMIT 1", "set"),
+    ("MATCH (n) SET n.score = 20 RETURN n SKIP 1", "set"),
+    ("MATCH (n) SET n.score = 20 RETURN sum(n.score) AS total", "set"),
 ])
 def test_set_declines_unsupported_mixed_programs(query: str, expected_field: str) -> None:
     with pytest.raises(GFQLValidationError) as exc:

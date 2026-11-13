@@ -9424,6 +9424,24 @@ def compile_cypher_query(
             )
         if query.sets:
             _reject_excessive_match_clauses(query.matches)
+            if query.skip is not None or query.limit is not None:
+                pagination = query.skip if query.skip is not None else query.limit
+                raise _unsupported_at_span(
+                    "GFQL SET currently supports RETURN without SKIP or LIMIT",
+                    field="set",
+                    value="return_pagination",
+                    span=pagination.span,
+                )
+            if query.return_ is not None and not query.return_is_synthetic:
+                for return_item in query.return_.items:
+                    return_expr = parse_expr(return_item.expression.text)
+                    if _contains_aggregate_call(return_expr):
+                        raise _unsupported_at_span(
+                            "GFQL SET currently supports RETURN without aggregation",
+                            field="set",
+                            value="aggregate_return",
+                            span=return_item.span,
+                        )
             if len(query.matches) != 1 or len(query.matches[0].patterns) != 1:
                 match = query.matches[0] if query.matches else None
                 span = match.span if match is not None else query.span
@@ -9435,6 +9453,16 @@ def compile_cypher_query(
                     field="set",
                     value=value,
                     span=span,
+                )
+            null_assignments = [
+                assignment for assignment in query.sets if assignment.value is None
+            ]
+            if null_assignments:
+                raise _unsupported_at_span(
+                    "GFQL SET cannot remove properties with a null assignment",
+                    field="set",
+                    value="null_assignment",
+                    span=null_assignments[0].span,
                 )
             if any(
                 not isinstance(pattern, NodePattern)
