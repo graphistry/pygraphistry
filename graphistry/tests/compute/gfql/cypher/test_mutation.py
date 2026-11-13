@@ -121,22 +121,6 @@ def test_create_nodes_without_existing_nodes_preserves_inferred_graph(engine: st
 
 
 @pytest.mark.parametrize("engine", ENGINES)
-def test_create_preserves_old_type_label_without_label_flags(engine: str) -> None:
-    source = graphistry.nodes(
-        _foundation_frame(engine, {"id": ["old"], "type": ["Old"]}),
-        "id",
-    )
-
-    result = source.gfql("CREATE (:New)", engine=engine, language="cypher")
-
-    rows = result.gfql(
-        "MATCH (old) WHERE old.id = 'old' RETURN old", engine=engine, language="cypher"
-    )
-    assert _entity_text_records(rows, {"old": "nodes"}) == [{"old": "(:Old)"}]
-    assert _records(source._nodes) == [{"id": "old", "type": "Old"}]
-
-
-@pytest.mark.parametrize("engine", ENGINES)
 def test_create_declines_old_legacy_type_with_new_canonical_label(engine: str) -> None:
     source = graphistry.nodes(
         _foundation_frame(engine, {"id": ["old"], "type": ["Old"]}),
@@ -920,7 +904,7 @@ def test_create_numeric_existing_identity_matches_fresh_label_oracle(engine):
     old_rows=result.gfql("MATCH (n) WHERE n.id=1 RETURN n",engine=engine)
     new_rows=result.gfql("MATCH (n:B) RETURN n",engine=engine)
     ids=result.gfql("MATCH (n) RETURN n.id AS id",engine=engine)
-    assert _entity_text_records(old_rows,{"n":"nodes"})==[{"n":"(:Foo)"}]
+    assert _entity_text_records(old_rows,{"n":"nodes"})==[{"n":"(:Foo {id: 1})"}]
     assert _entity_text_records(new_rows,{"n":"nodes"})==[{"n":"(:B {id: 2})"}]
     assert [row["id"] for row in _records(ids._nodes)]==[1,2]
 

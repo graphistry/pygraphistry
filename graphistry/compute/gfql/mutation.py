@@ -387,9 +387,8 @@ def _validate_legacy_label_transition(
     if not created_labels:
         return
     type_series = nodes["type"]
-    has_legacy_label = (
-        bool(type_series.notna().any()) if is_polars_df(nodes) else bool(type_series.notna().any())
-    )
+    has_null = type_series.is_null().any() if is_polars_df(nodes) else type_series.isna().any()
+    has_legacy_label = not bool(has_null)
     if has_legacy_label:
         raise GFQLMutationError(
             ErrorCode.E108,
