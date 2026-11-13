@@ -48,6 +48,48 @@ def _assert_parity(query, *, order_sensitive=True):
         pd.testing.assert_frame_equal(a_sorted, b_sorted, check_dtype=False)
 
 
+@pytest.mark.parametrize(
+    "query, params, expected",
+    [
+        ("CREATE (n) RETURN labels(n) AS value", None, "[]"),
+        ("CREATE (n:Foo:Bar) RETURN labels(n) AS value", None, "['Foo', 'Bar']"),
+        ("CREATE (n :Foo:Bar) RETURN labels(n) AS value", None, "['Foo', 'Bar']"),
+        ("CREATE (n {name: 'Apa'}) RETURN n['nam' + 'e'] AS value", None, "Apa"),
+        ("CREATE (n {name: 'Apa'}) RETURN n[$idx] AS value", {"idx": "name"}, "Apa"),
+        ("CREATE (n {name: 'Apa'}) RETURN n['missing'] AS value", None, None),
+    ],
+)
+def test_native_polars_create_metadata_and_constant_property_return(query, params, expected):
+    source = graphistry.bind()
+    result = source.gfql(query, params=params, engine="polars")
+
+    assert isinstance(result._nodes, pl.DataFrame)
+    assert result._nodes.to_dicts() == [{"value": expected}]
+    assert isinstance(result.gfql_graph._nodes, pl.DataFrame)
+    assert result.gfql_graph._nodes.height == 1
+    assert source._nodes is None and source._edges is None
+
+
+@pytest.mark.parametrize(
+    "query, expected",
+    [
+        ("MATCH (n) RETURN labels(n) AS value ORDER BY n.id", ["['Foo']", "['Bar']"]),
+        ("MATCH (n) RETURN n['name'] AS value ORDER BY n.id", ["left", "right"]),
+        ("MATCH (n:Missing) RETURN labels(n) AS value", []),
+        ("OPTIONAL MATCH (n:Missing) RETURN labels(n) AS value", [None]),
+    ],
+)
+def test_native_polars_metadata_return_preserves_read_rows_and_caller(query, expected):
+    nodes = pl.DataFrame({"id": [1, 2], "name": ["left", "right"],
+                          "label__Foo": [True, False], "label__Bar": [False, True]})
+    source = graphistry.nodes(nodes, "id")
+    result = source.gfql(query, engine="polars")
+
+    assert isinstance(result._nodes, pl.DataFrame)
+    assert result._nodes.to_dicts() == [{"value": value} for value in expected]
+    assert source._nodes.equals(nodes)
+
+
 SUPPORTED = [
     # whole-entity RETURN (pure projection, no row-pipeline op)
     "MATCH (n) RETURN n",
