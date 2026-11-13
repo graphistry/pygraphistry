@@ -136,7 +136,8 @@ def _flat_entity_field_names(
 
     Mirrors the renderer's column selection (``node_property_columns`` /
     ``edge_property_columns`` honor ``exclude_columns`` so sibling aliases and
-    engine-internal columns are not pulled in), then prepends the entity id and
+    engine-internal columns are not pulled in). Only a non-internal entity id is
+    exposed; identity metadata still uses the physical id column. This prepends the entity id and
     (nodes) appends ``label__*`` flags / (edges) the ``type`` column so
     :func:`render_entity_text` can losslessly reconstruct the Cypher form.
     """
@@ -154,9 +155,7 @@ def _flat_entity_field_names(
 
     fields: list[str] = []
     public_id = None
-    if id_column is not None and (
-        not id_column.startswith("__") or include_internal_identity
-    ):
+    if id_column is not None and not id_column.startswith("__") and include_internal_identity:
         public_id = id_column
     for col in [public_id, *prop_cols, *extra]:
         if col is not None and col in source_rows_df.columns and col not in fields:
