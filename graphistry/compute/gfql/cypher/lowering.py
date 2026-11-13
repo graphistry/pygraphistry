@@ -9483,11 +9483,7 @@ def compile_cypher_query(
                         field="set", value=assignment.target.alias,
                         line=assignment.span.line, column=assignment.span.column,
                     )
-                if (
-                    assignment.target.property in {"labels", "type"}
-                    or assignment.target.property.startswith("__")
-                    or assignment.target.property.startswith("label__")
-                ):
+                if assignment.target.property in {"labels", "type"} or assignment.target.property.startswith("__") or assignment.target.property.startswith("label__"):
                     raise _unsupported(
                         "GFQL SET supports ordinary scalar properties only",
                         field="set", value=assignment.target.property,
@@ -9589,13 +9585,7 @@ def compile_cypher_query(
                             clause_node_variables.add(create_pattern.variable)
                     else:
                         if not isinstance(create_pattern, CreateRelationship):
-                            raise _unsupported(
-                                "CREATE supports node and directed relationship patterns only",
-                                field="create",
-                                value=type(create_pattern).__name__,
-                                line=query.span.line,
-                                column=query.span.column,
-                            )
+                            raise _unsupported("CREATE supports node and directed relationship patterns only", field="create", value=type(create_pattern).__name__, line=query.span.line, column=query.span.column)
                         for endpoint in (create_pattern.source, create_pattern.destination):
                             if endpoint.variable is not None and endpoint.variable not in seen_node_variables:
                                 variables.append(endpoint.variable)
