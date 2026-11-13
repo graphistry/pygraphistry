@@ -14,6 +14,9 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 - **Functional GFQL relationship creation**: standalone Cypher `CREATE` supports directed one-hop relationships between newly created nodes on pandas, cuDF, and CPU Polars. Relationship types use the established edge `type` column, configured edge identities use compatible existing string/integer keys or a separate physical identity column, endpoint aliases and relationship variables follow Cypher variable scoping, and rejected mutations preserve the caller. Relationship-variable RETURN is not yet supported and raises a structured error before effects.
 - **GFQL Cypher empty property maps**: an explicit node `{}` no longer replaces labels, so `MATCH (n:Foo {})` still selects `Foo` nodes. An explicit relationship `{}` no longer replaces relationship types with an empty tuple, so `MATCH ()-[r:R {}]->()` matches only typed `R` relationships on every supported engine, while untyped `n {}` and `r {}` controls remain untyped (#2318).
+### Fixed
+
+- **GFQL nullable entity keys on cuDF** (#2312): `keys(n)` now returns empty lists for rows with no non-null properties alongside populated rows. Native empty key lists use the string child type expected by the grouped result, and key lists remain aligned with their original entities after the native grouping join.
 
 ## [0.62.1] - 2026-11-12
 

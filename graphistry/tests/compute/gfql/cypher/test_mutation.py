@@ -1308,3 +1308,40 @@ def test_empty_return_retains_updated_graph_same_execution(engine):
     assert len(graph._nodes)==3 and graph.gfql_graph is graph
     assert len(graph.gfql("CREATE ()",engine=engine)._nodes)==4
     assert _records(source._nodes)==[{"id":1},{"id":2}]
+
+
+@pytest.mark.parametrize("engine",ENGINES)
+def test_create_declines_old_legacy_type_with_new_canonical_label(engine):
+    source=graphistry.nodes(_foundation_frame(engine,{"id":["old"],"type":["Old"]}),"id")
+    with pytest.raises(GFQLValidationError,match="legacy type labels"):
+        source.gfql("CREATE (:New)",engine=engine)
+    assert _records(source._nodes)==[{"id":"old","type":"Old"}]
+
+
+@pytest.mark.parametrize("engine",ENGINES)
+def test_create_declines_same_legacy_and_canonical_label(engine):
+    source=graphistry.nodes(_foundation_frame(engine,{"id":["old"],"type":["Shared"]}),"id")
+    with pytest.raises(GFQLValidationError,match="legacy type labels"):
+        source.gfql("CREATE (:Shared)",engine=engine)
+    assert _records(source._nodes)==[{"id":"old","type":"Shared"}]
+
+
+@pytest.mark.parametrize("engine",ENGINES)
+def test_create_declines_any_nonnull_legacy_type_with_new_canonical_label(engine):
+    source=graphistry.nodes(_foundation_frame(engine,{"id":["old","new"],"type":["Old",None]}),"id")
+    with pytest.raises(GFQLValidationError) as exc:
+        source.gfql("CREATE (:New)",engine=engine)
+    from graphistry.compute.exceptions import ErrorCode
+    assert exc.value.code==ErrorCode.E108
+    assert exc.value.context["field"]=="create"
+    assert exc.value.context["value"]==["New"]
+    assert _records(source._nodes)==[{"id":"old","type":"Old"},{"id":"new","type":None}]
+
+
+@pytest.mark.parametrize("engine",ENGINES)
+def test_create_admits_all_null_legacy_type_with_new_canonical_label(engine):
+    source=graphistry.nodes(_foundation_frame(engine,{"id":["old"],"type":[None]}),"id")
+    result=source.gfql("CREATE (:New)",engine=engine)
+    assert len(result._nodes)==2
+    assert [row["label__New"] for row in _records(result._nodes)]==[False,True]
+    assert _records(source._nodes)==[{"id":"old","type":None}]
