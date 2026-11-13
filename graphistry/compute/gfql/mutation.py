@@ -373,22 +373,23 @@ def _validate_legacy_label_transition(
         return
     if label_flag_columns(nodes.columns):
         return
-    created_labels = {
-        label
-        for clause in creates
-        for pattern in clause.patterns
-        for label in (
-            (pattern,)
-            if not isinstance(pattern, CreateRelationship)
-            else (pattern.source, pattern.destination)
-        )
-        for label in pattern.labels
-    }
+    created_labels = set()
+    for clause in creates:
+        for pattern in clause.patterns:
+            node_patterns = (
+                (pattern,)
+                if not isinstance(pattern, CreateRelationship)
+                else (pattern.source, pattern.destination)
+            )
+            for node_pattern in node_patterns:
+                created_labels.update(node_pattern.labels)
     if not created_labels:
         return
     type_series = nodes["type"]
-    has_null = type_series.is_null().any() if is_polars_df(nodes) else type_series.isna().any()
-    has_legacy_label = not bool(has_null)
+    if is_polars_df(nodes):
+        has_legacy_label = bool((~type_series.is_null()).any())
+    else:
+        has_legacy_label = bool(type_series.notna().any())
     if has_legacy_label:
         raise GFQLMutationError(
             ErrorCode.E108,
