@@ -8,7 +8,7 @@ import numpy as np
 import pytest
 
 import graphistry
-from graphistry.compute.exceptions import GFQLValidationError, ErrorCode
+from graphistry.compute.exceptions import ErrorCode, GFQLValidationError
 from graphistry.compute.gfql.cypher.api import cypher_to_gfql
 from graphistry.compute.gfql.cypher.lowering import CompiledCypherMutationQuery, compile_cypher_query
 from graphistry.compute.gfql.cypher.parser import parse_cypher
@@ -178,6 +178,52 @@ def test_create_render_does_not_admit_null_or_nan_legacy_type_labels(engine: str
     )
 
     assert _entity_text_records(rows, {"old": "nodes"}) == [{"old": "()"}]
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_create_declines_any_nonnull_legacy_type_with_new_canonical_label(engine: str) -> None:
+    source = graphistry.nodes(
+        _foundation_frame(engine, {"id": ["old", "new"], "type": ["Old", None]}),
+        "id",
+    )
+
+    with pytest.raises(GFQLValidationError) as exc_info:
+        source.gfql("CREATE (:New)", engine=engine, language="cypher")
+
+    assert exc_info.value.code == ErrorCode.E108
+    assert exc_info.value.context["field"] == "create"
+    assert exc_info.value.context["value"] == ["New"]
+    assert _records(source._nodes) == [
+        {"id": "old", "type": "Old"},
+        {"id": "new", "type": None},
+    ]
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_create_relationship_declines_endpoint_legacy_type(engine: str) -> None:
+    source = graphistry.nodes(
+        _foundation_frame(engine, {"id": ["old"], "type": ["Old"]}),
+        "id",
+    )
+
+    with pytest.raises(GFQLValidationError) as exc_info:
+        source.gfql("CREATE (:New)-[:R]->()", engine=engine, language="cypher")
+
+    assert exc_info.value.code == ErrorCode.E108
+    assert exc_info.value.context["field"] == "create"
+    assert exc_info.value.context["value"] == ["New"]
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_create_relationship_all_null_legacy_type_is_admitted(engine: str) -> None:
+    source = graphistry.nodes(
+        _foundation_frame(engine, {"id": ["old"], "type": [None]}),
+        "id",
+    )
+
+    result = source.gfql("CREATE (:New)-[:R]->()", engine=engine, language="cypher")
+
+    assert "type" in result.gfql_graph._edges.columns
 
 
 def test_create_preserves_string_existing_identity() -> None:
