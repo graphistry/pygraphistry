@@ -365,6 +365,42 @@ def _validate_label_names(creates: tuple[CreateClause, ...]) -> None:
                     )
 
 
+def _validate_legacy_label_transition(
+    creates: tuple[CreateClause, ...], nodes: Optional[DataFrameT]
+) -> None:
+    """Reject the lossy move from legacy ``type`` labels to canonical flags."""
+    if nodes is None or len(nodes) == 0 or "type" not in nodes.columns:
+        return
+    if label_flag_columns(nodes.columns):
+        return
+    created_labels = {
+        label
+        for clause in creates
+        for pattern in clause.patterns
+        for label in (
+            (pattern,)
+            if not isinstance(pattern, CreateRelationship)
+            else (pattern.source, pattern.destination)
+        )
+        for label in pattern.labels
+    }
+    if not created_labels:
+        return
+    type_series = nodes["type"]
+    has_legacy_label = (
+        bool(type_series.notna().any()) if is_polars_df(nodes) else bool(type_series.notna().any())
+    )
+    if has_legacy_label:
+        raise GFQLMutationError(
+            ErrorCode.E108,
+            "CREATE cannot preserve existing legacy type labels while adding canonical label flags",
+            field="create",
+            value=sorted(created_labels),
+            suggestion="Use canonical label flags in the source graph, or CREATE without labels.",
+            language="cypher",
+        )
+
+
 def execute_create_nodes(
     self: Plottable,
     creates: tuple[CreateClause, ...],
@@ -437,7 +473,7 @@ def execute_create_nodes(
                 MUTATION_NODE_ID: nodes[old_key], ID_PROPERTY_PRESENT: include_id,
             })
     node_key = MUTATION_NODE_ID
-    legacy_type_rendering = nodes is None or not any(label_flag_columns(nodes.columns))
+    _validate_legacy_label_transition(creates, nodes)
     node_count = 0
     for clause in creates:
         seen_nodes: set[str] = set()
@@ -744,5 +780,4 @@ def execute_create_nodes(
             edges = new_edges
             result = result.edges(edges, source_key, destination_key, edge_key)
     result._gfql_mutation_identity = True
-    result._cypher_legacy_type_rendering = legacy_type_rendering
     return result, bindings
