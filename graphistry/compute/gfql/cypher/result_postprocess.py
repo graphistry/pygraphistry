@@ -77,31 +77,25 @@ def entity_projection_meta_entry(
     return entity_meta[output_name]
 
 
-def _node_label_text(df: DataFrameT, alias_col: str, *, include_legacy_type: bool) -> SeriesT:
+def _node_label_text(df: DataFrameT, alias_col: str) -> SeriesT:
     label_cols = label_flag_columns(df.columns)
-    labels = _empty_text(df, alias_col)
-    for col, label_name in label_cols:
-        mask = cast(SeriesT, cast(SeriesT, df[col]) == True)  # noqa: E712
-        labels = cast(SeriesT, labels + _const_text(df, alias_col, ":" + label_name).where(mask, ""))
-    # Plain reads preserve the legacy type label only when no explicit flags
-    # exist. CREATE provenance also permits it so both label sources are visible.
-    if "type" in df.columns and (include_legacy_type or not label_cols):
-        type_series = cast(SeriesT, df["type"])
-        rendered = _object_text(cast(SeriesT, type_series.where(~_is_null_mask(type_series), "").astype(str)))
-        type_mask = cast(SeriesT, ~_is_null_mask(type_series))
+    if label_cols:
+        labels = _empty_text(df, alias_col)
         for col, label_name in label_cols:
-            type_matches_flag = cast(SeriesT, type_series == label_name)
-            flag_is_true = cast(SeriesT, cast(SeriesT, df[col]) == True)  # noqa: E712
-            type_mask = cast(SeriesT, type_mask & ~(type_matches_flag & flag_is_true))
-        labels = cast(SeriesT, labels + _const_text(df, alias_col, ":" + rendered).where(type_mask, ""))
-    return labels
+            mask = cast(SeriesT, cast(SeriesT, df[col]) == True)  # noqa: E712
+            labels = cast(SeriesT, labels + _const_text(df, alias_col, ":" + label_name).where(mask, ""))
+        return labels
+    if "type" in df.columns:
+        type_series = cast(SeriesT, df["type"])
+        include = cast(SeriesT, ~_is_null_mask(type_series))
+        rendered = _object_text(cast(SeriesT, type_series.where(include, "").astype(str)))
+        return cast(SeriesT, (_const_text(df, alias_col, ":") + rendered).where(include, ""))
+    return _empty_text(df, alias_col)
 
 
-def _format_node_entities(
-    df: DataFrameT, projection: ResultProjectionPlan, *, include_legacy_type: bool
-) -> SeriesT:
+def _format_node_entities(df: DataFrameT, projection: ResultProjectionPlan) -> SeriesT:
     alias_col = projection.alias
-    labels = _node_label_text(df, alias_col, include_legacy_type=include_legacy_type)
+    labels = _node_label_text(df, alias_col)
     prop_text, has_props = append_property_segments(
         df,
         alias_col,
@@ -232,8 +226,8 @@ def render_entity_text(
         rows_df[field_cols].rename(columns={col: str(col)[len(prefix):] for col in field_cols}),
     )
     # Prefer source presence; legacy flattened results infer it from non-null fields.
-    presence = result._cypher_entity_projection_presence
     present: Optional[SeriesT] = None
+    presence = result._cypher_entity_projection_presence
     marker_frame = presence.get(alias)
     if marker_frame is not None:
         marker_frame = df_to_engine(marker_frame, resolve_engine("auto", rows_df))
@@ -252,16 +246,7 @@ def render_entity_text(
     # row, then null absent rows below.
     frame = cast(DataFrameT, frame.assign(**{alias: True}))
     projection = ResultProjectionPlan(alias=alias, table=table, columns=(), exclude_columns=())
-    mutation_graph = result._gfql_graph
-    include_legacy_type = bool(
-        result._cypher_legacy_type_rendering
-        or (mutation_graph is not None and mutation_graph._cypher_legacy_type_rendering)
-    )
-    rendered = (
-        _format_node_entities(frame, projection, include_legacy_type=include_legacy_type)
-        if table == "nodes"
-        else _format_edge_entities(frame, projection)
-    )
+    rendered = _format_node_entities(frame, projection) if table == "nodes" else _format_edge_entities(frame, projection)
     if present is not None:
         # Null absent rows. ``other=None`` fills NaN/None (valid pandas/cuDF);
         # the pandas-stubs ``where`` overload is stricter than runtime here.
@@ -455,11 +440,6 @@ def _apply_result_projection_pandas(
     rows_df = cast(Optional[DataFrameT], result._nodes)
     if rows_df is None:
         return result
-    mutation_graph = result._gfql_graph
-    include_legacy_type = bool(
-        result._cypher_legacy_type_rendering
-        or (mutation_graph is not None and mutation_graph._cypher_legacy_type_rendering)
-    )
     alias_rows_df = _projection_alias_rows(rows_df, alias=projection.alias)
     if alias_rows_df is None or projection.alias not in alias_rows_df.columns:
         return result
@@ -508,18 +488,14 @@ def _apply_result_projection_pandas(
                 # OPTIONAL/reentry machinery consumes. Real rows always carry flat
                 # field columns and take the branch above.
                 projected_data[column.output_name] = (
-                    _format_node_entities(
-                        source_rows_df, source_projection, include_legacy_type=include_legacy_type
-                    )
+                    _format_node_entities(source_rows_df, source_projection)
                     if source_projection.table == "nodes"
                     else _format_edge_entities(source_rows_df, source_projection)
                 )
                 output_columns.append(column.output_name)
             else:
                 projected_data[column.output_name] = (
-                    _format_node_entities(
-                        source_rows_df, source_projection, include_legacy_type=include_legacy_type
-                    )
+                    _format_node_entities(source_rows_df, source_projection)
                     if source_projection.table == "nodes"
                     else _format_edge_entities(source_rows_df, source_projection)
                 )

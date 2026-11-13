@@ -40,15 +40,7 @@ def _records(frame: Any) -> list[dict[str, Any]]:
 def _entity_text_records(result: Any, entities: dict[str, str]) -> list[dict[str, Any]]:
     nodes = result._nodes
     if nodes is not None and not isinstance(nodes, pd.DataFrame):
-        legacy_rendering = bool(
-            getattr(result, "_cypher_legacy_type_rendering", False)
-            or (
-                result._gfql_graph is not None
-                and getattr(result._gfql_graph, "_cypher_legacy_type_rendering", False)
-            )
-        )
         result = graphistry.nodes(nodes.to_pandas(), result._node)
-        result._cypher_legacy_type_rendering = legacy_rendering
     return entity_text_records(result, entities)
 
 
@@ -129,39 +121,15 @@ def test_create_nodes_without_existing_nodes_preserves_inferred_graph(engine: st
 
 
 @pytest.mark.parametrize("engine", ENGINES)
-def test_create_preserves_old_type_label_without_label_flags(engine: str) -> None:
+def test_create_declines_old_legacy_type_with_new_canonical_label(engine: str) -> None:
     source = graphistry.nodes(
         _foundation_frame(engine, {"id": ["old"], "type": ["Old"]}),
         "id",
     )
 
-    result = source.gfql("CREATE (:New)", engine=engine, language="cypher")
-
-    rows = result.gfql(
-        "MATCH (old) WHERE old.id = 'old' RETURN old", engine=engine, language="cypher"
-    )
-    assert _entity_text_records(rows, {"old": "nodes"}) == [{"old": "(:Old)"}]
+    with pytest.raises(GFQLValidationError, match="legacy type labels"):
+        source.gfql("CREATE (:New)", engine=engine, language="cypher")
     assert _records(source._nodes) == [{"id": "old", "type": "Old"}]
-
-
-@pytest.mark.parametrize("engine", ENGINES)
-def test_create_new_label_and_old_type_label_render_both_sources(engine: str) -> None:
-    source = graphistry.nodes(
-        _foundation_frame(engine, {"id": ["old"], "type": ["Old"]}),
-        "id",
-    )
-
-    result = source.gfql("CREATE (:New)", engine=engine, language="cypher")
-    old_rows = result.gfql(
-        "MATCH (old) WHERE old.id = 'old' RETURN old", engine=engine, language="cypher"
-    )
-    new_rows = result.gfql("MATCH (new:New) RETURN new", engine=engine, language="cypher")
-
-    assert _entity_text_records(old_rows, {"old": "nodes"}) == [{"old": "(:Old)"}]
-    assert _entity_text_records(new_rows, {"new": "nodes"}) == [{"new": "(:New)"}]
-    if engine != "polars":
-        assert _series_records(render_entity_text(old_rows, "old")) == ["(:Old)"]
-        assert _series_records(render_entity_text(new_rows, "new")) == ["(:New)"]
 
 
 @pytest.mark.parametrize("engine", ENGINES)
@@ -187,18 +155,14 @@ def test_plain_read_retains_legacy_type_without_label_flags(engine: str) -> None
 
 
 @pytest.mark.parametrize("engine", ENGINES)
-def test_create_does_not_duplicate_same_label_from_type(engine: str) -> None:
+def test_create_declines_same_legacy_and_canonical_label(engine: str) -> None:
     source = graphistry.nodes(
         _foundation_frame(engine, {"id": ["old"], "type": ["Shared"]}),
         "id",
     )
 
-    result = source.gfql("CREATE (:Shared)", engine=engine, language="cypher")
-    rows = result.gfql(
-        "MATCH (old) WHERE old.id = 'old' RETURN old", engine=engine, language="cypher"
-    )
-
-    assert _entity_text_records(rows, {"old": "nodes"}) == [{"old": "(:Shared)"}]
+    with pytest.raises(GFQLValidationError, match="legacy type labels"):
+        source.gfql("CREATE (:Shared)", engine=engine, language="cypher")
 
 
 @pytest.mark.parametrize("engine", ENGINES)
@@ -932,45 +896,17 @@ def test_create_preserves_original_flag_precedence_over_legacy_type(engine):
 
 
 @pytest.mark.parametrize("engine", ENGINES)
-def test_create_rendering_survives_repeated_create(engine):
-    source = graphistry.nodes(
-        _foundation_frame(engine, {"id": ["old"], "type": ["Old"]}), "id"
-    )
-    before = _records(source._nodes)
-    first = source.gfql("CREATE (:New)", engine=engine, language="cypher")
-    first_rows = first.gfql(
-        "MATCH (old) WHERE old.id = 'old' RETURN old",
-        engine=engine,
-        language="cypher",
-    )
-    repeated = first.gfql("CREATE (:Next)", engine=engine, language="cypher")
-    repeated_rows = repeated.gfql(
-        "MATCH (old) WHERE old.id = 'old' RETURN old",
-        engine=engine,
-        language="cypher",
-    )
-
-    assert _entity_text_records(first_rows, {"old": "nodes"}) == [{"old": "(:Old)"}]
-    assert _entity_text_records(repeated_rows, {"old": "nodes"}) == [{"old": "(:Old)"}]
-    assert _records(source._nodes) == before
-
-
-@pytest.mark.parametrize("engine", ENGINES)
-def test_rebinding_nodes_ends_previous_create_rendering(engine):
-    source = graphistry.nodes(
-        _foundation_frame(engine, {"id": ["old"], "type": ["Old"]}), "id"
-    )
-    created = source.gfql("CREATE (:New)", engine=engine, language="cypher")
-    fresh = _foundation_frame(engine, {"id": [1], "label__Foo": [True], "type": ["Business"]})
-    rebound = created.nodes(fresh, "id")
-    rows = rebound.gfql("MATCH (n) RETURN n", engine=engine, language="cypher")
-    direct = graphistry.nodes(fresh, "id").gfql(
-        "MATCH (n) RETURN n", engine=engine, language="cypher"
-    )
-
-    assert _entity_text_records(rows, {"n": "nodes"}) == [{"n": "(:Foo {id: 1})"}]
-    assert _entity_text_records(direct, {"n": "nodes"}) == [{"n": "(:Foo {id: 1})"}]
-    assert created._cypher_legacy_type_rendering is True
+def test_create_numeric_existing_identity_matches_fresh_label_oracle(engine):
+    source=graphistry.nodes(_foundation_frame(engine,{
+        "id":[1],"label__Foo":[True],"type":["Business"],
+    }),"id")
+    result=source.gfql("CREATE (n:B {id:2})",engine=engine)
+    old_rows=result.gfql("MATCH (n) WHERE n.id=1 RETURN n",engine=engine)
+    new_rows=result.gfql("MATCH (n:B) RETURN n",engine=engine)
+    ids=result.gfql("MATCH (n) RETURN n.id AS id",engine=engine)
+    assert _entity_text_records(old_rows,{"n":"nodes"})==[{"n":"(:Foo {id: 1})"}]
+    assert _entity_text_records(new_rows,{"n":"nodes"})==[{"n":"(:B {id: 2})"}]
+    assert [row["id"] for row in _records(ids._nodes)]==[1,2]
 
 
 def test_create_rejects_reserved_existing_edge_identity_before_effects():

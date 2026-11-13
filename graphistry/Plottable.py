@@ -78,7 +78,6 @@ class Plottable(Protocol):
     _cypher_entity_projection_kinds: Optional[Dict[str, GraphEntityKind]]
     _cypher_entity_projection_presence: Dict[str, "DataFrameT"]
     _cypher_entity_projection_meta: Dict[str, "WholeRowProjectionMeta"]
-    _cypher_legacy_type_rendering: bool
 
     @property
     def gfql_graph(self) -> "Plottable":
