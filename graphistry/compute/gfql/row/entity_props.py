@@ -88,10 +88,6 @@ def _list_series_from_python_rows(
     if prototype is not None:
         dtype = object if isinstance(prototype, pd.Series) else prototype.dtype
         return type(prototype)([[] for _ in range(row_count)], dtype=dtype)
-    if is_cudf_obj(df) and row_count:
-        import cudf
-        # Empty key lists require string children for the native conditional copy.
-        return cudf.Series([[]] * row_count, dtype=cudf.ListDtype("str"))
     return cast(SeriesT, template_df_cons(df, {col_name: [[] for _ in range(row_count)]})[col_name])
 
 
