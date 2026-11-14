@@ -9429,35 +9429,6 @@ def compile_cypher_query(
             assignments: list[SetProperty] = [
                 assignment for clause in query.sets for assignment in clause.assignments
             ]
-            pagination: Optional[Union[SkipClause, LimitClause]]
-            if query.skip is not None:
-                pagination = query.skip
-            elif query.limit is not None:
-                pagination = query.limit
-            else:
-                pagination = None
-            if pagination is not None:
-                pagination_span = (
-                    pagination.value.span
-                    if isinstance(pagination.value, ExpressionText)
-                    else pagination.span
-                )
-                raise _unsupported_at_span(
-                    "GFQL SET currently supports RETURN without SKIP or LIMIT",
-                    field="set",
-                    value="return_pagination",
-                    span=pagination_span,
-                )
-            if query.return_ is not None and not query.return_is_synthetic:
-                for return_item in query.return_.items:
-                    return_expr = parse_expr(return_item.expression.text)
-                    if _contains_aggregate_call(return_expr):
-                        raise _unsupported_at_span(
-                            "GFQL SET currently supports RETURN without aggregation",
-                            field="set",
-                            value="aggregate_return",
-                            span=return_item.span,
-                        )
             if len(query.matches) != 1 or len(query.matches[0].patterns) != 1:
                 match = query.matches[0] if query.matches else None
                 span = match.span if match is not None else query.span
@@ -9565,13 +9536,6 @@ def compile_cypher_query(
                     set_value_expr = parse_expr(set_value_text)
                 except GFQLExprParseError:
                     continue
-                if isinstance(set_value_expr, ExprLiteral) and set_value_expr.value is None:
-                    raise _unsupported_at_span(
-                        "GFQL SET cannot remove properties with a null assignment",
-                        field="set",
-                        value="null_assignment",
-                        span=assignment.span,
-                    )
                 if isinstance(set_value_expr, (ListLiteral, ListComprehension, MapLiteral)):
                     raise _unsupported_at_span(
                         "GFQL SET supports ordinary scalar properties only",

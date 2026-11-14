@@ -1183,10 +1183,6 @@ def test_set_declines_unfaithful_or_unbound_targets(query: str, target: str) -> 
     ("MATCH (n)-[r]->(m) SET n.score = 20", "set"),
     ("MATCH (n) UNWIND [1] AS x SET n.x = x", "set"),
     ("MATCH (n) WITH n AS m SET m.x = 1 RETURN m", "set"),
-    ("MATCH (n) SET n.score = null RETURN n", "set"),
-    ("MATCH (n) SET n.score = 20 RETURN n LIMIT 1", "set"),
-    ("MATCH (n) SET n.score = 20 RETURN n SKIP 1", "set"),
-    ("MATCH (n) SET n.score = 20 RETURN sum(n.score) AS total", "set"),
 ])
 def test_set_declines_unsupported_mixed_programs(query: str, expected_field: str) -> None:
     with pytest.raises(GFQLValidationError) as exc:
@@ -1507,3 +1503,117 @@ def test_set_float_column_accepts_exactly_representable_integer(engine: str) -> 
 
     assert _set_values(result) == {1: 20.0, 2: 2.25}
     assert _column_kind(result._nodes, "score") == "float"
+
+
+def _label_n_graph(engine: str, nums: list[int]) -> Any:
+    ids = list(range(1, len(nums) + 1))
+    return graphistry.nodes(
+        _foundation_frame(engine, {"id": ids, "label__N": [True] * len(nums), "num": nums}), "id"
+    )
+
+
+def _post_graph_nums(result: Any) -> list[Any]:
+    return [row["num"] for row in sorted(_records(result.gfql_graph._nodes), key=lambda row: row["id"])]
+
+
+# openCypher TCK Set6 (59edf2): SKIP/LIMIT/aggregation shape the returned rows only; every matched node is still set.
+@pytest.mark.parametrize("engine", ENGINES)
+@pytest.mark.parametrize("tail,nums,expected_rows", [
+    ("RETURN n LIMIT 0", [42], 0),
+    ("RETURN n SKIP 1", [42], 0),
+])
+def test_set6_pagination_empties_rows_but_still_sets_every_match(engine, tail, nums, expected_rows) -> None:
+    source = _label_n_graph(engine, nums)
+    before = _records(source._nodes)
+    result = source.gfql(f"MATCH (n:N) SET n.num = 43 {tail}", engine=engine)
+
+    assert len(result._nodes) == expected_rows
+    assert _post_graph_nums(result) == [43]
+    assert _records(source._nodes) == before
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+@pytest.mark.parametrize("tail,expected_rows", [
+    ("SKIP 2 LIMIT 2", [{"num": 42}, {"num": 42}]),
+    ("SKIP 0 LIMIT 5", [{"num": 42}] * 5),
+])
+def test_set6_skip_limit_rows_while_all_five_nodes_are_set(engine, tail, expected_rows) -> None:
+    source = _label_n_graph(engine, [1, 2, 3, 4, 5])
+    result = source.gfql(f"MATCH (n:N) SET n.num = 42 RETURN n.num AS num {tail}", engine=engine)
+
+    assert _records(result._nodes) == expected_rows
+    assert _post_graph_nums(result) == [42] * 5
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_set6_aggregate_return_sums_the_updated_values(engine) -> None:
+    source = _label_n_graph(engine, [1, 2, 3, 4, 5])
+    before = _records(source._nodes)
+    result = source.gfql("MATCH (n:N) SET n.num = n.num + 1 RETURN sum(n.num) AS sum", engine=engine)
+
+    assert _records(result._nodes) == [{"sum": 20}]
+    assert _post_graph_nums(result) == [2, 3, 4, 5, 6]
+    assert _records(source._nodes) == before
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_set_order_by_limit_ranks_the_updated_values(engine) -> None:
+    source = _label_n_graph(engine, [1, 2, 3])
+    result = source.gfql(
+        "MATCH (n:N) SET n.num = 10 - n.num RETURN n.num AS num ORDER BY num DESC LIMIT 2", engine=engine
+    )
+
+    assert _records(result._nodes) == [{"num": 9}, {"num": 8}]
+    assert _post_graph_nums(result) == [9, 8, 7]
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_set_aggregate_over_no_matches_returns_zero_and_leaves_graph(engine) -> None:
+    source = _label_n_graph(engine, [1, 2])
+    before = _records(source._nodes)
+    result = source.gfql("MATCH (n:Missing) SET n.num = 9 RETURN count(n) AS c", engine=engine)
+
+    assert _records(result._nodes) == [{"c": 0}]
+    assert _records(result.gfql_graph._nodes) == before
+
+
+# openCypher TCK Set2: SET p = null removes the property from the matched node (not before the SET reads it).
+@pytest.mark.parametrize("engine", ENGINES)
+def test_set2_null_assignment_removes_only_that_property(engine) -> None:
+    source = graphistry.nodes(
+        _foundation_frame(engine, {"id": [1], "label__A": [True], "property1": [23], "property2": [46]}), "id"
+    )
+    before = _records(source._nodes)
+    result = source.gfql("MATCH (n:A) SET n.property1 = null RETURN n.property2 AS p2", engine=engine)
+
+    assert _records(result._nodes) == [{"p2": 46}]
+    assert _records(result.gfql_graph._nodes) == [
+        {"id": 1, "label__A": True, "property1": None, "property2": 46}
+    ]
+    assert _records(source._nodes) == before
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_set2_null_assignment_reads_the_old_value_before_removing_it(engine) -> None:
+    source = graphistry.nodes(
+        _foundation_frame(
+            engine, {"id": [1, 2], "label__A": [True, True], "name": ["Michael", "Other"], "age": [35, 40]}
+        ), "id"
+    )
+    result = source.gfql("MATCH (n) WHERE n.name = 'Michael' SET n.name = null RETURN n.age AS age", engine=engine)
+
+    assert _records(result._nodes) == [{"age": 35}]
+    names = {row["id"]: row["name"] for row in _records(result.gfql_graph._nodes)}
+    assert names == {1: None, 2: "Other"}
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_set_null_assignment_keeps_integer_dtype_and_ignores_absent_property(engine) -> None:
+    source = graphistry.nodes(_foundation_frame(engine, {"id": [1, 2], "score": [5, 6]}), "id")
+    result = source.gfql("MATCH (n) WHERE n.id = 1 SET n.score = null", engine=engine)
+    assert _set_values(result) == {1: None, 2: 6}
+    assert _column_kind(result._nodes, "score") == "integer"
+
+    absent = source.gfql("MATCH (n) SET n.missing = null", engine=engine)
+    assert "missing" not in list(absent._nodes.columns)
+    assert _records(absent._nodes) == _records(source._nodes)

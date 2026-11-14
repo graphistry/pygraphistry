@@ -667,6 +667,12 @@ Unsupported edge SET, combined SET+CREATE, repeated or relationship SET,
 OPTIONAL MATCH SET, reserved identity fields, and conflicting updates fail
 with structured errors before effects.
 
+``SET`` applies to every matched node; a following ``RETURN`` with ``SKIP``,
+``LIMIT``, ``ORDER BY``, or aggregation only shapes the returned rows, which
+read the updated values. ``SET n.p = null`` removes the property from the
+matched nodes (the stored value becomes null), and does nothing for a property
+that is already absent.
+
 Assigned values keep their exact type. A new property, or one whose existing
 values are all null, takes the assigned type; unmatched rows stay null. An
 existing property keeps its type: integer values keep integer storage (the

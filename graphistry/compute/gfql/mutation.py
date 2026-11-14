@@ -357,6 +357,8 @@ def _set_property_dataframe(
     import pandas as pd
     from graphistry.compute.util import generate_safe_column_name
 
+    if target.family == "null" and not target.keep_existing:
+        return frame  # null assigned to an absent or all-null property changes nothing
     cudf = is_cudf_obj(frame)
     existing_dtype: Any = frame[property_name].dtype if target.keep_existing else None
     cast = _pandas_target_dtype(target, existing_dtype, cudf)
@@ -506,6 +508,8 @@ def execute_set_properties(
                 assert isinstance(values, pl.DataFrame)
                 from graphistry.compute.util import generate_safe_column_name
                 target = targets[(alias, property_name)]
+                if target.family == "null" and not target.keep_existing:
+                    continue  # null assigned to an absent or all-null property changes nothing
                 target_dtype = _polars_target_dtype(target)
                 new_value = generate_safe_column_name(
                     f"set_new_{property_name}", frame, prefix="__gfql_", suffix="__",
