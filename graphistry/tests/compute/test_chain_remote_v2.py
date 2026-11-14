@@ -11,6 +11,7 @@ import pytest
 from graphistry.compute.ast import ASTLet, ASTNode, ASTEdge
 from graphistry.compute.chain import Chain
 from graphistry.compute.chain_remote import chain_remote_generic
+from graphistry.compute.exceptions import GFQLValidationError
 from graphistry.compute.gfql.same_path_types import col, compare
 
 
@@ -32,6 +33,7 @@ class _FakeBinding:
         self.chain = chain
         self.procedure_call = procedure_call
         self.use_ref = use_ref
+        self.graph_residual_filters = ()
 
 
 class _FakeCompiledQuery:
@@ -46,6 +48,7 @@ class _FakeCompiledQuery:
         self.graph_bindings = graph_bindings or []
         self.procedure_call = procedure_call
         self.use_ref = use_ref
+        self.graph_residual_filters = ()
 
 
 class _FakeCompiledUnion:
@@ -152,30 +155,23 @@ class TestCypherStringSupport:
         assert "gfql_operations" not in body
 
     def test_graph_constructor_with_call_write(self) -> None:
-        body = _send(
-            "GRAPH g1 = GRAPH { MATCH (a)-[r]->(b) } "
-            "GRAPH { USE g1 CALL graphistry.degree.write() }"
-        )
-        assert body["gfql_query"]["type"] == "Let"
-        result = body["gfql_query"]["bindings"]["__result__"]
-        assert result["type"] == "Ref"
-        assert result["ref"] == "g1"
+        with pytest.raises(GFQLValidationError) as exc:
+            _send("GRAPH g1 = GRAPH { MATCH (a)-[r]->(b) } GRAPH { USE g1 CALL graphistry.degree.write() }")
+        assert exc.value.context["field"] == "call"
 
     def test_standalone_call_write(self) -> None:
-        body = _send("GRAPH { CALL graphistry.degree.write() }")
-        assert body["gfql_query"]["type"] == "Chain"
+        with pytest.raises(GFQLValidationError) as exc:
+            _send("GRAPH { CALL graphistry.degree.write() }")
+        assert exc.value.context["field"] == "call"
 
     def test_call_params_preserved(self) -> None:
-        """Regression: CALL procedure params must not be dropped."""
-        body = _send(
-            "GRAPH g1 = GRAPH { MATCH (a)-[r]->(b) } "
-            "GRAPH { USE g1 CALL graphistry.cugraph.pagerank.write({damping: 0.85}) }"
-        )
-        result = body["gfql_query"]["bindings"]["__result__"]
-        call_ops = [op for op in result.get("chain", []) if isinstance(op, dict) and op.get("type") == "Call"]
-        assert call_ops, f"Expected Call in result binding, got: {result}"
-        params = call_ops[0]["params"]
-        assert params.get("params", params).get("damping") == 0.85
+        """Parameterized procedures decline instead of sending a lossy call."""
+        with pytest.raises(GFQLValidationError) as exc:
+            _send(
+                "GRAPH g1 = GRAPH { MATCH (a)-[r]->(b) } "
+                "GRAPH { USE g1 CALL graphistry.cugraph.pagerank.write({damping: 0.85}) }"
+            )
+        assert exc.value.context["field"] == "call"
 
     def test_cypher_with_params(self) -> None:
         body = _send("MATCH (n:Person) WHERE n.score > $cutoff RETURN n.id AS id", params={"cutoff": 10})
@@ -203,22 +199,9 @@ class TestCypherStringSupport:
 
         with patch("graphistry.compute.chain_remote.parse_cypher", return_value=object()):
             with patch("graphistry.compute.chain_remote.compile_cypher_query", return_value=fake_compiled):
-                body = _send("MATCH (n) RETURN n")
-
-        assert body["gfql_query"]["type"] == "Let"
-        assert "gfql_operations" not in body
-        binding = body["gfql_query"]["bindings"]["g1"]
-        assert binding["type"] == "Call"
-        assert binding["function"] == "graphistry.degree.write"
-        assert binding["params"]["k"] == 1
-
-        result = body["gfql_query"]["bindings"]["__result__"]
-        assert result["type"] == "Ref"
-        assert result["ref"] == "g1"
-        call_ops = [op for op in result.get("chain", []) if isinstance(op, dict) and op.get("type") == "Call"]
-        assert call_ops
-        assert call_ops[0]["function"] == "graphistry.layout.fa2"
-        assert call_ops[0]["params"]["iterations"] == 10
+                with pytest.raises(GFQLValidationError) as exc:
+                    _send("MATCH (n) RETURN n")
+        assert exc.value.context["field"] == "call"
 
     def test_structural_union_shape_rejected(self) -> None:
         with patch("graphistry.compute.chain_remote.parse_cypher", return_value=object()):
