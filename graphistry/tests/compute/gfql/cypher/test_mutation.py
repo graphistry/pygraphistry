@@ -1433,6 +1433,8 @@ def _column_kind(frame: Any, column: str) -> str:
             return "integer"
         if dtype.is_float():
             return "float"
+        if str(dtype) == "Boolean":
+            return "bool"
         return "string" if str(dtype) == "String" else "other"
     return {"i": "integer", "u": "integer", "f": "float", "b": "bool"}.get(frame[column].dtype.kind, "string")
 
@@ -1701,3 +1703,35 @@ def test_set_polars_null_dtype_column_promotes_to_assigned_integer() -> None:
     assert _set_values(result) == {1: 20, 2: None}
     assert _column_kind(result._nodes, "score") == "integer"
     assert source._nodes.schema["score"] == pl.Null
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_set_partial_new_boolean_property_stays_boolean_with_nulls(engine: str) -> None:
+    source = graphistry.nodes(_foundation_frame(engine, {"id": [1, 2]}), "id")
+    result = source.gfql("MATCH (n) WHERE n.id = 1 SET n.flag = true", engine=engine)
+
+    assert _set_values(result, "flag") == {1: True, 2: None}
+    assert _column_kind(result._nodes, "flag") == "bool"
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_set_partial_existing_boolean_column_keeps_boolean_dtype(engine: str) -> None:
+    source = graphistry.nodes(_foundation_frame(engine, {"id": [1, 2], "flag": [False, False]}), "id")
+    result = source.gfql("MATCH (n) WHERE n.id = 1 SET n.flag = true", engine=engine)
+
+    assert _set_values(result, "flag") == {1: True, 2: False}
+    assert _column_kind(result._nodes, "flag") == "bool"
+    if engine == "pandas":
+        assert str(result._nodes["flag"].dtype) == "bool"
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_set_boolean_column_rejects_integer_before_effects(engine: str) -> None:
+    source = graphistry.nodes(_foundation_frame(engine, {"id": [1, 2], "flag": [True, False]}), "id")
+    before = _records(source._nodes)
+    with pytest.raises(GFQLValidationError) as exc:
+        source.gfql("MATCH (n) WHERE n.id = 1 SET n.flag = 1", engine=engine)
+
+    assert exc.value.code == ErrorCode.E108
+    assert exc.value.context["value"] == ["integer"]
+    assert _records(source._nodes) == before
