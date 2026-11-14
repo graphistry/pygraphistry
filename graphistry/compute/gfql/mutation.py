@@ -327,7 +327,7 @@ def _polars_target_dtype(target: _SetTarget) -> "Optional[PolarsDType]":
     return None
 
 
-def _pandas_target_dtype(target: _SetTarget, existing_dtype: Any, cudf: bool) -> Any:
+def _pandas_target_dtype(target: _SetTarget, existing_dtype: Any, cudf: bool) -> Any:  # hygiene-ok: explicit-any -- pandas/cuDF dtype objects (numpy, extension, string spellings) have no common stub type
     """Dtype for the update values and kept column; nullable on pandas so unmatched rows never go through float64."""
     import pandas as pd
 
