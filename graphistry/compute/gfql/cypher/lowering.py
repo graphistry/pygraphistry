@@ -112,7 +112,6 @@ from graphistry.compute.gfql.cypher.ast import (
     CypherScalar,
     CypherQuery,
     CypherUnionQuery,
-    LimitClause,
     ExpressionText,
     GraphBinding,
     GraphConstructor,
@@ -131,7 +130,6 @@ from graphistry.compute.gfql.cypher.ast import (
     ReturnItem,
     SetClause,
     SetProperty,
-    SkipClause,
     SourceSpan,
     UnwindClause,
     WhereClause,
@@ -9353,57 +9351,29 @@ def _maybe_pushdown_row_prefilters(
     return replace(result, chain=new_chain)
 
 
-def _set_return_reads_assigned_property(
-    query: CypherQuery, updated_properties: set[str]
+def _set_expression_reads_written_property(
+    expression: ExprNode, written: set[tuple[str, str]]
 ) -> bool:
-    def predicate_reads(predicate: object) -> bool:
-        if isinstance(predicate, WherePredicate):
-            references: list[PropertyRef] = []
-            if isinstance(predicate.left, PropertyRef):
-                references.append(predicate.left)
-            if isinstance(predicate.right, PropertyRef):
-                references.append(predicate.right)
-            return any(
-                reference.property in updated_properties for reference in references
-            )
-        if isinstance(predicate, WherePatternPredicate):
-            properties = [
-                entry.key
-                for element in predicate.pattern
-                for entry in element.properties
-            ]
-            return any(property_name in updated_properties for property_name in properties)
+    """True when a SET right-hand side reads a property assigned by an earlier SET item.
+
+    Every right-hand side is evaluated once, on the graph before any SET, so such a read would
+    silently see the old value; the compiler declines it instead.
+    """
+    if not written:
         return False
+    identifiers = collect_identifiers(expression)
+    if any(f"{alias}.{name}" in identifiers for alias, name in written):
+        return True
+    whole_entity_reads: set[str] = set()
 
-    def tree_reads(tree: object) -> bool:
-        if not isinstance(tree, BooleanExpr):
-            return False
-        if tree.atom_text is not None:
-            for alias_property in updated_properties:
-                if re.search(rf"\b{re.escape(alias_property)}\b", tree.atom_text):
-                    return True
-            return False
-        return tree_reads(tree.left) or tree_reads(tree.right)
+    def _enter(node: ExprNode) -> None:
+        if isinstance(node, SubscriptExpr) and isinstance(node.value, Identifier):
+            whole_entity_reads.add(node.value.name)
+        elif isinstance(node, FunctionCall) and node.name.lower() in {"properties", "keys"}:
+            whole_entity_reads.update(arg.name for arg in node.args if isinstance(arg, Identifier))
 
-    def where_reads(where: Optional[WhereClause]) -> bool:
-        if where is None:
-            return False
-        if any(predicate_reads(predicate) for predicate in where.predicates):
-            return True
-        return tree_reads(where.expr_tree)
-
-    pattern_properties = [
-        entry.key
-        for match in query.matches
-        for pattern_group in match.patterns
-        for element in pattern_group
-        for entry in element.properties
-    ]
-    wheres = [query.where] + [match.where for match in query.matches]
-    return (
-        any(property_name in updated_properties for property_name in pattern_properties)
-        or any(where_reads(where) for where in wheres)
-    )
+    walk_expr_nodes(expression, enter=_enter)
+    return any(alias in whole_entity_reads for alias, _ in written)
 
 
 def compile_cypher_query(
@@ -9425,7 +9395,6 @@ def compile_cypher_query(
                 column=query.span.column,
             )
         if query.sets:
-            _reject_excessive_match_clauses(query.matches)
             assignments: list[SetProperty] = [
                 assignment for clause in query.sets for assignment in clause.assignments
             ]
@@ -9496,6 +9465,7 @@ def compile_cypher_query(
                             )
                         alias_kinds[pattern.variable] = "node"
             aliases: list[str] = []
+            written_properties: set[tuple[str, str]] = set()
             if any(kind == "edge" for kind in alias_kinds.values()):
                 edge_alias = next(alias for alias, kind in alias_kinds.items() if kind == "edge")
                 raise _unsupported(
@@ -9522,6 +9492,8 @@ def compile_cypher_query(
                         field="set", value=assignment.target.property,
                         line=assignment.span.line, column=assignment.span.column,
                     )
+                if assignment.target.alias not in aliases:
+                    aliases.append(assignment.target.alias)
                 try:
                     if isinstance(assignment.value, ExpressionText):
                         set_value_text = assignment.value.text
@@ -9543,8 +9515,15 @@ def compile_cypher_query(
                         value="non_scalar_value",
                         span=assignment.span,
                     )
-                if assignment.target.alias not in aliases:
-                    aliases.append(assignment.target.alias)
+                if _set_expression_reads_written_property(set_value_expr, written_properties):
+                    raise _unsupported_at_span(
+                        "GFQL SET evaluates every right-hand side on the graph before the SET; "
+                        "it cannot read a property assigned earlier in the same query",
+                        field="set",
+                        value="read_after_write",
+                        span=assignment.span,
+                    )
+                written_properties.add((assignment.target.alias, assignment.target.property))
             first_node_alias = next(
                 (
                     pattern.variable
@@ -9555,17 +9534,9 @@ def compile_cypher_query(
                 ),
                 None,
             )
-            if query.return_ is not None and not query.return_is_synthetic:
-                updated_properties = {assignment.target.property for assignment in assignments}
-                if first_node_alias is None and _set_return_reads_assigned_property(query, updated_properties):
-                    raise _unsupported(
-                        "SET RETURN cannot rematch on a predicate that reads assigned properties",
-                        field="return", value="mutation_rematch",
-                        line=query.span.line, column=query.span.column,
-                    )
             return_items: list[ReturnItem] = []
             seed_identity_column = "__gfql_set_seed_identity__"
-            if query.return_ is not None and first_node_alias is not None:
+            if query.return_ is not None:
                 return_items.append(ReturnItem(
                     expression=ExpressionText(
                         text=f"__node_identity__({first_node_alias})", span=query.span,

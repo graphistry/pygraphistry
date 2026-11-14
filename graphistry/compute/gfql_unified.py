@@ -2954,10 +2954,11 @@ def _gfql_with_strictness(
                             assert mutated_frame is not None
                             if is_polars_df(matched_frame):
                                 import polars as pl
+                                from graphistry.compute.gfql.lazy.engine.polars.membership import is_in_ids
                                 assert isinstance(matched_frame, pl.DataFrame)
                                 assert isinstance(mutated_frame, pl.DataFrame)
                                 start_nodes = mutated_frame.filter(
-                                    pl.col(mutated._node).is_in(matched_frame[seed_column]),
+                                    is_in_ids(pl.col(mutated._node), matched_frame[seed_column]),
                                 )
                             else:
                                 start_nodes = mutated_frame[

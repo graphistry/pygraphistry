@@ -27,7 +27,6 @@ from graphistry.compute.gfql.cypher.ast import (
     ParameterRef,
     PropertyEntry,
     SetClause,
-    SetProperty,
 )
 from graphistry.Plottable import Plottable
 from graphistry.compute.gfql.row.entity_props import (
@@ -36,7 +35,6 @@ from graphistry.compute.gfql.row.entity_props import (
     NULLISH_LABEL_NAMES,
     label_flag_columns,
 )
-from graphistry.compute.gfql.same_path_types import EDGE_IDENTITY_COLUMN, NODE_IDENTITY_COLUMN
 
 if TYPE_CHECKING:
     from graphistry.compute.typing import PolarsDType
@@ -49,34 +47,8 @@ class GFQLMutationError(GFQLValidationError):
 MUTATION_EDGE_ID = "__graphistry_edge_identity__"
 
 
-def _is_null_scalar(value: object) -> bool:
-    if value is None:
-        return True
-    return isinstance(value, float) and math.isnan(value)
-
-
 def _copy_frame(frame: DataFrameT) -> DataFrameT:
     return frame.clone() if is_polars_df(frame) else frame.copy()
-
-
-def _scalar_family(value: object) -> str:
-    if isinstance(value, np.generic):
-        value = value.item()
-    if _is_null_scalar(value):
-        return "null"
-    if isinstance(value, bool):
-        return "bool"
-    if isinstance(value, int):
-        return "integer"
-    if isinstance(value, float):
-        return "float"
-    if isinstance(value, str):
-        return "string"
-    raise GFQLMutationError(
-        ErrorCode.E108,
-        "SET properties support scalar values only",
-        field="set", value=type(value).__name__, language="cypher",
-    )
 
 
 def _frame_family(frame: DataFrameT, column: str) -> str:
@@ -125,6 +97,19 @@ def _assignment_value_family(frame: DataFrameT, column: str) -> str:
             "empty": "null",
         }.get(inferred, "other")
     return _frame_family(frame, column)
+
+
+def _nan_values_to_null(frame: DataFrameT) -> DataFrameT:
+    """NaN and null are one "absent" value for SET on every engine; pandas cannot tell them apart."""
+    if is_polars_df(frame):
+        import polars as pl
+        assert isinstance(frame, pl.DataFrame)
+        if frame.schema[SET_VALUE].is_float():
+            return frame.with_columns(pl.col(SET_VALUE).fill_nan(None))
+        return frame
+    if is_cudf_obj(frame) and frame[SET_VALUE].dtype.kind == "f":
+        return frame.assign(**{SET_VALUE: frame[SET_VALUE].nan_to_null()})
+    return frame
 
 
 SET_IDENTITY = "__gfql_set_identity__"
@@ -422,6 +407,9 @@ def execute_set_properties(
             field="set", value="missing_projection", language="cypher",
         )
 
+    if len(frame) == 0:
+        return self  # an empty match sets nothing; type resolution must not depend on the match count
+
     updates: dict[str, dict[str, list[DataFrameT]]] = {}
     update_families: dict[str, dict[str, set[str]]] = {}
     assignment_spans: dict[tuple[str, str], object] = {}
@@ -450,6 +438,7 @@ def execute_set_properties(
                     columns={identity_column: SET_IDENTITY}
                 )
                 assignment_frame = assignment_frame.assign(**{SET_VALUE: frame[value_column]})
+            assignment_frame = _nan_values_to_null(assignment_frame)
             value_family = _assignment_value_family(assignment_frame, SET_VALUE)
             if value_family == "other":
                 raise GFQLMutationError(

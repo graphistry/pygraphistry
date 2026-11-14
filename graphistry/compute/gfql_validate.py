@@ -155,7 +155,7 @@ def _validate_cypher(
     schema: bool = True,
 ) -> Dict[str, Any]:
     parsed = parse_cypher(query)
-    if isinstance(parsed, CypherQuery) and parsed.creates:
+    if isinstance(parsed, CypherQuery) and (parsed.creates or parsed.sets):
         from graphistry.compute.gfql.mutation import validate_create_parameters
         compiled = compile_cypher_query(parsed, params=params)
         assert isinstance(compiled, CompiledCypherMutationQuery)

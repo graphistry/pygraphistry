@@ -1880,3 +1880,28 @@ def test_set_pandas_nullable_integer_column_stays_nullable() -> None:
     result = source.gfql("MATCH (n) WHERE n.id = 1 SET n.s = 7", engine="pandas")
     assert str(result._nodes["s"].dtype) == "Int64"
     assert _set_values(result, "s") == {1: 7, 2: None}
+
+
+# Wave-1 W1-F5: NaN collapses to null (property removal) identically on every engine; Polars and cuDF keep NaN as a value.
+def _nan_frame(engine: str, data: dict[str, list[Any]]) -> Any:
+    if engine == "polars":
+        return pytest.importorskip("polars").DataFrame(data)
+    if engine == "cudf":
+        import cudf
+        return cudf.DataFrame({key: cudf.Series(values, nan_as_null=False) for key, values in data.items()})
+    return pd.DataFrame(data)
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_set_nan_value_removes_the_property_identically_on_every_engine(engine) -> None:
+    nan = float("nan")
+    source = graphistry.nodes(
+        _nan_frame(engine, {"id": [1, 2], "other": [nan, 2.5], "score": [1.0, 1.0]}), "id"
+    )
+    result = source.gfql("MATCH (n) SET n.score = n.other", engine=engine)
+    assert _set_values(result) == {1: None, 2: 2.5}
+    assert _column_kind(result._nodes, "score") == "float"
+    new = source.gfql("MATCH (n) SET n.fresh = n.other", engine=engine)
+    assert _set_values(new, "fresh") == {1: None, 2: 2.5}
+    only_nan = source.gfql("MATCH (n) WHERE n.id = 1 SET n.fresh2 = n.other", engine=engine)
+    assert "fresh2" not in list(only_nan._nodes.columns)
