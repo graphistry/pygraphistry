@@ -1292,11 +1292,8 @@ def execute_create_nodes(
 
             if not isinstance(new_nodes, pl.DataFrame):
                 raise GFQLUnsupportedError(
-                    ErrorCode.E108,
-                    "CREATE requires materialized Polars frames",
-                    field="engine",
-                    value="lazy_frame",
-                    language="cypher",
+                    ErrorCode.E108, "CREATE requires materialized Polars frames",
+                    field="engine", value="lazy_frame", language="cypher",
                 )
             polars_new_nodes: pl.DataFrame = new_nodes
             for label_column in sorted(label_columns):

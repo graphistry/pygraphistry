@@ -31,6 +31,25 @@ ENGINES = [
 ]
 
 
+@pytest.mark.parametrize("engine", ENGINES)
+@pytest.mark.parametrize("label", ["None", "nan", "<NA>"])
+def test_node_create_declines_filtered_label_names_without_effects(engine, label):
+    source = _graph(engine)
+    before_nodes, before_edges = _records(source._nodes), _records(source._edges)
+    with pytest.raises(GFQLValidationError) as caught:
+        source.gfql(f"CREATE (:`{label}`)", engine=engine)
+    assert caught.value.code == ErrorCode.E108
+    assert caught.value.context["field"] == "create"
+    assert caught.value.context["value"] == [label]
+    assert _records(source._nodes) == before_nodes and _records(source._edges) == before_edges
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_node_create_label_name_case_is_preserved(engine):
+    result = _graph(engine).gfql("CREATE (:none)", engine=engine)
+    assert sum(bool(row.get("label__none")) for row in _records(result._nodes)) == 1
+
+
 def _records(frame: Any) -> list[dict[str, Any]]:
     if isinstance(frame, pd.DataFrame):
         rows = frame.to_dict(orient="records")
