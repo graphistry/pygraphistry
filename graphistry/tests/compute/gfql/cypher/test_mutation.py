@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib.util
 import os
 from typing import Any
 
@@ -23,8 +24,30 @@ ENGINES = [
     pytest.param("cudf", marks=pytest.mark.skipif(
         os.environ.get("TEST_CUDF") != "1", reason="cudf tests need TEST_CUDF=1"
     )),
-    pytest.param("polars"),
+    pytest.param("polars", marks=pytest.mark.skipif(
+        importlib.util.find_spec("polars") is None,
+        reason="polars is not installed",
+    )),
 ]
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+@pytest.mark.parametrize("label", ["None", "nan", "<NA>"])
+def test_node_create_declines_filtered_label_names_without_effects(engine, label):
+    source = _graph(engine)
+    before_nodes, before_edges = _records(source._nodes), _records(source._edges)
+    with pytest.raises(GFQLValidationError) as caught:
+        source.gfql(f"CREATE (:`{label}`)", engine=engine)
+    assert caught.value.code == ErrorCode.E108
+    assert caught.value.context["field"] == "create"
+    assert caught.value.context["value"] == [label]
+    assert _records(source._nodes) == before_nodes and _records(source._edges) == before_edges
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_node_create_label_name_case_is_preserved(engine):
+    result = _graph(engine).gfql("CREATE (:none)", engine=engine)
+    assert sum(bool(row.get("label__none")) for row in _records(result._nodes)) == 1
 
 
 def _records(frame: Any) -> list[dict[str, Any]]:
@@ -1110,3 +1133,40 @@ def test_empty_return_retains_updated_graph_same_execution(engine):
     assert len(graph._nodes)==3 and graph.gfql_graph is graph
     assert len(graph.gfql("CREATE ()",engine=engine)._nodes)==4
     assert _records(source._nodes)==[{"id":1},{"id":2}]
+
+
+@pytest.mark.parametrize("engine",ENGINES)
+def test_create_declines_old_legacy_type_with_new_canonical_label_and_source_retained(engine):
+    source=graphistry.nodes(_foundation_frame(engine,{"id":["old"],"type":["Old"]}),"id")
+    with pytest.raises(GFQLValidationError,match="legacy type labels"):
+        source.gfql("CREATE (:New)",engine=engine)
+    assert _records(source._nodes)==[{"id":"old","type":"Old"}]
+
+
+@pytest.mark.parametrize("engine",ENGINES)
+def test_create_declines_same_legacy_and_canonical_label_and_source_retained(engine):
+    source=graphistry.nodes(_foundation_frame(engine,{"id":["old"],"type":["Shared"]}),"id")
+    with pytest.raises(GFQLValidationError,match="legacy type labels"):
+        source.gfql("CREATE (:Shared)",engine=engine)
+    assert _records(source._nodes)==[{"id":"old","type":"Shared"}]
+
+
+@pytest.mark.parametrize("engine",ENGINES)
+def test_create_declines_any_nonnull_legacy_type_with_new_canonical_label_and_source_retained(engine):
+    source=graphistry.nodes(_foundation_frame(engine,{"id":["old","new"],"type":["Old",None]}),"id")
+    with pytest.raises(GFQLValidationError) as exc:
+        source.gfql("CREATE (:New)",engine=engine)
+    from graphistry.compute.exceptions import ErrorCode
+    assert exc.value.code==ErrorCode.E108
+    assert exc.value.context["field"]=="create"
+    assert exc.value.context["value"]==["New"]
+    assert _records(source._nodes)==[{"id":"old","type":"Old"},{"id":"new","type":None}]
+
+
+@pytest.mark.parametrize("engine",ENGINES)
+def test_create_admits_all_null_legacy_type_with_new_canonical_label(engine):
+    source=graphistry.nodes(_foundation_frame(engine,{"id":["old"],"type":[None]}),"id")
+    result=source.gfql("CREATE (:New)",engine=engine)
+    assert len(result._nodes)==2
+    assert [row["label__New"] for row in _records(result._nodes)]==[False,True]
+    assert _records(source._nodes)==[{"id":"old","type":None}]

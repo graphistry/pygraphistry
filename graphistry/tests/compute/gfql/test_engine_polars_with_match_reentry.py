@@ -421,10 +421,15 @@ def test_multi_match_whole_entity_identity(node_id, return_clause, aliases):
     expected = reference._nodes.sort_values("x.name" if not aliases else aliases[-1] + ".name").reset_index(drop=True)
     pd.testing.assert_frame_equal(actual, expected, check_like=True)
     meta = getattr(result, "_cypher_entity_projection_meta", {})
+    reference_meta = getattr(reference, "_cypher_entity_projection_meta", {})
     assert set(meta) == set(aliases)
     for alias in aliases:
         assert meta[alias]["id_column"] == node_id
-        assert meta[alias]["ids"].to_list() == result._nodes[alias + "." + node_id].to_list()
+        if node_id == "__node__":
+            assert alias + "." + node_id not in result._nodes.columns
+            assert meta[alias]["ids"].to_list() == reference_meta[alias]["ids"].to_list()
+        else:
+            assert meta[alias]["ids"].to_list() == result._nodes[alias + "." + node_id].to_list()
 
 
 def test_reentry_state_rejects_mismatched_carried_scalar_metadata_rows_native_polars() -> None:

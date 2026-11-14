@@ -48,6 +48,92 @@ def _assert_parity(query, *, order_sensitive=True):
         pd.testing.assert_frame_equal(a_sorted, b_sorted, check_dtype=False)
 
 
+@pytest.mark.parametrize(
+    "query, params, expected",
+    [
+        ("CREATE (n) RETURN labels(n) AS value", None, "[]"),
+        ("CREATE (n:Foo:Bar) RETURN labels(n) AS value", None, "['Foo', 'Bar']"),
+        ("CREATE (n :Foo:Bar) RETURN labels(n) AS value", None, "['Foo', 'Bar']"),
+        ("CREATE (n {name: 'Apa'}) RETURN n['nam' + 'e'] AS value", None, "Apa"),
+        ("CREATE (n {name: 'Apa'}) RETURN n[$idx] AS value", {"idx": "name"}, "Apa"),
+        ("CREATE (n {name: 'Apa'}) RETURN n['missing'] AS value", None, None),
+    ],
+)
+@pytest.mark.parametrize("empty_labels_column", [False, True])
+def test_native_polars_create_metadata_and_constant_property_return(query, params, expected, empty_labels_column):
+    source = (
+        graphistry.nodes(pl.DataFrame(schema={"id": pl.String, "labels": pl.String}), "id")
+        if empty_labels_column else graphistry.bind()
+    )
+    result = source.gfql(query, params=params, engine="polars")
+
+    assert isinstance(result._nodes, pl.DataFrame)
+    assert result._nodes.to_dicts() == [{"value": expected}]
+    assert isinstance(result.gfql_graph._nodes, pl.DataFrame)
+    assert result.gfql_graph._nodes.height == 1
+    if empty_labels_column:
+        assert source._nodes.height == 0
+        assert source._nodes.schema == {"id": pl.String, "labels": pl.String}
+    else:
+        assert source._nodes is None
+    assert source._edges is None
+
+
+@pytest.mark.parametrize(
+    "query, expected",
+    [
+        ("MATCH (n) RETURN labels(n) AS value", ["['Foo']", "['Bar']"]),
+        ("MATCH (n) RETURN n['name'] AS value ORDER BY value", ["left", "right"]),
+        ("MATCH (n:Missing) RETURN labels(n) AS value", []),
+        ("OPTIONAL MATCH (n:Missing) RETURN labels(n) AS value", [None]),
+    ],
+)
+def test_native_polars_metadata_return_preserves_read_rows_and_caller(query, expected):
+    nodes = pl.DataFrame({"id": [1, 2], "name": ["left", "right"],
+                          "label__Foo": [True, False], "label__Bar": [False, True]})
+    source = graphistry.nodes(nodes, "id")
+    result = source.gfql(query, engine="polars")
+
+    assert isinstance(result._nodes, pl.DataFrame)
+    assert sorted(result._nodes.to_dicts(), key=lambda row: repr(row["value"])) == sorted(
+        [{"value": value} for value in expected], key=lambda row: repr(row["value"])
+    )
+    assert source._nodes.equals(nodes)
+
+
+def test_polars_constant_map_subscript_cannot_read_an_unrelated_outer_column():
+    from graphistry.compute import rows, select
+
+    nodes = pl.DataFrame({"id": [1], "m": [{"name": "inside"}], "name": ["outside"]})
+    source = graphistry.nodes(nodes, "id")
+    with pytest.raises(NotImplementedError):
+        source.gfql([rows(), select([("value", "m['name']")])], engine="polars")
+    assert source._nodes.equals(nodes)
+
+
+@pytest.mark.parametrize("argument", ["scalar", {"property": 1}])
+def test_polars_labels_non_node_column_cannot_read_unrelated_label_flags(argument):
+    from graphistry.compute import rows, select
+
+    nodes = pl.DataFrame({"id": [1], "argument": [argument], "label__Foo": [True]})
+    source = graphistry.nodes(nodes, "id")
+    with pytest.raises(NotImplementedError):
+        source.gfql([rows(), select([("value", "labels(argument)")])], engine="polars")
+    assert source._nodes.equals(nodes)
+
+
+def test_polars_labels_relationship_cannot_use_an_ordinary_id_property_as_node_identity():
+    from graphistry.compute import rows, select
+
+    nodes = pl.DataFrame({"id": [1, 2]})
+    edges = pl.DataFrame({"src": [1], "dst": [2], "edge_id": [7], "id": [999],
+                          "type": ["R"], "r": [True], "label__Foo": [True]})
+    source = graphistry.nodes(nodes, "id").edges(edges, "src", "dst", edge="edge_id")
+    with pytest.raises(NotImplementedError):
+        source.gfql([rows(table="edges", source="r"), select([("value", "labels(r)")])], engine="polars")
+    assert source._nodes.equals(nodes) and source._edges.equals(edges)
+
+
 SUPPORTED = [
     # whole-entity RETURN (pure projection, no row-pipeline op)
     "MATCH (n) RETURN n",

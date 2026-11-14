@@ -14,6 +14,7 @@ from graphistry.Engine import (
     df_to_engine,
     is_polars_df,
     resolve_engine,
+    series_not_null_mask,
 )
 from graphistry.compute.exceptions import ErrorCode, GFQLUnsupportedError, GFQLValidationError
 from graphistry.compute.gfql.cypher.ast import CreateClause, CreateRelationship, CypherParams, CypherScalar, NodePattern, ParameterRef
@@ -386,10 +387,7 @@ def _validate_legacy_label_transition(
     if not created_labels:
         return
     type_series = nodes["type"]
-    if is_polars_df(nodes):
-        has_legacy_label = bool((~type_series.is_null()).any())
-    else:
-        has_legacy_label = bool(type_series.notna().any())
+    has_legacy_label = bool(series_not_null_mask(type_series).any())
     if has_legacy_label:
         raise GFQLMutationError(
             ErrorCode.E108,
