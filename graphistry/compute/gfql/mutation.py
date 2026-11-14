@@ -407,9 +407,7 @@ def execute_set_properties(
             field="set", value="missing_projection", language="cypher",
         )
 
-    # An empty match sets nothing and resolves no types (so the outcome never depends on the match count), but the
-    # frames are still normalized to the requested engine and the graph-level identity checks still run.
-    empty_match = len(frame) == 0
+    empty_match = len(frame) == 0  # sets nothing and resolves no types, but still normalizes the engine and checks identity
 
     updates: dict[str, dict[str, list[DataFrameT]]] = {}
     update_families: dict[str, dict[str, set[str]]] = {}
