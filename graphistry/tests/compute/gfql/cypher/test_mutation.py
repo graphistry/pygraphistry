@@ -1401,8 +1401,11 @@ def test_create_declines_any_nonnull_legacy_type_with_new_canonical_label_and_so
 
 
 def test_parse_declines_standalone_create_combined_with_set():
-    with pytest.raises(GFQLValidationError, match="CREATE and SET"):
+    with pytest.raises(GFQLValidationError) as exc:
         parse_cypher("CREATE () SET n.x = 1")
+    assert exc.value.code == ErrorCode.E108
+    assert exc.value.context["field"] == "set"
+    assert exc.value.context["value"] == "create_with_set"
 
 
 @pytest.mark.parametrize("engine",ENGINES)

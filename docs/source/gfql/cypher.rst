@@ -663,9 +663,14 @@ returns the updated graph. The caller's frames stay unchanged. Optional
    assert updated._nodes["name"].tolist() == ["Grace"]
    assert len(source._nodes) == 2
 
-Unsupported edge SET, combined SET+CREATE, repeated or relationship SET,
-OPTIONAL MATCH SET, reserved identity fields, and conflicting updates fail
-with structured errors before effects.
+Unsupported edge or relationship SET, combined SET+CREATE, OPTIONAL MATCH SET,
+reserved identity fields, and conflicting updates fail with structured errors
+before effects. Right-hand sides may be literals or computed expressions such as
+``n.num + 1``. Several ``SET`` clauses are allowed, but every right-hand side
+reads the graph as it was before the SET, so a right-hand side that reads a
+property assigned earlier in the same query (``SET n.a = 1 SET n.b = n.a``,
+``SET n.num = n.num + 1 SET n.num = n.num + 1``) is declined with ``E108``
+(``read_after_write``) instead of returning stale values.
 
 ``SET`` applies to every matched node; a following ``RETURN`` with ``SKIP``,
 ``LIMIT``, ``ORDER BY``, or aggregation only shapes the returned rows, which
@@ -673,14 +678,20 @@ read the updated values. ``SET n.p = null`` removes the property from the
 matched nodes (the stored value becomes null), and does nothing for a property
 that is already absent.
 
-Assigned values keep their exact type. A new property, or one whose existing
-values are all null, takes the assigned type; unmatched rows stay null. An
-existing property keeps its type: integer values keep integer storage (the
-column widens to ``int64`` when needed), and an integer may update a float
-column only when it is exactly representable (at most 2**53 in magnitude).
-Assigning another type, such as an integer into a string column or a wide
-integer into a float column, fails with ``E108`` before any effect rather than
-casting. The same rules apply on pandas, cuDF, and Polars.
+Assigned values keep their exact value and kind (integer, float, string,
+boolean). A new property, or one whose existing values are all null, takes the
+assigned kind; unmatched rows stay null. An existing property keeps its kind:
+integer values keep integer storage where they fit (a signed column widens to
+``int64`` when needed; an unsigned column never widens and raises ``E108`` with
+``integer_out_of_range`` for a negative or too-large value), and an integer may
+update a float column only when it is exactly representable (at most 2**53 in
+magnitude). Assigning another kind, such as an integer into a string column or
+a wide integer into a float column, fails with ``E108`` before any effect rather
+than casting. On pandas a numpy integer or boolean column becomes the nullable
+``Int*``/``boolean`` dtype when a partial update leaves nulls, so no value goes
+through ``float64``. A query that matches no rows changes nothing on any engine,
+and NaN counts as null (it removes the property). The same rules apply on
+pandas, cuDF, and Polars.
 
 Physical node identity is separate from properties: ``CREATE (n {id: 12})``
 writes an ordinary ``id`` property, while ``CREATE (n)`` leaves that property

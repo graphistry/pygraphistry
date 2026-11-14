@@ -1906,6 +1906,8 @@ def _build_transformer(source: str) -> _TransformerLike:
                     if creates:
                         raise _to_unsupported(
                             "GFQL CREATE and SET cannot be combined in the current mutation compiler",
+                            field="set",
+                            value="create_with_set",
                             line=item.span.line,
                             column=item.span.column,
                         )

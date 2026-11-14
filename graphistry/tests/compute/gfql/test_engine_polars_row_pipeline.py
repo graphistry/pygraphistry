@@ -426,6 +426,12 @@ def test_node_identity_sentinel_resolution():
         assert expr.meta.root_names() == ["id"]
     finally:
         rp._NODE_ID.reset(tok)
+    # published but absent from frame -> decline (never invent a column)
+    tok = rp._NODE_ID.set("node_id_missing")
+    try:
+        assert rp.lower_expr_str("__gfql_node_id__", cols) is None
+    finally:
+        rp._NODE_ID.reset(tok)
 
 
 def test_native_node_label_rendering_declines_non_contract_dtypes():
@@ -478,13 +484,6 @@ def test_polars_subscript_declines_non_string_constant_key():
         rp._SCHEMA.reset(schema)
         rp._NODE_ID.reset(node_id)
         rp._NODE_ALIASES.reset(node_aliases)
-    # published but absent from frame -> decline (never invent a column)
-    tok = rp._NODE_ID.set("node_id_missing")
-    try:
-        assert rp.lower_expr_str("__gfql_node_id__", ["id", "val", "kind"]) is None
-    finally:
-        rp._NODE_ID.reset(tok)
-
 
 def test_polars_frame_op_limit_matches_slice():
     """limit/skip operate on a polars active table without index artifacts."""
