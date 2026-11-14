@@ -20,6 +20,20 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 - **GFQL semantic table operators `sem_decide` and `sem_map`**: ask a model provider typed questions (predicate, choice, score) or generate one text value for every node or edge row, as Plottable methods and GFQL `call()` operations. Each row keeps its position; `sem_decide` adds an answer, status (`ok`/`uncertain`/`error`/`skipped`), probability, distribution, probability kind, error code and JSON metadata per question, and `sem_map` adds the value, status, error code and metadata; provider faults become per-row errors. Includes a provider contract (`graphistry.compute.semantic`; its `contract` module is standard-library only), execution-scoped provider binding (`bind_providers`), callable providers, an OpenAI Decisions API provider and chat-API providers (OpenAI-compatible chat completions with token-logprob distributions or answers constrained by JSON schema or a forced tool call, with an opt-in host probe; Anthropic Messages) on a shared HTTP provider base with caller-supplied token prices; the OpenAI Decisions provider takes per-server question, option and level limits. Deadlines, request limits, an estimated-cost cap and `max_rows` mark the rest `skipped`. Policy hooks fire on the GFQL path. Remote execution refuses these calls, and `engine='auto'` never re-runs a query after it called a provider.
 
+## [0.62.1] - 2026-11-12
+
+### Fixed
+
+- **GFQL cross-alias filters**: reversing the operands of an ordering comparison now preserves its meaning, parallel edges retain their multiplicity, and empty relationship projections keep their schema without an explicit edge-ID binding. Applies to Cypher and native same-path queries on pandas and cuDF (#2282, #2283, #2284).
+
+- **GFQL remote unsupported-program detection**: identified Cypher procedure calls, GRAPH residual predicates, and cross-alias predicates in GRAPH/Let bindings as unsupported remote-mode programs. They now raise a structured error before upload or HTTP instead of being sent with omitted procedure or filter semantics. [Faithful remote support is tracked separately](https://github.com/graphistry/pygraphistry/issues/2304). Compiled GRAPH references preserve case-insensitive Cypher name resolution, and local Let bindings execute their Chain `where` predicates (#2277, #2278, #2285, #2286, #2287).
+
+- **GFQL default-engine GPU filters**: cross-alias `WHERE` queries on cuDF graphs now resolve the default `auto` engine to cuDF, matching explicit `engine='cudf'` for both Cypher projections and native chains instead of mixing pandas intermediates with GPU columns (#2289).
+
+- **Hypergraph GPU timedelta inputs**: coercing timedelta event columns to strings now creates a new frame instead of modifying the caller's cuDF or Dask-cuDF input. Existing event-ID columns and generated IDs retain their behavior (#2291).
+
+## [0.62.0] - 2026-11-11
+
 ### Deprecated
 
 - **Ignored extra arguments to `nodes()` / `edges()`** (#398, #2280): non-callable data with extra positional or keyword arguments now emits a `FutureWarning` while preserving the existing behavior of ignoring those arguments. Use `.bind(...)` for binding options. Formal arguments and callable forwarding are unchanged; warnings include positional counts and keyword names, never argument values. Strict `TypeError` rejection is targeted for May 2027, after at least six months of released deprecation notice.
