@@ -85,6 +85,8 @@ CallMethodName = Literal[
     'distinct',
     'unwind',
     'group_by',
+    'sem_decide',
+    'sem_map',
     'umap'
 ]
 
@@ -157,6 +159,51 @@ class UmapParams(TypedDict, total=False):
     umap_kwargs: Dict[str, Any]
     umap_fit_kwargs: Dict[str, Any]
     umap_transform_kwargs: Dict[str, Any]
+
+
+class SemQuestion(TypedDict, total=False):
+    """One question for sem_decide; ``options`` for choice, ordered ``levels`` for score."""
+    id: str
+    kind: Literal['predicate', 'choice', 'score']
+    text: str
+    options: List[str]
+    levels: List[str]
+
+
+class SemBudget(TypedDict, total=False):
+    """Run limits for semantic calls."""
+    max_requests: int
+
+
+class SemCommonParams(TypedDict, total=False):
+    """Parameters shared by semantic calls (``provider`` is an alias bound with ``bind_providers``)."""
+    provider: str
+    task_id: str
+    kind: Literal['nodes', 'edges']
+    evidence_cols: List[str]
+    template: str
+    id_col: str
+    task_version: str
+    batch_size: int
+    max_concurrency: int
+    deadline_s: float
+    budget: SemBudget
+    max_rows: int
+    column_max_chars: int
+    overwrite: bool
+
+
+class SemDecideParams(SemCommonParams, total=False):
+    """Parameters for sem_decide."""
+    questions: List[SemQuestion]
+    min_p: float
+
+
+class SemMapParams(SemCommonParams, total=False):
+    """Parameters for sem_map."""
+    instruction: str
+    out_col: str
+    max_output_tokens: int
 
 
 class HypergraphParams(TypedDict, total=False):
@@ -547,6 +594,8 @@ class GroupByParams(TypedDict, total=False):
 CallParams = Union[
     HopParams,
     UmapParams,
+    SemDecideParams,
+    SemMapParams,
     HypergraphParams,
     GetDegreesParams,
     FilterEdgesByDictParams,
@@ -598,6 +647,14 @@ def call(function: Literal['hop'], params: HopParams = ...) -> 'ASTCall':
 
 @overload
 def call(function: Literal['umap'], params: UmapParams = ...) -> 'ASTCall':
+    ...
+
+@overload
+def call(function: Literal['sem_decide'], params: SemDecideParams = ...) -> 'ASTCall':
+    ...
+
+@overload
+def call(function: Literal['sem_map'], params: SemMapParams = ...) -> 'ASTCall':
     ...
 
 @overload

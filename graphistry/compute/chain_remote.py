@@ -1,6 +1,6 @@
 from inspect import getmodule
 from io import BytesIO
-from typing import Any, Dict, List, Optional, Sequence, Union
+from typing import Any, Dict, List, Mapping, Optional, Sequence, Union
 from typing_extensions import Literal, Protocol, TypeGuard
 import json
 import pandas as pd
@@ -21,7 +21,7 @@ from graphistry.compute.gfql.strictness import (
 from graphistry.compute.gfql_validate import gfql_validate as gfql_preflight_validate
 from graphistry.io.metadata import deserialize_plottable_metadata
 from graphistry.compute.exceptions import (
-    ErrorCode, GFQLSyntaxError, GFQLTypeError, GFQLValidationError)
+    ErrorCode, GFQLSyntaxError, GFQLTypeError, GFQLUnsupportedError, GFQLValidationError)
 from graphistry.compute.remote_df_io import (
     require_supported_frame_library,
     resolve_csv_reader,
@@ -133,6 +133,33 @@ def _apply_persist_axis_defaults(g: Plottable) -> None:
         g._url_params = merged
 
 
+def _refuse_semantic_calls(payload: object) -> None:
+    """Semantic calls need a locally bound provider, so a query that holds one is refused before upload; the walk
+    follows only query structure (chains, let bindings), never call parameters."""
+    from graphistry.compute.semantic.gfql_support import SEMANTIC_CALLS
+    found = set()
+    pending: List[object] = [payload]
+    while pending:
+        node = pending.pop()
+        if isinstance(node, (ASTObject, Chain, ASTLet)):
+            node = node.to_json(validate=False)
+        if isinstance(node, (list, tuple)):
+            pending.extend(node)
+        elif isinstance(node, Mapping):
+            function, bindings = node.get("function"), node.get("bindings")
+            if node.get("type") == "Call" and isinstance(function, str) and function in SEMANTIC_CALLS:
+                found.add(function)
+            pending.extend([node.get("chain")] + (list(bindings.values()) if isinstance(bindings, Mapping) else []))
+    if found:
+        raise GFQLUnsupportedError(
+            ErrorCode.E110,
+            f"Semantic calls ({', '.join(sorted(found))}) run locally only; use g.gfql(...) with bind_providers",
+            field="function",
+            value=sorted(found),
+            suggestion="Run the query locally with g.gfql(...); remote execution has no provider binding",
+        )
+
+
 def chain_remote_generic(
     self: Plottable,
     chain: Union[Chain, Dict[str, JSONVal], List[Any], 'ASTLet', str],
@@ -235,6 +262,8 @@ def chain_remote_generic(
             value=output,
             suggestion="Drop output=, or express the query as a Let/DAG (or Cypher with named graph bindings)",
         )
+
+    _refuse_semantic_calls(chain_json)
 
     if validate:
         declared = schema_declared_names(self)  # a declared schema is names without data (#1916)
