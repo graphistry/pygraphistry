@@ -108,7 +108,7 @@ def _nan_values_to_null(frame: DataFrameT) -> DataFrameT:
             return frame.with_columns(pl.col(SET_VALUE).fill_nan(None))
         return frame
     if is_cudf_obj(frame) and frame[SET_VALUE].dtype.kind == "f":
-        return frame.assign(**{SET_VALUE: frame[SET_VALUE].nan_to_null()})
+        return frame.assign(**{SET_VALUE: frame[SET_VALUE].nans_to_nulls()})
     return frame
 
 

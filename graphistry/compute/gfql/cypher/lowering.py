@@ -9361,19 +9361,21 @@ def _set_expression_reads_written_property(
     """
     if not written:
         return False
-    identifiers = collect_identifiers(expression)
-    if any(f"{alias}.{name}" in identifiers for alias, name in written):
-        return True
+    property_reads: set[str] = set(collect_identifiers(expression))
     whole_entity_reads: set[str] = set()
 
     def _enter(node: ExprNode) -> None:
-        if isinstance(node, SubscriptExpr) and isinstance(node.value, Identifier):
+        if isinstance(node, PropertyAccessExpr) and isinstance(node.value, Identifier):
+            property_reads.add(f"{node.value.name}.{node.property}")
+        elif isinstance(node, SubscriptExpr) and isinstance(node.value, Identifier):
             whole_entity_reads.add(node.value.name)
         elif isinstance(node, FunctionCall) and node.name.lower() in {"properties", "keys"}:
             whole_entity_reads.update(arg.name for arg in node.args if isinstance(arg, Identifier))
 
     walk_expr_nodes(expression, enter=_enter)
-    return any(alias in whole_entity_reads for alias, _ in written)
+    return any(f"{alias}.{name}" in property_reads for alias, name in written) or any(
+        alias in whole_entity_reads for alias, _ in written
+    )
 
 
 def compile_cypher_query(
