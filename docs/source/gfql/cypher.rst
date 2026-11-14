@@ -667,6 +667,15 @@ Unsupported edge SET, combined SET+CREATE, repeated or relationship SET,
 OPTIONAL MATCH SET, reserved identity fields, and conflicting updates fail
 with structured errors before effects.
 
+Assigned values keep their exact type. A new property, or one whose existing
+values are all null, takes the assigned type; unmatched rows stay null. An
+existing property keeps its type: integer values keep integer storage (the
+column widens to ``int64`` when needed), and an integer may update a float
+column only when it is exactly representable (at most 2**53 in magnitude).
+Assigning another type, such as an integer into a string column or a wide
+integer into a float column, fails with ``E108`` before any effect rather than
+casting. The same rules apply on pandas, cuDF, and Polars.
+
 Physical node identity is separate from properties: ``CREATE (n {id: 12})``
 writes an ordinary ``id`` property, while ``CREATE (n)`` leaves that property
 absent. Allocation does not become an implicit property. Existing node identities

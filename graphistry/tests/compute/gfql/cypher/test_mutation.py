@@ -1397,3 +1397,113 @@ def test_create_admits_all_null_legacy_type_with_new_canonical_label(engine):
     assert len(result._nodes)==2
     assert [row["label__New"] for row in _records(result._nodes)]==[False,True]
     assert _records(source._nodes)==[{"id":"old","type":None}]
+
+
+WIDE_INT = 1152921504606846977  # 2**60 + 1: not representable as float64
+
+
+def _column_kind(frame: Any, column: str) -> str:
+    if isinstance(frame, pd.DataFrame):
+        dtype = frame[column].dtype
+        if pd.api.types.is_bool_dtype(dtype):
+            return "bool"
+        if pd.api.types.is_integer_dtype(dtype):
+            return "integer"
+        if pd.api.types.is_float_dtype(dtype):
+            return "float"
+        return "string" if pd.api.types.is_object_dtype(dtype) or pd.api.types.is_string_dtype(dtype) else "other"
+    if hasattr(frame, "schema"):
+        dtype = frame.schema[column]
+        if dtype.is_integer():
+            return "integer"
+        if dtype.is_float():
+            return "float"
+        return "string" if str(dtype) == "String" else "other"
+    return {"i": "integer", "u": "integer", "f": "float", "b": "bool"}.get(frame[column].dtype.kind, "string")
+
+
+def _set_values(result: Any, column: str = "score") -> dict[Any, Any]:
+    return {row["id"]: row[column] for row in _records(result._nodes)}
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_set_partial_new_wide_integer_keeps_exact_integer(engine: str) -> None:
+    source = graphistry.nodes(_foundation_frame(engine, {"id": [1, 2]}), "id")
+    before = _records(source._nodes)
+    result = source.gfql(f"MATCH (n) WHERE n.id = 1 SET n.score = {WIDE_INT}", engine=engine)
+
+    assert _set_values(result) == {1: WIDE_INT, 2: None}
+    assert _column_kind(result._nodes, "score") == "integer"
+    assert _records(source._nodes) == before
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_set_partial_existing_integer_column_keeps_integer_and_wide_value(engine: str) -> None:
+    source = graphistry.nodes(_foundation_frame(engine, {"id": [1, 2], "score": [5, 6]}), "id")
+    result = source.gfql(f"MATCH (n) WHERE n.id = 1 SET n.score = {WIDE_INT}", engine=engine)
+
+    assert _set_values(result) == {1: WIDE_INT, 2: 6}
+    assert _column_kind(result._nodes, "score") == "integer"
+    narrow = source.gfql("MATCH (n) WHERE n.id = 1 SET n.score = 7", engine=engine)
+    assert _set_values(narrow) == {1: 7, 2: 6}
+    assert _column_kind(narrow._nodes, "score") == "integer"
+    if engine == "pandas":
+        assert str(narrow._nodes["score"].dtype) == "int64"
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_set_fully_matched_wide_integer_control(engine: str) -> None:
+    source = graphistry.nodes(_foundation_frame(engine, {"id": [1, 2]}), "id")
+    result = source.gfql(f"MATCH (n) SET n.score = {WIDE_INT}", engine=engine)
+
+    assert _set_values(result) == {1: WIDE_INT, 2: WIDE_INT}
+    assert _column_kind(result._nodes, "score") == "integer"
+    if engine == "pandas":
+        assert str(result._nodes["score"].dtype) == "int64"
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_set_string_column_rejects_integer_before_effects(engine: str) -> None:
+    source = graphistry.nodes(_foundation_frame(engine, {"id": [1, 2], "score": ["old", "keep"]}), "id")
+    before = _records(source._nodes)
+    with pytest.raises(GFQLValidationError) as exc:
+        source.gfql("MATCH (n) WHERE n.id = 1 SET n.score = 20", engine=engine)
+
+    assert exc.value.code == ErrorCode.E108
+    assert exc.value.context["field"] == "score"
+    assert exc.value.context["value"] == ["integer"]
+    assert _records(source._nodes) == before
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_set_all_null_string_column_promotes_to_assigned_integer(engine: str) -> None:
+    source = graphistry.nodes(
+        _foundation_frame(engine, {"id": [1, 2], "score": pd.Series([None, None], dtype="string")}), "id"
+    )
+    result = source.gfql("MATCH (n) WHERE n.id = 1 SET n.score = 20", engine=engine)
+
+    assert _set_values(result) == {1: 20, 2: None}
+    assert _column_kind(result._nodes, "score") == "integer"
+    assert _records(source._nodes) == [{"id": 1, "score": None}, {"id": 2, "score": None}]
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_set_float_column_rejects_wide_integer_before_effects(engine: str) -> None:
+    source = graphistry.nodes(_foundation_frame(engine, {"id": [1, 2], "score": [1.5, 2.25]}), "id")
+    before = _records(source._nodes)
+    with pytest.raises(GFQLValidationError) as exc:
+        source.gfql(f"MATCH (n) WHERE n.id = 1 SET n.score = {WIDE_INT}", engine=engine)
+
+    assert exc.value.code == ErrorCode.E108
+    assert exc.value.context["field"] == "score"
+    assert exc.value.context["value"] == "incompatible_numeric_types"
+    assert _records(source._nodes) == before
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_set_float_column_accepts_exactly_representable_integer(engine: str) -> None:
+    source = graphistry.nodes(_foundation_frame(engine, {"id": [1, 2], "score": [1.5, 2.25]}), "id")
+    result = source.gfql("MATCH (n) WHERE n.id = 1 SET n.score = 20", engine=engine)
+
+    assert _set_values(result) == {1: 20.0, 2: 2.25}
+    assert _column_kind(result._nodes, "score") == "float"

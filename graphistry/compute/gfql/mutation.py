@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import math
-from typing import TYPE_CHECKING, Mapping, Optional, Union
+from typing import TYPE_CHECKING, Any, Mapping, NamedTuple, Optional, Union
 from typing_extensions import Literal
 
 import numpy as np
@@ -180,31 +180,214 @@ def _combine_assignment_frames(
     return combined.drop_duplicates(subset=[SET_IDENTITY], keep="first")
 
 
-def _validate_set_updates(
+_INT64_MIN = -(1 << 63)
+_INT64_MAX = (1 << 63) - 1
+_EXACT_FLOAT_INTEGER = 1 << 53
+
+
+class _SetTarget(NamedTuple):
+    """Resolved storage for one SET property: what the column holds after the update."""
+
+    family: str  # integer | float | bool | string | null | other
+    keep_existing: bool  # False: absent or all-null column is replaced by the assigned family
+    integer_dtype: Optional[str]  # numpy integer dtype name when family == "integer"
+
+
+def _is_all_null_column(frame: DataFrameT, column: str) -> bool:
+    if is_polars_df(frame):
+        import polars as pl
+        assert isinstance(frame, pl.DataFrame)
+        return bool(frame.select(pl.col(column).is_null().all()).item())
+    return bool(frame[column].isna().all())
+
+
+def _integer_dtype_name(frame: DataFrameT, column: str) -> str:
+    if is_polars_df(frame):
+        return str(frame.schema[column]).lower()
+    dtype: Any = frame[column].dtype
+    return np.dtype(getattr(dtype, "numpy_dtype", dtype)).name
+
+
+def _value_bounds(values: DataFrameT) -> Optional[tuple[int, int]]:
+    if is_polars_df(values):
+        import polars as pl
+        assert isinstance(values, pl.DataFrame)
+        low, high = values.select(
+            pl.col(SET_VALUE).min().alias("low"), pl.col(SET_VALUE).max().alias("high"),
+        ).row(0)
+    else:
+        present = values[SET_VALUE].dropna()
+        if len(present) == 0:
+            return None
+        low, high = present.min(), present.max()
+    if low is None or high is None:
+        return None
+    return int(low), int(high)
+
+
+def _integer_target_name(existing: Optional[str], bounds: Optional[tuple[int, int]]) -> Optional[str]:
+    """Keep the existing integer width when the values fit, else widen to int64, else unrepresentable."""
+    low, high = bounds if bounds is not None else (0, 0)
+    if existing is None:
+        return "int64" if _INT64_MIN <= low and high <= _INT64_MAX else None
+    info = np.iinfo(existing)
+    if info.min <= low and high <= info.max:
+        return existing
+    if not existing.startswith("u") and _INT64_MIN <= low and high <= _INT64_MAX:
+        return "int64"
+    return None
+
+
+def _resolve_set_target(
+    frame: DataFrameT,
+    entity: str,
+    property_name: str,
+    values: DataFrameT,
+    new_families: set[str],
+) -> _SetTarget:
+    """Decide the post-SET column type, or reject before effects when it cannot hold the values losslessly."""
+    families = new_families - {"null"}
+    present = property_name in frame.columns
+    existing_family = _frame_family(frame, property_name) if present else None
+    replace = not present or _is_all_null_column(frame, property_name)
+
+    def reject(value: object = None) -> GFQLMutationError:
+        return GFQLMutationError(
+            ErrorCode.E108,
+            f"SET cannot change {entity} property {property_name!r} to incompatible values",
+            field=property_name, value=sorted(new_families) if value is None else value, language="cypher",
+        )
+
+    if not families:
+        if replace or existing_family is None:
+            return _SetTarget("null", False, None)
+        return _SetTarget(
+            existing_family, True,
+            _integer_dtype_name(frame, property_name) if existing_family == "integer" else None,
+        )
+    numeric = {"integer", "float"}
+    if "other" in families:
+        raise reject()
+    if families == {"integer"}:
+        kind = "integer"
+    elif families <= numeric:
+        kind = "float"
+    elif len(families) == 1:
+        kind = next(iter(families))
+    else:
+        raise reject()
+    if not replace and existing_family != kind and not (
+        existing_family == "float" and kind in numeric
+    ):
+        raise reject()
+    if kind == "integer":
+        bounds = _value_bounds(values)
+        if not replace and existing_family == "float":
+            if bounds is not None and (bounds[0] < -_EXACT_FLOAT_INTEGER or bounds[1] > _EXACT_FLOAT_INTEGER):
+                raise reject("incompatible_numeric_types")
+            return _SetTarget("float", True, None)
+        name = _integer_target_name(None if replace else _integer_dtype_name(frame, property_name), bounds)
+        if name is None:
+            raise reject("integer_out_of_range")
+        return _SetTarget("integer", not replace, name)
+    return _SetTarget(kind, not replace, None)
+
+
+def _resolve_set_targets(
     updates: Mapping[str, Mapping[str, DataFrameT]],
     nodes: Optional[DataFrameT],
     edges: Optional[DataFrameT],
     alias_kinds: Mapping[str, str],
     update_families: Mapping[str, Mapping[str, set[str]]],
-) -> None:
+) -> dict[tuple[str, str], _SetTarget]:
+    targets: dict[tuple[str, str], _SetTarget] = {}
     for alias, properties in updates.items():
-        family = "node" if alias_kinds[alias] == "node" else "edge"
-        frame = nodes if family == "node" else edges
+        entity = "node" if alias_kinds[alias] == "node" else "edge"
+        frame = nodes if entity == "node" else edges
         assert frame is not None
         for property_name, update_frame in properties.items():
-            existing_family = _frame_family(frame, property_name) if property_name in frame.columns else None
-            new_families = update_families[alias][property_name]
-            if existing_family in {None, "string"} and "other" not in new_families:
-                continue
-            if existing_family == "float" and new_families <= {"integer", "float"}:
-                continue
-            if existing_family in new_families:
-                continue
-            raise GFQLMutationError(
-                ErrorCode.E108,
-                f"SET cannot change {family} property {property_name!r} to incompatible values",
-                field=property_name, value=sorted(new_families), language="cypher",
+            targets[(alias, property_name)] = _resolve_set_target(
+                frame, entity, property_name, update_frame, update_families[alias][property_name],
             )
+    return targets
+
+
+def _polars_target_dtype(target: _SetTarget) -> "Optional[PolarsDType]":
+    import polars as pl
+    if target.family == "integer":
+        assert target.integer_dtype is not None
+        return {
+            "int8": pl.Int8, "int16": pl.Int16, "int32": pl.Int32, "int64": pl.Int64,
+            "uint8": pl.UInt8, "uint16": pl.UInt16, "uint32": pl.UInt32, "uint64": pl.UInt64,
+        }[target.integer_dtype]
+    if target.family == "float":
+        return pl.Float64
+    if target.family == "bool":
+        return pl.Boolean
+    return None
+
+
+def _pandas_target_dtype(target: _SetTarget, existing_dtype: Any, cudf: bool) -> Any:
+    """Dtype for the update values and kept column; nullable on pandas so unmatched rows never go through float64."""
+    import pandas as pd
+
+    if target.family == "integer":
+        assert target.integer_dtype is not None
+        if cudf:
+            return target.integer_dtype
+        bits = np.dtype(target.integer_dtype).itemsize * 8
+        return getattr(pd, f"{'UInt' if target.integer_dtype.startswith('u') else 'Int'}{bits}Dtype")()
+    if target.family == "float":
+        if existing_dtype is not None and not cudf and pd.api.types.is_extension_array_dtype(existing_dtype):
+            return pd.Float64Dtype()
+        return "float64"
+    if target.family == "bool":
+        return "bool" if cudf else pd.BooleanDtype()
+    return None
+
+
+def _set_property_dataframe(
+    frame: DataFrameT,
+    key: str,
+    property_name: str,
+    values: DataFrameT,
+    target: _SetTarget,
+) -> DataFrameT:
+    """pandas/cuDF SET: type values to the resolved target before the left merge so unmatched rows keep dtype."""
+    import pandas as pd
+    from graphistry.compute.util import generate_safe_column_name
+
+    cudf = is_cudf_obj(frame)
+    existing_dtype: Any = frame[property_name].dtype if target.keep_existing else None
+    cast = _pandas_target_dtype(target, existing_dtype, cudf)
+    new_value = generate_safe_column_name(
+        f"set_new_{property_name}", frame, prefix="__gfql_", suffix="__",
+    )
+    matched = generate_safe_column_name(
+        f"set_matched_{property_name}", frame, prefix="__gfql_", suffix="__",
+    )
+    update = values.rename(columns={SET_IDENTITY: key, SET_VALUE: new_value})
+    if cast is not None:
+        update[new_value] = update[new_value].astype(cast)
+    update[matched] = True
+    frame = frame.merge(update, how="left", on=key, sort=False)
+    update_mask = frame[matched].fillna(False).astype(bool)
+    if target.keep_existing:
+        kept = frame[property_name]
+        if cast is not None:
+            kept = kept.astype(cast)
+        merged = kept.where(~update_mask, frame[new_value])
+    else:
+        merged = frame[new_value]
+    if (
+        cast is not None and not cudf and target.family in {"integer", "bool"}
+        and not (existing_dtype is not None and pd.api.types.is_extension_array_dtype(existing_dtype))
+        and not bool(merged.isna().any())
+    ):
+        numpy_name: Any = target.integer_dtype if target.family == "integer" else "bool"
+        merged = merged.astype(numpy_name)
+    frame[property_name] = merged
+    return frame.drop(columns=[new_value, matched])
 
 
 def execute_set_properties(
@@ -306,7 +489,7 @@ def execute_set_properties(
                 assignment_frames, concrete_engine,
                 assignment_spans[(alias, property_name)],
             )
-    _validate_set_updates(
+    targets = _resolve_set_targets(
         combined_updates,
         nodes, edges, alias_kind_map, update_families,
     )
@@ -322,23 +505,29 @@ def execute_set_properties(
             for property_name, values in combined_properties.items():
                 assert isinstance(values, pl.DataFrame)
                 from graphistry.compute.util import generate_safe_column_name
+                target = targets[(alias, property_name)]
+                target_dtype = _polars_target_dtype(target)
                 new_value = generate_safe_column_name(
                     f"set_new_{property_name}", frame, prefix="__gfql_", suffix="__",
                 )
                 matched = generate_safe_column_name(
                     f"set_matched_{property_name}", frame, prefix="__gfql_", suffix="__",
                 )
+                update_value = pl.col(SET_VALUE)
+                if target_dtype is not None:
+                    update_value = update_value.cast(target_dtype)
                 update = values.select(
                     pl.col(SET_IDENTITY),
-                    pl.col(SET_VALUE).alias(new_value),
+                    update_value.alias(new_value),
                     pl.lit(True).alias(matched),
                 )
                 frame = frame.join(update, left_on=key, right_on=SET_IDENTITY, how="left")
-                existing = (
-                    pl.col(property_name)
-                    if property_name in frame.columns
-                    else pl.lit(None)
-                )
+                if target.keep_existing:
+                    existing = pl.col(property_name)
+                    if target_dtype is not None:
+                        existing = existing.cast(target_dtype)
+                else:
+                    existing = pl.lit(None, dtype=update.schema[new_value])
                 frame = frame.with_columns(
                     pl.when(pl.col(matched).fill_null(False))
                     .then(pl.col(new_value))
@@ -351,24 +540,9 @@ def execute_set_properties(
                 edges = frame
         else:
             for property_name, values in combined_properties.items():
-                from graphistry.compute.util import generate_safe_column_name
-                new_value = generate_safe_column_name(
-                    f"set_new_{property_name}", frame, prefix="__gfql_", suffix="__",
+                frame = _set_property_dataframe(
+                    frame, key, property_name, values, targets[(alias, property_name)],
                 )
-                matched = generate_safe_column_name(
-                    f"set_matched_{property_name}", frame, prefix="__gfql_", suffix="__",
-                )
-                update = values.rename(columns={SET_IDENTITY: key, SET_VALUE: new_value})
-                update[matched] = True
-                frame = frame.merge(update, how="left", on=key, sort=False)
-                update_mask = frame[matched].fillna(False).astype(bool)
-                if property_name in frame.columns:
-                    frame[property_name] = frame[property_name].where(
-                        ~update_mask, frame[new_value]
-                    )
-                else:
-                    frame[property_name] = frame[new_value]
-                frame = frame.drop(columns=[new_value, matched])
             if kind == "node":
                 nodes = frame
             else:
