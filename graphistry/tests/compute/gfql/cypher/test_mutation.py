@@ -1256,7 +1256,8 @@ def test_set_detects_conflicting_updates_for_the_same_property(engine: str) -> N
         source.gfql("MATCH (n) WHERE n.id = 2 SET n.x = 1 SET n.x = 2", engine=engine)
 
     assert exc.value.code == ErrorCode.E105
-    assert exc.value.context["value"] == "conflicting_updates"
+    assert exc.value.context["field"] == "set"
+    assert exc.value.context["value"] == "repeated_property"
     assert _records(source._nodes) == before
 
 
@@ -1908,3 +1909,135 @@ def test_set_nan_value_removes_the_property_identically_on_every_engine(engine) 
     assert _set_values(new, "fresh") == {1: None, 2: 2.5}
     only_nan = source.gfql("MATCH (n) WHERE n.id = 1 SET n.fresh2 = n.other", engine=engine)
     assert "fresh2" not in list(only_nan._nodes.columns)
+
+
+
+# Wave-2 W2-F1: the read-after-write check must analyze every right-hand side with the execution parser and fail
+# closed; it may never skip an expression it cannot parse.
+_W2_READS = [
+    ("MATCH (n:N) SET n.a = $v, n.b = n.a + 1 RETURN n.b AS b", {"v": 5}),
+    ("MATCH (n:N) SET n.a = 5 SET n.r = 1 < n.a < 10 RETURN n.r AS r", None),
+    ("MATCH (n:N) SET n.a = $v SET n.b = $v + n.a RETURN n.b AS b", {"v": 1}),
+]
+
+
+@pytest.mark.parametrize("query,params", _W2_READS)
+def test_set_read_after_write_covers_params_and_chained_comparisons(query, params) -> None:
+    with pytest.raises(GFQLValidationError) as exc:
+        compile_cypher_query(parse_cypher(query), params=params)
+    assert exc.value.code == ErrorCode.E108
+    assert exc.value.context["field"] == "set"
+    assert exc.value.context["value"] == "read_after_write"
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_set_read_after_write_with_params_leaves_the_caller_untouched(engine) -> None:
+    source = _label_n_graph(engine, [1])
+    before = _records(source._nodes)
+    query, params = _W2_READS[0]
+    with pytest.raises(GFQLValidationError) as exc:
+        source.gfql(query, engine=engine, params=params)
+    assert exc.value.context["value"] == "read_after_write"
+    assert _records(source._nodes) == before
+
+
+def test_set_declines_an_expression_it_cannot_analyze_instead_of_skipping_it() -> None:
+    with pytest.raises(GFQLValidationError) as exc:
+        compile_cypher_query(parse_cypher("MATCH (n:N) SET n.a = nosuchfunction(1) SET n.b = n.a"))
+    assert exc.value.code == ErrorCode.E108
+    assert exc.value.context["field"] == "set"
+    assert exc.value.context["value"] == "unanalyzable_value"
+
+
+# Parameterized SET executes (a raw KeyError at a04811f5c) with exact values on every engine, and bad parameters
+# fail before any effect, at validation as well as at execution.
+@pytest.mark.parametrize("engine", ENGINES)
+@pytest.mark.parametrize("value,kind,expected", [
+    (5, "integer", 5),
+    (WIDE_INT, "integer", WIDE_INT),
+    ("x", "string", "x"),
+])
+def test_set_parameter_values_execute_with_exact_values(engine, value, kind, expected) -> None:
+    source = graphistry.nodes(_foundation_frame(engine, {"id": [1, 2]}), "id")
+    result = source.gfql("MATCH (n) WHERE n.id = 1 SET n.p = $v", engine=engine, params={"v": value})
+    assert _set_values(result, "p") == {1: expected, 2: None}
+    assert _column_kind(result._nodes, "p") == kind
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_set_null_parameter_removes_the_property(engine) -> None:
+    source = graphistry.nodes(_foundation_frame(engine, {"id": [1, 2], "p": [7, 8]}), "id")
+    result = source.gfql("MATCH (n) WHERE n.id = 1 SET n.p = $v", engine=engine, params={"v": None})
+    assert _set_values(result, "p") == {1: None, 2: 8}
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_set_parameter_type_mismatch_fails_before_effects(engine) -> None:
+    source = graphistry.nodes(_foundation_frame(engine, {"id": [1, 2], "p": [7, 8]}), "id")
+    before = _records(source._nodes)
+    with pytest.raises(GFQLValidationError) as exc:
+        source.gfql("MATCH (n) SET n.p = $v", engine=engine, params={"v": "text"})
+    assert exc.value.code == ErrorCode.E108
+    assert exc.value.context["value"] == ["string"]
+    assert _records(source._nodes) == before
+
+
+@pytest.mark.parametrize("params,code,value", [
+    ({"v": [1, 2]}, ErrorCode.E108, "non_scalar_value"),
+    ({"v": {"a": 1}}, ErrorCode.E108, "non_scalar_value"),
+    ({"v": float("nan")}, ErrorCode.E108, "nan_property"),
+    ({}, ErrorCode.E105, "v"),
+])
+def test_set_bad_parameters_fail_at_compile_validate_and_execute(params, code, value) -> None:
+    source = _graph("pandas")
+    query = "MATCH (n) SET n.p = $v"
+    for entry in (
+        lambda: compile_cypher_query(parse_cypher(query), params=params),
+        lambda: source.gfql_validate(query, params=params),
+        lambda: source.gfql(query, engine="pandas", params=params, validate=True),
+        lambda: source.gfql(query, engine="pandas", params=params),
+    ):
+        with pytest.raises(GFQLValidationError) as exc:
+            entry()
+        assert exc.value.code == code
+        assert exc.value.context["field"] in {"set", "create"} or exc.value.context["value"] == value
+        assert exc.value.context["value"] == value
+
+
+# Wave-2 W2-F2: SET must follow the MATCH that binds its alias.
+def test_set_before_match_is_declined() -> None:
+    with pytest.raises(GFQLValidationError) as exc:
+        parse_cypher("SET n.x = 1 MATCH (n:Admin) RETURN n")
+    assert exc.value.context["field"] == "set"
+    assert exc.value.context["value"] == "set_before_match"
+
+
+# Wave-2 W2-F3: an empty match still normalizes the frame engine.
+def test_set_with_no_matches_still_normalizes_to_the_requested_engine() -> None:
+    pl = pytest.importorskip("polars")
+    source = graphistry.nodes(pd.DataFrame({"id": [1, 2], "label__N": [True, True]}), "id")
+    result = source.gfql("MATCH (n:Missing) SET n.x = 1", engine="polars")
+    assert isinstance(result._nodes, pl.DataFrame)
+
+
+# Wave-2 W2-F4 / W2-F7: static declines with one code on every engine.
+@pytest.mark.parametrize("query,value", [
+    ("MATCH (n) SET n.b = n", "non_scalar_value"),
+    ("MATCH (n) SET n.p = 1, n.p = 'x'", "repeated_property"),
+    ("MATCH (n) SET n.p = 1 SET n.p = 1", "repeated_property"),
+])
+def test_set_whole_entity_value_and_repeated_targets_are_declined_at_compile(query, value) -> None:
+    with pytest.raises(GFQLValidationError) as exc:
+        compile_cypher_query(parse_cypher(query))
+    assert exc.value.context["field"] == "set"
+    assert exc.value.context["value"] == value
+
+
+# Wave-2 W2-F6: no FutureWarning from the matched-row mask on pandas.
+def test_set_partial_update_emits_no_future_warning_on_pandas() -> None:
+    import warnings
+    source = graphistry.nodes(pd.DataFrame({"id": [1, 2], "s": ["a", "b"]}), "id")
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", FutureWarning)
+        result = source.gfql("MATCH (n) WHERE n.id = 1 SET n.s = 'z'", engine="pandas")
+    assert _set_values(result, "s") == {1: "z", 2: "b"}
