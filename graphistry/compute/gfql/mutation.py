@@ -1300,7 +1300,7 @@ def execute_create_nodes(
                 polars_new_nodes = polars_new_nodes.with_columns(
                     pl.col(label_column).fill_null(False).cast(pl.Boolean)
                 )
-            nodes = polars_new_nodes
+            new_nodes = polars_new_nodes
         else:
             for label_column in sorted(label_columns):
                 new_nodes = new_nodes.assign(
