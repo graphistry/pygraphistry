@@ -1170,3 +1170,39 @@ def test_create_admits_all_null_legacy_type_with_new_canonical_label(engine):
     assert len(result._nodes)==2
     assert [row["label__New"] for row in _records(result._nodes)]==[False,True]
     assert _records(source._nodes)==[{"id":"old","type":None}]
+
+
+
+# Polars CREATE on a graph with no nodes must fill absent label flags with False (as pandas does), not leave nulls.
+@pytest.mark.parametrize("query,expected", [
+    ("CREATE (:A), ()", [True, False]),
+    ("CREATE (:A)-[:R]->()", [True, False]),
+])
+def test_polars_create_on_empty_graph_fills_label_flags_like_pandas(query, expected) -> None:
+    pl = pytest.importorskip("polars")
+    pandas_result = graphistry.bind().gfql(query, engine="pandas")
+    polars_result = graphistry.bind().gfql(query, engine="polars")
+
+    assert polars_result._nodes.schema["label__A"] == pl.Boolean
+    assert polars_result._nodes["label__A"].to_list() == expected
+    assert pandas_result._nodes["label__A"].tolist() == expected
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_create_relationship_with_empty_property_maps_and_labelled_endpoints(engine) -> None:
+    source = _graph(engine)
+    result = source.gfql("CREATE (a:L {})-[:R {}]->(b)", engine=engine)
+
+    assert len(result._nodes) == len(source._nodes) + 2
+    assert len(result._edges) == len(source._edges) + 1
+    assert _records(source._nodes) == _records(_graph(engine)._nodes)
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+@pytest.mark.parametrize("query", ["CREATE (a)-[:R]->(:`nan`)", "CREATE (:`None`)-[:R]->(b)"])
+def test_create_declines_null_like_label_on_relationship_endpoint(engine, query) -> None:
+    source = _graph(engine)
+    before = _records(source._nodes)
+    with pytest.raises(GFQLValidationError, match="null-like label name"):
+        source.gfql(query, engine=engine)
+    assert _records(source._nodes) == before
