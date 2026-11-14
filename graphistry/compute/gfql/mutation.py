@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import math
-from typing import TYPE_CHECKING, Any, Mapping, NamedTuple, Optional, Union
+from typing import TYPE_CHECKING, Any, Mapping, NamedTuple, Optional, Sequence, Union
 from typing_extensions import Literal
 
 import numpy as np
@@ -25,6 +25,7 @@ from graphistry.compute.gfql.cypher.ast import (
     CypherScalar,
     NodePattern,
     ParameterRef,
+    PropertyEntry,
     SetClause,
     SetProperty,
 )
@@ -889,6 +890,44 @@ def _validate_label_names(creates: tuple[CreateClause, ...]) -> None:
                     )
 
 
+def _validate_property_keys(entries: Sequence[PropertyEntry], *, edge: bool) -> None:
+    """Reject reserved metadata/label keys and repeated keys within one CREATE property map."""
+    noun = "edge " if edge else ""
+    seen: set[str] = set()
+    for entry in entries:
+        if entry.key in {"labels", "type"} or entry.key.startswith(("label__", "__")):
+            raise GFQLMutationError(
+                ErrorCode.E108, f"CREATE {noun}properties cannot use reserved metadata or label namespaces",
+                field=entry.key, value=entry.key, line=entry.span.line, column=entry.span.column, language="cypher",
+            )
+        if entry.key in seen:
+            raise GFQLMutationError(
+                ErrorCode.E105, f"Duplicate CREATE {noun}property {entry.key!r}",
+                field=entry.key, value=entry.key,
+                suggestion=f"Use one value per property per {'edge' if edge else 'node'}.",
+                line=entry.span.line, column=entry.span.column, language="cypher",
+            )
+        seen.add(entry.key)
+
+
+def validate_create_static(creates: tuple[CreateClause, ...]) -> None:
+    """Pure AST admission shared by compile, validation and execution; reads no graph and builds no frames.
+
+    Rejects what execution would reject from the query text alone: null-like label names, reserved
+    metadata/label property keys, and repeated keys. Graph-dependent limits stay at execution.
+    """
+    _validate_label_names(creates)
+    for clause in creates:
+        for pattern in clause.patterns:
+            if isinstance(pattern, CreateRelationship):
+                _validate_property_keys(pattern.relationship.properties, edge=True)
+                nodes: tuple[NodePattern, ...] = (pattern.source, pattern.destination)
+            else:
+                nodes = (pattern,)
+            for node in nodes:
+                _validate_property_keys(node.properties, edge=False)
+
+
 def _validate_legacy_label_transition(
     creates: tuple[CreateClause, ...], nodes: Optional[DataFrameT]
 ) -> None:
@@ -931,7 +970,7 @@ def execute_create_nodes(
 ) -> tuple[Plottable, dict[str, CypherScalar]]:
     """Create node rows and return a new Plottable without changing the caller."""
     validate_create_node_reuse(creates)
-    _validate_label_names(creates)
+    validate_create_static(creates)
     concrete_engine = resolve_engine(
         engine, self._edges if self._edges is not None else self._nodes,
     )
@@ -1151,11 +1190,6 @@ def execute_create_nodes(
             label_columns.add(label_column)
             row[label_column] = True
         for entry in pattern.properties:
-            if entry.key in {"labels", "type"} or entry.key.startswith(("label__", "__")):
-                raise GFQLMutationError(
-                    ErrorCode.E108, "CREATE properties cannot use reserved metadata or label namespaces",
-                    field=entry.key, value=entry.key, line=entry.span.line, column=entry.span.column, language="cypher",
-                )
             if entry.key in row:
                 raise GFQLMutationError(
                     ErrorCode.E105, f"Duplicate CREATE property {entry.key!r}",
@@ -1197,11 +1231,6 @@ def execute_create_nodes(
                 "type": pattern.relationship.types[0],
             }
             for entry in pattern.relationship.properties:
-                if entry.key in {"labels", "type"} or entry.key.startswith(("label__", "__")):
-                    raise GFQLMutationError(
-                        ErrorCode.E108, "CREATE edge properties cannot use reserved metadata or label namespaces",
-                        field=entry.key, value=entry.key, line=entry.span.line, column=entry.span.column, language="cypher",
-                    )
                 if entry.key in edge_row:
                     raise GFQLMutationError(
                         ErrorCode.E105, f"Duplicate CREATE edge property {entry.key!r}",

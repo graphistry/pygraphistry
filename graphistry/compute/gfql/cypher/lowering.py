@@ -9652,9 +9652,10 @@ def compile_cypher_query(
                 ),
             )
         if query.creates:
-            from graphistry.compute.gfql.mutation import validate_create_node_reuse
+            from graphistry.compute.gfql.mutation import validate_create_node_reuse, validate_create_static
 
             validate_create_node_reuse(query.creates)
+            validate_create_static(query.creates)
             if (
                 query.matches or query.reentry_matches or query.unwinds
                 or query.reentry_unwinds or query.with_stages or query.call is not None

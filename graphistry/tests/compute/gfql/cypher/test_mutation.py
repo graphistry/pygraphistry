@@ -1617,3 +1617,57 @@ def test_set_null_assignment_keeps_integer_dtype_and_ignores_absent_property(eng
     absent = source.gfql("MATCH (n) SET n.missing = null", engine=engine)
     assert "missing" not in list(absent._nodes.columns)
     assert _records(absent._nodes) == _records(source._nodes)
+
+
+# Static CREATE admission: every entry point rejects what execution rejects, with the same code and field.
+_STATIC_CREATE_REJECTS = [
+    ("CREATE (:`nan`)", ErrorCode.E108, "create"),
+    ("CREATE (:`None`)", ErrorCode.E108, "create"),
+    ("CREATE (a)-[:R]->(:`<NA>`)", ErrorCode.E108, "create"),
+    ("CREATE (n {__x__: 1})", ErrorCode.E108, "__x__"),
+    ("CREATE (n {labels: 1})", ErrorCode.E108, "labels"),
+    ("CREATE (n {type: 1})", ErrorCode.E108, "type"),
+    ("CREATE (n {label__X: 1})", ErrorCode.E108, "label__X"),
+    ("CREATE (n {p: 1, p: 2})", ErrorCode.E105, "p"),
+    ("CREATE (a)-[:R {type: 1}]->(b)", ErrorCode.E108, "type"),
+    ("CREATE (a)-[:R {__x__: 1}]->(b)", ErrorCode.E108, "__x__"),
+    ("CREATE (a)-[:R {p: 1, p: 2}]->(b)", ErrorCode.E105, "p"),
+]
+
+
+@pytest.mark.parametrize("query,code,field", _STATIC_CREATE_REJECTS)
+def test_create_static_preflight_matches_execution_on_every_entry_point(query, code, field) -> None:
+    source = _graph("pandas")
+    for entry in (
+        lambda: compile_cypher_query(parse_cypher(query)),
+        lambda: source.gfql_validate(query),
+        lambda: source.gfql(query, engine="pandas", validate=True),
+        lambda: source.gfql(query, engine="pandas", validate=False),
+    ):
+        with pytest.raises(GFQLValidationError) as exc:
+            entry()
+        assert exc.value.code == code
+        assert exc.value.context["field"] == field
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+@pytest.mark.parametrize("query,code,field", _STATIC_CREATE_REJECTS[:3] + _STATIC_CREATE_REJECTS[7:8])
+def test_create_static_rejects_leave_every_engine_untouched(engine, query, code, field) -> None:
+    source = _graph(engine)
+    before = _records(source._nodes)
+    with pytest.raises(GFQLValidationError) as exc:
+        source.gfql(query, engine=engine)
+    assert exc.value.code == code
+    assert _records(source._nodes) == before
+
+
+@pytest.mark.parametrize("query", [
+    "CREATE (n {id: 7})",
+    "CREATE (:none)",
+    "CREATE (n:Person {name: 'a', other: 1})",
+    "CREATE (a {p: 1})-[:R {p: 2}]->(b {p: 3})",
+])
+def test_create_static_preflight_admits_ordinary_keys_and_labels(query) -> None:
+    source = _graph("pandas")
+    assert source.gfql_validate(query)["compiled_kind"] == "mutation"
+    assert compile_cypher_query(parse_cypher(query)) is not None
