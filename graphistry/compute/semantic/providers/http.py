@@ -4,7 +4,7 @@ import math
 import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Dict, List, Mapping, NamedTuple, Optional, Protocol, Sequence, Tuple, Union
+from typing import Callable, Dict, List, Mapping, NamedTuple, Optional, Protocol, Sequence, Tuple, Union
 
 import requests
 
@@ -224,23 +224,31 @@ class HttpDecisionProvider(ABC):
 
     def _decide(self, request: DecisionRequest, questions: Sequence[DecisionQuestion],
                 deadline_at: Optional[float]) -> List[DecisionResult]:
+        return self.send([(request, question) for question in questions], self.body(request, questions),
+                         lambda payload, meta: self.results(request, questions, payload, meta), deadline_at)
+
+    def send(self, pairs: Sequence[Tuple[DecisionRequest, DecisionQuestion]], body: JSONObject,
+             read: Callable[[JSONObject, ResponseMeta], List[DecisionResult]],
+             deadline_at: Optional[float]) -> List[DecisionResult]:
+        """POST one body answering ``pairs`` (row, question); ``read`` maps the payload, with the cost split evenly
+        over the pairs. A transport failure errors every pair."""
         try:
             payload, retries, latency_ms = post_json(
-                f"{self.base_url}{self.path}", self.body(request, questions), self.headers(),
+                f"{self.base_url}{self.path}", body, self.headers(),
                 deadline_at=deadline_at, timeout_s=self.timeout_s, max_retries=self.max_retries,
                 backoff_s=self.retry_backoff_s, session=self._session)
         except RequestFailure as failure:
             return [unanswered_result(request, question, provider=self.name, model=self.model,
                                       error_code=failure.error_code, latency_ms=failure.latency_ms,
-                                      retry_count=failure.retry_count) for question in questions]
+                                      retry_count=failure.retry_count) for request, question in pairs]
         usage = self.usage(payload)
         cost = self.prices.cost_usd(usage)
         model = payload.get("model")
         meta = ResponseMeta(model=model if isinstance(model, str) else self.model,
                             latency_ms=latency_ms, retries=retries,
-                            cost_usd=None if cost is None else cost / len(questions),
+                            cost_usd=None if cost is None else cost / len(pairs),
                             cached_tokens=None if usage is None else usage.cached_input)
-        return self.results(request, questions, payload, meta)
+        return read(payload, meta)
 
     def answered(self, request: DecisionRequest, question: DecisionQuestion, meta: ResponseMeta, *,
                  value: Union[bool, str, None], distribution: Optional[Dict[str, float]], probability_kind: ProbabilityKind,

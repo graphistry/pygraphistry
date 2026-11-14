@@ -1989,7 +1989,11 @@ unambiguous codes is an ``unsupported_question`` error and is not sent. A reply 
 settings (billed, outside the run's budget), keeps the first strategy that works for an hour, and
 ``graphistry.compute.semantic.forget_probes()`` drops kept results. Servers with the
 OpenAI Decisions API and smaller limits set ``max_questions_per_request``, ``max_choice_options`` and ``max_levels``
-on ``OpenAIDecisionsProvider``. Any object implementing the
+on ``OpenAIDecisionsProvider``. ``OpenAIDecisionsProvider`` sends one request per row by default;
+``rows_per_request=k`` opts in to packing up to ``k`` rows into one request (still at most
+``max_questions_per_request`` questions). Each question then carries its own row's evidence, so a row's answers do
+not depend on which rows share its request, but they can differ from one-row answers; packing cuts request count and
+latency, not tokens, and packed answers record ``extra.packed_rows``. Any object implementing the
 ``DecisionProvider`` or ``GenerationProvider`` protocol in ``graphistry.compute.semantic`` can be bound.
 
 Older and self-hosted chat APIs
