@@ -225,7 +225,7 @@ class TestSemMap:
     @pytest.mark.parametrize("overrides,code", [
         (dict(out_col="__gfql_x__"), ErrorCode.E201), (dict(out_col=""), ErrorCode.E201),
         (dict(instruction=""), ErrorCode.E201), (dict(max_output_tokens=0), ErrorCode.E201),
-        (dict(questions=[Q_PRED]), ErrorCode.E303)])
+        (dict(questions=[Q_PRED]), ErrorCode.E303), (dict(require_probabilities=True), ErrorCode.E303)])
     def test_validation_errors_before_the_kernel(self, overrides: Dict[str, object], code: ErrorCode) -> None:
         provider = RecordingGenerator()
         with pytest.raises(GFQLTypeError) as info:
@@ -278,7 +278,7 @@ class TestJsonAndValidation:
         dict(questions=[{"id": "q", "kind": "choice", "text": "t", "options": ["a"]}]),
         dict(questions=[{"id": "q", "kind": "score", "text": "t", "levels": ["x", "y"], "options": ["a", "b"]}]),
         dict(questions=[{"id": "__gfql_x__", "kind": "predicate", "text": "t"}]), dict(questions=[Q_PRED, Q_PRED]),
-        dict(budget={"max_requests": 0}), dict(budget={"max_cost_usd": 1.0}), dict(evidence_cols=["name", "name"]),
+        dict(budget={"max_requests": 0}), dict(budget={"max_cost_usd": -1}), dict(evidence_cols=["name", "name"]),
         dict(questions=[{"id": "a", "kind": "predicate", "text": "t"}, {"id": "a__p", "kind": "predicate", "text": "t"}]),
     ])
     def test_e201_before_the_kernel(self, overrides: Dict[str, object]) -> None:

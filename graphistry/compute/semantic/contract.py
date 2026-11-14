@@ -33,7 +33,7 @@ _EMPTY_FIELDS: Dict[str, Tuple[str, ...]] = {
     "refusal": ("value", "distribution"), "null_answer": ("value", "distribution"), "tie": ("value",)}
 DISTRIBUTION_SUM_TOLERANCE = 0.01
 QUESTION_KEYS = frozenset({"id", "kind", "text", "options", "levels"})
-BUDGET_KEYS = frozenset({"max_requests"})
+BUDGET_KEYS = frozenset({"max_cost_usd", "max_requests"})
 
 
 def _is_member(value: object, allowed: Sequence[str]) -> bool:
@@ -203,19 +203,34 @@ class GenerationRequest:
 
 @dataclass(frozen=True)
 class Budget:
-    """Run limit on the number of provider calls."""
+    """Run limits: estimated cost in USD and number of provider calls."""
 
+    max_cost_usd: Optional[float] = None
     max_requests: Optional[int] = None
 
     def __post_init__(self) -> None:
+        _cost(self.max_cost_usd)
         _min_int(self.max_requests, "max_requests", 1)
 
     @classmethod
     def from_mapping(cls, spec: Mapping[str, object]) -> "Budget":
-        """A budget from a dict with the optional key max_requests; a missing marker such as NaN raises."""
-        limit = _known_keys(spec, BUDGET_KEYS, "budget").get("max_requests")
-        canonical = canonicalize(limit)
-        return cls(max_requests=_min_int(limit if canonical is None else canonical, "max_requests", 1))
+        """A budget from a dict with the optional keys max_cost_usd and max_requests; a missing marker such as NaN
+        raises, so a cap never turns into no cap."""
+        _known_keys(spec, BUDGET_KEYS, "budget")
+        return cls(max_cost_usd=_cost(_limit(spec.get("max_cost_usd"))),
+                   max_requests=_min_int(_limit(spec.get("max_requests")), "max_requests", 1))
+
+
+def _cost(value: object) -> Optional[float]:
+    number = finite_float(value)
+    if value is not None and (number is None or number < 0):
+        raise ValueError(f"max_cost_usd must be None or a finite number >= 0, got {value!r}")
+    return number
+
+
+def _limit(value: object) -> object:
+    canonical = canonicalize(value)
+    return value if canonical is None else canonical
 
 
 @dataclass(frozen=True)
@@ -228,7 +243,7 @@ class DecisionResult:
     score) to probabilities and is None exactly when ``probability_kind`` is ``"none"``; distributions are never
     fabricated. ``confidence`` is the
     provider's own number, verbatim, else None. ``retry_count`` None means unknown. ``extra`` holds scalar
-    metadata such as ``probability_mechanism``, ``score_index``, ``evidence_truncated`` and
+    metadata such as ``probability_mechanism``, ``score_index``, ``evidence_truncated``, ``answer_strategy`` and
     ``cached_input_tokens``; it never carries evidence, credentials or tenant identifiers.
     """
 
@@ -283,6 +298,8 @@ class DecisionProvider(Protocol):
     ``decide_batch`` is synchronous; one operator run calls it from up to ``concurrency_limit`` threads at once
     (calls a run abandoned at its deadline may still be running when the next run starts). ``deadline_s`` and
     ``budget`` are what remains of the run. The kernel reads answers and distributions as plain Python values.
+    ``estimate_cost_usd`` returns None when it cannot estimate, else a finite value >= 0; operators treat any
+    other value as "cannot estimate".
     """
 
     name: str
@@ -291,7 +308,10 @@ class DecisionProvider(Protocol):
     def capabilities(self) -> ProviderCapabilities:
         ...
 
-    def decide_batch(self, requests: Sequence[DecisionRequest], *,
+    def estimate_cost_usd(self, requests: Sequence[DecisionRequest], /) -> Optional[float]:
+        ...
+
+    def decide_batch(self, requests: Sequence[DecisionRequest], /, *,
                      deadline_s: Optional[float], budget: Optional[Budget]) -> List[DecisionResult]:
         ...
 

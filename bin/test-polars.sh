@@ -246,6 +246,11 @@ POLARS_TEST_FILES=(
     graphistry/tests/layout/test_polars_layouts.py
     # semantic operators on Polars-bound graphs, incl. the engine='auto' provider-effect barrier
     graphistry/tests/compute/semantic/test_gfql_bindings.py
+    graphistry/tests/compute/semantic/test_cost_cap.py
+    graphistry/tests/compute/semantic/test_chat_grammar.py
+    graphistry/tests/compute/semantic/test_probability_requirements.py
+    graphistry/tests/compute/semantic/test_langchain_provider.py
+    graphistry/tests/compute/semantic/test_anthropic_structured.py
 )
 
 # PARALLELISM. The py3.12 cell of this lane is the coverage cell and has repeatedly run out

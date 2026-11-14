@@ -24,6 +24,7 @@ from graphistry.models.surfaces.graphistry_frontend.url_params import URLParamsD
 if TYPE_CHECKING:
     from graphistry.compute.typing import DataFrameT
     from graphistry.compute.semantic.contract import Budget, DecisionProvider, DecisionQuestion, GenerationProvider
+    from graphistry.compute.semantic.rules import ProbabilityRequirement
     from graphistry.compute.gfql.cypher.result_postprocess import WholeRowProjectionMeta
     from graphistry.compute.gfql.index.handoff import IndexedBindingsHandoff
     from graphistry.compute.gfql.index.policy import IndexPolicy
@@ -428,6 +429,7 @@ class Plottable(Protocol):
         budget: "Union[Budget, Dict[str, object], None]" = None,
         max_rows: Optional[int] = None,
         min_p: Optional[float] = None,
+        require_probabilities: "ProbabilityRequirement" = False,
         column_max_chars: Optional[int] = None,
         overwrite: bool = False,
     ) -> 'Plottable':

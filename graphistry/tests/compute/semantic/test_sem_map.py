@@ -194,6 +194,7 @@ class TestLimitsAndValidation:
         dict(out_col="text"), dict(out_col="__gfql_x__"), dict(out_col=""), dict(instruction=""),
         dict(max_output_tokens=0), dict(template="{0}", evidence_cols=None), dict(deadline_s=0), dict(overwrite="yes"),
         dict(provider=Recording()), dict(batch_size=0), dict(max_rows=True), dict(task_id=""), dict(column_max_chars=0),
+        dict(budget={"max_cost_usd": 1.0}),
     ])
     def test_raises_before_any_call(self, kwargs: dict) -> None:
         provider = RecordingGenerator()

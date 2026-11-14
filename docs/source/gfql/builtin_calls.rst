@@ -1904,11 +1904,13 @@ Answer typed questions per row: ``predicate`` (yes/no), ``choice`` (one of ``opt
    * - deadline_s
      - number
      - No
-     - Seconds for the whole call; unfinished rows become ``skipped``
+     - Seconds for the whole call; unfinished rows become ``skipped`` (an abandoned request may still finish and be billed)
    * - budget
      - dict
      - No
-     - ``{max_requests?}``: the number of provider calls
+     - ``{max_cost_usd?, max_requests?}``: ``max_cost_usd`` caps the summed *estimated* cost of the provider calls
+       (billed cost can differ; it needs a provider that can estimate cost, and the callable provider estimates 0);
+       ``max_requests`` caps the number of provider calls
    * - max_rows
      - integer
      - No
@@ -1917,6 +1919,11 @@ Answer typed questions per row: ``predicate`` (yes/no), ``choice`` (one of ``opt
      - number
      - No
      - ``ok`` answers whose probability ``q__p`` is below this (or undefined) become ``uncertain``
+   * - require_probabilities
+     - boolean or ``'native'``
+     - No
+     - ``False`` (default) preserves current behavior; ``True`` requires measured native or token-logprob
+       probabilities for successful values; ``'native'`` requires native-decision probabilities
    * - column_max_chars
      - integer
      - No
@@ -1935,6 +1942,23 @@ confidence, status reason and extra metadata). Unparseable answers are errors, n
 never fabricated. A row whose evidence columns are all null is ``skipped`` with status reason ``null_evidence``; no call
 is made for it.
 
+``require_probabilities=True`` checks each successful answer after result validation and before ``min_p``.
+It accepts ``native_decision`` and ``token_logprob`` distributions only when they include the returned value.
+``'native'`` accepts only ``native_decision``. A missing required probability produces an ``error`` with code
+``probabilities_unavailable`` and clears the answer, distribution and provider confidence. Zero is an available
+probability. Refusals, ties and other answerless uncertain results, errors and skipped rows keep their existing verdicts.
+An uncertain result that still carries a value must also meet the explicit probability requirement.
+With the default ``False``, value-only and ``verbalized`` results retain their current behavior, including ``min_p``.
+
+Known incompatible shipped chat configurations fail locally before evidence, probes, cost estimates or provider
+calls are sent. Eligible rows receive ``probabilities_unavailable`` with zero cost and retries; null-evidence,
+``max_rows`` and reached-deadline skips remain. This capability check precedes provider-call budget planning
+and consumes no request budget. Anthropic and LangChain adapters are always value-only. OpenAI chat can provide
+token logprobs, but cannot provide native-decision probabilities. An ``auto`` profile that includes logprobs
+is checked from its actual answers; its usual opt-in probe accounting still applies. Custom providers and
+subclasses are checked from their validated results rather than inferred from their type name.
+No path converts generated confidence or constrained tokens into probabilities.
+
 **Engines:** pandas and cuDF run natively; polars frames run through the off-engine call bridge, so GFQL results
 stay polars. Called directly as ``g.sem_decide(...)`` on a polars-bound graph, the result tables are pandas. Under
 ``engine='auto'`` (including the polars GPU route for cuDF graphs), a query that already called a provider and
@@ -1950,9 +1974,128 @@ parameter except ``questions`` and ``min_p`` (``batch_size`` falls back to 16 ra
 ``{out_col}__status``, ``{out_col}__error_code`` and ``{out_col}__meta`` (no ``confidence`` in the metadata). Engines,
 limits, provider-fault handling, remote refusal and the ``engine='auto'`` rule are the same as for ``sem_decide``.
 
-**Providers:** ``CallableDecisionProvider`` and ``CallableGenerationProvider`` wrap Python functions. Any object
-implementing the ``DecisionProvider`` or ``GenerationProvider`` protocol in ``graphistry.compute.semantic`` can be
-bound.
+**Providers:** ``CallableDecisionProvider`` and ``CallableGenerationProvider`` wrap Python functions; ``OpenAIDecisionsProvider`` calls the public
+`OpenAI Decisions API <https://developers.openai.com/api/docs/guides/decisions>`_ with a caller-supplied model and
+``TokenPrices``; ``OpenAIChatProvider`` (OpenAI-compatible chat completions: OpenAI, Azure OpenAI, Fireworks, Mistral
+and other hosts) and ``AnthropicMessagesProvider`` ask each question with a one-character code per label and, when
+the host returns token logprobs, read a label distribution from the answer token (``probability_kind``
+``token_logprob``, conditional on the answer being a code; the codes' share of the answer token's probability is
+``extra.label_mass``); without logprobs the answer has no distribution. A question whose labels cannot be given
+unambiguous codes is an ``unsupported_question`` error and is not sent. A reply may also echo its code's label
+(``A. yes``). For hosts whose free-text replies cannot be read, ``OpenAIChatProvider(strategy='json_schema')`` or
+``strategy='tool'`` constrains the answer to the codes (no distribution; ``extra.answer_strategy`` says which), and
+``strategy='text'`` sends no logprobs fields; ``strategy='auto'`` probes the host once per endpoint, model and
+settings (billed, outside the run's budget), keeps the first strategy that works for an hour, and
+``graphistry.compute.semantic.forget_probes()`` drops kept results. Servers with the
+OpenAI Decisions API and smaller limits set ``max_questions_per_request``, ``max_choice_options`` and ``max_levels``
+on ``OpenAIDecisionsProvider``. Any object implementing the
+``DecisionProvider`` or ``GenerationProvider`` protocol in ``graphistry.compute.semantic`` can be bound.
+
+Older and self-hosted chat APIs
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+``OpenAIChatProvider`` also accepts these explicit strategies:
+
+* ``json_mode`` sends ``response_format={"type": "json_object"}`` and validates the answer locally.
+* ``function`` sends legacy ``functions`` and a named ``function_call``.
+* ``vllm_choice``, ``vllm_regex`` and ``vllm_grammar`` use ``structured_outputs``.
+* ``guided_choice``, ``guided_regex`` and ``guided_grammar`` use the legacy vLLM fields.
+* ``sglang_regex`` and ``sglang_ebnf`` use SGLang's chat constraint fields.
+
+SGLang and vLLM JSON Schema endpoints can use the existing ``json_schema`` strategy.
+The provider compiles each question's answer codes to the selected constraint. Grammar replies
+must contain one code. JSON and function replies must contain only the ``answer`` field with
+one valid code. Invalid replies become ``invalid_provider_result``; the provider never chooses
+a default answer. These strategies return no probability or distribution, even when the host
+includes logprobs. Metadata records ``answer_strategy`` and, for the new strategies, ``semantic_level``.
+The semantic level describes the selected mechanism; it does not prove that a host enforced a constraint.
+Constraint and logprob fields in ``extra_body`` cannot override the selected strategy.
+
+Choose a known mechanism directly to avoid probes. For explicit fallback discovery, configure an
+ordered profile. For example::
+
+    provider = OpenAIChatProvider(
+        key, model, base_url="http://localhost:8000/v1",
+        strategy="auto", probe_strategies=("vllm_choice", "json_schema", "text"),
+        max_tokens_field="max_tokens",
+    )
+
+The default profile stays ``logprobs``, ``json_schema``, ``tool``, ``text``. New rungs require an
+explicit profile. A profile probes synthetic evidence and caches only a validated reply for its
+endpoint, model, settings and ordered profile. Each rung can send up to ``max_retries + 1`` attempts.
+Probes use the remaining deadline. They are billed outside the kernel's ``budget.max_requests``
+and cost estimate; the caller must allow for their spend. A probe that fails on authentication,
+transport, rate limits or a server error returns that error without sending user evidence.
+A real row's failure is returned without resending it through a lower strategy.
+The existing cost estimate includes the selected constraint payload, or the largest profile payload
+before discovery. It estimates input cost and is not a bound on billed spend.
+
+Current vLLM uses ``structured_outputs``; ``guided_*`` fields target older servers. Unsupported
+fields can be rejected or silently ignored, even with HTTP 200. A probe validates the reply shape;
+it does not verify that the server enforced the constraint. Use a deployment-specific profile and
+test the chosen mechanism with instructions that conflict with its constraint. Grammar support
+depends on the server backend; a model name alone does not establish support.
+
+LangChain chat models
+~~~~~~~~~~~~~~~~~~~~~
+
+``LangChainDecisionProvider`` wraps a supplied chat model or Runnable. PyGraphistry does not import
+LangChain or add it as a required dependency. Install and configure the model integration separately.::
+
+    from graphistry.compute.semantic import LangChainDecisionProvider, bind_providers
+
+    provider = LangChainDecisionProvider(chat_model, model="deployment", strategy="json_schema")
+    with bind_providers({"classifier": provider}):
+        result = g.sem_decide(provider="classifier", questions=questions,
+                              task_id="classification", evidence_cols=["text"])
+
+Strategies ``json_schema``, ``function_calling`` and ``json_mode`` pass that method to
+``with_structured_output(..., include_raw=True)``. ``structured`` uses the model's default structured
+method. ``tool`` uses ``bind_tools`` to request one tool named ``answer``; no tool is executed.
+``text`` validates a code or its matching label echo. Each structured answer must contain exactly
+one ``answer`` field with a valid code; refusals, unfinished answers and malformed replies do not
+become successful values. All strategies return no probabilities, even when the model exposes logprobs.
+Metadata records the selected strategy and semantic level.
+
+The default ``auto`` tries structured binding, tool binding, then text locally, before invoking the
+model. Only an absent interface or ``NotImplementedError`` permits this selection. Bindings are
+cached per provider and answer-code domain. There are no billed probes. A parse or invocation error
+never triggers another strategy or resend. Explicit strategies return ``unsupported_strategy`` when
+their local binding is unavailable. A method exposed by an integration can still be rejected by its
+remote host; select the deployment's supported strategy before starting another run.
+
+The supplied model controls its network timeouts, retries and tracing. Configure these for the run's
+budget and data policy. The adapter adds no retries and makes one invocation per question.
+``invoke_kwargs`` passes supported invocation settings, including Runnable ``config``. Set
+``timeout_kwarg`` only when the integration accepts that timeout keyword; the adapter caps its value
+by ``timeout_s`` and the remaining deadline. Generic Runnable config has no portable hard timeout;
+GFQL abandons results after its deadline. Each model invocation can contain client-owned HTTP retries.
+``budget.max_requests`` counts provider calls, as for other adapters.
+
+Caller-supplied ``TokenPrices`` estimates input and schema cost, or uses ``per_question``. It is not
+a bound on output, retry or tracing charges. Actual cost uses normalized ``usage_metadata`` when
+available; missing usage or prices leave cost unknown. Unsupported package/provider combinations
+must be tested separately. The adapter does not infer capability from a package version or model name.
+No-network compatibility smoke checks cover Python 3.12 with ``langchain-core==0.3.49`` /
+``langchain-openai==0.3.10`` and ``langchain-core==1.2.15`` / ``langchain-openai==1.1.10``.
+They exercise actual structured/tool bindings against an in-memory transport; remote host support
+depends on the deployment. The adapter itself and fake-model tests also run on Python 3.8.
+
+Anthropic structured answers
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+``AnthropicMessagesProvider(strategy='json_schema')`` sends the answer-code schema through
+``output_config.format``. ``strategy='tool'`` requests one tool named ``answer`` with the same
+schema. Both validate the returned code and return no distribution or probability. Metadata
+records ``answer_strategy`` and ``semantic_level``. ``strategy='text'`` remains the default.
+The selected strategy controls format/tool fields in ``extra_body``; other ``output_config``
+settings are retained. The cost estimate includes the selected schema or tool payload.
+
+Forced tool support depends on the model and thinking settings. An unsupported request retains
+its HTTP error; the provider does not resend it with another strategy. Refusals remain uncertain,
+and truncated, paused, malformed or conflicting answers become errors. The provider reads tool
+arguments as data and never executes a returned tool call.
+
 
 Utility Methods
 ---------------
