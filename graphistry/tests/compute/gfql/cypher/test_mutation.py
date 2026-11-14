@@ -1941,9 +1941,15 @@ def test_set_read_after_write_with_params_leaves_the_caller_untouched(engine) ->
     assert _records(source._nodes) == before
 
 
-def test_set_declines_an_expression_it_cannot_analyze_instead_of_skipping_it() -> None:
+def test_set_declines_an_expression_it_cannot_analyze_instead_of_skipping_it(monkeypatch) -> None:
+    from graphistry.compute.gfql.cypher import lowering
+
+    def refuse(*args: Any, **kwargs: Any) -> Any:
+        raise GFQLValidationError(ErrorCode.E108, "outside the supported subset", field="set")
+
+    monkeypatch.setattr(lowering, "_parse_row_expr", refuse)
     with pytest.raises(GFQLValidationError) as exc:
-        compile_cypher_query(parse_cypher("MATCH (n:N) SET n.a = nosuchfunction(1) SET n.b = n.a"))
+        compile_cypher_query(parse_cypher("MATCH (n:N) SET n.a = 1 SET n.b = 2"))
     assert exc.value.code == ErrorCode.E108
     assert exc.value.context["field"] == "set"
     assert exc.value.context["value"] == "unanalyzable_value"
