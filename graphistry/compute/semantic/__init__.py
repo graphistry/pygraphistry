@@ -11,7 +11,6 @@ from graphistry.compute.semantic.providers.http import TokenPrices
 from graphistry.compute.semantic.providers.openai_decisions import OpenAIDecisionsProvider
 
 __all__ = [
-    "LangChainDecisionProvider",
     "AnthropicMessagesProvider",
     "Budget",
     "CallableDecisionProvider",
@@ -23,6 +22,7 @@ __all__ = [
     "GenerationProvider",
     "GenerationRequest",
     "GenerationResult",
+    "LangChainDecisionProvider",
     "OpenAIChatProvider",
     "OpenAIDecisionsProvider",
     "ProviderCapabilities",
