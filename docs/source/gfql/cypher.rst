@@ -235,7 +235,7 @@ Support Matrix
      - Named or anonymous nodes, labels, scalar properties, optional ``RETURN``.
    * - Node ``SET`` after ``MATCH``
      - Supported
-     - Literal scalar property updates on existing nodes, with optional ``RETURN``.
+     - Scalar property updates on existing nodes (literals, parameters, computed expressions), with optional ``RETURN``.
    * - Relationship ``CREATE``, ``MATCH ... CREATE``, ``DELETE``, relationship ``SET``, ``REMOVE``, ``MERGE``
      - Not supported
      - These mutation clauses remain outside this initial creation subset.
@@ -665,8 +665,12 @@ returns the updated graph. The caller's frames stay unchanged. Optional
 
 Unsupported edge or relationship SET, combined SET+CREATE, OPTIONAL MATCH SET,
 reserved identity fields, and conflicting updates fail with structured errors
-before effects. Right-hand sides may be literals or computed expressions such as
-``n.num + 1``. Several ``SET`` clauses are allowed, but every right-hand side
+before effects. Right-hand sides may be literals, parameters, or computed
+expressions such as ``n.num + 1``; a whole-entity, list, or map value, an
+expression the compiler cannot analyze, or a NaN parameter is declined with
+``E108``. Each property may be assigned at most once per query (``E105``,
+``repeated_property``), and ``SET`` must follow the ``MATCH`` that binds its
+variable. Several ``SET`` clauses are allowed, but every right-hand side
 reads the graph as it was before the SET, so a right-hand side that reads a
 property assigned earlier in the same query (``SET n.a = 1 SET n.b = n.a``,
 ``SET n.num = n.num + 1 SET n.num = n.num + 1``) is declined with ``E108``
@@ -689,9 +693,10 @@ magnitude). Assigning another kind, such as an integer into a string column or
 a wide integer into a float column, fails with ``E108`` before any effect rather
 than casting. On pandas a numpy integer or boolean column becomes the nullable
 ``Int*``/``boolean`` dtype when a partial update leaves nulls, so no value goes
-through ``float64``. A query that matches no rows changes nothing on any engine,
-and NaN counts as null (it removes the property). The same rules apply on
-pandas, cuDF, and Polars.
+through ``float64``. A query that matches no rows changes nothing on any engine.
+A NaN produced from the data collapses to null (it removes the property) on every
+engine, which deviates from openCypher where NaN is a value. The same rules apply
+on pandas, cuDF, and Polars.
 
 Physical node identity is separate from properties: ``CREATE (n {id: 12})``
 writes an ordinary ``id`` property, while ``CREATE (n)`` leaves that property

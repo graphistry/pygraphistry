@@ -9351,6 +9351,44 @@ def _maybe_pushdown_row_prefilters(
     return replace(result, chain=new_chain)
 
 
+def _analyze_set_value(
+    assignment: SetProperty, *, params: Optional[Mapping[str, Any]]
+) -> tuple[str, ExprNode]:
+    """Parameter-substituted text and parsed expression of a SET value, analyzed like execution does.
+
+    Uses the execution row-expression parser; an expression it cannot analyze is declined, never skipped,
+    so the read-after-write check can never be bypassed. NaN parameters are declined like CREATE does.
+    """
+    from graphistry.compute.gfql.cypher.expression_text import cypher_literal_expr_text
+
+    value = assignment.value
+    if isinstance(value, ExpressionText):
+        text = value.text
+    elif value is None:
+        text = "null"
+    else:
+        text = cypher_literal_expr_text(value)
+    line, column = assignment.span.line, assignment.span.column
+    for token in _CYPHER_PARAM_TOKEN_RE.finditer(text):
+        supplied = (params or {}).get(token.group(1))
+        if isinstance(supplied, float) and math.isnan(supplied):
+            raise _unsupported_at_span(
+                "GFQL SET cannot represent a NaN parameter value as distinct from null",
+                field="set", value="nan_property", span=assignment.span,
+            )
+    prepared = _rewrite_param_expr(
+        text, params=params, field="set", line=line, column=column, allow_missing=False,
+    )
+    try:
+        expression = _parse_row_expr(prepared, field="set", line=line, column=column)
+    except GFQLValidationError as exc:
+        raise _unsupported_at_span(
+            "GFQL SET cannot analyze this value expression",
+            field="set", value="unanalyzable_value", span=assignment.span,
+        ) from exc
+    return prepared, expression
+
+
 def _set_expression_reads_written_property(
     expression: ExprNode, written: set[tuple[str, str]]
 ) -> bool:
@@ -9392,7 +9430,7 @@ def compile_cypher_query(
             raise _unsupported(
                 "Cypher SET cannot be combined with CREATE in the current GFQL mutation compiler",
                 field="set",
-                value=None,
+                value="create_with_set",
                 line=query.span.line,
                 column=query.span.column,
             )
@@ -9404,7 +9442,8 @@ def compile_cypher_query(
                 match = query.matches[0] if query.matches else None
                 span = match.span if match is not None else query.span
                 value = (
-                    "repeated_match" if len(query.matches) > 1 else "comma_patterns"
+                    "repeated_match" if len(query.matches) > 1
+                    else "comma_patterns" if query.matches else "missing_match"
                 )
                 raise _unsupported_at_span(
                     "GFQL SET currently supports one MATCH clause with one node pattern",
@@ -9435,46 +9474,13 @@ def compile_cypher_query(
                     line=query.span.line,
                     column=query.span.column,
                 )
-            if (
-                query.unwinds or query.reentry_matches or query.reentry_unwinds
-                or query.with_stages or query.call is not None
-                or query.graph_bindings or query.use is not None
-            ):
-                raise _unsupported(
-                    "GFQL SET is currently supported only for MATCH ... SET [RETURN ...]",
-                    field="set",
-                    value="mixed_clauses",
-                    line=query.span.line,
-                    column=query.span.column,
-                )
             alias_kinds: dict[str, Literal["node", "edge"]] = {}
-            for match in query.matches:
-                for pattern in match.pattern:
-                    if isinstance(pattern, RelationshipPattern) and pattern.variable is not None:
-                        if pattern.variable in alias_kinds and alias_kinds[pattern.variable] != "edge":
-                            raise _unsupported(
-                                "Cypher SET cannot use the same alias as node and relationship",
-                                field="set", value=pattern.variable,
-                                line=pattern.span.line, column=pattern.span.column,
-                            )
-                        alias_kinds[pattern.variable] = "edge"
-                    elif isinstance(pattern, NodePattern) and pattern.variable is not None:
-                        if pattern.variable in alias_kinds and alias_kinds[pattern.variable] != "node":
-                            raise _unsupported(
-                                "Cypher SET cannot use the same alias as node and relationship",
-                                field="set", value=pattern.variable,
-                                line=pattern.span.line, column=pattern.span.column,
-                            )
-                        alias_kinds[pattern.variable] = "node"
+            for pattern in query.matches[0].patterns[0]:
+                if isinstance(pattern, NodePattern) and pattern.variable is not None:
+                    alias_kinds[pattern.variable] = "node"
             aliases: list[str] = []
             written_properties: set[tuple[str, str]] = set()
-            if any(kind == "edge" for kind in alias_kinds.values()):
-                edge_alias = next(alias for alias, kind in alias_kinds.items() if kind == "edge")
-                raise _unsupported(
-                    "GFQL SET currently supports node properties only; relationship property SET requires edge identity plumbing",
-                    field="set", value=edge_alias,
-                    line=query.span.line, column=query.span.column,
-                )
+            value_texts: list[str] = []
             for assignment in assignments:
                 if assignment.target.alias not in alias_kinds:
                     raise _unsupported(
@@ -9496,21 +9502,10 @@ def compile_cypher_query(
                     )
                 if assignment.target.alias not in aliases:
                     aliases.append(assignment.target.alias)
-                try:
-                    if isinstance(assignment.value, ExpressionText):
-                        set_value_text = assignment.value.text
-                    elif assignment.value is None:
-                        set_value_text = "None"
-                    else:
-                        from graphistry.compute.gfql.cypher.expression_text import (
-                            cypher_literal_expr_text,
-                        )
-
-                        set_value_text = cypher_literal_expr_text(assignment.value)
-                    set_value_expr = parse_expr(set_value_text)
-                except GFQLExprParseError:
-                    continue
-                if isinstance(set_value_expr, (ListLiteral, ListComprehension, MapLiteral)):
+                value_text, set_value_expr = _analyze_set_value(assignment, params=params)
+                if isinstance(set_value_expr, (ListLiteral, ListComprehension, MapLiteral)) or (
+                    isinstance(set_value_expr, Identifier) and set_value_expr.name in alias_kinds
+                ):
                     raise _unsupported_at_span(
                         "GFQL SET supports ordinary scalar properties only",
                         field="set",
@@ -9525,17 +9520,18 @@ def compile_cypher_query(
                         value="read_after_write",
                         span=assignment.span,
                     )
-                written_properties.add((assignment.target.alias, assignment.target.property))
-            first_node_alias = next(
-                (
-                    pattern.variable
-                    for match in query.matches
-                    for pattern_group in match.patterns
-                    for pattern in pattern_group
-                    if isinstance(pattern, NodePattern) and pattern.variable is not None
-                ),
-                None,
-            )
+                target = (assignment.target.alias, assignment.target.property)
+                if target in written_properties:
+                    raise GFQLValidationError(
+                        ErrorCode.E105,
+                        f"GFQL SET assigns {assignment.target.alias}.{assignment.target.property} more than once",
+                        field="set", value="repeated_property",
+                        suggestion="Assign each property at most once per query.",
+                        line=assignment.span.line, column=assignment.span.column, language="cypher",
+                    )
+                written_properties.add(target)
+                value_texts.append(value_text)
+            first_node_alias = next(iter(alias_kinds))  # SET aliases must be bound, so this is non-empty
             return_items: list[ReturnItem] = []
             seed_identity_column = "__gfql_set_seed_identity__"
             if query.return_ is not None:
@@ -9554,21 +9550,13 @@ def compile_cypher_query(
                     alias=f"__gfql_set_identity_{alias_index}__",
                     span=span,
                 ))
-            value_text: str
             for assignment_index, assignment in enumerate(assignments):
                 property_value = assignment.value
-                if isinstance(property_value, ExpressionText):
-                    value_text = property_value.text
-                    value_span = property_value.span
-                elif property_value is None:
-                    value_text = "None"
-                    value_span = assignment.span
-                else:
-                    from graphistry.compute.gfql.cypher.expression_text import cypher_literal_expr_text
-                    value_text = cypher_literal_expr_text(property_value)
-                    value_span = assignment.span
                 return_items.append(ReturnItem(
-                    expression=ExpressionText(text=value_text, span=value_span),
+                    expression=ExpressionText(
+                        text=value_texts[assignment_index],
+                        span=property_value.span if isinstance(property_value, ExpressionText) else assignment.span,
+                    ),
                     alias=f"__gfql_set_value_{assignment_index}__",
                     span=assignment.span,
                 ))
@@ -9589,40 +9577,35 @@ def compile_cypher_query(
             compile_cypher_query(read_query, params=params)
             output_query: Optional[CypherQuery] = None
             if query.return_ is not None and not query.return_is_synthetic:
-                if first_node_alias is not None:
-                    output_query = replace(
-                        query,
-                        sets=(),
-                        where=None,
-                        matches=tuple(
-                            replace(
-                                match,
-                                where=None,
-                                patterns=tuple(
-                                    tuple(
-                                        replace(pattern, properties=())
-                                        if isinstance(pattern, NodePattern)
-                                        and pattern.variable == first_node_alias
-                                        else pattern
-                                        for pattern in pattern_group
-                                    )
-                                    for pattern_group in match.patterns
-                                ),
-                            )
-                            for match in query.matches
-                        ),
-                    )
-                else:
-                    output_query = replace(query, sets=())
+                output_query = replace(
+                    query,
+                    sets=(),
+                    where=None,
+                    matches=tuple(
+                        replace(
+                            match,
+                            where=None,
+                            patterns=tuple(
+                                tuple(
+                                    replace(pattern, properties=())
+                                    if isinstance(pattern, NodePattern)
+                                    and pattern.variable == first_node_alias
+                                    else pattern
+                                    for pattern in pattern_group
+                                )
+                                for pattern_group in match.patterns
+                            ),
+                        )
+                        for match in query.matches
+                    ),
+                )
                 compile_cypher_query(output_query, params=params)
             return CompiledCypherMutationQuery(
                 creates=(),
                 sets=query.sets, return_query=read_query, output_query=output_query,
                 set_alias_kinds=tuple(alias_kinds.items()),
                 set_start_alias=first_node_alias,
-                set_seed_identity_column=(
-                    seed_identity_column if first_node_alias is not None else None
-                ),
+                set_seed_identity_column=seed_identity_column,
             )
         if query.creates:
             from graphistry.compute.gfql.mutation import validate_create_node_reuse, validate_create_static

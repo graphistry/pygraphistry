@@ -1820,6 +1820,14 @@ def _build_transformer(source: str) -> _TransformerLike:
                         )
                     use_clause_node = item
                 elif isinstance(item, MatchClause):
+                    if set_clauses:
+                        raise _to_syntax_error(
+                            "Cypher SET must follow the MATCH that binds its variables",
+                            line=item.span.line,
+                            column=item.span.column,
+                            field="set",
+                            value="set_before_match",
+                        )
                     if reentry_where_pending_with_idx is not None:
                         raise _to_syntax_error(
                             "Cypher MATCH after post-WITH WHERE is not yet supported in the current GFQL Cypher compiler",

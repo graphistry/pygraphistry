@@ -359,7 +359,7 @@ def _set_property_dataframe(
         update[new_value] = update[new_value].astype(cast)
     update[matched] = True
     frame = frame.merge(update, how="left", on=key, sort=False)
-    update_mask = frame[matched].fillna(False).astype(bool)
+    update_mask = frame[matched].notna()
     if target.keep_existing:
         kept = frame[property_name]
         if cast is not None:
@@ -407,8 +407,9 @@ def execute_set_properties(
             field="set", value="missing_projection", language="cypher",
         )
 
-    if len(frame) == 0:
-        return self  # an empty match sets nothing; type resolution must not depend on the match count
+    # An empty match sets nothing and resolves no types (so the outcome never depends on the match count), but the
+    # frames are still normalized to the requested engine and the graph-level identity checks still run.
+    empty_match = len(frame) == 0
 
     updates: dict[str, dict[str, list[DataFrameT]]] = {}
     update_families: dict[str, dict[str, set[str]]] = {}
@@ -426,6 +427,8 @@ def execute_set_properties(
             updates.setdefault(alias, {}).setdefault(assignment.target.property, [])
             update_families.setdefault(alias, {}).setdefault(assignment.target.property, set())
             assignment_spans[(alias, assignment.target.property)] = assignment.span
+            if empty_match:
+                continue
             if is_polars_df(frame):
                 import polars as pl
                 assert isinstance(frame, pl.DataFrame)
@@ -475,6 +478,8 @@ def execute_set_properties(
             )
     combined_updates: dict[str, dict[str, DataFrameT]] = {}
     for alias, source_properties in updates.items():
+        if empty_match:
+            break
         combined_updates[alias] = {}
         for property_name, assignment_frames in source_properties.items():
             combined_updates[alias][property_name] = _combine_assignment_frames(
