@@ -225,7 +225,8 @@ class TestSemMap:
     @pytest.mark.parametrize("overrides,code", [
         (dict(out_col="__gfql_x__"), ErrorCode.E201), (dict(out_col=""), ErrorCode.E201),
         (dict(instruction=""), ErrorCode.E201), (dict(max_output_tokens=0), ErrorCode.E201),
-        (dict(questions=[Q_PRED]), ErrorCode.E303), (dict(require_probabilities=True), ErrorCode.E303)])
+        (dict(questions=[Q_PRED]), ErrorCode.E303), (dict(require_probabilities=True), ErrorCode.E303),
+        (dict(budget={"max_cost_usd": 1.0}), ErrorCode.E201)])
     def test_validation_errors_before_the_kernel(self, overrides: Dict[str, object], code: ErrorCode) -> None:
         provider = RecordingGenerator()
         with pytest.raises(GFQLTypeError) as info:

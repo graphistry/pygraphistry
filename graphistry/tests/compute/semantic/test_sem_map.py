@@ -8,7 +8,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from graphistry.compute.semantic.contract import GenerationRequest, GenerationResult, compute_generation_hash
+from graphistry.compute.semantic.contract import Budget, GenerationRequest, GenerationResult, compute_generation_hash
 from graphistry.compute.semantic.ops import sem_map
 from graphistry.compute.semantic.providers.callable import CallableGenerationProvider
 from graphistry.tests.compute.semantic.semantic_test_utils import TEXT_DTYPES, Recording, RecordingGenerator, caps
@@ -194,7 +194,6 @@ class TestLimitsAndValidation:
         dict(out_col="text"), dict(out_col="__gfql_x__"), dict(out_col=""), dict(instruction=""),
         dict(max_output_tokens=0), dict(template="{0}", evidence_cols=None), dict(deadline_s=0), dict(overwrite="yes"),
         dict(provider=Recording()), dict(batch_size=0), dict(max_rows=True), dict(task_id=""), dict(column_max_chars=0),
-        dict(budget={"max_cost_usd": 1.0}),
     ])
     def test_raises_before_any_call(self, kwargs: dict) -> None:
         provider = RecordingGenerator()
@@ -203,6 +202,16 @@ class TestLimitsAndValidation:
         with pytest.raises(ValueError):
             run(frame(), **params)  # type: ignore[arg-type]
         assert provider.calls == []
+
+    @pytest.mark.parametrize("budget", [{"max_cost_usd": 1.0}, {"max_cost_usd": 0, "max_requests": 2},
+                                        Budget(max_cost_usd=1.0)])
+    @pytest.mark.parametrize("df", [frame(), frame().iloc[:0], pd.DataFrame({"text": [None, None]})])
+    def test_cost_cap_is_rejected_for_every_input(self, budget: object, df: pd.DataFrame) -> None:
+        provider = RecordingGenerator()
+        with pytest.raises(ValueError, match="max_cost_usd is not supported by sem_map"):
+            run(df, provider, budget=budget)
+        assert provider.calls == []
+        assert run(df, provider, budget={"max_cost_usd": None, "max_requests": 2})["o__status"].size == len(df)
 
     def test_existing_output_columns_need_overwrite_and_evidence_is_truncated(self) -> None:
         with pytest.raises(ValueError, match="overwrite"):

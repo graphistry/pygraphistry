@@ -1970,7 +1970,8 @@ sem_map
 
 Generate one text value per row. Takes ``instruction`` (string, required), ``out_col`` (string, required) and
 ``max_output_tokens`` (optional; passed to the provider as its bound on each value), plus every other ``sem_decide``
-parameter except ``questions`` and ``min_p`` (``batch_size`` falls back to 16 rather than 32). Adds ``out_col``,
+parameter except ``questions``, ``min_p`` and ``require_probabilities`` (``batch_size`` falls back to 16 rather than
+32; ``budget`` takes ``max_requests`` only, since generation providers do not estimate cost). Adds ``out_col``,
 ``{out_col}__status``, ``{out_col}__error_code`` and ``{out_col}__meta`` (no ``confidence`` in the metadata). Engines,
 limits, provider-fault handling, remote refusal and the ``engine='auto'`` rule are the same as for ``sem_decide``.
 

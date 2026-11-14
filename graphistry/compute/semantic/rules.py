@@ -103,6 +103,16 @@ def coerce_budget(budget: BudgetSpec) -> Optional[Budget]:
     return Budget.from_mapping(budget)
 
 
+MAP_BUDGET_COST_ERROR = "max_cost_usd is not supported by sem_map (generation providers do not estimate cost)"
+
+
+def coerce_map_budget(budget: BudgetSpec) -> Optional[Budget]:
+    coerced = coerce_budget(budget)
+    if coerced is not None and coerced.max_cost_usd is not None:
+        raise ValueError(f"budget {MAP_BUDGET_COST_ERROR}")
+    return coerced
+
+
 def _json_questions(value: object) -> object:
     if not isinstance(value, list) or not all(isinstance(spec, dict) for spec in value):
         raise ValueError("must be a non-empty list of question dicts with id, kind, text, options or levels")
@@ -120,6 +130,15 @@ def _json_budget(value: object) -> object:
     if not isinstance(value, dict):
         raise ValueError("must be a dict with max_cost_usd and/or max_requests")
     return Budget.from_mapping(value)
+
+
+def _json_map_budget(value: object) -> object:
+    if not isinstance(value, dict):
+        raise ValueError("must be a dict with max_requests")
+    budget = Budget.from_mapping(value)
+    if budget.max_cost_usd is not None:
+        raise ValueError(MAP_BUDGET_COST_ERROR)
+    return budget
 
 
 COMMON_RULES: Dict[str, Rule] = {
@@ -141,7 +160,7 @@ COMMON_RULES: Dict[str, Rule] = {
 SEM_DECIDE_RULES: Dict[str, Rule] = dict(COMMON_RULES, questions=_message_of(_json_questions), min_p=probability,
                                          require_probabilities=probability_requirement)
 SEM_MAP_RULES: Dict[str, Rule] = dict(COMMON_RULES, instruction=non_empty_str, out_col=_message_of(_output_column),
-                                      max_output_tokens=positive_int)
+                                      max_output_tokens=positive_int, budget=_message_of(_json_map_budget))
 RULES: Dict[str, Rule] = dict(SEM_DECIDE_RULES, **SEM_MAP_RULES)
 
 

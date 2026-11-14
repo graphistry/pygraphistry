@@ -25,7 +25,7 @@ from graphistry.compute.semantic.contract import (
 from graphistry.compute.semantic.probability import enforce_probability, known_probability_gap
 from graphistry.compute.semantic.rules import (
     DECISION_COLUMN_TYPES, MAP_COLUMN_TYPES, BudgetSpec, ProbabilityRequirement, QuestionLike, check_params,
-    coerce_budget, coerce_questions, decision_columns, evidence_columns)
+    coerce_budget, coerce_map_budget, coerce_questions, decision_columns, evidence_columns)
 from graphistry.compute.typing import DataFrameT
 
 
@@ -578,7 +578,8 @@ def sem_map(
 
     Parameters, row identity, limits and failure handling match :func:`sem_decide`, except that ``batch_size``
     defaults to the provider's ``max_rows_per_request``, else 16; ``instruction`` is the generation instruction
-    and ``max_output_tokens`` is passed to the provider as its bound on each generated value.
+    and ``max_output_tokens`` is passed to the provider as its bound on each generated value. ``budget`` takes
+    ``max_requests`` only: ``max_cost_usd`` raises, since generation providers do not estimate cost.
 
     **Example**
         ::
@@ -593,7 +594,7 @@ def sem_map(
                  dict(max_output_tokens=max_output_tokens, batch_size=batch_size, max_concurrency=max_concurrency,
                       deadline_s=deadline_s, max_rows=max_rows, column_max_chars=column_max_chars))
     cols = evidence_columns(evidence_cols, template)
-    run_budget = coerce_budget(budget)
+    run_budget = coerce_map_budget(budget)
     deadline = None if deadline_s is None else float(deadline_s)
     output_tokens = None if max_output_tokens is None else int(max_output_tokens)
     _check_existing_columns([out_col + suffix for suffix, _ in MAP_COLUMN_TYPES], df, overwrite)
