@@ -1770,3 +1770,113 @@ def test_create_declines_null_like_label_on_relationship_endpoint(engine, query)
     with pytest.raises(GFQLValidationError, match="null-like label name"):
         source.gfql(query, engine=engine)
     assert _records(source._nodes) == before
+
+
+# Wave-1 W1-F1: every SET right-hand side is evaluated on the pre-SET graph, so a read of a property assigned earlier in
+# the same query would silently see the old value. Such programs are declined before any effect.
+_SET_READ_AFTER_WRITE = [
+    "MATCH (n:N) SET n.num = n.num + 1 SET n.num = n.num + 1 RETURN n.num AS num",
+    "MATCH (n:N) SET n.a = 1 SET n.b = n.a RETURN n.b AS b",
+    "MATCH (n:N) SET n.a = 1, n.b = n.a RETURN n.b AS b",
+    "MATCH (n:N) SET n.x = n.y, n.y = n.x RETURN n.x AS x",
+    "MATCH (n:N) SET n.a = 1 SET n.b = n['a'] RETURN n.b AS b",
+]
+
+
+@pytest.mark.parametrize("query", _SET_READ_AFTER_WRITE)
+def test_set_declines_reads_of_properties_assigned_earlier_in_the_query(query) -> None:
+    with pytest.raises(GFQLValidationError) as exc:
+        compile_cypher_query(parse_cypher(query))
+    assert exc.value.code == ErrorCode.E108
+    assert exc.value.context["field"] == "set"
+    assert exc.value.context["value"] == "read_after_write"
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_set_read_after_write_leaves_the_caller_untouched_on_every_engine(engine) -> None:
+    source = _label_n_graph(engine, [1])
+    before = _records(source._nodes)
+    with pytest.raises(GFQLValidationError) as exc:
+        source.gfql(_SET_READ_AFTER_WRITE[0], engine=engine)
+    assert exc.value.context["value"] == "read_after_write"
+    assert _records(source._nodes) == before
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_set_independent_multi_clause_programs_still_run(engine) -> None:
+    source = _label_n_graph(engine, [1, 2])
+    result = source.gfql(
+        "MATCH (n:N) SET n.a = n.num + 1 SET n.b = n.num * 10 RETURN n.a AS a, n.b AS b ORDER BY b", engine=engine
+    )
+    assert _records(result._nodes) == [{"a": 2, "b": 10}, {"a": 3, "b": 20}]
+    graph = {row["id"]: (row["a"], row["b"]) for row in _records(result.gfql_graph._nodes)}
+    assert graph == {1: (2, 10), 2: (3, 20)}
+
+
+# Wave-1 W1-F2: validation must understand SET queries (it only knew CREATE).
+def test_gfql_validate_accepts_admitted_set_and_declines_unsupported_set() -> None:
+    source = _graph("pandas")
+    report = source.gfql_validate("MATCH (n) WHERE n.id = 1 SET n.x = 1")
+    assert report["ok"] is True and report["compiled_kind"] == "mutation"
+    for query, value in [
+        ("MATCH (n)-[r]->(m) SET n.x = 1", "relationship_pattern"),
+        ("MATCH (n) SET n.x = 1 SET n.y = n.x", "read_after_write"),
+    ]:
+        with pytest.raises(GFQLValidationError) as exc:
+            source.gfql_validate(query)
+        assert exc.value.code == ErrorCode.E108
+        assert exc.value.context["field"] == "set" and exc.value.context["value"] == value
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_gfql_validate_true_runs_admitted_set_and_declines_unsupported_set(engine) -> None:
+    source = _graph(engine)
+    result = source.gfql("MATCH (n) WHERE n.id = 2 SET n.x = 7", engine=engine, validate=True)
+    assert {row["id"]: row["x"] for row in _records(result._nodes)} == {1: None, 2: 7}
+    before = _records(source._nodes)
+    with pytest.raises(GFQLValidationError) as exc:
+        source.gfql("MATCH (n) SET n.x = 1 SET n.y = n.x", engine=engine, validate=True)
+    assert exc.value.context["value"] == "read_after_write"
+    assert _records(source._nodes) == before
+
+
+# Wave-1 W1-F3: type resolution must not depend on the match count; an empty match is a no-op on every engine.
+@pytest.mark.parametrize("engine", ENGINES)
+def test_set_with_no_matches_is_a_no_op_on_every_engine(engine) -> None:
+    source = graphistry.nodes(_foundation_frame(engine, {"id": [1, 2], "label__N": [True, True], "score": [5, 6]}), "id")
+    before = _records(source._nodes)
+    for value in ["'text'", "1", "1.5"]:
+        result = source.gfql(f"MATCH (n:Missing) SET n.score = {value}", engine=engine)
+        assert _records(result._nodes) == before
+        assert _column_kind(result._nodes, "score") == "integer"
+    absent = source.gfql("MATCH (n:Missing) SET n.fresh = 1", engine=engine)
+    assert "fresh" not in list(absent._nodes.columns)
+
+
+# Wave-1 W1-F11: unsigned and extension dtypes keep their storage or raise; they never silently change.
+@pytest.mark.parametrize("engine", ENGINES)
+def test_set_unsigned_integer_column_keeps_dtype_or_raises_before_effects(engine) -> None:
+    frame = pd.DataFrame({"id": [1, 2], "u": pd.Series([1, 2], dtype="uint8")})
+    if engine == "cudf":
+        import cudf
+        frame = cudf.from_pandas(frame)
+    elif engine == "polars":
+        frame = pytest.importorskip("polars").from_pandas(frame)
+    source = graphistry.nodes(frame, "id")
+    before = _records(source._nodes)
+    ok = source.gfql("MATCH (n) WHERE n.id = 1 SET n.u = 5", engine=engine)
+    assert _set_values(ok, "u") == {1: 5, 2: 2}
+    assert "8" in str(ok._nodes["u"].dtype if engine != "polars" else ok._nodes.schema["u"])
+    for value in ["300", "-1"]:
+        with pytest.raises(GFQLValidationError) as exc:
+            source.gfql(f"MATCH (n) WHERE n.id = 1 SET n.u = {value}", engine=engine)
+        assert exc.value.code == ErrorCode.E108
+        assert exc.value.context["value"] == "integer_out_of_range"
+        assert _records(source._nodes) == before
+
+
+def test_set_pandas_nullable_integer_column_stays_nullable() -> None:
+    source = graphistry.nodes(pd.DataFrame({"id": [1, 2], "s": pd.Series([1, None], dtype="Int64")}), "id")
+    result = source.gfql("MATCH (n) WHERE n.id = 1 SET n.s = 7", engine="pandas")
+    assert str(result._nodes["s"].dtype) == "Int64"
+    assert _set_values(result, "s") == {1: 7, 2: None}
