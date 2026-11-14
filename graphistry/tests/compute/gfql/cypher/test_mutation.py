@@ -1690,3 +1690,14 @@ def test_create_static_preflight_admits_ordinary_keys_and_labels(query) -> None:
     source = _graph("pandas")
     assert source.gfql_validate(query)["compiled_kind"] == "mutation"
     assert compile_cypher_query(parse_cypher(query)) is not None
+
+
+def test_set_polars_null_dtype_column_promotes_to_assigned_integer() -> None:
+    pl = pytest.importorskip("polars")
+    frame = pl.DataFrame({"id": [1, 2], "score": pl.Series("score", [None, None], dtype=pl.Null)})
+    source = graphistry.nodes(frame, "id")
+    result = source.gfql("MATCH (n) WHERE n.id = 1 SET n.score = 20", engine="polars")
+
+    assert _set_values(result) == {1: 20, 2: None}
+    assert _column_kind(result._nodes, "score") == "integer"
+    assert source._nodes.schema["score"] == pl.Null
