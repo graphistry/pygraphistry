@@ -5,7 +5,7 @@ safelist reports it as E201.
 """
 import string
 from collections import Counter
-from typing import Callable, Dict, List, Mapping, Optional, Sequence, Tuple, Union
+from typing import Callable, Dict, List, Literal, Mapping, Optional, Sequence, Tuple, Union
 
 from graphistry.compute.gfql.identifiers import validate_column_name
 from graphistry.compute.semantic.contract import Budget, DecisionQuestion, canonicalize, finite_float
@@ -14,6 +14,7 @@ from graphistry.compute.semantic.contract import Budget, DecisionQuestion, canon
 Rule = Callable[[object], Union[bool, str]]
 QuestionLike = Union[DecisionQuestion, Mapping[str, object]]
 BudgetSpec = Union[Budget, Mapping[str, object], None]
+ProbabilityRequirement = Union[bool, Literal["native"]]
 
 DECISION_COLUMN_TYPES: Tuple[Tuple[str, str], ...] = (
     ("", "answer"), ("__status", "string"), ("__p", "float64"), ("__dist", "string"),
@@ -40,6 +41,11 @@ def positive_number(value: object) -> Union[bool, str]:
 def probability(value: object) -> Union[bool, str]:
     number = finite_float(canonicalize(value))
     return True if number is not None and 0 <= number <= 1 else "must be a number in [0, 1]"
+
+
+def probability_requirement(value: object) -> Union[bool, str]:
+    return True if isinstance(value, bool) or (isinstance(value, str) and value == "native") else (
+        "must be False, True or 'native'")
 
 
 def boolean(value: object) -> Union[bool, str]:
@@ -112,7 +118,7 @@ def _output_column(value: object) -> object:
 
 def _json_budget(value: object) -> object:
     if not isinstance(value, dict):
-        raise ValueError("must be a dict with max_requests")
+        raise ValueError("must be a dict with max_cost_usd and/or max_requests")
     return Budget.from_mapping(value)
 
 
@@ -132,7 +138,8 @@ COMMON_RULES: Dict[str, Rule] = {
     "column_max_chars": positive_int,
     "overwrite": boolean,
 }
-SEM_DECIDE_RULES: Dict[str, Rule] = dict(COMMON_RULES, questions=_message_of(_json_questions), min_p=probability)
+SEM_DECIDE_RULES: Dict[str, Rule] = dict(COMMON_RULES, questions=_message_of(_json_questions), min_p=probability,
+                                         require_probabilities=probability_requirement)
 SEM_MAP_RULES: Dict[str, Rule] = dict(COMMON_RULES, instruction=non_empty_str, out_col=_message_of(_output_column),
                                       max_output_tokens=positive_int)
 RULES: Dict[str, Rule] = dict(SEM_DECIDE_RULES, **SEM_MAP_RULES)
