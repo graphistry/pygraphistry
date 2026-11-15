@@ -207,8 +207,9 @@ def _frame_schema(df: DataFrameT) -> FrameSchema:
 
 
 def _category_order(dtype: object) -> Tuple[object, ...]:
+    """Category order of a pandas/cuDF categorical; Polars dtypes compare their own categories, and iterating its ``Categories`` never ends."""
     categories = getattr(dtype, "categories", None)
-    if categories is None:
+    if categories is None or type(dtype).__module__.startswith("polars"):
         return ()
     if hasattr(categories, "to_pandas"):  # cuDF refuses host list conversion on its index
         categories = categories.to_pandas()

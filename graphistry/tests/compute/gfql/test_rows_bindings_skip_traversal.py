@@ -312,6 +312,30 @@ def test_categorical_columns_match_the_traversal_on_every_engine(engine):
     _assert_matches_traversal(g, query, engine, 3)
 
 
+ABSENT_FILTERS = {
+    "absent_node_column": [n({"nope_col": 1}, name="p"), e_forward(), n(name="q"), rows(), select([("q", "q.id")])],
+    "absent_edge_column": [n({"id": 1}, name="p"), e_forward({"nope_col": 1}), n(name="q"), rows(), select([("q", "q.id")])],
+    "absent_label": [n({"label__Nope": True}, name="p"), e_forward(), n(name="q"), rows(), select([("q", "q.id")])],
+}
+
+
+@pytest.mark.parametrize("shape", sorted(ABSENT_FILTERS))
+def test_warnings_match_the_traversal_on_every_call(engine, shape):
+    import warnings
+
+    def observed(g):
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            rows_out = len(_run(g, ABSENT_FILTERS[shape], engine)._nodes)
+        return rows_out, sorted((w.category.__name__, str(w.message)) for w in caught if "GFQL" in str(w.message))
+
+    g = graph(engine)
+    with routes_off([ROUTE]):
+        expected = observed(g)
+    for _ in range(3):  # the first call fills the zero-row twin cache, later calls reuse it
+        assert observed(g) == expected
+
+
 def test_column_named_schema_keys_on_dtypes():
     query = SHAPES["seeded_undirected_edge_alias"][0]
     for values in ([1] * 8, ["a"] * 8):
