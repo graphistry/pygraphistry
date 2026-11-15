@@ -23,6 +23,7 @@ from graphistry.models.surfaces.graphistry_frontend.url_params import URLParamsD
 
 if TYPE_CHECKING:
     from graphistry.compute.typing import DataFrameT
+    from graphistry.compute.semantic.contract import Budget, DecisionProvider, DecisionQuestion, GenerationProvider
     from graphistry.compute.gfql.cypher.result_postprocess import WholeRowProjectionMeta
     from graphistry.compute.gfql.index.handoff import IndexedBindingsHandoff
     from graphistry.compute.gfql.index.policy import IndexPolicy
@@ -408,6 +409,51 @@ class Plottable(Protocol):
         ...
 
     def materialize_nodes(self, reuse: bool = True, engine: EngineAbstractType = 'auto') -> 'Plottable':
+        ...
+
+    def sem_decide(
+        self,
+        questions: "List[Union[DecisionQuestion, Dict[str, object]]]",
+        provider: "Union[str, DecisionProvider]",
+        *,
+        task_id: str,
+        kind: GraphEntityKind = "nodes",
+        evidence_cols: Optional[List[str]] = None,
+        template: Optional[str] = None,
+        id_col: Optional[str] = None,
+        task_version: str = "1",
+        batch_size: Optional[int] = None,
+        max_concurrency: Optional[int] = None,
+        deadline_s: Optional[float] = None,
+        budget: "Union[Budget, Dict[str, object], None]" = None,
+        max_rows: Optional[int] = None,
+        min_p: Optional[float] = None,
+        column_max_chars: Optional[int] = None,
+        overwrite: bool = False,
+    ) -> 'Plottable':
+        ...
+
+    def sem_map(
+        self,
+        instruction: str,
+        out_col: str,
+        provider: "Union[str, GenerationProvider]",
+        *,
+        task_id: str,
+        kind: GraphEntityKind = "nodes",
+        evidence_cols: Optional[List[str]] = None,
+        template: Optional[str] = None,
+        id_col: Optional[str] = None,
+        task_version: str = "1",
+        max_output_tokens: Optional[int] = None,
+        batch_size: Optional[int] = None,
+        max_concurrency: Optional[int] = None,
+        deadline_s: Optional[float] = None,
+        budget: "Union[Budget, Dict[str, object], None]" = None,
+        max_rows: Optional[int] = None,
+        column_max_chars: Optional[int] = None,
+        overwrite: bool = False,
+    ) -> 'Plottable':
         ...
 
     def get_topological_levels(
