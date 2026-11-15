@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import importlib.util
+import math
 import os
 from typing import Any, List, Optional
 
@@ -40,6 +41,16 @@ def _rows(frame: Any) -> List[dict[str, Any]]:
     if isinstance(frame, pd.DataFrame):
         return frame.to_dict(orient="records")
     return frame.to_arrow().to_pylist()
+
+
+def _run(engine: str, query: str, params: Any = None, polars_declines: Optional[str] = None) -> Optional[List[dict[str, Any]]]:
+    """Rows of a read query; with ``polars_declines`` native Polars must raise exactly that decline (returns None)."""
+    graph = _graph(engine)
+    if engine == "polars" and polars_declines is not None:
+        with pytest.raises(NotImplementedError, match=polars_declines):
+            graph.gfql(query, engine=engine, params=params)
+        return None
+    return _rows(graph.gfql(query, engine=engine, params=params)._nodes)
 
 
 def _check(
@@ -196,3 +207,100 @@ def test_scalar_parameter_projected_next_to_a_whole_entity(engine, value) -> Non
 @pytest.mark.parametrize("engine", ENGINES)
 def test_integer_parameter_projected_next_to_a_whole_entity_is_usable_downstream(engine) -> None:
     _check(engine, "MATCH (n) WITH n, $v AS w RETURN w + 1 AS r", [{"r": 6}] * 2, {"v": 5})
+
+
+# R2-F1/F2/F3: a local lives only in an internal column, so it can never collide with a property column or an alias
+@pytest.mark.parametrize("engine", ENGINES)
+def test_local_named_like_an_outer_property_does_not_change_keys_of_the_entity(engine) -> None:
+    _check(
+        engine, "MATCH (n) RETURN [tags IN [1] | size(keys(n))][0] AS v", [{"v": 2}] * 2, polars_declines=POLARS_ROW_OP,
+    )
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_local_named_like_a_property_does_not_clobber_the_property_column(engine) -> None:
+    _check(
+        engine, "MATCH (n) RETURN [tags IN ['q'] | n.tags][0] AS v", [{"v": "a"}, {"v": "b"}], polars_declines=POLARS_ROW_OP,
+    )
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_quantifier_local_named_like_a_property_filters_by_the_outer_property(engine) -> None:
+    _check(
+        engine, "MATCH (n) WHERE any(id IN $ids WHERE id = n.id) RETURN n.id AS id", [{"id": 1}], {"ids": [1]},
+        polars_declines=POLARS_ROW_OP,
+    )
+    _check(
+        engine, "MATCH (n) WHERE any(tags IN $names WHERE n.tags = tags) RETURN n.id AS id", [{"id": 1}],
+        {"names": ["a"]}, polars_declines=POLARS_ROW_OP,
+    )
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_comprehension_local_does_not_leak_into_properties_of_the_outer_alias(engine) -> None:
+    rows = _run(
+        engine, "MATCH (n) RETURN [x IN ['q'] | properties(n)][0] AS p, properties(n) AS q", polars_declines=POLARS_ROW_OP,
+    )
+    if rows is not None:
+        assert rows and all(row["p"] == row["q"] for row in rows)
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_numeric_local_named_like_an_alias_is_not_taken_for_the_node_marker(engine) -> None:
+    graph = _graph(engine)
+    try:
+        rows = _rows(graph.gfql("MATCH (n) RETURN [n IN [1] | n.tags][0] AS v", engine=engine)._nodes)
+    except NotImplementedError:
+        assert engine == "polars"
+        return
+    except GFQLValidationError:
+        return
+    assert all(row["v"] is None or row["v"] != row["v"] for row in rows)
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_nested_scopes_bind_the_innermost_local(engine) -> None:
+    _check(
+        engine, "MATCH (n) WHERE n.id = 1 RETURN [x IN [1, 2] | [x IN [10, 20] | x]][0] AS v", [{"v": [10, 20]}],
+        polars_declines=POLARS_ROW_OP,
+    )
+    _check(
+        engine, "MATCH (n) WHERE n.id = 1 RETURN [x IN [1, 2] | [y IN [10, 20] | x + y]] AS v", [{"v": [[11, 21], [12, 22]]}],
+        polars_declines=POLARS_ROW_OP,
+    )
+
+
+# R2-F4: non-finite and edge floats and integers survive the whole-parameter projection next to an entity
+@pytest.mark.parametrize("engine", ENGINES)
+@pytest.mark.parametrize("value", [float("inf"), float("-inf"), -0.0, 2 ** 53 + 1])
+def test_whole_parameter_projected_next_to_an_entity_keeps_edge_numbers(engine, value) -> None:
+    rows = _run(engine, "MATCH (n) WITH n, $v AS w RETURN w", {"v": value})
+    assert rows is not None and [row["w"] for row in rows] == [value, value]
+    if value == 0:
+        assert all(math.copysign(1.0, row["w"]) == -1.0 for row in rows)
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_nan_parameter_projected_next_to_an_entity_is_a_structured_decline(engine) -> None:
+    with pytest.raises(GFQLValidationError) as exc:
+        _graph(engine).gfql("MATCH (n) WITH n, $v AS w RETURN w", engine=engine, params={"v": float("nan")})
+    assert exc.value.code == ErrorCode.E108 and exc.value.context["value"] == "nan_parameter"
+
+
+# R2-F5: list and map whole parameters, a bare UNWIND of a scalar string, empty and non-ASCII strings
+@pytest.mark.parametrize("engine", ENGINES)
+@pytest.mark.parametrize("value", [[1, "tags"], {"k": "tags"}])
+def test_list_and_map_parameters_projected_next_to_an_entity(engine, value) -> None:
+    rows = _run(engine, "MATCH (n) WITH n, $v AS w RETURN w", {"v": value}, polars_declines=POLARS_ROW_OP)
+    assert rows is None or len(rows) == 2
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_unwind_of_a_scalar_string_parameter_is_a_literal(engine) -> None:
+    _check(engine, "UNWIND $v AS u RETURN u", [{"u": "tags"}], {"v": "tags"}, polars_declines=r"does not yet natively support cypher row op 'unwind'")
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+@pytest.mark.parametrize("value", ["", "é"])
+def test_empty_and_non_ascii_string_parameters_are_literals(engine, value) -> None:
+    _check(engine, "MATCH (n) RETURN $v AS v", [{"v": value}] * 2, {"v": value})

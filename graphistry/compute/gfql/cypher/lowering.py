@@ -756,7 +756,7 @@ def _reject_shadowed_entity_calls(
     column: int,
 ) -> None:
     """keys()/labels() are rewritten by alias name; decline them on a comprehension/quantifier local that shadows an alias."""
-    if not alias_targets:
+    if not alias_targets or not re.search(r"\b(?:keys|labels)\s*\(", expr_text, re.IGNORECASE):
         return
     # the label predicate and chained comparison are not parseable raw; try the same rewrites the compiler applies
     label_free = _rewrite_label_predicate_expr(expr_text, alias_targets=alias_targets)

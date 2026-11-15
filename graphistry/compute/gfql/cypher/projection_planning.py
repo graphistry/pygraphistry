@@ -3,6 +3,7 @@
 # ruff: noqa: F821
 from __future__ import annotations
 
+import math
 from typing import Mapping, Tuple
 
 from graphistry.compute.ast import ASTNode, ASTObject
@@ -13,6 +14,14 @@ from graphistry.compute.gfql.cypher.lowering import _ProjectionPlan
 from graphistry.compute.gfql.identifiers import render_cypher_identifier
 
 globals().update(vars(_lowering))
+
+
+def _scalar_source_text(value: object) -> str:
+    """Projected-source text of a resolved scalar parameter; negative zero is spelled so its sign survives evaluation."""
+    if isinstance(value, float) and value == 0 and math.copysign(1.0, value) < 0:
+        return "(0.0 * -1.0)"
+    return cypher_literal_expr_text(value)
+
 
 def _split_qualified_name(expr: str, *, line: int, column: int) -> Tuple[str, Optional[str]]:
     parts = expr.split(".")
@@ -361,13 +370,19 @@ def _build_projection_plan(
                 )
             )
         else:
+            if isinstance(runtime_expr, float) and runtime_expr != runtime_expr:
+                raise GFQLValidationError(
+                    ErrorCode.E108, "GFQL cannot project a NaN parameter next to a whole entity",
+                    field=f"{clause.kind}.items", value="nan_parameter", line=item.span.line, column=item.span.column,
+                    suggestion="Pass null or a finite number.", language="cypher",
+                )
             if isinstance(runtime_expr, str):
                 output_to_expr_source[output_name] = runtime_expr
             projection_columns.append(
                 ResultProjectionColumn(
                     output_name=output_name,
                     kind="expr",
-                    source_name=runtime_expr if isinstance(runtime_expr, str) else cypher_literal_expr_text(runtime_expr),
+                    source_name=runtime_expr if isinstance(runtime_expr, str) else _scalar_source_text(runtime_expr),
                 )
             )
 
