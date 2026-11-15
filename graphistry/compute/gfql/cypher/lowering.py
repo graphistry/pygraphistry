@@ -9453,7 +9453,7 @@ def compile_cypher_query(
             if query.return_ is not None:
                 return_items.append(ReturnItem(
                     expression=ExpressionText(
-                        text=f"__node_identity__({first_node_alias})", span=query.span,
+                        text=f"__node_identity__({render_cypher_identifier(first_node_alias)})", span=query.span,
                     ),
                     alias=seed_identity_column,
                     span=query.span,
@@ -9462,7 +9462,7 @@ def compile_cypher_query(
                 assignments_for_alias = [a for a in assignments if a.target.alias == alias]
                 span = assignments_for_alias[0].target.span
                 return_items.append(ReturnItem(
-                    expression=ExpressionText(text=f"__node_identity__({alias})", span=span),
+                    expression=ExpressionText(text=f"__node_identity__({render_cypher_identifier(alias)})", span=span),
                     alias=f"__gfql_set_identity_{alias_index}__",
                     span=span,
                 ))

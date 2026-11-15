@@ -2925,9 +2925,25 @@ def test_pandas_engine_set_on_a_cudf_graph_runs_on_the_host(shape, where, matche
     if shape == "with_nodes":
         source = source.nodes(cudf.DataFrame({"id": [1, 2, 3]}), "id")
     result = source.gfql(f"MATCH (n) {where} SET n.x = 1", engine="pandas")
-    assert isinstance(result._nodes, pd.DataFrame)
+    assert isinstance(result._nodes, pd.DataFrame) and isinstance(result._edges, pd.DataFrame) and len(result._edges) == 2
     assert (result._nodes["x"].tolist() == [1, 1, 1]) if matched else ("x" not in result._nodes.columns or result._nodes["x"].isna().all())
     assert isinstance(source._edges, cudf.DataFrame) and len(source._edges) == 2
+    if shape == "with_nodes":
+        assert isinstance(source._nodes, cudf.DataFrame) and "x" not in source._nodes.columns
+    returned = source.gfql(f"MATCH (n) {where} SET n.x = 1 RETURN n.x AS x", engine="pandas")
+    assert isinstance(returned.gfql_graph._nodes, pd.DataFrame)
+    assert _records(returned._nodes) == ([{"x": 1}] * 3 if matched else [])
+
+
+# W11-F2: the matched alias keeps its spelling (backticks) in the internal identity expression
+@pytest.mark.parametrize("engine", ENGINES)
+@pytest.mark.parametrize("alias", ["`a b`", "`any`", "`true`"])
+def test_set_on_a_backticked_or_keyword_alias(engine, alias) -> None:
+    source = _graph(engine)
+    result = source.gfql(f"MATCH ({alias}) WHERE {alias}.id = 1 SET {alias}.x = 1", engine=engine)
+    assert [row["x"] for row in _records(result._nodes)] == [1, None]
+    rows = source.gfql(f"MATCH ({alias}) WHERE {alias}.id = 1 SET {alias}.x = 1 RETURN {alias}.x AS x", engine=engine)
+    assert _records(rows._nodes) == [{"x": 1}]
 
 
 @pytest.mark.parametrize("engine", ENGINES)
