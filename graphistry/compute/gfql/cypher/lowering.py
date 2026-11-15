@@ -747,6 +747,43 @@ def _parse_validated_row_expr_node(
     return node
 
 
+def _reject_shadowed_entity_calls(
+    expr_text: str,
+    alias_targets: Optional[Mapping[str, ASTObject]],
+    *,
+    field: str,
+    line: int,
+    column: int,
+) -> None:
+    """keys()/labels() are rewritten by alias name; decline them on a comprehension/quantifier local that shadows an alias."""
+    if not alias_targets:
+        return
+    try:
+        root = parse_expr(expr_text)
+    except GFQLExprParseError:
+        return
+
+    def visit(node: ExprNode, shadowed: frozenset[str]) -> None:
+        if isinstance(node, (ListComprehension, QuantifierExpr)):
+            visit(node.source, shadowed)
+            inner = shadowed | ({node.var} & alias_targets.keys())
+            for child in (node.predicate, getattr(node, "projection", None)):
+                if child is not None:
+                    visit(child, inner)
+            return
+        if isinstance(node, FunctionCall) and node.name.lower() in {"keys", "labels"}:
+            for arg in node.args:
+                if isinstance(arg, Identifier) and arg.name in shadowed:
+                    raise _unsupported(
+                        f"Cypher {node.name}() of a local variable that shadows the matched alias {arg.name!r} is not supported",
+                        field=field, value="shadowed_alias", line=line, column=column,
+                    )
+        for child in iter_expr_children(node):
+            visit(child, shadowed)
+
+    visit(root, frozenset())
+
+
 def _parse_row_expr(
     expr_text: str,
     *,
@@ -765,6 +802,7 @@ def _parse_row_expr(
         column=column,
         allow_missing=allow_missing_params,
     )
+    _reject_shadowed_entity_calls(prepared, alias_targets, field=field, line=line, column=column)
     prepared = _rewrite_entity_keys_expr(prepared, alias_targets=alias_targets)
     prepared = _rewrite_label_predicate_expr(prepared, alias_targets=alias_targets)
     prepared = rewrite_temporal_constructors_in_expr(prepared)
@@ -1722,11 +1760,12 @@ def _row_expr_arg(
 ) -> Any:
     param_name = _whole_param_name(expr.text)
     if param_name is not None:
-        return _resolve_literal(
+        value = _resolve_literal(
             ParameterRef(name=param_name, span=expr.span),
             params=params,
             field=field,
         )
+        return render_cypher_string_literal(value) if isinstance(value, str) else value
     node = _parse_row_expr(
         expr.text,
         params=params,
