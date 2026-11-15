@@ -31,7 +31,7 @@ FrameLike = DataFrameT
 #: nobody can assert on.
 FastPathName = Literal[
     "single_hop_grouped_aggregate", "two_hop_count", "seeded_typed_hop", "seeded_node_lookup",
-    "rows_bindings_skip_traversal",
+    "rows_bindings_skip_traversal", "point_rows_scan",
 ]
 
 #: What the executor holds at the fast-path seam: post-parse but NOT yet narrowed

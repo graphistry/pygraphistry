@@ -17,6 +17,13 @@ SEAM = "rows_bindings_skip_traversal"
 ROUTE = "bindings-skip-traversal"
 
 
+@pytest.fixture(autouse=True)
+def _point_rows_off():
+    """Seeded point rows answer some of these shapes first; this module is about the skip."""
+    with routes_off(["polars-point-rows"]):
+        yield
+
+
 @pytest.fixture(params=[
     "pandas",
     "polars",
