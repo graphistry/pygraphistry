@@ -160,12 +160,45 @@ def _new_nodes_frame(
     )
 
 
-def _numeric_id_seed(nodes: DataFrameT, node_key: str, *, count: int, line: int, column: int) -> int:
+def _edge_endpoint_maximum(edges: Optional[DataFrameT], source: Optional[str], destination: Optional[str]) -> Optional[int]:
+    """Largest integer edge endpoint, so a created node id never collides with a (possibly dangling) endpoint."""
+    import pandas as pd
+
+    best: Optional[int] = None
+    if edges is None:
+        return best
+    for name in (source, destination):
+        if name is None or name not in edges.columns:
+            continue
+        if is_polars_df(edges):
+            import polars as pl
+            assert isinstance(edges, pl.DataFrame)
+            if not edges.schema[name].is_integer():
+                continue
+            polars_value = edges.get_column(name).max()
+            value = polars_value if isinstance(polars_value, int) else None
+        else:
+            column = edges[name]
+            if not pd.api.types.is_integer_dtype(column.dtype):
+                continue
+            present = column.dropna()
+            value = int(present.max()) if len(present) else None
+        if value is not None and (best is None or value > best):
+            best = value
+    return best
+
+
+def _numeric_id_seed(
+    nodes: DataFrameT, node_key: str, *, count: int, line: int, column: int,
+    edges: Optional[DataFrameT] = None, source: Optional[str] = None, destination: Optional[str] = None,
+) -> int:
     import numpy as np
     import pandas as pd
 
+    edge_maximum = _edge_endpoint_maximum(edges, source, destination)
+    edge_seed = 0 if edge_maximum is None else edge_maximum + 1
     if node_key not in nodes.columns:
-        return 0
+        return edge_seed
     if is_polars_df(nodes):
         import polars as pl
         if not isinstance(nodes, pl.DataFrame):
@@ -198,7 +231,7 @@ def _numeric_id_seed(nodes: DataFrameT, node_key: str, *, count: int, line: int,
         maximum = int(series.max()) if integer and not empty and not has_null else 0
         limit = int(np.iinfo(series.dtype.type).max) if integer else 0
     if empty:
-        return 0
+        return edge_seed
     if has_null:
         raise GFQLMutationError(
             ErrorCode.E105, f"Node identity column {node_key!r} contains null values",
@@ -211,6 +244,8 @@ def _numeric_id_seed(nodes: DataFrameT, node_key: str, *, count: int, line: int,
             field=node_key, value=dtype_description, line=line, column=column,
             suggestion="Use integer identities within the supported physical range.", language="cypher",
         )
+    if edge_maximum is not None:
+        maximum = max(maximum, edge_maximum)
     if maximum + count > limit:
         raise GFQLMutationError(
             ErrorCode.E105, f"Node identity column {node_key!r} has no remaining values",
@@ -399,6 +434,38 @@ def _validate_legacy_label_transition(
         )
 
 
+def _validate_no_legacy_labels_column(nodes: Optional[DataFrameT]) -> None:
+    """Reject CREATE on a legacy list-valued ``labels`` column (readers would render the new rows as ``nan``)."""
+    if nodes is None or len(nodes) == 0 or "labels" not in nodes.columns or label_flag_columns(nodes.columns):
+        return
+    if bool(series_not_null_mask(nodes["labels"]).any()):
+        raise GFQLMutationError(
+            ErrorCode.E108,
+            "CREATE cannot preserve an existing legacy labels column",
+            field="create", value="legacy_labels",
+            suggestion="Use canonical label flags (label__<Label>) in the source graph.",
+            language="cypher",
+        )
+
+
+def _match_key_dtype(nodes: DataFrameT, new_nodes: DataFrameT, key: str) -> DataFrameT:
+    """Created physical ids take the existing integer key dtype, so the union never widens an id column to float."""
+    import pandas as pd
+
+    if key not in nodes.columns or key not in new_nodes.columns:
+        return new_nodes
+    if is_polars_df(nodes):
+        import polars as pl
+        assert isinstance(nodes, pl.DataFrame) and isinstance(new_nodes, pl.DataFrame)
+        if not nodes.schema[key].is_integer():
+            return new_nodes
+        return new_nodes.with_columns(pl.col(key).cast(nodes.schema[key]))  # type: ignore[return-value]  # polars frame, not the pandas alias
+    dtype = nodes[key].dtype
+    if pd.api.types.is_integer_dtype(dtype):
+        return new_nodes.assign(**{key: new_nodes[key].astype(dtype)})
+    return new_nodes
+
+
 def execute_create_nodes(
     self: Plottable,
     creates: tuple[CreateClause, ...],
@@ -472,6 +539,7 @@ def execute_create_nodes(
             })
     node_key = MUTATION_NODE_ID
     _validate_legacy_label_transition(creates, nodes)
+    _validate_no_legacy_labels_column(nodes)
     node_count = 0
     for clause in creates:
         seen_nodes: set[str] = set()
@@ -502,6 +570,7 @@ def execute_create_nodes(
     else:
         seed = 0 if nodes is None else _numeric_id_seed(
             nodes, node_key, count=node_count, line=line, column=column,
+            edges=base_graph._edges, source=base_graph._source, destination=base_graph._destination,
         )
         identities = list(range(seed, seed + node_count))
 
@@ -701,6 +770,7 @@ def execute_create_nodes(
         for label_column in sorted(original_label_columns):
             _boolean_label_column(nodes, label_column, line=line, column=column)
         nodes, new_nodes = _prepare_append_frames(nodes, new_nodes)
+        new_nodes = _match_key_dtype(nodes, new_nodes, node_key)
         if is_polars_df(nodes):
             import polars as pl
             if not isinstance(nodes, pl.DataFrame) or not isinstance(new_nodes, pl.DataFrame):
