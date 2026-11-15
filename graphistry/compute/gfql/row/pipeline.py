@@ -484,6 +484,19 @@ class RowPipelineMixin:
 
     _GFQL_ALIAS_PROP_RE = re.compile(r"^(?P<alias>[A-Za-z_][A-Za-z0-9_]*)\.(?P<prop>[A-Za-z_][A-Za-z0-9_]*)$")
 
+    _GFQL_SCOPE_LOCAL_PREFIX = "__gfql_scope_local__"
+
+    @staticmethod
+    def _gfql_enter_binder_scope(table_df: DataFrameT, var: str) -> DataFrameT:
+        """Scope a comprehension/quantifier variable: hide the outer ``var.*`` columns and mark ``var`` as a local.
+
+        The marker keeps the local's column out of ``keys()`` of the matched entity.
+        """
+        prefix = f"{var}."
+        hidden = [c for c in table_df.columns if isinstance(c, str) and (c.startswith(prefix) or c == shadow_restore_column(var))]
+        scoped = table_df.drop(columns=hidden) if hidden else table_df
+        return scoped.assign(**{f"{RowPipelineMixin._GFQL_SCOPE_LOCAL_PREFIX}{var}": 0})
+
     @staticmethod
     def _gfql_has_bindings_alias_prefix(table_df: Any, alias: str) -> bool:
         prefix = f"{alias}."
@@ -1664,7 +1677,11 @@ class RowPipelineMixin:
                     source_table_df,
                     alias_col=source_alias,
                     table=("nodes" if fn == "__node_keys__" else "edges"),
-                    excluded=tuple(alias_names),
+                    excluded=tuple(alias_names) + tuple(
+                        col[len(RowPipelineMixin._GFQL_SCOPE_LOCAL_PREFIX):]
+                        for col in table_df.columns
+                        if isinstance(col, str) and col.startswith(RowPipelineMixin._GFQL_SCOPE_LOCAL_PREFIX)
+                    ),
                 )
                 null_mask = self._gfql_null_mask(source_table_df, source_table_df[source_alias])
                 if hasattr(out, "where"):
@@ -2303,7 +2320,9 @@ class RowPipelineMixin:
                     **{"__gfql_q_pos_ast__": expanded.groupby(row_col, sort=False).cumcount()}
                 )
                 expanded = expanded.loc[expanded["__gfql_q_pos_ast__"] < expanded[total_col]]
-                expanded = expanded.assign(**{node.var: expanded[list_col]})
+                expanded = RowPipelineMixin._gfql_enter_binder_scope(
+                    expanded.assign(**{node.var: expanded[list_col]}), node.var
+                )
                 pred_ok, pred_value = self._gfql_eval_expr_ast(expanded, node.predicate)
                 if not pred_ok:
                     return False, None
@@ -2418,7 +2437,9 @@ class RowPipelineMixin:
                         node.var: expanded[list_col],
                     }
                 )
-                expanded = expanded.loc[expanded["__gfql_lc_pos_ast__"] < expanded[len_col]]
+                expanded = RowPipelineMixin._gfql_enter_binder_scope(
+                    expanded.loc[expanded["__gfql_lc_pos_ast__"] < expanded[len_col]], node.var
+                )
 
                 if node.predicate is not None:
                     pred_ok, pred_value = self._gfql_eval_expr_ast(expanded, node.predicate)

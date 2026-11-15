@@ -8,6 +8,7 @@ from typing import Mapping, Tuple
 from graphistry.compute.ast import ASTNode, ASTObject
 from graphistry.compute.gfql.cypher import lowering as _lowering
 from graphistry.compute.gfql.cypher.ast import CypherQuery
+from graphistry.compute.gfql.cypher.expression_text import cypher_literal_expr_text
 from graphistry.compute.gfql.cypher.lowering import _ProjectionPlan
 from graphistry.compute.gfql.identifiers import render_cypher_identifier
 
@@ -366,7 +367,7 @@ def _build_projection_plan(
                 ResultProjectionColumn(
                     output_name=output_name,
                     kind="expr",
-                    source_name=runtime_expr if isinstance(runtime_expr, str) else item.expression.text,
+                    source_name=runtime_expr if isinstance(runtime_expr, str) else cypher_literal_expr_text(runtime_expr),
                 )
             )
 

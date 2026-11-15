@@ -10,8 +10,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
-- **GFQL Cypher string parameters** (#2324): a whole-expression string parameter in `RETURN`/`WITH` (for example `RETURN $v AS v`) is now a string literal in every engine. It previously failed with `unsupported token in row expression`, or, when the string equalled a column name, silently returned that column.
-- **GFQL Cypher comprehension and quantifier variables** (#2325): a list-comprehension or quantifier variable that reuses the name of a matched node alias now shadows it inside its scope, including in list, map and nested positions, instead of silently reading the outer node. `keys()` and `labels()` applied to such a shadowing variable are declined with a structured `E108` (`shadowed_alias`) instead of answering from the outer node.
+- **GFQL Cypher string parameters** (#2324): a whole-expression string parameter in `RETURN`/`WITH` (for example `RETURN $v AS v`) is now a string literal in every engine. It previously failed with `unsupported token in row expression`, or, when the string equalled a column name, silently returned that column. A scalar (integer, float, boolean, null) parameter projected next to a whole entity (`WITH n, $v AS w RETURN w`) is likewise resolved instead of failing with `parser validation failed`.
+- **GFQL Cypher comprehension and quantifier variables** (#2325): a list-comprehension or quantifier variable that reuses the name of a matched node alias now shadows it inside its scope, including in list, map and nested positions and in property access (`n.prop` of the local, also when several nodes are matched), instead of silently reading the outer node. The loop variable of a comprehension over another variable no longer counts as a property in `keys()` of a matched node. `keys()` and `labels()` applied to such a shadowing variable are declined with a structured `E108` (`shadowed_alias`) instead of answering from the outer node, including when the expression also uses a label predicate or a chained comparison.
 
 ## [0.62.1] - 2026-11-12
 

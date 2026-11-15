@@ -758,9 +758,21 @@ def _reject_shadowed_entity_calls(
     """keys()/labels() are rewritten by alias name; decline them on a comprehension/quantifier local that shadows an alias."""
     if not alias_targets:
         return
-    try:
-        root = parse_expr(expr_text)
-    except GFQLExprParseError:
+    # the label predicate and chained comparison are not parseable raw; try the same rewrites the compiler applies
+    label_free = _rewrite_label_predicate_expr(expr_text, alias_targets=alias_targets)
+    root = None
+    for candidate in (
+        expr_text,
+        _rewrite_chained_comparison_expr(expr_text),
+        label_free,
+        _rewrite_chained_comparison_expr(label_free),
+    ):
+        try:
+            root = parse_expr(candidate)
+            break
+        except GFQLExprParseError:
+            continue
+    if root is None:
         return
 
     def visit(node: ExprNode, shadowed: frozenset[str]) -> None:
