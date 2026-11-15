@@ -1988,7 +1988,7 @@ unambiguous codes is an ``unsupported_question`` error and is not sent. A reply 
 ``strategy='text'`` sends no logprobs fields; ``strategy='auto'`` probes the host once per endpoint, model and
 settings (each probe request counts against the run's budget), keeps the first strategy that works for an hour, and
 ``graphistry.compute.semantic.forget_probes()`` drops kept results. A reply cut off at ``max_answer_tokens`` (default
-16) before a readable answer is an ``answer_truncated`` error; reasoning models need a higher limit or reasoning turned
+16, or 64 for the ``tool`` and ``function`` strategies) before a readable answer is an ``answer_truncated`` error; reasoning models need a higher limit or reasoning turned
 off through ``extra_body``. A request the host's content filter rejects (HTTP 400, error code ``content_filter``) is
 ``uncertain`` with reason ``refusal``, the same as a filtered reply. Servers with the
 OpenAI Decisions API and smaller limits set ``max_questions_per_request``, ``max_choice_options`` and ``max_levels``

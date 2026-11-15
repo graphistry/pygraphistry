@@ -206,6 +206,18 @@ class TestOpenAIChat:
             openai(FakeSession([]), **options)
         assert openai(FakeSession([]), max_answer_tokens=2, top_logprobs=0).max_answer_tokens == 2
 
+    @pytest.mark.parametrize("strategy,limit", [("logprobs", 16), ("text", 16), ("json_schema", 16), ("tool", 64),
+                                                ("function", 64)])
+    def test_call_forms_get_room_for_their_wrapper(self, strategy: str, limit: int) -> None:
+        req = request((PRED,))
+        assert openai(FakeSession([])).strategy_body(req, PRED, strategy)["max_completion_tokens"] == limit
+        assert openai(FakeSession([]), max_answer_tokens=8).strategy_body(req, PRED, strategy)["max_completion_tokens"] == 8
+        if strategy in ("text", "json_schema", "tool"):
+            def sent(**options: object) -> object:
+                return AnthropicMessagesProvider("k", "claude-x", session=FakeSession([]), strategy=strategy,  # type: ignore[arg-type]
+                                                 **options).body(req, [PRED])["max_tokens"]  # type: ignore[arg-type]
+            assert (sent(), sent(max_answer_tokens=8)) == (limit, 8)
+
     def test_a_certain_code_counts_as_observed(self) -> None:
         sure = [{"token": "A", "logprob": 0.0}, {"token": "B", "logprob": math.log(0.01)}]
         result = checked(openai(FakeSession([chat_reply("A", sure)])), request((PRED,)))[0]

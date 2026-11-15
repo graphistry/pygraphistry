@@ -35,6 +35,7 @@ Strategy = Literal["logprobs", "json_schema", "tool", "text", "auto", "json_mode
 ReplyForm = Literal["text", "json_schema", "tool", "function", "code"]
 AnthropicStrategy = Literal["text", "json_schema", "tool"]
 DEFAULT_PROBE_STRATEGIES: Tuple[Strategy, ...] = ("logprobs", "json_schema", "tool", "text")
+DEFAULT_ANSWER_TOKENS, DEFAULT_CALL_ANSWER_TOKENS = 16, 64  # a tool or function call spends tokens on its wrapper
 STRATEGIES: Tuple[str, ...] = get_args(Strategy)
 NOT_CAPABILITY_ERRORS = ("http_401", "http_403", "http_407", "http_408", "http_409", "http_429")
 PROBE_TTL_S = 3600.0
@@ -226,7 +227,8 @@ class _ChatDecisionProvider(HttpDecisionProvider):
     count against the limit on most hosts.
     """
 
-    def __init__(self, api_key: str, model: str, *, base_url: Optional[str] = None, max_answer_tokens: int = 16,
+    def __init__(self, api_key: str, model: str, *, base_url: Optional[str] = None,
+                 max_answer_tokens: Optional[int] = None,
                  extra_body: Optional[JSONObject] = None, extra_headers: Optional[Dict[str, str]] = None,
                  prices: Optional[TokenPrices] = None, concurrency_limit: int = 4, timeout_s: float = 60,
                  max_retries: int = 3, retry_backoff_s: float = 0.5, session: Optional[HttpPoster] = None,
@@ -234,11 +236,17 @@ class _ChatDecisionProvider(HttpDecisionProvider):
         super().__init__(api_key, model, base_url=base_url, prices=prices, concurrency_limit=concurrency_limit,
                          timeout_s=timeout_s, max_retries=max_retries, retry_backoff_s=retry_backoff_s,
                          session=session, name=name)
-        if isinstance(max_answer_tokens, bool) or not isinstance(max_answer_tokens, int) or max_answer_tokens < 2:
+        if max_answer_tokens is not None and (isinstance(max_answer_tokens, bool)
+                                              or not isinstance(max_answer_tokens, int) or max_answer_tokens < 2):
             raise ValueError(f"max_answer_tokens must be an int >= 2, got {max_answer_tokens!r}")
         self.max_answer_tokens = max_answer_tokens
         self.extra_body = dict(extra_body or {})
         self.extra_headers = dict(extra_headers or {})
+
+    def answer_tokens(self, strategy: str) -> int:
+        if self.max_answer_tokens is not None:
+            return self.max_answer_tokens
+        return DEFAULT_CALL_ANSWER_TOKENS if strategy in ("tool", "function") else DEFAULT_ANSWER_TOKENS
 
     def capabilities(self) -> ProviderCapabilities:
         return ProviderCapabilities(supports_native_probabilities=False, max_questions_per_request=1,
@@ -306,8 +314,9 @@ class OpenAIChatProvider(_ChatDecisionProvider):
 
     ``top_logprobs`` is how many alternatives the API returns for the answer token (hosts cap it, some at 5; 0 asks
     for none, for hosts without logprobs). ``max_tokens_field`` names the answer-length limit (``"max_tokens"`` on
-    Mistral and Fireworks) and ``max_answer_tokens`` its value (at least 2; leave room for models that emit a few
-    tokens before the code). ``extra_body`` and ``extra_headers`` add host fields, for example
+    Mistral and Fireworks) and ``max_answer_tokens`` its value (at least 2; unset, it is 16, or 64 for the ``tool``
+    and ``function`` strategies, whose call wrapper spends tokens; leave room for models that emit a few tokens before
+    the code). ``extra_body`` and ``extra_headers`` add host fields, for example
     ``{"reasoning_effort": "none"}``. ``extra_body`` cannot replace the fields the provider sets; ``extra_headers``
     are sent last, so they can replace a header such as the API version.
 
@@ -343,7 +352,7 @@ class OpenAIChatProvider(_ChatDecisionProvider):
     path = "/chat/completions"
 
     def __init__(self, api_key: str, model: str, *, base_url: Optional[str] = None, auth_header: str = "Authorization",
-                 top_logprobs: int = 5, max_tokens_field: str = "max_completion_tokens", max_answer_tokens: int = 16,
+                 top_logprobs: int = 5, max_tokens_field: str = "max_completion_tokens", max_answer_tokens: Optional[int] = None,
                  strategy: Strategy = "logprobs", probe_strategies: Optional[Sequence[Strategy]] = None,
                  extra_body: Optional[JSONObject] = None,
                  extra_headers: Optional[Dict[str, str]] = None, prices: Optional[TokenPrices] = None,
@@ -531,7 +540,7 @@ class OpenAIChatProvider(_ChatDecisionProvider):
         return {**extras, "model": self.model, "messages": [
                     {"role": "system", "content": system},
                     {"role": "user", "content": letter_prompt(request.evidence, question)}],
-                self.max_tokens_field: self.max_answer_tokens, **answer}
+                self.max_tokens_field: self.answer_tokens(strategy), **answer}
 
     def usage(self, payload: Mapping[str, object]) -> Optional[TokenUsage]:
         usage = payload.get("usage")
@@ -648,7 +657,7 @@ class AnthropicMessagesProvider(_ChatDecisionProvider):
     api_version = "2023-06-01"
 
     def __init__(self, api_key: str, model: str, *, strategy: AnthropicStrategy = "text",
-                 base_url: Optional[str] = None, max_answer_tokens: int = 16,
+                 base_url: Optional[str] = None, max_answer_tokens: Optional[int] = None,
                  extra_body: Optional[JSONObject] = None, extra_headers: Optional[Dict[str, str]] = None,
                  prices: Optional[TokenPrices] = None, concurrency_limit: int = 4, timeout_s: float = 60,
                  max_retries: int = 3, retry_backoff_s: float = 0.5, session: Optional[HttpPoster] = None,
@@ -683,7 +692,7 @@ class AnthropicMessagesProvider(_ChatDecisionProvider):
                                       "input_schema": schema}],
                            "tool_choice": {"type": "tool", "name": "answer"}})
         system = SYSTEM_PROMPT + (JSON_INSTRUCTION if self.strategy == "json_schema" else "")
-        return {**extras, "model": self.model, "max_tokens": self.max_answer_tokens, "system": system,
+        return {**extras, "model": self.model, "max_tokens": self.answer_tokens(self.strategy), "system": system,
                 "messages": [{"role": "user", "content": letter_prompt(request.evidence, question)}]}
 
     def prompt_texts(self, request: DecisionRequest, questions: Sequence[DecisionQuestion]) -> List[str]:
