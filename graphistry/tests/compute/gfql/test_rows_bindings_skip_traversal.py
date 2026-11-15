@@ -332,6 +332,7 @@ def test_warnings_match_the_traversal_on_every_call(engine, shape):
     g = graph(engine)
     with routes_off([ROUTE]):
         expected = observed(g)
+    assert expected[1], "the shape must warn under the traversal for this check to mean anything"
     for _ in range(3):  # the first call fills the zero-row twin cache, later calls reuse it
         assert observed(g) == expected
 
