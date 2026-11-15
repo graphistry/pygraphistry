@@ -141,8 +141,9 @@ def run_without_traversal(
 ) -> Optional[Plottable]:
     """The suffix's answer on the zero-row twin of ``g``, or None when the canonical path must answer.
 
-    Any GFQL, unsupported-feature or polars error replays the canonical traversal, so a
-    query raises exactly what it raised before, and only failing queries pay twice.
+    A GFQL, unsupported-feature, Polars or builtin data-evaluation error (a dtype or value
+    the engine's rebuild rejects differently than the canonical filters) replays the canonical
+    traversal, so a query raises exactly what it raised before, and only failing queries pay twice.
     """
     from graphistry.compute.gfql.index.api import record_fast_path_decision
 
@@ -159,7 +160,9 @@ def run_without_traversal(
 def _replayable_errors() -> Tuple[Type[BaseException], ...]:
     from graphistry.compute.exceptions import GFQLValidationError
 
-    errors: Tuple[Type[BaseException], ...] = (GFQLValidationError, NotImplementedError)
+    errors: Tuple[Type[BaseException], ...] = (
+        GFQLValidationError, NotImplementedError, TypeError, ValueError, KeyError, ArithmeticError,
+    )
     try:
         import polars as pl
     except ImportError:

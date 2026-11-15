@@ -528,6 +528,25 @@ def test_concurrent_queries_fill_the_cache_consistently():
     assert all(actual[i] == expected[i % 2] for i in range(32))
 
 
+@pytest.mark.parametrize("error", [TypeError("bad compare"), ValueError("bad value"), KeyError("missing"), ZeroDivisionError("zero")])
+def test_data_evaluation_errors_in_the_skipped_path_replay_the_traversal(monkeypatch, error):
+    from graphistry.compute.gfql import rows_skip_traversal
+
+    query = SHAPES["seeded_undirected_edge_alias"][0]
+    g = graph("pandas")
+    with routes_off([ROUTE]):
+        expected = _outcome(g, query, "pandas")
+    real = rows_skip_traversal._zero_row_twin
+
+    def failing(*args, **kwargs):
+        real(*args, **kwargs)
+        raise error
+
+    monkeypatch.setattr(rows_skip_traversal, "_zero_row_twin", failing)
+    assert _consulted(g, query, "pandas") == {True, False}  # engaged, then replayed the traversal
+    assert _outcome(g, query, "pandas") == expected
+
+
 def test_column_named_schema_keys_on_dtypes():
     query = SHAPES["seeded_undirected_edge_alias"][0]
     for values in ([1] * 8, ["a"] * 8):
