@@ -150,7 +150,7 @@ def _flat_entity_field_names(
         extra = ["type"] if "type" in source_rows_df.columns else []
 
     fields: list[str] = []
-    public_id = id_column if id_column is None or not id_column.startswith("__") else None
+    public_id = None if id_column == MUTATION_NODE_ID else id_column
     for col in [public_id, *prop_cols, *extra]:
         if col is not None and col in source_rows_df.columns and col not in fields:
             fields.append(str(col))

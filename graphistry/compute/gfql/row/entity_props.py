@@ -4,7 +4,7 @@ from typing import Any, Iterable, List, Literal, Optional, Sequence, Tuple, cast
 
 import pandas as pd
 
-from graphistry.compute.dataframe_utils import df_cons as template_df_cons, is_cudf_obj
+from graphistry.compute.dataframe_utils import df_cons as template_df_cons
 from graphistry.Engine import is_polars_df
 from graphistry.compute.gfql.series_str_compat import series_str_contains, series_str_extract, series_str_match
 from graphistry.compute.gfql.temporal.constructors import (

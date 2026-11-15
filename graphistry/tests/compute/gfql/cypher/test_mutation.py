@@ -647,6 +647,83 @@ def test_create_declines_a_legacy_list_valued_labels_column_before_effects(engin
     assert _records(source._nodes) == before
 
 
+# B16-F1: the id contract is "never equal ANY existing node key or edge endpoint value, for every dtype".
+@pytest.mark.parametrize("engine", ENGINES)
+@pytest.mark.parametrize("edge_data,edge_dtypes", [
+    ({"s": [1.0], "d": [3.0]}, {"s": "float64", "d": "float64"}),
+    ({"s": [1, 2], "d": [3, None]}, {"s": "int64", "d": "float64"}),
+    ({"s": [1], "d": ["3"]}, {"s": "int64", "d": "object"}),
+])
+def test_create_ids_skip_float_null_promoted_and_numeric_string_endpoints(engine, edge_data, edge_dtypes):
+    nodes = _typed_frame(engine, {"id": [1, 2]}, {"id": "int64"})
+    edges = _typed_frame(engine, edge_data, edge_dtypes)
+    source = graphistry.nodes(nodes, "id").edges(edges, "s", "d")
+    result = source.gfql("CREATE (:New)", engine=engine)
+    assert sorted(row[result._node] for row in _records(result._nodes)) == [1, 2, 4]
+    if edge_dtypes["d"] == "float64":
+        count = result.gfql("MATCH (n:New)--() RETURN count(*) AS c", engine=engine)
+        assert _records(count._nodes) == [{"c": 0}]
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_create_ids_skip_float_endpoints_on_an_empty_node_frame(engine):
+    nodes = _typed_frame(engine, {"id": []}, {"id": "int64"})
+    edges = _typed_frame(engine, {"s": [0.0], "d": [1.0]}, {"s": "float64", "d": "float64"})
+    result = graphistry.nodes(nodes, "id").edges(edges, "s", "d").gfql("CREATE (:New)", engine=engine)
+    assert [row[result._node] for row in _records(result._nodes)] == [2]
+
+
+# B16-F4: string ids skip string edge endpoints too.
+@pytest.mark.parametrize("engine", ENGINES)
+def test_create_string_ids_skip_string_edge_endpoints(engine):
+    nodes = _typed_frame(engine, {"id": ["a"]}, {"id": "object"})
+    edges = _typed_frame(engine, {"s": ["a"], "d": ["__gfql_created_0"]}, {"s": "object", "d": "object"})
+    result = graphistry.nodes(nodes, "id").edges(edges, "s", "d").gfql("CREATE (:New)", engine=engine)
+    assert sorted(row[result._node] for row in _records(result._nodes)) == ["__gfql_created_1", "a"]
+
+
+# B16-F2: any non-null labels column is declined, also next to label__* flags (the shape the TCK harness builds).
+@pytest.mark.parametrize("engine", ENGINES)
+@pytest.mark.parametrize("data", [
+    {"id": [1], "labels": [["A"]], "label__A": [True]},
+    {"id": [1], "labels": ["A"]},
+])
+def test_create_declines_a_non_null_labels_column_with_or_without_flags(engine, data):
+    source = graphistry.nodes(_typed_frame(engine, data, {}), "id")
+    before = _records(source._nodes)
+    with pytest.raises(GFQLValidationError) as exc:
+        source.gfql("CREATE (:New)", engine=engine)
+    assert exc.value.code == ErrorCode.E108
+    assert exc.value.context["field"] == "create" and exc.value.context["value"] == "legacy_labels"
+    assert _records(source._nodes) == before
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_create_accepts_an_all_null_labels_column(engine):
+    source = graphistry.nodes(_typed_frame(engine, {"id": [1, 2], "labels": [None, None]}, {"labels": "float64"}), "id")
+    result = source.gfql("CREATE (:New)", engine=engine)
+    assert sorted(row[result._node] for row in _records(result._nodes)) == [1, 2, 3]
+
+
+# B16-F3: a Polars LazyFrame is a structured lazy_frame decline (never an assert/TypeError), and AUTO may fall back.
+@pytest.mark.skipif(importlib.util.find_spec("polars") is None, reason="polars is not installed")
+@pytest.mark.parametrize("lazy", ["nodes", "edges", "both"])
+def test_create_on_a_polars_lazy_frame_is_a_structured_decline(lazy):
+    from graphistry.compute.exceptions import GFQLUnsupportedError
+    polars = pytest.importorskip("polars")
+    nodes, edges = polars.DataFrame({"id": [1, 2]}), polars.DataFrame({"s": [1], "d": [2]})
+    source = graphistry.nodes(nodes.lazy() if lazy in {"nodes", "both"} else nodes, "id").edges(
+        edges.lazy() if lazy in {"edges", "both"} else edges, "s", "d",
+    )
+    with pytest.raises(GFQLUnsupportedError) as exc:
+        source.gfql("CREATE (:X)", engine="polars")
+    assert exc.value.code == ErrorCode.E108 and exc.value.context["value"] == "lazy_frame"
+    try:
+        source.gfql("CREATE (:X)")
+    except GFQLUnsupportedError as auto_exc:
+        assert auto_exc.context["value"] == "lazy_frame"
+
+
 # A16-F5: created ids keep an unsigned integer id dtype, so a second CREATE does not fail on a widened column.
 @pytest.mark.parametrize("engine", ENGINES)
 def test_create_keeps_an_unsigned_integer_id_dtype_across_repeated_creates(engine):
@@ -677,9 +754,17 @@ def test_create_declines_reserved_and_duplicate_keys_before_effects(engine, quer
     assert _records(source._nodes) == before
 
 
-# Documented contract: a node key starting with __ is internal and omitted from flattened whole-entity RETURN fields.
-def test_node_key_starting_with_double_underscore_is_not_returned_as_a_flattened_field():
-    graph = graphistry.nodes(pd.DataFrame({"__vid": [1, 2], "name": ["a", "b"]}), "__vid")
-    result = graph.gfql("MATCH (x) RETURN x", engine="pandas")
-    assert "x.__vid" not in result._nodes.columns
-    assert "x.name" in result._nodes.columns
+# Only the internal CREATE identity column is hidden from flattened whole-entity RETURN fields; user keys starting
+# with __ stay.
+@pytest.mark.parametrize("engine", ENGINES)
+def test_user_node_key_starting_with_double_underscore_stays_a_flattened_field(engine):
+    graph = graphistry.nodes(_typed_frame(engine, {"__vid": [1, 2], "name": ["a", "b"]}, {}), "__vid")
+    result = graph.gfql("MATCH (x) RETURN x", engine=engine)
+    assert {"x.__vid", "x.name"} <= set(result._nodes.columns)
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_internal_create_identity_is_not_a_flattened_field(engine):
+    result = _graph(engine).gfql("CREATE (n:L {name: 'z'}) RETURN n", engine=engine)
+    assert f"n.{MUTATION_NODE_ID}" not in result._nodes.columns
+    assert "n.name" in result._nodes.columns

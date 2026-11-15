@@ -150,8 +150,29 @@ def _new_nodes_frame(
     )
 
 
+def _lazy_frame_error(field: str) -> GFQLUnsupportedError:
+    return GFQLUnsupportedError(
+        ErrorCode.E108, "CREATE requires materialized input frames",
+        field=field, value="lazy_frame", suggestion="Collect the Polars LazyFrame before CREATE.", language="cypher",
+    )
+
+
+def _reject_lazy_frames(graph: Plottable) -> None:
+    """A Polars LazyFrame is a structured decline (AUTO can fall back to pandas), checked before any frame is read."""
+    for name, frame in (("nodes", graph._nodes), ("edges", graph._edges)):
+        if frame is not None and is_polars_df(frame):
+            import polars as pl
+            if isinstance(frame, pl.LazyFrame):
+                raise _lazy_frame_error(name)
+
+
 def _edge_endpoint_maximum(edges: Optional[DataFrameT], source: Optional[str], destination: Optional[str]) -> Optional[int]:
-    """Largest integer edge endpoint, so a created node id never collides with a (possibly dangling) endpoint."""
+    """Largest numeric edge endpoint (any dtype GFQL matches to node ids by value), so a created id never takes over a dangling edge.
+
+    Integer columns are exact; float, numeric-like object/string and categorical columns are read as floats (ceil of the
+    finite maximum); values that are not numbers can never equal an integer id and are ignored.
+    """
+    import numpy as np
     import pandas as pd
 
     best: Optional[int] = None
@@ -160,22 +181,62 @@ def _edge_endpoint_maximum(edges: Optional[DataFrameT], source: Optional[str], d
     for name in (source, destination):
         if name is None or name not in edges.columns:
             continue
+        value: Optional[int] = None
         if is_polars_df(edges):
             import polars as pl
-            assert isinstance(edges, pl.DataFrame)
-            if not edges.schema[name].is_integer():
-                continue
-            polars_value = edges.get_column(name).max()
-            value = polars_value if isinstance(polars_value, int) else None
+            if not isinstance(edges, pl.DataFrame):
+                raise _lazy_frame_error("edges")
+            dtype = edges.schema[name]
+            if dtype.is_integer():
+                polars_value = edges.get_column(name).max()
+                value = polars_value if isinstance(polars_value, int) else None
+            elif dtype.is_float() or dtype == pl.String:
+                numeric = edges.get_column(name).cast(pl.Float64, strict=False)
+                finite_max = numeric.filter(numeric.is_finite()).max()
+                value = math.ceil(finite_max) if isinstance(finite_max, float) else None
         else:
             column = edges[name]
-            if not pd.api.types.is_integer_dtype(column.dtype):
-                continue
-            present = column.dropna()
-            value = int(present.max()) if len(present) else None
+            if pd.api.types.is_integer_dtype(column.dtype):
+                present = column.dropna()
+                value = int(present.max()) if len(present) else None
+            elif (
+                pd.api.types.is_float_dtype(column.dtype)
+                or pd.api.types.is_object_dtype(column.dtype)
+                or pd.api.types.is_string_dtype(column.dtype)
+                or str(column.dtype) == "category"
+            ):
+                host = column.to_pandas() if hasattr(column, "to_pandas") else column
+                if str(host.dtype) == "category":
+                    host = host.astype(object)
+                numbers = pd.to_numeric(host, errors="coerce").to_numpy(dtype="float64", na_value=np.nan)
+                finite = numbers[np.isfinite(numbers)]
+                value = math.ceil(float(finite.max())) if len(finite) else None
         if value is not None and (best is None or value > best):
             best = value
     return best
+
+
+def _endpoint_hits_strings(
+    edges: Optional[DataFrameT], source: Optional[str], destination: Optional[str], identities: list[Union[int, str]],
+) -> bool:
+    """Whether any string edge endpoint equals one of the candidate string identities."""
+    if edges is None:
+        return False
+    for name in (source, destination):
+        if name is None or name not in edges.columns:
+            continue
+        if is_polars_df(edges):
+            import polars as pl
+            if not isinstance(edges, pl.DataFrame):
+                raise _lazy_frame_error("edges")
+            if edges.schema[name] != pl.String:
+                continue
+            found = bool(edges.get_column(name).is_in(identities).any())
+        else:
+            found = bool(edges[name].isin(identities).any())
+        if found:
+            return True
+    return False
 
 
 def _numeric_id_seed(
@@ -192,10 +253,7 @@ def _numeric_id_seed(
     if is_polars_df(nodes):
         import polars as pl
         if not isinstance(nodes, pl.DataFrame):
-            raise GFQLUnsupportedError(
-                ErrorCode.E108, "CREATE requires materialized input frames",
-                field=node_key, value="lazy_frame", language="cypher",
-            )
+            raise _lazy_frame_error("nodes")
         values = nodes.get_column(node_key)
         limits: dict["PolarsDType", int] = {
             pl.Int8: (1 << 7) - 1, pl.Int16: (1 << 15) - 1,
@@ -387,8 +445,11 @@ def _validate_legacy_label_transition(
 
 
 def _validate_no_legacy_labels_column(nodes: Optional[DataFrameT]) -> None:
-    """Reject CREATE on a legacy list-valued ``labels`` column (readers would render the new rows as ``nan``)."""
-    if nodes is None or len(nodes) == 0 or "labels" not in nodes.columns or label_flag_columns(nodes.columns):
+    """Reject CREATE on any non-null ``labels`` column, with or without ``label__*`` flags.
+
+    Readers use a list-like ``labels`` column exclusively, so created rows would render as ``nan``.
+    """
+    if nodes is None or len(nodes) == 0 or "labels" not in nodes.columns:
         return
     if bool(series_not_null_mask(nodes["labels"]).any()):
         raise GFQLMutationError(
@@ -408,7 +469,8 @@ def _match_key_dtype(nodes: DataFrameT, new_nodes: DataFrameT, key: str) -> Data
         return new_nodes
     if is_polars_df(nodes):
         import polars as pl
-        assert isinstance(nodes, pl.DataFrame) and isinstance(new_nodes, pl.DataFrame)
+        if not isinstance(nodes, pl.DataFrame) or not isinstance(new_nodes, pl.DataFrame):
+            raise _lazy_frame_error("nodes")
         if not nodes.schema[key].is_integer():
             return new_nodes
         return new_nodes.with_columns(pl.col(key).cast(nodes.schema[key]))  # type: ignore[return-value]  # polars frame, not the pandas alias
@@ -443,6 +505,7 @@ def execute_create_nodes(
 
     from graphistry.compute.ComputeMixin import _coerce_input_formats
     base_graph = _coerce_input_formats(self, concrete_engine)
+    _reject_lazy_frames(base_graph)
     if base_graph._gfql_graph is not None:
         base_graph = base_graph.bind()
         base_graph._gfql_graph = None
@@ -501,13 +564,15 @@ def execute_create_nodes(
         if bool(nulls) or bool(duplicates):
             raise GFQLMutationError(ErrorCode.E105, "CREATE requires unique non-null physical identities", field=old_key, value="invalid_identity", language="cypher")
     if string_identity:
-        # Membership is checked on the native frame; no existing identities leave it.
+        # Membership is checked on the native frames; no existing identity leaves them.
         offset = 0
         while True:
             identities = [f"__gfql_created_{offset + i}" for i in range(count)]
             values = nodes[node_key]
             hits = values.is_in(identities) if is_polars_df(nodes) else values.isin(identities)
-            if not bool(hits.any()):
+            if not bool(hits.any()) and not _endpoint_hits_strings(
+                base_graph._edges, base_graph._source, base_graph._destination, identities,
+            ):
                 break
             offset += count
     else:
