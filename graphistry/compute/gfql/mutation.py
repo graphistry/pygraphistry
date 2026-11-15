@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import math
-from typing import TYPE_CHECKING, Any, Mapping, NamedTuple, Optional, Sequence, Union
+from typing import TYPE_CHECKING, Any, Mapping, NamedTuple, Optional, Sequence, Union, cast
 from typing_extensions import Literal
 
 import numpy as np
@@ -97,19 +97,6 @@ def _assignment_value_family(frame: DataFrameT, column: str) -> str:
             "empty": "null",
         }.get(inferred, "other")
     return _frame_family(frame, column)
-
-
-def _nan_values_to_null(frame: DataFrameT) -> DataFrameT:
-    """NaN and null are one "absent" value for SET on every engine; pandas cannot tell them apart."""
-    if is_polars_df(frame):
-        import polars as pl
-        assert isinstance(frame, pl.DataFrame)
-        if frame.schema[SET_VALUE].is_float():
-            return frame.with_columns(pl.col(SET_VALUE).fill_nan(None))
-        return frame
-    if is_cudf_obj(frame) and frame[SET_VALUE].dtype.kind == "f":
-        return frame.assign(**{SET_VALUE: frame[SET_VALUE].nans_to_nulls()})
-    return frame
 
 
 SET_IDENTITY = "__gfql_set_identity__"
@@ -434,12 +421,16 @@ def execute_set_properties(
                     pl.col(identity_column).alias(SET_IDENTITY),
                     pl.col(value_column).alias(SET_VALUE),
                 )
+                if assignment_frame.schema[SET_VALUE].is_float():
+                    assignment_frame = assignment_frame.with_columns(pl.col(SET_VALUE).fill_nan(None))
             else:
+                values = frame[value_column]
+                if values.dtype.kind == "f":
+                    values = values.where(values == values)  # NaN is null for SET on every engine
                 assignment_frame = frame[[identity_column]].rename(
                     columns={identity_column: SET_IDENTITY}
                 )
-                assignment_frame = assignment_frame.assign(**{SET_VALUE: frame[value_column]})
-            assignment_frame = _nan_values_to_null(assignment_frame)
+                assignment_frame = assignment_frame.assign(**{SET_VALUE: values})
             value_family = _assignment_value_family(assignment_frame, SET_VALUE)
             if value_family == "other":
                 raise GFQLMutationError(
@@ -1292,7 +1283,7 @@ def execute_create_nodes(
                 polars_new_nodes = polars_new_nodes.with_columns(
                     pl.col(label_column).fill_null(False).cast(pl.Boolean)
                 )
-            new_nodes = polars_new_nodes
+            new_nodes = cast(DataFrameT, polars_new_nodes)  # hygiene-ok: explicit-cast -- Polars frame at the engine boundary; DataFrameT is the pandas type under mypy
         else:
             for label_column in sorted(label_columns):
                 new_nodes = new_nodes.assign(
