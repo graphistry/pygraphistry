@@ -10,7 +10,7 @@ import pandas as pd
 import pytest
 
 import graphistry
-from graphistry.compute.exceptions import ErrorCode, GFQLValidationError
+from graphistry.compute.exceptions import ErrorCode, GFQLCallExecutionError, GFQLValidationError
 
 
 ENGINES = [
@@ -320,16 +320,22 @@ def test_subscript_of_a_shadowing_local_reads_the_local_not_the_outer_node(engin
 
 @pytest.mark.parametrize("engine", ENGINES)
 def test_properties_of_a_shadowing_local_is_never_the_outer_nodes_properties(engine) -> None:
-    graph = _graph(engine)
-    try:
-        rows = _rows(graph.gfql("MATCH (n) RETURN [n IN [{a: 1}] | properties(n)][0] AS p", engine=engine)._nodes)
-    except (GFQLValidationError, NotImplementedError):
-        return
-    assert rows and not any("tags" in str(row["p"]) for row in rows)
+    """The evaluator has no properties() of a local map: a structured error on pandas, a bare NotImplementedError on cuDF."""
+    query = "MATCH (n) RETURN [n IN [{a: 1}] | properties(n)][0] AS p"
+    if engine == "pandas":
+        with pytest.raises(GFQLCallExecutionError, match=r"properties\(\) requires a graph element"):
+            _graph(engine).gfql(query, engine=engine)
+    elif engine == "cudf":
+        with pytest.raises(NotImplementedError):
+            _graph(engine).gfql(query, engine=engine)
+    else:
+        with pytest.raises(NotImplementedError, match=POLARS_ROW_OP):
+            _graph(engine).gfql(query, engine=engine)
 
 
 @pytest.mark.parametrize("engine", ENGINES)
 def test_type_of_a_shadowing_local_is_not_the_outer_relationship(engine) -> None:
+    """master returned the outer relationship's type ('T'); now pandas and cuDF raise a structured error, Polars its decline."""
     edges = pd.DataFrame({"s": [1], "d": [2], "type": ["T"]})
     nodes = pd.DataFrame({"id": [1, 2]})
     if engine == "cudf":
@@ -339,8 +345,10 @@ def test_type_of_a_shadowing_local_is_not_the_outer_relationship(engine) -> None
         polars = pytest.importorskip("polars")
         nodes, edges = polars.from_pandas(nodes), polars.from_pandas(edges)
     graph = graphistry.nodes(nodes, "id").edges(edges, "s", "d")
-    try:
-        rows = _rows(graph.gfql("MATCH ()-[r]->() RETURN [r IN [1] | type(r)][0] AS t", engine=engine)._nodes)
-    except (GFQLValidationError, NotImplementedError):
-        return
-    assert all(row["t"] is None or row["t"] != row["t"] for row in rows)
+    query = "MATCH ()-[r]->() RETURN [r IN [1] | type(r)][0] AS t"
+    if engine == "polars":
+        with pytest.raises(NotImplementedError, match=POLARS_ROW_OP):
+            graph.gfql(query, engine=engine)
+    else:
+        with pytest.raises(GFQLCallExecutionError, match=r"type\(\) requires a graph element"):
+            graph.gfql(query, engine=engine)
