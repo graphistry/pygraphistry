@@ -671,11 +671,12 @@ conflicting updates fail with structured errors before effects. Right-hand sides
 may be literals, parameters, or computed expressions such as ``n.num + 1``. The
 matched node may be read only through direct property access (``n.prop``); any
 other use of it, such as ``head([n])``, ``[n][0].a`` or ``n['a']``, is declined
-with ``E108`` (``whole_entity_read``), as are a list or map value (including a
-list parameter, which is declined whole wherever it appears, such as ``$v[0]``),
-aggregation, a name that is not bound, a comprehension or quantifier variable
-named like the matched node, an expression the compiler cannot analyze, and a NaN
-or infinite parameter. On an edges-only graph the node table is materialized from
+with ``E108`` (``whole_entity_read``), as are a list or map value (a list or map
+parameter is declined only when it is the whole value; scalar-valued uses such as
+``n.id IN $ids`` or ``size($tags)`` are allowed), aggregation, a name that is not
+bound, a comprehension or quantifier variable named like the matched node, an
+expression the compiler cannot analyze, and a NaN or infinite number in a
+parameter, including inside a list or map parameter. On an edges-only graph the node table is materialized from
 the edges, as for reads. Each property may be assigned at most once per query (``E105``,
 ``repeated_property``), and ``SET`` must follow the ``MATCH`` that binds its
 variable. Several ``SET`` clauses are allowed, but every right-hand side

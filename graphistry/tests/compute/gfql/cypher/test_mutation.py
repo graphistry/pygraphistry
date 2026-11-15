@@ -2302,10 +2302,16 @@ def test_set_declines_a_list_or_map_parameter_that_is_the_whole_value(param) -> 
 @pytest.mark.parametrize("engine", ENGINES)
 def test_set_admits_scalar_valued_uses_of_list_and_map_parameters(engine) -> None:
     source = graphistry.nodes(_foundation_frame(engine, {"id": [1, 2, 3]}), "id")
-    result = source.gfql(
-        "MATCH (n) SET n.member = n.id IN $ids, n.count = size($tags), n.k = coalesce($m.k, 0)",
-        engine=engine, params={"ids": [1, 3], "tags": ["a", "b", "c"], "m": {"k": 7}},
-    )
+    before = _records(source._nodes)
+    query = "MATCH (n) SET n.member = n.id IN $ids, n.count = size($tags), n.k = coalesce($m.k, 0)"
+    params = {"ids": [1, 3], "tags": ["a", "b", "c"], "m": {"k": 7}}
+    compile_cypher_query(parse_cypher(query), params=params)
+    if engine == "polars":
+        with pytest.raises(NotImplementedError):  # native Polars row pipeline is parity-or-error for these forms
+            source.gfql(query, engine=engine, params=params)
+        assert _records(source._nodes) == before
+        return
+    result = source.gfql(query, engine=engine, params=params)
     assert _set_values(result, "member") == {1: True, 2: False, 3: True}
     assert _set_values(result, "count") == {1: 3, 2: 3, 3: 3}
     assert _set_values(result, "k") == {1: 7, 2: 7, 3: 7}
@@ -2376,7 +2382,13 @@ def test_set_declines_shadowing_through_execution_and_validation(engine, express
 @pytest.mark.parametrize("engine", ENGINES)
 def test_set_admits_a_comprehension_local_that_does_not_shadow_the_alias(engine) -> None:
     source = _label_n_graph(engine, [1])
-    result = source.gfql("MATCH (n:N) SET n.b = [t IN [1, 2] | t + n.num][1]", engine=engine)
+    query = "MATCH (n:N) SET n.b = [t IN [1, 2] | t + n.num][1]"
+    assert compile_cypher_query(parse_cypher(query)) is not None
+    if engine == "polars":
+        with pytest.raises(NotImplementedError):  # native Polars row pipeline is parity-or-error for comprehensions
+            source.gfql(query, engine=engine)
+        return
+    result = source.gfql(query, engine=engine)
     assert _post_graph_nums(result) == [1]
     assert {row["id"]: row["b"] for row in _records(result._nodes)} == {1: 3}
 

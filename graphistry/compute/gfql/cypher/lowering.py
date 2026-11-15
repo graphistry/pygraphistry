@@ -103,6 +103,7 @@ from graphistry.compute.gfql.expr_parser import (
     is_expr_node,
 )
 from graphistry.compute.gfql.cypher.reentry_plan import ReentryPlan
+from graphistry.compute.gfql.cypher.set_analysis import analyze_set_assignment
 from graphistry.compute.gfql.cypher.ast import (
     CreateRelationship,
     BooleanExpr,
@@ -7755,14 +7756,7 @@ def lower_cypher_query(
             language="cypher",
         )
     if isinstance(compiled, CompiledCypherMutationQuery):
-        raise GFQLValidationError(
-            ErrorCode.E108,
-            "Standalone Cypher CREATE cannot be represented as a single GFQL Chain",
-            field="create",
-            value=None,
-            suggestion="Execute the query through g.gfql(\"...\", language=\"cypher\") instead of cypher_to_gfql().",
-            language="cypher",
-        )
+        raise mutation_chain_error(compiled)
     if compiled.procedure_call is not None:
         raise GFQLValidationError(
             ErrorCode.E108,
@@ -9351,130 +9345,17 @@ def _maybe_pushdown_row_prefilters(
     return replace(result, chain=new_chain)
 
 
-def _prepare_set_param_text(
-    text: str, params: Optional[Mapping[str, Any]], span: Any
-) -> str:
-    """Quote-aware pre-pass over a SET value: decline NaN/inf parameters, parenthesize negative numbers.
-
-    Parenthesizing keeps ``n.a -$v`` with ``v = -5`` from rendering as ``n.a --5``.
-    """
-    from graphistry.compute.gfql.cypher.expression_text import cypher_literal_expr_text
-
-    out: List[str] = []
-    idx = 0
-    in_single = in_double = False
-    while idx < len(text):
-        ch = text[idx]
-        if ch == "'" and not in_double and (idx == 0 or text[idx - 1] != "\\"):
-            in_single = not in_single
-        elif ch == '"' and not in_single and (idx == 0 or text[idx - 1] != "\\"):
-            in_double = not in_double
-        elif ch == "$" and not in_single and not in_double:
-            token = _CYPHER_PARAM_TOKEN_RE.match(text, idx)
-            supplied = (params or {}).get(token.group(1)) if token is not None else None
-            if token is not None and isinstance(supplied, (list, tuple, set, dict)):
-                raise _unsupported_at_span(
-                    "GFQL SET supports ordinary scalar properties only",
-                    field="set", value="non_scalar_value", span=span,
-                )
-            if token is not None and isinstance(supplied, float) and math.isnan(supplied):
-                raise _unsupported_at_span(
-                    "GFQL SET cannot represent a NaN parameter value as distinct from null",
-                    field="set", value="nan_property", span=span,
-                )
-            if token is not None and isinstance(supplied, float) and math.isinf(supplied):
-                raise _unsupported_at_span(
-                    "GFQL SET cannot store an infinite parameter value",
-                    field="set", value="non_finite_parameter", span=span,
-                )
-            if token is not None and not isinstance(supplied, bool) and (
-                (isinstance(supplied, float) and math.copysign(1.0, supplied) < 0)
-                or (isinstance(supplied, int) and supplied < 0)
-            ):
-                out.append(f"({cypher_literal_expr_text(supplied)})")
-                idx = token.end()
-                continue
-        out.append(ch)
-        idx += 1
-    return "".join(out)
-
-
-def _analyze_set_value(
-    assignment: SetProperty, *, params: Optional[Mapping[str, Any]]
-) -> tuple[str, ExprNode]:
-    """Parameter-substituted text and parsed expression of a SET value, analyzed like execution does.
-
-    Uses the execution row-expression parser; an expression it cannot analyze is declined, never skipped,
-    so the read-after-write check can never be bypassed.
-    """
-    from graphistry.compute.gfql.cypher.expression_text import cypher_literal_expr_text
-
-    value = assignment.value
-    if isinstance(value, ExpressionText):
-        text = value.text
-    elif value is None:
-        text = "null"
-    else:
-        text = cypher_literal_expr_text(value)
-    line, column = assignment.span.line, assignment.span.column
-    text = _prepare_set_param_text(text, params, assignment.span)
-    prepared = _rewrite_param_expr(
-        text, params=params, field="set", line=line, column=column, allow_missing=False,
+def mutation_chain_error(compiled: "CompiledCypherMutationQuery") -> GFQLValidationError:
+    """Structured E108 for a write program that has no single-Chain form (SET gets its own field/value)."""
+    is_set = bool(compiled.sets)
+    return GFQLValidationError(
+        ErrorCode.E108,
+        f"Standalone Cypher {'SET' if is_set else 'CREATE'} cannot be represented as a single GFQL Chain",
+        field="set" if is_set else "create",
+        value="mutation_query" if is_set else None,
+        suggestion="Execute the query through g.gfql(\"...\", language=\"cypher\") instead of cypher_to_gfql().",
+        language="cypher",
     )
-    try:
-        expression = _parse_row_expr(prepared, field="set", line=line, column=column)
-    except GFQLValidationError as exc:
-        raise _unsupported_at_span(
-            "GFQL SET cannot analyze this value expression",
-            field="set", value="unanalyzable_value", span=assignment.span,
-        ) from exc
-    return prepared, expression
-
-
-def _set_alias_uses(
-    expression: ExprNode, aliases: Mapping[str, object]
-) -> tuple[set[tuple[str, str]], bool, set[str], set[str]]:
-    """Property reads of the SET aliases, whether an alias is used other than as ``alias.property``, unbound names,
-    and aliases shadowed by a comprehension or quantifier variable.
-
-    Fails closed: the alias is allowed only as a direct property access, a name bound by an enclosing
-    comprehension or quantifier is local, and any other identifier is unbound and reported.
-    """
-    reads: set[tuple[str, str]] = set()
-    unbound: set[str] = set()
-    shadowed: set[str] = set()
-    whole_entity = False
-
-    def visit(node: ExprNode, bound: frozenset[str]) -> None:
-        nonlocal whole_entity
-        if isinstance(node, PropertyAccessExpr) and isinstance(node.value, Identifier) and node.value.name in aliases:
-            reads.add((node.value.name, node.property))
-            return
-        if isinstance(node, Identifier):
-            root, dot, remainder = node.name.partition(".")
-            if root in bound:
-                return
-            if dot and root in aliases:
-                reads.add((root, remainder.split(".")[0]))
-            elif node.name in aliases:
-                whole_entity = True
-            else:
-                unbound.add(node.name)
-            return
-        if isinstance(node, (ListComprehension, QuantifierExpr)):
-            if node.var in aliases:
-                shadowed.add(node.var)
-            visit(node.source, bound)
-            inner = bound | {node.var}
-            for child in (node.predicate, getattr(node, "projection", None)):
-                if child is not None:
-                    visit(child, inner)
-            return
-        for child in iter_expr_children(node):
-            visit(child, bound)
-
-    visit(expression, frozenset())
-    return reads, whole_entity, unbound, shadowed
 
 
 def compile_cypher_query(
@@ -9563,64 +9444,9 @@ def compile_cypher_query(
                     )
                 if assignment.target.alias not in aliases:
                     aliases.append(assignment.target.alias)
-                value_text, set_value_expr = _analyze_set_value(assignment, params=params)
-                if isinstance(set_value_expr, (ListLiteral, ListComprehension, MapLiteral)):
-                    raise _unsupported_at_span(
-                        "GFQL SET supports ordinary scalar properties only",
-                        field="set",
-                        value="non_scalar_value",
-                        span=assignment.span,
-                    )
-                if _contains_aggregate_call(set_value_expr):
-                    raise _unsupported_at_span(
-                        "GFQL SET values cannot use aggregation",
-                        field="set",
-                        value="aggregate_value",
-                        span=assignment.span,
-                    )
-                property_reads, whole_entity_read, unbound_names, shadowed_aliases = _set_alias_uses(
-                    set_value_expr, alias_kinds,
-                )
-                if shadowed_aliases:
-                    raise _unsupported_at_span(
-                        "GFQL SET values cannot bind a local variable with the name of the matched node",
-                        field="set",
-                        value="shadowed_alias",
-                        span=assignment.span,
-                    )
-                if unbound_names:
-                    raise _unsupported_at_span(
-                        "GFQL SET values may use only the matched node's properties and locally bound names",
-                        field="set",
-                        value="unbound_variable",
-                        span=assignment.span,
-                    )
-                if whole_entity_read:
-                    raise _unsupported_at_span(
-                        "GFQL SET may read the matched entity only through direct property access (alias.property)",
-                        field="set",
-                        value="whole_entity_read",
-                        span=assignment.span,
-                    )
-                if property_reads & written_properties:
-                    raise _unsupported_at_span(
-                        "GFQL SET evaluates every right-hand side on the graph before the SET; "
-                        "it cannot read a property assigned earlier in the same query",
-                        field="set",
-                        value="read_after_write",
-                        span=assignment.span,
-                    )
-                target = (assignment.target.alias, assignment.target.property)
-                if target in written_properties:
-                    raise GFQLValidationError(
-                        ErrorCode.E105,
-                        f"GFQL SET assigns {assignment.target.alias}.{assignment.target.property} more than once",
-                        field="set", value="repeated_property",
-                        suggestion="Assign each property at most once per query.",
-                        line=assignment.span.line, column=assignment.span.column, language="cypher",
-                    )
-                written_properties.add(target)
-                value_texts.append(value_text)
+                value_texts.append(analyze_set_assignment(
+                    assignment, params=params, aliases=alias_kinds, written=written_properties,
+                ))
             first_node_alias = next(iter(alias_kinds))  # SET aliases must be bound, so this is non-empty
             return_items: list[ReturnItem] = []
             seed_identity_column = "__gfql_set_seed_identity__"

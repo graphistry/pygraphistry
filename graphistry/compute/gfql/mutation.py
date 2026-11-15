@@ -405,9 +405,6 @@ def execute_set_properties(
     concrete_engine = resolve_engine(
         engine, self._edges if self._edges is not None else self._nodes,
     )
-    base_graph = self
-    if base_graph._nodes is None and base_graph._edges is not None:
-        base_graph = base_graph.materialize_nodes(engine=concrete_engine.value)
     if concrete_engine == Engine.POLARS_GPU:
         raise GFQLUnsupportedError(
             ErrorCode.E108,
@@ -416,6 +413,9 @@ def execute_set_properties(
             suggestion="Use engine='polars' on CPU or engine='cudf' for the native cuDF route.",
             language="cypher",
         )
+    base_graph = self
+    if base_graph._nodes is None and base_graph._edges is not None:
+        base_graph = base_graph.materialize_nodes(engine=concrete_engine.value)
     frame = matched_rows._nodes
     if frame is None:
         raise GFQLMutationError(
@@ -480,11 +480,6 @@ def execute_set_properties(
         raise GFQLMutationError(
             ErrorCode.E108, "SET requires a node identity column",
             field="node", value="missing", language="cypher",
-        )
-    if any(alias_kind_map[alias] == "edge" for alias in updates) and edge_key is None:
-        raise GFQLMutationError(
-            ErrorCode.E108, "SET requires an edge identity column",
-            field="edge", value="missing", language="cypher",
         )
     for alias, properties in updates.items():
         frame = _require_table(nodes if alias_kind_map[alias] == "node" else edges, alias_kind_map[alias])

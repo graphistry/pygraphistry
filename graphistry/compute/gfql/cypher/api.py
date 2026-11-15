@@ -7,6 +7,7 @@ from graphistry.compute.chain import Chain
 from graphistry.compute.exceptions import ErrorCode, GFQLValidationError
 
 from .lowering import (
+    mutation_chain_error,
     CompiledCypherGraphQuery,
     CompiledCypherMutationQuery,
     CompiledCypherQuery,
@@ -47,14 +48,7 @@ def cypher_to_gfql(
             language="cypher",
         )
     if isinstance(compiled, CompiledCypherMutationQuery):
-        raise GFQLValidationError(
-            ErrorCode.E108,
-            "Standalone Cypher CREATE cannot be represented as a single GFQL Chain",
-            field="create",
-            value=None,
-            suggestion="Execute the query through g.gfql(\"...\", language=\"cypher\") instead of cypher_to_gfql().",
-            language="cypher",
-        )
+        raise mutation_chain_error(compiled)
     if isinstance(compiled, CompiledCypherGraphQuery):
         if compiled.graph_bindings:
             raise GFQLValidationError(
