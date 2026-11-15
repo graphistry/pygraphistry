@@ -612,7 +612,7 @@ def test_create_ids_skip_edge_endpoints_so_a_new_node_has_no_dangling_edge(engin
     edges = _typed_frame(engine, {"s": [1], "d": [3]}, {"s": "int64", "d": "int64"})
     source = graphistry.nodes(nodes, "id").edges(edges, "s", "d")
     result = source.gfql("CREATE (:New)", engine=engine)
-    assert sorted(row["id"] for row in _records(result._nodes)) == [1, 2, 4]
+    assert sorted(row[result._node] for row in _records(result._nodes)) == [1, 2, 4]
     count = result.gfql("MATCH (n:New)--() RETURN count(*) AS c", engine=engine)
     assert _records(count._nodes) == [{"c": 0}]
     assert _records(source._nodes) == [{"id": 1}, {"id": 2}]
@@ -623,7 +623,7 @@ def test_create_ids_skip_edge_endpoints_on_an_empty_node_frame(engine):
     nodes = _typed_frame(engine, {"id": []}, {"id": "int64"})
     edges = _typed_frame(engine, {"s": [0], "d": [1]}, {"s": "int64", "d": "int64"})
     result = graphistry.nodes(nodes, "id").edges(edges, "s", "d").gfql("CREATE (:New)", engine=engine)
-    assert [row["id"] for row in _records(result._nodes)] == [2]
+    assert [row[result._node] for row in _records(result._nodes)] == [2]
     count = result.gfql("MATCH (n:New)--() RETURN count(*) AS c", engine=engine)
     assert _records(count._nodes) == [{"c": 0}]
 
@@ -653,8 +653,8 @@ def test_create_keeps_an_unsigned_integer_id_dtype_across_repeated_creates(engin
     source = graphistry.nodes(_typed_frame(engine, {"id": [1, 2]}, {"id": "uint64"}), "id")
     first = source.gfql("CREATE (:A)", engine=engine)
     second = first.gfql("CREATE (:B)", engine=engine)
-    assert sorted(row["id"] for row in _records(second._nodes)) == [1, 2, 3, 4]
-    dtype = second._nodes.schema["id"] if engine == "polars" else second._nodes["id"].dtype
+    assert sorted(row[second._node] for row in _records(second._nodes)) == [1, 2, 3, 4]
+    dtype = second._nodes.schema[second._node] if engine == "polars" else second._nodes[second._node].dtype
     assert "uint" in str(dtype).lower()
 
 
