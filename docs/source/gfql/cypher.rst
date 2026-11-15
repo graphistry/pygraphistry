@@ -666,9 +666,11 @@ returns the updated graph. The caller's frames stay unchanged. Optional
 Unsupported edge or relationship SET, combined SET+CREATE, OPTIONAL MATCH SET,
 reserved identity fields, and conflicting updates fail with structured errors
 before effects. Right-hand sides may be literals, parameters, or computed
-expressions such as ``n.num + 1``; a whole-entity, list, or map value, an
-expression the compiler cannot analyze, or a NaN parameter is declined with
-``E108``. Each property may be assigned at most once per query (``E105``,
+expressions such as ``n.num + 1``. The matched node may be read only through
+direct property access (``n.prop``); any other use of it, such as ``head([n])``,
+``[n][0].a`` or ``n['a']``, is declined with ``E108`` (``whole_entity_read``), as
+are a list or map value, an expression the compiler cannot analyze, and a NaN or
+infinite parameter. Each property may be assigned at most once per query (``E105``,
 ``repeated_property``), and ``SET`` must follow the ``MATCH`` that binds its
 variable. Several ``SET`` clauses are allowed, but every right-hand side
 reads the graph as it was before the SET, so a right-hand side that reads a
