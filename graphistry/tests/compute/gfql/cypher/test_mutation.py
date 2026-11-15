@@ -2797,8 +2797,12 @@ def _matrix_cells() -> list[tuple[str, str, str, Any, Any]]:
     return rows
 
 
+def _dtype_name(frame: Any, column: str) -> str:
+    return str(frame.schema[column] if hasattr(frame, "schema") else frame[column].dtype)
+
+
 def _dtype_family(frame: Any, column: str) -> str:
-    name = str(frame.schema[column] if hasattr(frame, "schema") else frame[column].dtype).lower()
+    name = _dtype_name(frame, column).lower()
     for family, markers in (
         ("timedelta", ("timedelta", "duration")), ("datetime", ("datetime",)), ("decimal", ("decimal",)),
         ("category", ("categor",)), ("list", ("list",)), ("struct", ("struct",)), ("bool", ("bool",)),
@@ -2854,6 +2858,8 @@ def test_set_dtype_matrix_is_identical_on_every_engine(engine, column, kind, exp
     result = source.gfql(query, engine=engine, params=params)
     assert _cells(result._nodes, column) == expected
     assert _dtype_family(result._nodes, column) == _dtype_family(source._nodes, column)
+    if engine == "polars" or _dtype_family(source._nodes, column) in {"category", "decimal", "datetime", "timedelta", "list", "struct"}:
+        assert _dtype_name(result._nodes, column) == _dtype_name(source._nodes, column)
 
 
 @pytest.mark.parametrize("engine", ENGINES)
@@ -2872,11 +2878,56 @@ def test_set_value_read_from_a_non_scalar_dtype_column_is_declined(engine, colum
     ("1 + 2", False), ("properties(x)", True), ("head([{a: 1}])", True), ("{a: {b: 1}}.a", True),
     ("coalesce(properties(x), 1)", True), ("CASE WHEN true THEN properties(x) ELSE 1 END", True),
     ("keys({a: 1})[0]", False), ("[properties(x)][0]", True), ("{a: 1}[properties(x)]", True),
+    ("[{name: 'a'}][0].name", False), ("{a: {b: 1}}.a.b", False), ("properties(x).k", False),
+    ("head([r IN [{id: 1, name: 'a'}] WHERE r.id = 1 | r.name])", False), ("any(x IN [{k: 1}] WHERE x.k = 1)", False),
+    ("[r IN [{a: 1}] | r][0]", True), ("[{a: 1}][0]", True),
 ])
 def test_unconsumed_map_detection(text, declined) -> None:
     from graphistry.compute.gfql.cypher.set_analysis import _has_unconsumed_map
     from graphistry.compute.gfql.expr_parser import parse_expr
     assert _has_unconsumed_map(parse_expr(text)) is declined
+
+
+# W10-F2: a scalar read THROUGH a nested map or list is admitted; only a map that escapes as the result is declined
+@pytest.mark.parametrize("engine", ENGINES)
+@pytest.mark.parametrize("expression,params,expected", [
+    ("$rows[0].name", {"rows": [{"id": 1, "name": "a"}]}, ["a", "a"]),
+    ("head([r IN $rows WHERE r.id = n.id | r.name])", {"rows": [{"id": 1, "name": "a"}, {"id": 2, "name": "b"}]}, ["a", "b"]),
+])
+def test_set_admits_scalar_reads_through_nested_maps_and_lists(engine, expression, params, expected) -> None:
+    source = _list_graph(engine)
+    query = f"MATCH (n) SET n.t = {expression}"
+    if engine == "polars":
+        with pytest.raises(NotImplementedError, match="does not yet natively support cypher row op"):
+            source.gfql(query, engine=engine, params=params)
+        return
+    assert [row["t"] for row in _records(source.gfql(query, engine=engine, params=params)._nodes)] == expected
+
+
+# the static check admits a chained read through nested maps; the read path does not resolve it and declines it structurally
+@pytest.mark.parametrize("engine", ENGINES)
+def test_set_chained_property_read_through_a_nested_map_parameter_is_a_structured_decline(engine) -> None:
+    source = _list_graph(engine)
+    with pytest.raises(GFQLValidationError) as exc:
+        source.gfql("MATCH (n) SET n.t = $m.a.b", engine=engine, params={"m": {"a": {"b": 1}}})
+    assert exc.value.code == ErrorCode.E204 and exc.value.context["value"] == "a"
+    assert _records(source._nodes) == _records(_list_graph(engine)._nodes)
+
+
+# W10-F1: engine='pandas' SET on a cuDF graph (edges-only or with a node table) runs on the host, caller untouched.
+@cudf_only
+@pytest.mark.parametrize("shape", ["edges_only", "with_nodes"])
+@pytest.mark.parametrize("where,matched", [("", True), ("WHERE n.id = 99", False)])
+def test_pandas_engine_set_on_a_cudf_graph_runs_on_the_host(shape, where, matched) -> None:
+    import cudf
+    edges = cudf.DataFrame({"s": [1, 2], "d": [2, 3]})
+    source = graphistry.edges(edges, "s", "d")
+    if shape == "with_nodes":
+        source = source.nodes(cudf.DataFrame({"id": [1, 2, 3]}), "id")
+    result = source.gfql(f"MATCH (n) {where} SET n.x = 1", engine="pandas")
+    assert isinstance(result._nodes, pd.DataFrame)
+    assert (result._nodes["x"].tolist() == [1, 1, 1]) if matched else ("x" not in result._nodes.columns or result._nodes["x"].isna().all())
+    assert isinstance(source._edges, cudf.DataFrame) and len(source._edges) == 2
 
 
 @pytest.mark.parametrize("engine", ENGINES)

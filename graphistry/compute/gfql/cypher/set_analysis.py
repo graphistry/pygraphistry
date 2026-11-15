@@ -137,20 +137,30 @@ _MAP_RETURNING_FUNCTIONS = frozenset({"properties"})
 _MAP_CONSUMING_FUNCTIONS = frozenset({"keys"})
 
 
-def _has_unconsumed_map(node: ExprNode, consumed: bool = False) -> bool:
-    """A map value (map literal or ``properties()``) that is not read by key/property or passed to ``keys()``.
-
-    The read path renders such a map as text, so it would be stored as a string; anywhere in the expression is declined.
+def _has_unconsumed_map(node: ExprNode, reads: int = 0) -> bool:
+    """A map value (map literal or ``properties()``) that can escape as the result: ``reads`` counts the key, property
+    and index reads applied above ``node``, and ``keys()`` consumes a map. The read path renders an escaping map as text.
     """
-    is_map = isinstance(node, MapLiteral) or (isinstance(node, FunctionCall) and node.name.lower() in _MAP_RETURNING_FUNCTIONS)
-    if is_map and not consumed:
-        return True
+    if isinstance(node, MapLiteral):
+        return reads == 0 or any(_has_unconsumed_map(item, reads - 1) for _, item in node.items)
+    if isinstance(node, FunctionCall):
+        name = node.name.lower()
+        if name in _MAP_RETURNING_FUNCTIONS:
+            return reads == 0 or any(_has_unconsumed_map(arg) for arg in node.args)
+        if name in _MAP_CONSUMING_FUNCTIONS:
+            return any(_has_unconsumed_map(arg, 1) for arg in node.args)
     if isinstance(node, PropertyAccessExpr):
-        return _has_unconsumed_map(node.value, True)
+        return _has_unconsumed_map(node.value, reads + 1)
     if isinstance(node, SubscriptExpr):
-        return _has_unconsumed_map(node.value, True) or _has_unconsumed_map(node.key)
-    if isinstance(node, FunctionCall) and node.name.lower() in _MAP_CONSUMING_FUNCTIONS:
-        return any(_has_unconsumed_map(arg, True) for arg in node.args)
+        return _has_unconsumed_map(node.value, reads + 1) or _has_unconsumed_map(node.key)
+    if isinstance(node, ListLiteral) and reads > 0:
+        return any(_has_unconsumed_map(item, reads - 1) for item in node.items)
+    if isinstance(node, (ListComprehension, QuantifierExpr)):
+        escapes = isinstance(node, ListComprehension) and (node.projection is None or isinstance(node.projection, Identifier))
+        return (
+            _has_unconsumed_map(node.source, 0 if escapes else 2)
+            or any(_has_unconsumed_map(child) for child in (node.predicate, getattr(node, "projection", None)) if child is not None)
+        )
     return any(_has_unconsumed_map(child) for child in iter_expr_children(node))
 
 

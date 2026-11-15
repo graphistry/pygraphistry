@@ -53,12 +53,12 @@ def _copy_frame(frame: DataFrameT) -> DataFrameT:
     return frame.copy()
 
 
-# pyarrow-backed pandas dtypes ("int64[pyarrow]", "double[pyarrow]", ...) are declined uniformly: assigning would retype them
+# pandas ArrowDtype columns ("int64[pyarrow]", "double[pyarrow]", ...) and float16 are declined: assigning would retype them
 _FAMILY_BY_DTYPE_NAME = re.compile(
     r"^(?:(?P<bool>bool|boolean)"
     r"|(?P<integer>[Uu]?[Ii]nt(?:8|16|32|64))"
     r"|(?P<float>[Ff]loat(?:32|64))"
-    r"|(?P<string>string|str|string\[python\]))$"
+    r"|(?P<string>string|str))$"
 )
 
 
@@ -434,6 +434,8 @@ def execute_set_properties(
             language="cypher",
         )
     base_graph = self
+    if concrete_engine == Engine.PANDAS:
+        base_graph = ensure_local_engine_match(base_graph, Engine.PANDAS)  # a cuDF frame is moved to the host, as reads do
     if base_graph._nodes is None and base_graph._edges is not None:
         base_graph = base_graph.materialize_nodes(engine=concrete_engine.value)
     frame = matched_rows._nodes
