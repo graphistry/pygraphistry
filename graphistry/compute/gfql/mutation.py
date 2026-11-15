@@ -381,11 +381,11 @@ def _prepare_append_frames(nodes: DataFrameT, new_nodes: DataFrameT) -> tuple[Da
         if nullable:
             nodes = nodes.assign(**nullable)
     # All-null properties take the non-null created dtype without losing values.
-    null_old = [name for name in set(nodes.columns).intersection(new_nodes.columns)
+    null_old = [name for name in new_nodes.columns if name in nodes.columns
                 if bool(nodes[name].is_null().all() if polars else nodes[name].isna().all())]
     if null_old:
         nodes = nodes.drop(null_old) if polars else nodes.drop(columns=null_old)
-    for name in set(nodes.columns).intersection(new_nodes.columns):
+    for name in [column for column in new_nodes.columns if column in nodes.columns]:
         old, new = nodes[name], new_nodes[name]
         old_null = old.is_null().all() if polars else old.isna().all()
         if bool(old_null):
