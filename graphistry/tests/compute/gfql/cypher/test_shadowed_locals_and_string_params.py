@@ -288,11 +288,15 @@ def test_nan_parameter_projected_next_to_an_entity_is_a_structured_decline(engin
 
 
 # R2-F5: list and map whole parameters, a bare UNWIND of a scalar string, empty and non-ASCII strings
+def normalize(cell: Any) -> Any:
+    return cell.tolist() if hasattr(cell, "tolist") else cell
+
+
 @pytest.mark.parametrize("engine", ENGINES)
 @pytest.mark.parametrize("value", [[1, "tags"], {"k": "tags"}])
 def test_list_and_map_parameters_projected_next_to_an_entity(engine, value) -> None:
     rows = _run(engine, "MATCH (n) WITH n, $v AS w RETURN w", {"v": value}, polars_declines=POLARS_ROW_OP)
-    assert rows is None or len(rows) == 2
+    assert rows is None or [normalize(row["w"]) for row in rows] == [value] * 2
 
 
 @pytest.mark.parametrize("engine", ENGINES)
@@ -304,3 +308,39 @@ def test_unwind_of_a_scalar_string_parameter_is_a_literal(engine) -> None:
 @pytest.mark.parametrize("value", ["", "é"])
 def test_empty_and_non_ascii_string_parameters_are_literals(engine, value) -> None:
     _check(engine, "MATCH (n) RETURN $v AS v", [{"v": value}] * 2, {"v": value})
+
+
+# R3-F1: every entity-recognizing branch defers to the scope-local column, so a shadowing local is never the outer node
+@pytest.mark.parametrize("engine", ENGINES)
+def test_subscript_of_a_shadowing_local_reads_the_local_not_the_outer_node(engine) -> None:
+    _check(
+        engine, "MATCH (n) RETURN [n IN [{tags: 'z'}] | n['tags']][0] AS v", [{"v": "z"}] * 2, polars_declines=POLARS_ROW_OP,
+    )
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_properties_of_a_shadowing_local_is_never_the_outer_nodes_properties(engine) -> None:
+    graph = _graph(engine)
+    try:
+        rows = _rows(graph.gfql("MATCH (n) RETURN [n IN [{a: 1}] | properties(n)][0] AS p", engine=engine)._nodes)
+    except (GFQLValidationError, NotImplementedError):
+        return
+    assert rows and not any("tags" in str(row["p"]) for row in rows)
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_type_of_a_shadowing_local_is_not_the_outer_relationship(engine) -> None:
+    edges = pd.DataFrame({"s": [1], "d": [2], "type": ["T"]})
+    nodes = pd.DataFrame({"id": [1, 2]})
+    if engine == "cudf":
+        import cudf
+        nodes, edges = cudf.from_pandas(nodes), cudf.from_pandas(edges)
+    elif engine == "polars":
+        polars = pytest.importorskip("polars")
+        nodes, edges = polars.from_pandas(nodes), polars.from_pandas(edges)
+    graph = graphistry.nodes(nodes, "id").edges(edges, "s", "d")
+    try:
+        rows = _rows(graph.gfql("MATCH ()-[r]->() RETURN [r IN [1] | type(r)][0] AS t", engine=engine)._nodes)
+    except (GFQLValidationError, NotImplementedError):
+        return
+    assert all(row["t"] is None or row["t"] != row["t"] for row in rows)

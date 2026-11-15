@@ -487,6 +487,15 @@ class RowPipelineMixin:
     _GFQL_SCOPE_LOCAL_PREFIX = "__gfql_scope_local__"  # a comprehension/quantifier local lives only in this column, never under its bare name
 
     @staticmethod
+    def _gfql_is_alias_marker(table_df: DataFrameT, name: str) -> bool:
+        """Whether the bare column ``name`` marks matched entities; a local of that name in scope is not the entity."""
+        return (
+            name in table_df.columns
+            and RowPipelineMixin._GFQL_SCOPE_LOCAL_PREFIX + name not in table_df.columns
+            and RowPipelineMixin._gfql_series_bool_like(table_df[name])
+        )
+
+    @staticmethod
     def _gfql_has_bindings_alias_prefix(table_df: Any, alias: str) -> bool:
         prefix = f"{alias}."
         return any(isinstance(col, str) and col.startswith(prefix) for col in table_df.columns)
@@ -1367,10 +1376,7 @@ class RowPipelineMixin:
                     if restore_col in table_df.columns:
                         # the alias marker overwrote this same-named user column; rows() re-keyed it
                         return True, table_df[restore_col]
-                    if (
-                        alias_name in table_df.columns
-                        and RowPipelineMixin._gfql_series_bool_like(table_df[alias_name])
-                    ):
+                    if RowPipelineMixin._gfql_is_alias_marker(table_df, alias_name):
                         self._gfql_report_absent_property(f"{alias_name}.{node.property}")
                         return True, self._gfql_broadcast_scalar(table_df, pd.NA)
                     if RowPipelineMixin._gfql_has_bindings_alias_prefix(table_df, alias_name):
@@ -1397,9 +1403,8 @@ class RowPipelineMixin:
                 )
                 if (
                     (node.value.quoted or "." not in alias_name)
-                    and alias_name in table_df.columns
                     and has_bound_graph_table
-                    and RowPipelineMixin._gfql_series_bool_like(table_df[alias_name])
+                    and RowPipelineMixin._gfql_is_alias_marker(table_df, alias_name)
                 ):
                     alias_mask = table_df[alias_name]
                     if node.property == NODE_IDENTITY_COLUMN:
@@ -1748,7 +1753,7 @@ class RowPipelineMixin:
                     out = table_df[alias_id_col]
                 elif node_id in table_df.columns and (
                     alias_name == node_id
-                    or (alias_name in table_df.columns and RowPipelineMixin._gfql_series_bool_like(table_df[alias_name]))
+                    or RowPipelineMixin._gfql_is_alias_marker(table_df, alias_name)
                 ):
                     out = table_df[node_id]
                 else:
@@ -1815,10 +1820,9 @@ class RowPipelineMixin:
                 node_id = self._gfql_node_id_column()
                 if (
                     "." not in alias_name
-                    and alias_name in table_df.columns
                     and node_id is not None
                     and node_id in table_df.columns
-                    and RowPipelineMixin._gfql_series_bool_like(table_df[alias_name])
+                    and RowPipelineMixin._gfql_is_alias_marker(table_df, alias_name)
                 ):
                     out = format_node_labels_text(
                         table_df,
@@ -1837,10 +1841,9 @@ class RowPipelineMixin:
                 edge_like_cols = {"s", "d", "src", "dst", "edge_id"}
                 if (
                     "." not in alias_name
-                    and alias_name in table_df.columns
                     and "type" in table_df.columns
                     and any(col in table_df.columns for col in edge_like_cols)
-                    and RowPipelineMixin._gfql_series_bool_like(table_df[alias_name])
+                    and RowPipelineMixin._gfql_is_alias_marker(table_df, alias_name)
                 ):
                     null_mask = self._gfql_null_mask(table_df, table_df[alias_name])
                     out = table_df["type"]
@@ -1851,8 +1854,7 @@ class RowPipelineMixin:
                 alias_name = node.args[0].name
                 if (
                     "." not in alias_name
-                    and alias_name in table_df.columns
-                    and RowPipelineMixin._gfql_series_bool_like(table_df[alias_name])
+                    and RowPipelineMixin._gfql_is_alias_marker(table_df, alias_name)
                 ):
                     edge_like_cols = {"s", "d", "src", "dst", "edge_id"}
                     table_name = "edges" if any(col in table_df.columns for col in edge_like_cols) else "nodes"
@@ -2496,8 +2498,7 @@ class RowPipelineMixin:
             if isinstance(key_value, str):
                 if (
                     isinstance(node.value, Identifier)
-                    and node.value.name in table_df.columns
-                    and RowPipelineMixin._gfql_series_bool_like(table_df[node.value.name])
+                    and RowPipelineMixin._gfql_is_alias_marker(table_df, node.value.name)
                     and RowPipelineMixin._gfql_table_has_graph_shape(table_df)
                 ):
                     entity_value = self._gfql_format_entity_series(
