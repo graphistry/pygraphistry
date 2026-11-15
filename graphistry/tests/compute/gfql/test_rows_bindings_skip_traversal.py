@@ -550,6 +550,26 @@ def test_data_evaluation_errors_in_the_skipped_path_replay_the_traversal(monkeyp
     assert _outcome(g, query, "pandas") == expected
 
 
+@pytest.mark.route_engaged(ROUTE)
+def test_unhashable_schema_declines_the_skip(engine, monkeypatch):
+    from graphistry.compute.gfql import rows_skip_traversal
+
+    monkeypatch.setattr(rows_skip_traversal, "_frame_schema", lambda frame: None)
+    assert _consulted(graph(engine), SHAPES["seeded_undirected_edge_alias"][0], engine) == {False}
+
+
+def test_unhashable_dtype_has_no_key():
+    import types
+
+    from graphistry.compute.gfql import rows_skip_traversal
+
+    class Unhashable:
+        __hash__ = None
+
+    frame = types.SimpleNamespace(dtypes=types.SimpleNamespace(items=lambda: [("c", Unhashable())]))
+    assert rows_skip_traversal._frame_schema(frame) is None
+
+
 def test_column_named_schema_keys_on_dtypes():
     query = SHAPES["seeded_undirected_edge_alias"][0]
     for values in ([1] * 8, ["a"] * 8):
