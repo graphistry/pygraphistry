@@ -159,8 +159,10 @@ def test_a_shape_neither_path_serves_declines_both(engine: str) -> None:
     silently ignores a new path stops being a control."""
     g = _graph(engine)
     seen = fast_path_decisions(g, Q_PLAIN, engine=engine)
+    # The general pipeline's own boundary skips the traversal its bindings rows never read.
     assert seen == {"single_hop_grouped_aggregate": False, "two_hop_count": False,
-                    "seeded_typed_hop": False, "seeded_node_lookup": False}
+                    "seeded_typed_hop": False, "seeded_node_lookup": False,
+                    "rows_bindings_skip_traversal": True}
     # openCypher bag semantics (#1899): one row per pattern match. Edges are
     # (0->1),(1->2),(2->0),(0->3),(0->4), so a.id is [0,0,0,1,2] -- 5 rows.
     # The old `== 3` asserted the deduplicated node set, i.e. the #1899

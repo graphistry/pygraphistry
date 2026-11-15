@@ -857,7 +857,7 @@ def chain_polars(self: Plottable, ops, start_nodes: Optional[Any] = None) -> Plo
         )
 
     from graphistry.compute.chain import (
-        _skip_unread_middle_traversal, _traversal_skipped_handoff, serialize_binding_ops,
+        _skip_unread_middle_traversal, _zero_row_traversal, serialize_binding_ops,
     )
     from graphistry.compute.gfql.index.handoff import (
         IndexedBindingsHandoff, attach_handoff,
@@ -886,14 +886,16 @@ def chain_polars(self: Plottable, ops, start_nodes: Optional[Any] = None) -> Plo
                 if isinstance(op, ASTEdge) and isinstance(op._name, str)
             ),
         ))
-    elif _skip_unread_middle_traversal(self, middle, suffix, _active_polars_engine()):
-        from graphistry.compute.validate.validate_schema import validate_chain_schema
-        validate_chain_schema(self, middle, collect_all=False)
-        g_cur = attach_handoff(self, _traversal_skipped_handoff(middle, IndexedBindingsHandoff(
-            binding_ops=serialize_binding_ops(middle),
-        ) if indexed_attempted else None))
     else:
-        g_cur = _chain_traversal_polars(self, middle, start_nodes)
+        if _skip_unread_middle_traversal(self, middle, suffix, _active_polars_engine()):
+            from graphistry.compute.validate.validate_schema import validate_chain_schema
+            validate_chain_schema(self, middle, collect_all=False)
+            g_cur = _zero_row_traversal(
+                self, middle, str(_active_polars_engine()),
+                lambda empty: _chain_traversal_polars(empty, middle, None),
+            )
+        else:
+            g_cur = _chain_traversal_polars(self, middle, start_nodes)
         if indexed_attempted:
             # Record the exact declined plan so the rows materializer does not
             # re-attempt (and re-record) the same decision. Attach, never mutate:

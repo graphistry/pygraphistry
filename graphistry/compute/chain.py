@@ -1,5 +1,5 @@
 import logging
-from typing import Any, Dict, Union, cast, List, Tuple, Sequence, Optional, TYPE_CHECKING
+from typing import Any, Callable, Dict, Union, cast, List, Tuple, Sequence, Optional, TYPE_CHECKING
 from graphistry.Engine import Engine, EngineAbstract, POLARS_ENGINES, align_shared_column_dtypes, df_concat, df_cons, df_to_engine, resolve_engine, safe_map_series, safe_row_concat, s_na
 from graphistry.compute.dataframe_utils import dbg_df
 
@@ -766,39 +766,72 @@ def _skip_unread_middle_traversal(
     The bindings builders on every engine read only the base graph, the carried
     start nodes and the alias prefilters, so a traversal whose output the leading
     rows call never reads is pure cost. Callers keep the traversal when a policy
-    must observe it, and both frames must be bound so an unbound graph still
-    raises or materializes on the canonical path. A caller that skips still runs
+    must observe it, both frames must be bound so an unbound graph still raises or
+    materializes on the canonical path, and an index policy that may serve the
+    traversal keeps it so its index decisions stay observable. A caller that skips still runs
     ``validate_chain_schema`` on the middle: the traversal's filters raise those
     schema errors whatever ``validate_schema`` says.
     """
-    from graphistry.compute.gfql.index.api import record_fast_path_decision
+    from graphistry.compute.gfql.index.api import get_index_policy, get_registry, record_fast_path_decision
 
     if _bindings_rows_call(middle, suffix) is None:
         return None
-    served = g._nodes is not None and g._edges is not None and g._node is not None
+    policy = get_index_policy(g)
+    if g._nodes is None or g._edges is None or g._node is None:
+        reason = "graph frames not bound"
+    elif policy in ("auto", "force") or (policy == "use" and not get_registry(g).is_empty()):
+        reason = "index policy may serve the traversal"
+    else:
+        reason = ""
     record_fast_path_decision(
-        path="rows_bindings_skip_traversal", engine=engine, served=served,
-        reason="rows rebuilds bindings from the base graph" if served else "graph frames not bound",
+        path="rows_bindings_skip_traversal", engine=engine, served=not reason,
+        reason=reason or "rows rebuilds bindings from the base graph",
     )
-    return True if served else None
+    return None if reason else True
 
 
-def _traversal_skipped_handoff(
-    middle: List[ASTObject], index_handoff: Optional["IndexedBindingsHandoff"],
-) -> "IndexedBindingsHandoff":
-    """The handoff for a skipped traversal, keeping any index decision already made."""
-    from dataclasses import replace
-    from .gfql.index.handoff import IndexedBindingsHandoff
+_ZERO_ROW_TRAVERSALS: Dict[Tuple[object, ...], Tuple[DataFrameT, DataFrameT]] = {}
+_ZERO_ROW_TRAVERSALS_MAX = 256
 
-    edge_aliases = tuple(
-        op._name for op in middle if isinstance(op, ASTEdge) and isinstance(op._name, str)
+
+def _frame_schema(df: DataFrameT) -> Tuple[Tuple[str, str], ...]:
+    dtypes = df.schema.items() if hasattr(df, "schema") else df.dtypes.items()
+    return tuple((str(col), str(dtype)) for col, dtype in dtypes)
+
+
+def _zero_row_traversal(
+    g: Plottable, middle: List[ASTObject], engine_key: str, traverse: Callable[[Plottable], Plottable],
+) -> Plottable:
+    """``g`` with the frames its canonical middle traversal would produce, at zero rows.
+
+    A skipped traversal still owes the suffix the traversal's exact output schema and
+    its shape errors, so the canonical traversal runs once on a zero-row copy of ``g``.
+    The result depends only on the input schemas and the plan, so it is cached on them.
+    """
+    import json
+    from .gfql.index.api import drop_index, with_index_policy
+
+    assert g._nodes is not None and g._edges is not None
+    key = (
+        engine_key, type(g._nodes).__module__, type(g._edges).__module__,
+        _frame_schema(g._nodes), _frame_schema(g._edges),
+        g._node, g._source, g._destination, g._edge,
+        json.dumps(serialize_binding_ops(middle), sort_keys=True, default=str),
     )
-    if index_handoff is None:
-        return IndexedBindingsHandoff(
-            binding_ops=serialize_binding_ops(middle), edge_aliases=edge_aliases,
-            index_attempted=False, traversal_skipped=True,
-        )
-    return replace(index_handoff, edge_aliases=edge_aliases, traversal_skipped=True)
+    frames = _ZERO_ROW_TRAVERSALS.get(key)
+    if frames is None:
+        empty = with_index_policy(drop_index(g.nodes(g._nodes[:0]).edges(g._edges[:0])), "off")
+        out = traverse(empty)
+        frames = (out._nodes, out._edges)
+        if len(_ZERO_ROW_TRAVERSALS) >= _ZERO_ROW_TRAVERSALS_MAX:
+            _ZERO_ROW_TRAVERSALS.pop(next(iter(_ZERO_ROW_TRAVERSALS)))
+        _ZERO_ROW_TRAVERSALS[key] = frames
+    twin = g.bind()
+    twin._nodes, twin._edges = (
+        frame.copy() if hasattr(frame, "copy") and not hasattr(frame, "schema") else frame
+        for frame in frames
+    )
+    return twin
 
 
 def _plan_indexed_middle(
@@ -944,7 +977,12 @@ def _handle_boundary_calls(
         if validate_schema:
             Chain(middle)
         validate_chain_schema(g_temp, middle, collect_all=False)
-        g_temp = attach_handoff(g_temp, _traversal_skipped_handoff(middle, handoff))
+        g_temp = _zero_row_traversal(
+            g_temp, middle, str(engine),
+            lambda empty: _chain_impl(empty, middle, engine, False, None, context, None),
+        )
+        if handoff is not None:
+            g_temp = attach_handoff(g_temp, handoff)
     else:
         if middle:
             logger.debug('Executing middle operations: %s', middle)

@@ -8,6 +8,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [Development]
 <!-- Do Not Erase This Section - Used for tracking unreleased changes -->
 
+### Performance
+
+- **GFQL multi-alias rows**: a chain such as `[n(name='a'), e(), n(name='b'), rows(), ...]`, and a Cypher `MATCH ... RETURN` over several aliases, no longer runs the full graph traversal before building its rows. The rows are built from the input graph as before, so results do not change. Applies to pandas, cuDF, Polars and Polars GPU. Queries with a policy, an unnamed pattern, `rows(source=...)` or `rows(table='edges')` keep the traversal. `gfql_explain` reports the decision as the `rows_bindings_skip_traversal` fast path.
+
 ## [0.62.1] - 2026-11-12
 
 ### Fixed

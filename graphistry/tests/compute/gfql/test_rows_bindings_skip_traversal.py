@@ -87,9 +87,9 @@ def _run(g, query, engine):
     return g.gfql(query, engine=engine, index_policy="off")
 
 
-def _consulted(g, query, engine):
+def _consulted(g, query, engine, index_policy="off"):
     with index_trace() as steps:
-        _run(g, query, engine)
+        g.gfql(query, engine=engine, index_policy=index_policy)
     return {bool(s["served"]) for s in steps if s.get("op") == "fast_path" and s.get("seam") == SEAM}
 
 
@@ -153,6 +153,21 @@ def test_unbound_node_frame_keeps_the_traversal(engine):
         expected = _run(edges_only, query, engine)
     assert len(expected._nodes) == 2
     assert_same_frame(_run(edges_only, query, engine)._nodes, expected._nodes, engine)
+
+
+@pytest.mark.parametrize("index_policy,served", [("off", True), ("use", False), ("auto", False), ("force", False)])
+def test_index_policy_that_may_serve_keeps_the_traversal(engine, index_policy, served):
+    g = graph(engine).create_index("node_prop", column="name", engine=engine)
+    query = [n({"name": "a"}, name="p"), e_forward(), n(name="q"), rows(), select([("q", "q.id")])]
+    assert _consulted(g, query, engine, index_policy) == {served}
+    expected = g.gfql(query, engine=engine, index_policy="off")
+    assert len(expected._nodes) == 2
+    assert_same_frame(g.gfql(query, engine=engine, index_policy=index_policy)._nodes, expected._nodes, engine)
+
+
+def test_default_policy_without_indexes_skips(engine):
+    query = [n({"id": 1}, name="p"), e_forward(), n(name="q"), rows(), select([("q", "q.id")])]
+    assert _consulted(graph(engine), query, engine, "use") == {True}
 
 
 def test_policy_keeps_the_traversal():
