@@ -235,6 +235,7 @@ class Reply(NamedTuple):
     refused: bool
     unfinished: bool
     form: ReplyForm = "text"
+    ignored: bool = False
 
 
 class _ChatDecisionProvider(HttpDecisionProvider):
@@ -300,7 +301,7 @@ class _ChatDecisionProvider(HttpDecisionProvider):
     def results(self, request: DecisionRequest, questions: Sequence[DecisionQuestion], payload: Mapping[str, object],
                 meta: ResponseMeta) -> List[DecisionResult]:
         question = questions[0]
-        text, tokens, refused, unfinished, form = self.reply(payload)
+        text, tokens, refused, unfinished, form, ignored = self.reply(payload)
         if refused:
             return [self.answered(request, question, meta, value=None, distribution=None, probability_kind="none",
                                   reason="refusal")]
@@ -308,8 +309,8 @@ class _ChatDecisionProvider(HttpDecisionProvider):
         answer = None if codes is None or unfinished else (
             reply_index(text, codes, question) if form == "text" else exact_code_index(text, codes))
         if codes is None or answer is None or answer >= len(labels):
-            return [self.invalid(request, question, meta,
-                                 "answer_truncated" if self.truncated(payload) else "invalid_provider_result")]
+            return [self.invalid(request, question, meta, "answer_truncated" if self.truncated(payload) else (
+                "unsupported_strategy" if ignored and not unfinished else "invalid_provider_result"))]
         spoken = question if form == "text" and code_index(text, codes) != answer and label_index(text, question) == answer else None
         by_index, mass = label_distribution(answer_alternatives(tokens, codes, answer, text, spoken), codes, len(labels), spoken)
         if by_index is None:
@@ -499,7 +500,7 @@ class OpenAIChatProvider(_ChatDecisionProvider):
                     deadline_at=deadline_at, timeout_s=self.timeout_s, max_retries=self.max_retries,
                     backoff_s=self.retry_backoff_s, session=self._session)
             except RequestFailure as failure:
-                if strategy != "text" and failure.error_code.startswith("http_4") \
+                if strategy != "text" and failure.error_code.startswith(("http_4", "http_501")) \
                         and failure.error_code not in NOT_CAPABILITY_ERRORS:
                     last_failure = failure
                     continue
@@ -575,7 +576,8 @@ class OpenAIChatProvider(_ChatDecisionProvider):
     def reply(self, payload: Mapping[str, object]) -> Reply:
         found = self.strategy_reply(payload, self.strategy_in_use)
         if self.strategy_in_use not in ("logprobs", "text") and found.form != strategy_form(self.strategy_in_use):
-            return Reply(None, None, found.refused, found.unfinished, found.form)
+            return Reply(None, None, found.refused, found.unfinished, found.form,
+                         found.form == "text" and _said(found.text))
         return found
 
     def truncated(self, payload: Mapping[str, object]) -> bool:
@@ -614,6 +616,17 @@ def _without_reasoning(content: object) -> object:
     """Message text without a leading reasoning block, which some hosts put in front of the answer."""
     block = _REASONING_BLOCK.match(content) if isinstance(content, str) else None
     return content[block.end():] if block is not None and isinstance(content, str) else content
+
+
+def _said(text: object) -> bool:
+    """Whether a reply is plain text rather than JSON: an answer written out where a structured one was requested."""
+    if not isinstance(text, str) or text.strip() == "":
+        return False
+    try:
+        value = json.loads(text)
+    except ValueError:
+        return True
+    return isinstance(value, (int, float)) and not isinstance(value, bool)
 
 
 def exact_code_index(text: object, codes: str) -> Optional[int]:
@@ -760,7 +773,8 @@ class AnthropicMessagesProvider(_ChatDecisionProvider):
         if self.strategy == "json_schema":
             text = "".join(part for part in texts if isinstance(part, str))
             value = _json_answer(text) if not tools and all(isinstance(part, str) for part in texts) else None
-            return Reply(value, None, refused, unfinished, "json_schema")
+            return Reply(value, None, refused, unfinished, "json_schema", not tools and _said(text))
         value = _answer_field(tools[0].get("input")) if len(tools) == 1 \
             and tools[0].get("type") == "tool_use" and tools[0].get("name") == "answer" else None
-        return Reply(value, None, refused, unfinished, "tool")
+        said = "".join(part for part in texts if isinstance(part, str))
+        return Reply(value, None, refused, unfinished, "tool", not tools and _said(said))

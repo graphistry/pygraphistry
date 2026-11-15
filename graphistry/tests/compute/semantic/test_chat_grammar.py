@@ -115,7 +115,8 @@ def test_structured_replies_validate_shape_and_exact_enum(strategy: Strategy, ar
         None, function={"name": "answer", "arguments": arguments})
     result = provider(FakeSession([reply]), strategy).decide_batch(
         [request((PRED,))], deadline_s=None, budget=None)[0]
-    assert result.error_code == "invalid_provider_result" and result.value is None
+    ignored = arguments == "B" and strategy != "function"
+    assert result.error_code == ("unsupported_strategy" if ignored else "invalid_provider_result") and result.value is None
 
 
 def test_wrong_legacy_function_name_is_invalid() -> None:

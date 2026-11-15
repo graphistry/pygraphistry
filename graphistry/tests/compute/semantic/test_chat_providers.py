@@ -484,6 +484,38 @@ class TestFallbacks:
         assert checked(openai(FakeSession([reply]), strategy="tool"), request((CHOICE,)))[0].error_code == \
             "invalid_provider_result"
 
+    @pytest.mark.parametrize("strategy", ["tool", "function", "json_schema", "json_mode"])
+    def test_plain_text_where_a_structured_answer_was_requested_is_an_unsupported_strategy(self, strategy: str) -> None:
+        said = chat_reply("B")
+        said._body["choices"][0]["finish_reason"] = "stop"  # type: ignore[index]
+        session = FakeSession([said])
+        result = checked(openai(session, strategy=strategy), request((CHOICE,)))[0]
+        assert (result.error_code, result.value, len(session.posts)) == ("unsupported_strategy", None, 1)
+        grades = DecisionQuestion(id="g", kind="score", text="Grade?", levels=("D", "C", "B", "A"))
+        digit, quoted = chat_reply("3"), chat_reply('"3"')
+        assert checked(openai(FakeSession([digit]), strategy=strategy), request((grades,)))[0].error_code == "unsupported_strategy"
+        assert checked(openai(FakeSession([quoted]), strategy=strategy), request((grades,)))[0].error_code == \
+            "invalid_provider_result"
+
+    @pytest.mark.parametrize("strategy", ["tool", "function", "json_schema"])
+    @pytest.mark.parametrize("content,finish,code", [
+        (None, "stop", "invalid_provider_result"), ("  ", "stop", "invalid_provider_result"),
+        ('{"answer": "Z"}', "stop", "invalid_provider_result"), ("B", "length", "answer_truncated"),
+        ("B", "error", "invalid_provider_result")])
+    def test_other_unusable_structured_replies_keep_their_error(self, strategy: str, content: Optional[str], finish: str,
+                                                                code: str) -> None:
+        reply = chat_reply("x")
+        reply._body["choices"][0].update(message={"role": "assistant", "content": content}, finish_reason=finish)  # type: ignore[index]
+        assert checked(openai(FakeSession([reply]), strategy=strategy), request((CHOICE,)))[0].error_code == code
+
+    def test_an_unimplemented_strategy_is_not_resent_and_auto_moves_on(self) -> None:
+        refused = FakeSession([FakeResponse(501)])
+        result = checked(openai(refused, strategy="function", max_retries=3), request((CHOICE,)))[0]
+        assert (result.error_code, result.retry_count, len(refused.posts)) == ("http_501", 0, 1)
+        session = FakeSession([FakeResponse(501), FakeResponse(501), tool_reply('{"answer": "B"}'), tool_reply('{"answer": "B"}')])
+        assert checked(openai(session, strategy="auto", max_retries=3), request((CHOICE,)))[0].value == "tech"
+        assert len(session.posts) == 4 and "tools" in session.posts[-1]["json"]  # type: ignore[operator]
+
     def test_echo_probabilities_come_only_from_the_first_reply_token(self) -> None:
         plans = DecisionQuestion(id="c", kind="choice", text="Which plan?", options=("Plan A", "Plan B"))
         merged = [{"token": "A:", "logprob": -0.5, "top_logprobs": [{"token": "A:", "logprob": -0.5}]},

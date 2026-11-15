@@ -121,7 +121,7 @@ def _attempt(session: Optional[HttpPoster], url: str, body: JSONObject, headers:
         except ValueError:
             delay = None
         code = "content_filter" if status == 400 and _error_code(response) == "content_filter" else f"http_{status}"
-        return None, code, status in RETRYABLE_STATUSES or status >= 500, delay
+        return None, code, status in RETRYABLE_STATUSES or (status >= 500 and status != 501), delay
     try:
         payload = response.json()
     except ValueError:
@@ -132,7 +132,7 @@ def _attempt(session: Optional[HttpPoster], url: str, body: JSONObject, headers:
 def post_json(url: str, body: JSONObject, headers: Dict[str, str], *, deadline_at: Optional[float],
               timeout_s: float, max_retries: int, backoff_s: float,
               session: Optional[HttpPoster] = None) -> Tuple[JSONObject, int, float]:
-    """``(payload, retries, latency_ms)``; retries 408, 409, 429, 5xx and connection errors, honouring
+    """``(payload, retries, latency_ms)``; retries 408, 409, 429, 5xx except 501 and connection errors, honouring
     ``Retry-After`` (capped at 60 s) within the deadline, then raises ``RequestFailure``."""
     started = time.monotonic()
     retries = 0
@@ -176,7 +176,7 @@ class HttpDecisionProvider(ABC):
     :param prices: :class:`TokenPrices` for ``cost_usd`` and the cost estimate; no defaults
     :param concurrency_limit: concurrent requests one operator run may send
     :param timeout_s: per-request timeout, capped by the remaining deadline
-    :param max_retries: retries on 408, 409, 429, 5xx, connection errors and timeouts; each attempt may be billed
+    :param max_retries: retries on 408, 409, 429, 5xx except 501, connection errors and timeouts; each attempt may be billed
     :param retry_backoff_s: base delay between retries when the server sends no ``Retry-After``
     :param session: object with a ``requests``-style ``post``; default ``requests``
     :param name: provider name stamped on results; default the class's ``name``

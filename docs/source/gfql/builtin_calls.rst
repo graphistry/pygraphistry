@@ -2014,7 +2014,9 @@ SGLang and vLLM JSON Schema endpoints can use the existing ``json_schema`` strat
 The provider compiles each question's answer codes to the selected constraint. Grammar replies
 must contain one code. JSON and function replies must contain only the ``answer`` field with
 one valid code. Invalid replies become ``invalid_provider_result``; the provider never chooses
-a default answer. These strategies return no probability or distribution, even when the host
+a default answer. Some hosts accept a tool, function or JSON request and still answer in plain text:
+that reply is an ``unsupported_strategy`` error, so choose a strategy the host implements. A host that
+answers HTTP 501 is not asked again: the row returns ``http_501``. These strategies return no probability or distribution, even when the host
 includes logprobs. Metadata records ``answer_strategy`` and, for the new strategies, ``semantic_level``.
 The semantic level describes the selected mechanism; it does not prove that a host enforced a constraint.
 Constraint and logprob fields in ``extra_body`` cannot override the selected strategy.
@@ -2035,7 +2037,8 @@ Probes use the remaining deadline and the run's budget: in ``sem_decide`` each p
 ``budget.max_requests`` and its estimated cost counts toward ``max_cost_usd``, before any row call is planned.
 A probe the budget cannot cover is not sent, nothing is kept, and every row is skipped for budget. A kept strategy
 costs nothing. A probe that fails on authentication, transport, rate limits or a server error returns that error
-for every row of the run without sending user evidence or probing again.
+for every row of the run without sending user evidence or probing again. HTTP 501 is the exception: like a
+rejected request, it moves the probe to the next rung.
 A real row's failure is returned without resending it through a lower strategy.
 The existing cost estimate includes the selected constraint payload, or the largest profile payload
 before discovery. It estimates input cost and is not a bound on billed spend.
@@ -2102,7 +2105,8 @@ The selected strategy controls format/tool fields in ``extra_body``; other ``out
 settings are retained. The cost estimate includes the selected schema or tool payload.
 
 Forced tool support depends on the model and thinking settings. An unsupported request retains
-its HTTP error; the provider does not resend it with another strategy. Refusals remain uncertain,
+its HTTP error; the provider does not resend it with another strategy. A host that accepts the request
+but answers in plain text, with no tool call or JSON, returns ``unsupported_strategy``. Refusals remain uncertain,
 and truncated, paused, malformed or conflicting answers become errors. The provider reads tool
 arguments as data and never executes a returned tool call.
 
