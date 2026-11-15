@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import threading
 from collections import OrderedDict
-from typing import Callable, List, Optional, Tuple, Type
+from typing import Callable, List, Optional, Tuple, Type, cast
 
 from graphistry.Engine import is_polars_df
 from graphistry.Plottable import Plottable
@@ -189,7 +189,7 @@ def _zero_row_twin(
 def _fresh(frame: DataFrameT) -> DataFrameT:
     """An unshared zero-row copy without any ``attrs`` (the skip is declined for graphs that carry them)."""
     if is_polars_df(frame):
-        return frame
+        return cast(DataFrameT, frame)
     copied = frame.copy(deep=True)
     if hasattr(copied, "attrs"):
         copied.attrs = {}
