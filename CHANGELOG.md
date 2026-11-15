@@ -12,6 +12,11 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 - **GFQL row queries over several named nodes and edges**: a chain such as `[n(name='a'), e(), n(name='b'), rows(), ...]`, or a Cypher `MATCH ... RETURN` that returns more than one variable, no longer runs the graph traversal before it builds its rows. The rows still come from the input graph, so results and errors do not change. Applies to pandas, cuDF, Polars and Polars GPU. These queries still run the traversal: on pandas and cuDF, queries with a policy or a leading `call()`; on every engine, an unnamed pattern, `rows(source=...)` or `rows(table='edges')`, variable-length or hop-labelled edges, query strings, and queries whose index policy can use an index (`auto`, `force`, or `use` with a built index). `gfql_explain` reports the decision as `rows_bindings_skip_traversal` (#2326).
 
+### Fixed
+
+- **GFQL nullable entity keys on cuDF** (#2312): `keys(n)` now returns empty lists for rows with no non-null properties alongside populated rows. Native empty key lists use the string child type expected by the grouped result, and key lists remain aligned with their original entities after the native grouping join.
+- **GFQL Cypher empty property maps**: an explicit node `{}` no longer replaces labels, so `MATCH (n:Foo {})` still selects `Foo` nodes. An explicit relationship `{}` no longer replaces relationship types with an empty tuple, so `MATCH ()-[r:R {}]->()` matches only typed `R` relationships on every supported engine, while untyped `n {}` and `r {}` controls remain untyped (#2318).
+
 ## [0.62.1] - 2026-11-12
 
 ### Fixed
