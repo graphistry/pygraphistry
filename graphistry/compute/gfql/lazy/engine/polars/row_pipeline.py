@@ -713,6 +713,17 @@ def _is_node_binding(alias: str, columns: Sequence[str]) -> bool:
     )
 
 
+def _subscript_key_diverges_from_pandas(key: str) -> bool:
+    """pandas reads ``n['k']`` through entity text, which omits internal columns, labels, ``type`` and a non-numeric ``id``."""
+    if key in {"labels", "type", _NODE_ID_TOKEN} or key.startswith(("label__", "__")):
+        return True
+    if key == "id":
+        node_id = _NODE_ID.get()
+        dtype = _SCHEMA.get().get(node_id) if node_id is not None else None
+        return dtype is None or not dtype.is_numeric()
+    return False
+
+
 def _constant_string_key(node: ExprNode) -> Optional[str]:
     """Resolve only schema-independent string keys; row-varying keys still defer."""
     from graphistry.compute.gfql.expr_parser import BinaryOp, Literal
@@ -765,7 +776,7 @@ def lower_expr(node: ExprNode, columns: Sequence[str]) -> Optional[pl.Expr]:
         if not _is_node_binding(node.value.name, columns):
             return None
         key = _constant_string_key(node.key)
-        if key is not None:
+        if key is not None and not _subscript_key_diverges_from_pandas(key):
             return lower_expr(PropertyAccessExpr(node.value, key), columns)
         return None
     if isinstance(node, PropertyAccessExpr):
