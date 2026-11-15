@@ -44,6 +44,7 @@ PROBE_REQUEST = DecisionRequest(
     questions=(DecisionQuestion(id="probe", kind="predicate", text="Is the evidence about the sky?"),))
 Admit = Callable[[object], bool]
 _SPECIAL_TOKEN = re.compile(r"<[^<>]+>|\[[^\[\]\s]+\]")
+_REASONING_BLOCK = re.compile(r"\s*<(reasoning|think|thinking)>.*?</\1>", re.DOTALL)
 _probed: Dict[Tuple[str, ...], Tuple[float, Strategy]] = {}
 _probe_locks: Dict[Tuple[str, ...], threading.Lock] = {}
 _probe_guard = threading.Lock()
@@ -105,26 +106,34 @@ def shown_labels(question: DecisionQuestion) -> List[str]:
 
 
 def reply_index(text: object, codes: str, question: DecisionQuestion) -> Optional[int]:
-    """The answer index of a reply: a code alone, or a code followed by its own label (``"A. yes"``) when that label
-    names no other option (case and a trailing dot are ignored); else None."""
+    """The answer index of a reply: a code alone, a code followed by its own label (``"A. yes"``), or a label alone
+    (``"yes"``); else None."""
     index = code_index(text, codes)
-    if index is not None or not isinstance(text, str):
+    if not isinstance(text, str) or (index is not None and index < len(answer_labels(question))):
         return index
     stripped = text.strip()
     rest = stripped[1:].lstrip()
-    if not rest or rest[0] not in ".):":
+    index = code_index(stripped[:1], codes)
+    if rest and rest[0] in ".):" and index is not None and index < len(answer_labels(question)):
+        return index if label_index(rest[1:], question) == index else None
+    return label_index(stripped, question)
+
+
+def label_index(text: object, question: DecisionQuestion) -> Optional[int]:
+    """The answer index of text that is one answer label and names no other option (case and a trailing dot are
+    ignored; a predicate also takes ``y`` and ``n``), else None."""
+    if not isinstance(text, str):
         return None
-    index, shown = code_index(stripped[0], codes), shown_labels(question)
-    bare = ["yes", "no"] if question.kind == "predicate" else list(question.labels() or ())
-    if index is None or index >= len(shown):
-        return None
-    echoed = rest[1:].strip().lower()
+    shown, said = shown_labels(question), text.strip().lower()
+    short = question.kind == "predicate"
+    bare = ["yes", "no"] if short else list(question.labels() or ())
 
     def names(position: int) -> bool:
-        labels = (shown[position].lower(), bare[position].lower())
-        return echoed in labels or (echoed.endswith(".") and echoed[:-1].rstrip() in labels)
+        labels = (shown[position].lower(), bare[position].lower()) + (("yn"[position],) if short else ())
+        return said in labels or (said.endswith(".") and said[:-1].rstrip() in labels)
 
-    return index if [position for position in range(len(shown)) if names(position)] == [index] else None
+    found = [position for position in range(len(shown)) if names(position)]
+    return found[0] if len(found) == 1 else None
 
 
 def code_index(text: object, codes: str) -> Optional[int]:
@@ -160,16 +169,25 @@ def reply_tokens(tokens: object, text: object) -> Optional[List[Dict[str, object
     return None
 
 
-def answer_alternatives(tokens: object, codes: str, index: int, text: object) -> List[object]:
+def token_index(token: object, codes: str, question: Optional[DecisionQuestion]) -> Optional[int]:
+    """The answer index a token spells: its code, or with a question also its label."""
+    index = code_index(token, codes)
+    if question is None or (index is not None and index < len(answer_labels(question))):
+        return index
+    return label_index(_spelled(token), question)
+
+
+def answer_alternatives(tokens: object, codes: str, index: int, text: object,
+                        question: Optional[DecisionQuestion] = None) -> List[object]:
     """The answer token with its top alternatives: the first token of the tokens that spell the reply, when it spells
     the answer. A bare-code reply whose tokens do not spell it falls back to the last token spelling the answer; a
-    reply that echoes its label then has no alternatives."""
+    reply that echoes its label then has no alternatives. With a question, a token may spell the answer's label."""
     span = reply_tokens(tokens, text)
     if span is None and code_index(text, codes) is None:
         return []
     candidates = span[:1] if span is not None else list(reversed(tokens if isinstance(tokens, list) else []))
     for token in candidates:
-        if isinstance(token, dict) and code_index(token.get("token"), codes) == index:
+        if isinstance(token, dict) and token_index(token.get("token"), codes, question) == index:
             alternatives = token.get("top_logprobs")
             return (list(alternatives) if isinstance(alternatives, list) else []) + [token]
     return []
@@ -183,10 +201,11 @@ def _probability(entry: object) -> Optional[float]:
     return probability if probability > 0 else None
 
 
-def label_distribution(entries: Sequence[object], codes: str, labels: int) -> Tuple[Optional[Dict[int, float]], float]:
+def label_distribution(entries: Sequence[object], codes: str, labels: int,
+                       question: Optional[DecisionQuestion] = None) -> Tuple[Optional[Dict[int, float]], float]:
     """``(probability by answer index, observed label mass)`` from the answer token's alternatives.
 
-    Surface variants of a code are summed. With every label observed the distribution is normalized over them;
+    Surface variants of a code are summed; with a question, so are tokens that spell a label. With every label observed the distribution is normalized over them;
     otherwise each observed label is divided by the observed mass plus all the mass the host did not return, a
     lower bound that cannot overstate it. Fewer than two observed labels is not a measurement: no distribution.
     """
@@ -200,7 +219,7 @@ def label_distribution(entries: Sequence[object], codes: str, labels: int) -> Tu
             continue
         seen.add(token)
         returned += probability
-        index = code_index(token, codes)
+        index = token_index(token, codes, question)
         if index is not None and index < labels:
             mass[index] = mass.get(index, 0.0) + probability
     observed = sum(mass.values())
@@ -291,7 +310,8 @@ class _ChatDecisionProvider(HttpDecisionProvider):
         if codes is None or answer is None or answer >= len(labels):
             return [self.invalid(request, question, meta,
                                  "answer_truncated" if self.truncated(payload) else "invalid_provider_result")]
-        by_index, mass = label_distribution(answer_alternatives(tokens, codes, answer, text), codes, len(labels))
+        spoken = question if form == "text" and code_index(text, codes) != answer and label_index(text, question) == answer else None
+        by_index, mass = label_distribution(answer_alternatives(tokens, codes, answer, text, spoken), codes, len(labels), spoken)
         if by_index is None:
             return [self.answered(request, question, meta, value=labels[answer], distribution=None, probability_kind="none",
                                   extra=self.answer_extra(form))]
@@ -571,7 +591,7 @@ class OpenAIChatProvider(_ChatDecisionProvider):
         logprobs = choice.get("logprobs")
         refused = bool(message.get("refusal")) or choice.get("finish_reason") == "content_filter"
         unfinished = choice.get("finish_reason") in ("length", "model_length", "error")
-        content = message.get("content")
+        content = _without_reasoning(message.get("content"))
         function, calls = message.get("function_call"), message.get("tool_calls")
         foreign_function = function is not None and strategy != "function"
         foreign_tools = calls is not None and calls != [] and strategy != "tool"
@@ -584,11 +604,16 @@ class OpenAIChatProvider(_ChatDecisionProvider):
         if isinstance(calls, list) and calls:
             answers = {json.dumps(_tool_answer(call), default=str) for call in calls}
             return Reply(_tool_answer(calls[0]) if len(answers) == 1 else None, None, refused, unfinished, "tool")
-        content = message.get("content")
         if isinstance(content, str) and content.lstrip().startswith("{"):
             return Reply(_json_answer(content), None, refused, unfinished, "json_schema")
         tokens = logprobs.get("content") if isinstance(logprobs, dict) and strategy == "logprobs" else None
         return Reply(content, tokens, refused, unfinished)
+
+
+def _without_reasoning(content: object) -> object:
+    """Message text without a leading reasoning block, which some hosts put in front of the answer."""
+    block = _REASONING_BLOCK.match(content) if isinstance(content, str) else None
+    return content[block.end():] if block is not None and isinstance(content, str) else content
 
 
 def exact_code_index(text: object, codes: str) -> Optional[int]:

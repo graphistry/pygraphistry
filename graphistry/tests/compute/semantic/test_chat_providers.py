@@ -365,6 +365,44 @@ class TestFallbacks:
         result = checked(openai(FakeSession([chat_reply(text)])), request((question,)))[0]
         assert (result.status, result.value) == ("ok", value)
 
+    @pytest.mark.parametrize("question,text,value", [
+        (PRED, "yes", True), (PRED, "No.", False), (PRED, " NO\n", False), (CHOICE, "Tech", "tech"), (SCORE, "high", "high"),
+        (SCORE, "low (lowest)", "low"), (PRED, "n", False), (PRED, "Y.", True), (PRED, "B. n", False)])
+    def test_a_label_alone_is_an_answer(self, question: DecisionQuestion, text: str, value: object) -> None:
+        result = checked(openai(FakeSession([chat_reply(text)])), request((question,)))[0]
+        assert (result.status, result.value) == ("ok", value)
+        claude = AnthropicMessagesProvider("k", "claude-x", session=FakeSession([anthropic_reply(text)]))
+        assert checked(claude, request((question,)))[0].value == value
+
+    @pytest.mark.parametrize("question,text", [
+        (PRED, "t"), (PRED, "A. n"), (CHOICE, "t"), (SCORE, "l"), (PRED, "yes it is"), (PRED, "yes\nbecause it is"), (PRED, "maybe"), (CHOICE, "yes"), (CHOICE, "tec"),
+        (DecisionQuestion(id="c", kind="choice", text="Which?", options=("yes", "Yes")), "Yes")])
+    def test_text_that_is_not_exactly_one_label_is_an_error(self, question: DecisionQuestion, text: str) -> None:
+        result = checked(openai(FakeSession([chat_reply(text)])), request((question,)))[0]
+        assert (result.status, result.error_code) == ("error", "invalid_provider_result")
+
+    def test_a_label_reply_takes_probabilities_from_label_and_code_tokens(self) -> None:
+        alternatives = top(no=0.5, yes=0.2, B=0.1, n=0.1, We=0.05)
+        for text in ("no", "n"):
+            spoken = token_reply(text, [{"token": text, "logprob": math.log(0.5), "top_logprobs": alternatives}])
+            result = checked(openai(FakeSession([spoken])), request((PRED,)))[0]
+            assert result.value is False and result.distribution == pytest.approx({"true": 0.2 / 0.9, "false": 0.7 / 0.9})
+        coded = checked(openai(FakeSession([chat_reply("B", top(B=0.6, A=0.2, yes=0.1))])), request((PRED,)))[0]
+        assert coded.distribution == pytest.approx({"true": 0.25, "false": 0.75})
+
+    @pytest.mark.parametrize("text", ["<reasoning>The box is fine, so A... no, B.</reasoning>B",
+                                      "<think>\nline one\nline two\n</think>\n\nB", " <thinking>x</thinking> B. no"])
+    def test_a_leading_reasoning_block_is_not_part_of_the_answer(self, text: str) -> None:
+        assert checked(openai(FakeSession([chat_reply(text)])), request((PRED,)))[0].value is False
+        session = FakeSession([chat_reply('<reasoning>x</reasoning>{"answer": "B"}')])
+        assert checked(openai(session, strategy="json_schema"), request((CHOICE,)))[0].value == "tech"
+
+    @pytest.mark.parametrize("text", ["B<reasoning>x</reasoning>", "<reasoning>never closed B", "<note>x</note>B",
+                                      "<reasoning>x</think>B", "<reasoning>x</reasoning>"])
+    def test_other_markup_around_an_answer_is_an_error(self, text: str) -> None:
+        result = checked(openai(FakeSession([chat_reply(text)])), request((PRED,)))[0]
+        assert (result.status, result.error_code) == ("error", "invalid_provider_result")
+
     @pytest.mark.parametrize("text", ["A. no", "A box arrived", "A. yes\nbecause it is", "A yes", "Z. yes", "A:", "C. yes"])
     def test_other_replies_with_more_than_a_code_are_errors(self, text: str) -> None:
         result = checked(openai(FakeSession([chat_reply(text)])), request((PRED,)))[0]
