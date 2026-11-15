@@ -195,6 +195,8 @@ class TestOpenAIChat:
     @pytest.mark.parametrize("body", [{"error": {"code": "invalid_request"}}, {"error": "content_filter"}, None, []])
     def test_other_bad_requests_stay_errors(self, body: object) -> None:
         assert checked(openai(FakeSession([FakeResponse(400, body)])), request((PRED,)))[0].error_code == "http_400"
+        assert checked(openai(FakeSession([FakeResponse(400, text="<html>")])), request((PRED,)))[0].error_code \
+            == "http_400"
 
     @pytest.mark.parametrize("options", [dict(max_answer_tokens=1), dict(max_answer_tokens=True),
                                          dict(max_answer_tokens=2.5), dict(top_logprobs=-1), dict(top_logprobs=True),
