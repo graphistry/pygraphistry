@@ -2884,13 +2884,13 @@ def test_set_into_a_polars_int128_column_is_a_structured_decline() -> None:
         source.gfql("MATCH (n) WHERE n.id = 1 SET n.c = 5", engine="polars")
 
 
-# pyarrow-backed pandas columns are declined uniformly (admitting some of them would retype the column)
-@pytest.mark.parametrize("dtype,values,literal", [
-    ("int64[pyarrow]", [1, 2], "5"), ("double[pyarrow]", [1.5, 2.5], "2.5"),
-    ("bool[pyarrow]", [False, True], "true"), ("string[pyarrow]", ["a", "b"], "'z'"),
+# pandas ArrowDtype columns are declined uniformly (admitting some of them would retype the column)
+@pytest.mark.parametrize("arrow_type,values,literal", [
+    ("int64", [1, 2], "5"), ("float64", [1.5, 2.5], "2.5"), ("bool_", [False, True], "true"), ("string", ["a", "b"], "'z'"),
 ])
-def test_set_into_a_pyarrow_backed_pandas_column_is_declined_uniformly(dtype, values, literal) -> None:
-    pytest.importorskip("pyarrow")
+def test_set_into_a_pandas_arrow_dtype_column_is_declined_uniformly(arrow_type, values, literal) -> None:
+    pyarrow = pytest.importorskip("pyarrow")
+    dtype = pd.ArrowDtype(getattr(pyarrow, arrow_type)())
     source = graphistry.nodes(pd.DataFrame({"id": [1, 2], "c": pd.Series(values, dtype=dtype)}), "id")
     with _declined(ErrorCode.E108, field="c"):
         source.gfql(f"MATCH (n) WHERE n.id = 1 SET n.c = {literal}", engine="pandas")
