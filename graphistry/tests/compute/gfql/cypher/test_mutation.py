@@ -593,3 +593,93 @@ def test_create_admits_all_null_legacy_type_with_new_canonical_label(engine):
     assert len(result._nodes)==2
     assert [row["label__New"] for row in _records(result._nodes)]==[False,True]
     assert _records(source._nodes)==[{"id":"old","type":None}]
+
+
+def _typed_frame(engine, data, dtypes):
+    frame = pd.DataFrame({name: pd.Series(values, dtype=dtypes.get(name)) for name, values in data.items()})
+    if engine == "cudf":
+        import cudf
+        return cudf.from_pandas(frame)
+    if engine == "polars":
+        return pytest.importorskip("polars").from_pandas(frame)
+    return frame
+
+
+# A16-F1: created ids must skip every edge endpoint, so a new node never attaches to a dangling edge.
+@pytest.mark.parametrize("engine", ENGINES)
+def test_create_ids_skip_edge_endpoints_so_a_new_node_has_no_dangling_edge(engine):
+    nodes = _typed_frame(engine, {"id": [1, 2]}, {"id": "int64"})
+    edges = _typed_frame(engine, {"s": [1], "d": [3]}, {"s": "int64", "d": "int64"})
+    source = graphistry.nodes(nodes, "id").edges(edges, "s", "d")
+    result = source.gfql("CREATE (:New)", engine=engine)
+    assert sorted(row["id"] for row in _records(result._nodes)) == [1, 2, 4]
+    count = result.gfql("MATCH (n:New)--() RETURN count(*) AS c", engine=engine)
+    assert _records(count._nodes) == [{"c": 0}]
+    assert _records(source._nodes) == [{"id": 1}, {"id": 2}]
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_create_ids_skip_edge_endpoints_on_an_empty_node_frame(engine):
+    nodes = _typed_frame(engine, {"id": []}, {"id": "int64"})
+    edges = _typed_frame(engine, {"s": [0], "d": [1]}, {"s": "int64", "d": "int64"})
+    result = graphistry.nodes(nodes, "id").edges(edges, "s", "d").gfql("CREATE (:New)", engine=engine)
+    assert [row["id"] for row in _records(result._nodes)] == [2]
+    count = result.gfql("MATCH (n:New)--() RETURN count(*) AS c", engine=engine)
+    assert _records(count._nodes) == [{"c": 0}]
+
+
+# A16-F2: a legacy list-valued labels column is declined before effects, like the legacy type column.
+@pytest.mark.parametrize("engine", ENGINES)
+@pytest.mark.parametrize("query", ["CREATE (:C)", "CREATE ()"])
+def test_create_declines_a_legacy_list_valued_labels_column_before_effects(engine, query):
+    frame = pd.DataFrame({"id": [1, 2], "labels": [["A"], ["B"]]})
+    if engine == "cudf":
+        import cudf
+        frame = cudf.from_pandas(frame)
+    elif engine == "polars":
+        frame = pytest.importorskip("polars").from_pandas(frame)
+    source = graphistry.nodes(frame, "id")
+    before = _records(source._nodes)
+    with pytest.raises(GFQLValidationError) as exc:
+        source.gfql(query, engine=engine)
+    assert exc.value.code == ErrorCode.E108
+    assert exc.value.context["field"] == "create" and exc.value.context["value"] == "legacy_labels"
+    assert _records(source._nodes) == before
+
+
+# A16-F5: created ids keep an unsigned integer id dtype, so a second CREATE does not fail on a widened column.
+@pytest.mark.parametrize("engine", ENGINES)
+def test_create_keeps_an_unsigned_integer_id_dtype_across_repeated_creates(engine):
+    source = graphistry.nodes(_typed_frame(engine, {"id": [1, 2]}, {"id": "uint64"}), "id")
+    first = source.gfql("CREATE (:A)", engine=engine)
+    second = first.gfql("CREATE (:B)", engine=engine)
+    assert sorted(row["id"] for row in _records(second._nodes)) == [1, 2, 3, 4]
+    dtype = second._nodes.schema["id"] if engine == "polars" else second._nodes["id"].dtype
+    assert "uint" in str(dtype).lower()
+
+
+# A16-F6: reserved and duplicate property keys are declined before any effect.
+@pytest.mark.parametrize("engine", ENGINES)
+@pytest.mark.parametrize("query,code,field", [
+    ("CREATE (n {labels: 1})", ErrorCode.E108, "labels"),
+    ("CREATE (n {type: 1})", ErrorCode.E108, "type"),
+    ("CREATE (n {__x__: 1})", ErrorCode.E108, "__x__"),
+    ("CREATE (n {label__X: 1})", ErrorCode.E108, "label__X"),
+    ("CREATE (n {p: 1, p: 2})", ErrorCode.E105, "p"),
+])
+def test_create_declines_reserved_and_duplicate_keys_before_effects(engine, query, code, field):
+    source = _graph(engine)
+    before = _records(source._nodes)
+    with pytest.raises(GFQLValidationError) as exc:
+        source.gfql(query, engine=engine)
+    assert exc.value.code == code
+    assert exc.value.context["field"] == field
+    assert _records(source._nodes) == before
+
+
+# Documented contract: a node key starting with __ is internal and omitted from flattened whole-entity RETURN fields.
+def test_node_key_starting_with_double_underscore_is_not_returned_as_a_flattened_field():
+    graph = graphistry.nodes(pd.DataFrame({"__vid": [1, 2], "name": ["a", "b"]}), "__vid")
+    result = graph.gfql("MATCH (x) RETURN x", engine="pandas")
+    assert "x.__vid" not in result._nodes.columns
+    assert "x.name" in result._nodes.columns

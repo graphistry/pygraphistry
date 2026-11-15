@@ -10,10 +10,11 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
-- **Functional GFQL node creation**: standalone Cypher `CREATE` supports named or anonymous nodes, labels, scalar literal/parameter properties, and optional `RETURN` on pandas, cuDF, and CPU Polars. Creation preserves the caller, existing endpoints, and exact supported numeric values; physical identities are separate from user `id` properties. Row results expose the updated graph through read-only `gfql_graph`. Unsupported mixed clauses, lossy type unions, remote mutation, and explicit Polars GPU creation raise structured errors without changing the caller instead of ignoring semantics.
+- **Functional GFQL node creation**: standalone Cypher `CREATE` supports named or anonymous nodes, labels, scalar literal/parameter properties, and optional `RETURN` on pandas, cuDF, and CPU Polars. Creation preserves the caller, existing endpoints, and exact supported numeric values; physical identities are separate from user `id` properties. Row results expose the updated graph through read-only `gfql_graph`. Unsupported mixed clauses, lossy type unions, remote mutation, and explicit Polars GPU creation raise structured errors without changing the caller instead of ignoring semantics. New numeric node ids start above every existing node id and every integer edge endpoint, so a created node never attaches to a dangling edge; created ids keep an existing integer id column's dtype (including unsigned); and CREATE on a graph with a legacy list-valued `labels` column is declined with a structured `E108` (`legacy_labels`) instead of rendering new rows as `nan`. A node key that starts with `__` is treated as internal and is omitted from flattened whole-entity `RETURN` fields.
+
+### Fixed
 
 - **GFQL Cypher empty property maps**: an explicit node `{}` no longer replaces labels, so `MATCH (n:Foo {})` still selects `Foo` nodes. An explicit relationship `{}` no longer replaces relationship types with an empty tuple, so `MATCH ()-[r:R {}]->()` matches only typed `R` relationships on every supported engine, while untyped `n {}` and `r {}` controls remain untyped (#2318).
-### Fixed
 
 - **GFQL nullable entity keys on cuDF** (#2312): `keys(n)` now returns empty lists for rows with no non-null properties alongside populated rows. Native empty key lists use the string child type expected by the grouped result, and key lists remain aligned with their original entities after the native grouping join.
 
