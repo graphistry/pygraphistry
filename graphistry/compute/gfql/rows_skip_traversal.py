@@ -78,9 +78,10 @@ def may_skip_unread_middle_traversal(
     """Whether the boundary may answer from the zero-row twin instead of traversing.
 
     Declines when a frame is unbound (the canonical path raises or materializes), when
-    the index policy may serve the traversal (its index decisions stay observable), and
-    when a multi-hop or hop-labelled edge makes the traversal's output dtypes depend on
-    the data, which a zero-row twin cannot reproduce.
+    the index policy may serve the traversal (its index decisions stay observable), when a
+    multi-hop or hop-labelled edge makes the traversal's output dtypes depend on the data,
+    which a zero-row twin cannot reproduce, and when a frame carries ``attrs``, which some
+    pandas versions propagate through the traversal.
     """
     from graphistry.compute.gfql.index.api import index_policy_may_serve, record_fast_path_decision
 
@@ -94,6 +95,8 @@ def may_skip_unread_middle_traversal(
         reason = "multi-hop and hop-label output columns depend on the traversed data"
     elif any(_has_query_string(op) for op in middle):
         reason = "query strings evaluate only on traversed rows"
+    elif _carries_attrs(g._nodes) or _carries_attrs(g._edges):
+        reason = "frame attrs may propagate through the traversal, depending on the pandas version"
     else:
         reason = ""
     record_fast_path_decision(
@@ -101,6 +104,10 @@ def may_skip_unread_middle_traversal(
         reason=reason or "rows rebuilds bindings from the base graph",
     )
     return not reason
+
+
+def _carries_attrs(frame: DataFrameT) -> bool:
+    return bool(getattr(frame, "attrs", None))
 
 
 def _has_query_string(op: ASTObject) -> bool:
@@ -180,7 +187,7 @@ def _zero_row_twin(
 
 
 def _fresh(frame: DataFrameT) -> DataFrameT:
-    """An unshared zero-row copy without the first graph's ``attrs``."""
+    """An unshared zero-row copy without any ``attrs`` (the skip is declined for graphs that carry them)."""
     if is_polars_df(frame):
         return frame
     copied = frame.copy(deep=True)

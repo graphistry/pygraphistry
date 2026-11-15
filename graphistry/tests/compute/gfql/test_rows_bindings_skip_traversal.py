@@ -351,21 +351,38 @@ def test_default_engine_twins_stay_per_frame_type(engine):
     assert_same_frame(actual._nodes, expected._nodes, engine)
 
 
-def test_cached_twin_drops_attrs_and_keeps_category_order():
+def test_cached_twin_keeps_category_order():
     import pandas as pd
 
     query = SHAPES["seeded_undirected_edge_alias"][0]
-    for tenant, categories in (("A", ["x", "y"]), ("B", ["y", "x"])):
+    for categories in (["x", "y"], ["y", "x"]):
         g = graph("pandas")
-        edges = g._edges.assign(kind=pd.Categorical(["x", "y"] * 4, categories=categories))
-        edges.attrs = {"tenant": tenant}
-        g = g.edges(edges)
+        g = g.edges(g._edges.assign(kind=pd.Categorical(["x", "y"] * 4, categories=categories)))
         _assert_matches_traversal(g, query, "pandas", 3)
-        out = _run(g, query, "pandas")._edges
+        assert list(_run(g, query, "pandas")._edges["kind"].cat.categories) == categories
+
+
+def _graph_with_attrs(tenant):
+    g = graph("pandas")
+    edges = g._edges.copy()
+    edges.attrs = {"tenant": tenant}
+    return g.edges(edges)
+
+
+@pytest.mark.route_engaged(ROUTE)
+def test_frames_with_attrs_decline_the_skip():
+    query = SHAPES["seeded_undirected_edge_alias"][0]
+    assert _consulted(_graph_with_attrs("A"), query, "pandas") == {False}
+
+
+def test_frames_with_attrs_match_the_traversal_whatever_the_pandas_version():
+    query = SHAPES["seeded_undirected_edge_alias"][0]
+    for tenant in ("A", "B"):
+        g = _graph_with_attrs(tenant)
+        _assert_matches_traversal(g, query, "pandas", 3)
         with routes_off([ROUTE]):
             expected = _run(g, query, "pandas")._edges
-        assert list(out["kind"].cat.categories) == categories
-        assert out.attrs == expected.attrs
+        assert _run(g, query, "pandas")._edges.attrs == expected.attrs
 
 
 @pytest.mark.parametrize("query_field", ["edge_query", "destination_node_query"])
