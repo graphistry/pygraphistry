@@ -1,3 +1,4 @@
+import json
 import math
 from typing import Dict, List, Optional
 
@@ -686,3 +687,69 @@ class TestFallbacks:
         session = FakeSession([chat_reply('  \n {"answer": "B"}')])
         assert checked(openai(session, strategy="json_schema"), request((CHOICE,)))[0].value == "tech"
 
+
+
+def auto_run(session: FakeSession, rows: int = 3, questions: Optional[List[Dict[str, object]]] = None,
+             prices: Optional[TokenPrices] = None, **kwargs: object) -> "tuple[OpenAIChatProvider, pd.DataFrame]":
+    provider = openai(session, strategy="auto", max_retries=0, concurrency_limit=1) if prices is None else \
+        OpenAIChatProvider("k", "m", session=session, strategy="auto", max_retries=0, concurrency_limit=1,  # type: ignore[arg-type]
+                           prices=prices)
+    out = sem_decide(pd.DataFrame({"text": [f"row {i}" for i in range(rows)]}),
+                     questions=questions or [{"id": "p", "kind": "predicate", "text": "t"}], provider=provider,
+                     evidence_cols=["text"], task_id="t", **kwargs)  # type: ignore[arg-type]
+    return provider, out
+
+
+def skip_reasons(out: pd.DataFrame) -> List[object]:
+    return [json.loads(meta)["status_reason"] for meta in out["p__meta"]]
+
+
+class TestProbeBudget:
+
+    @pytest.fixture(autouse=True)
+    def fresh_probes(self):  # type: ignore[no-untyped-def]
+        forget_probes()
+        yield
+        forget_probes()
+
+    def test_probe_requests_count_against_max_requests(self) -> None:
+        session = FakeSession([FakeResponse(400), chat_reply('{"answer": "A"}'), chat_reply('{"answer": "B"}')])
+        _, out = auto_run(session, budget={"max_requests": 3})
+        assert len(session.posts) == 3 and out["p__status"].tolist() == ["ok", "skipped", "skipped"]
+        assert skip_reasons(out)[1:] == ["budget"] * 2 and "response_format" in session.posts[2]["json"]  # type: ignore[operator]
+
+    def test_probe_cost_counts_against_the_cost_cap(self) -> None:
+        session = FakeSession([chat_reply("A", top(A=0.8, B=0.1))])
+        _, out = auto_run(session, budget={"max_cost_usd": 0.025}, prices=TokenPrices(per_question=0.01))
+        assert len(session.posts) == 2 and out["p__status"].tolist() == ["ok", "skipped", "skipped"]
+
+    def test_a_probe_the_budget_cannot_cover_is_not_sent_or_kept(self) -> None:
+        session = FakeSession([FakeResponse(400), chat_reply("A")])
+        provider, out = auto_run(session, budget={"max_requests": 1})
+        assert len(session.posts) == 1 and out["p__status"].tolist() == ["skipped"] * 3
+        assert skip_reasons(out) == ["budget"] * 3 and provider.kept_strategy() is None
+
+    def test_a_refused_probe_returns_no_provider(self) -> None:
+        session = FakeSession([chat_reply("A", top(A=0.8, B=0.1))])
+        provider = openai(session, strategy="auto")
+        assert provider.prepare_run([request((PRED,))], lambda cost: False, deadline_s=None) is None
+        assert session.posts == [] and provider.kept_strategy() is None
+
+    def test_a_kept_strategy_costs_nothing(self) -> None:
+        first = FakeSession([chat_reply("A", top(A=0.8, B=0.1))])
+        auto_run(first, rows=1)
+        again = FakeSession([chat_reply("A", top(A=0.8, B=0.1))])
+        _, out = auto_run(again, budget={"max_requests": 3})
+        assert (len(first.posts), len(again.posts)) == (2, 3) and set(out["p__status"]) == {"ok"}
+
+    def test_a_failed_probe_errors_every_row_without_probing_again(self) -> None:
+        session = FakeSession([FakeResponse(401)])
+        _, out = auto_run(session)
+        assert len(session.posts) == 1 and out["p__error_code"].tolist() == ["http_401"] * 3
+
+    def test_no_probe_when_nothing_can_be_sent(self) -> None:
+        session = FakeSession([chat_reply("A")])
+        _, out = auto_run(session, questions=[{"id": "p", "kind": "score", "text": "Grade?",
+                                               "levels": ["F", "D", "C", "B", "A", "A+", "A-", "B+", "B-", "C+", "C-"]}],
+                          budget={"max_requests": 3})
+        assert session.posts == [] and out["p__error_code"].tolist() == ["unsupported_question"] * 3

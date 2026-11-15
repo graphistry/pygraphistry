@@ -35,6 +35,7 @@ COST_SLACK = 1e-9
 Cell = Tuple[int, str]
 RequestT = TypeVar("RequestT", DecisionRequest, GenerationRequest)
 Invoke = Callable[[Sequence[RequestT], Optional[float], Optional[Budget]], object]
+Admit = Callable[[object], bool]
 UnansweredT = TypeVar("UnansweredT", DecisionResult, GenerationResult, covariant=True)
 
 
@@ -157,26 +158,64 @@ def _estimate_cost(provider: DecisionProvider, batch: Sequence[DecisionRequest])
         return None
 
 
+def _cost_cap(budget: Budget) -> Optional[float]:
+    return None if budget.max_cost_usd is None else budget.max_cost_usd * (1 + COST_SLACK) + COST_SLACK
+
+
+class _Setup:
+    """Admits the setup requests a provider sends before a run's calls (host probes) against the run's budget, as
+    ``admit(estimated_cost)``; each admitted request counts as one request."""
+
+    def __init__(self, budget: Optional[Budget]) -> None:
+        self.budget, self.requests, self.cost_usd = budget, 0, 0.0
+
+    def __call__(self, cost: object) -> bool:
+        number = _nonnegative(canonicalize(cost))
+        if self.budget is not None:
+            cap = _cost_cap(self.budget)
+            if (self.budget.max_requests is not None and self.requests >= self.budget.max_requests) \
+                    or (cap is not None and (number is None or self.cost_usd + number > cap)):
+                return False
+        self.requests += 1
+        self.cost_usd += number or 0.0
+        return True
+
+
+def _prepared(provider: DecisionProvider, requests_: Sequence[DecisionRequest], admit: Admit,
+              deadline_at: Optional[float]) -> Optional[DecisionProvider]:
+    """The provider that answers one run: its optional ``prepare_run`` result (None when the budget stopped the
+    setup), else the provider itself."""
+    hook = getattr(provider, "prepare_run", None)
+    if hook is None:
+        return provider
+    prepared = hook(requests_, admit, deadline_s=None if deadline_at is None else max(0.0, deadline_at - time.monotonic()))
+    if prepared is not None and not isinstance(prepared, DecisionProvider):
+        raise TypeError("prepare_run must return a DecisionProvider or None")
+    return prepared
+
+
 def _plan_calls(batches: Sequence[Sequence[RequestT]], budget: Optional[Budget],
-                estimate: Optional[Callable[[Sequence[RequestT]], Optional[float]]]) -> List[Optional[Budget]]:
+                estimate: Optional[Callable[[Sequence[RequestT]], Optional[float]]],
+                setup: Optional[_Setup] = None) -> List[Optional[Budget]]:
     """The remaining budget handed to each call the budget allows, in order; later calls are skipped (``budget``).
 
     Each call reserves its estimated cost before submission, so which calls run never depends on completion order.
+    Setup requests already admitted are charged first.
     """
     if budget is None:
         return [None] * len(batches)
     max_cost, max_requests = budget.max_cost_usd, budget.max_requests
-    cap = None if max_cost is None else max_cost * (1 + COST_SLACK) + COST_SLACK
+    cap = _cost_cap(budget)
     plans: List[Optional[Budget]] = []
-    reserved = 0.0
+    spent, reserved = (0, 0.0) if setup is None else (setup.requests, setup.cost_usd)
     for index, batch in enumerate(batches):
-        if max_requests is not None and index >= max_requests:
+        if max_requests is not None and spent + index >= max_requests:
             break
         cost = None if cap is None or estimate is None else estimate(batch)
         if cap is not None and (cost is None or reserved + cost > cap):
             break
         plans.append(Budget(max_cost_usd=None if max_cost is None else max(0.0, max_cost - reserved),
-                            max_requests=None if max_requests is None else max_requests - index))
+                            max_requests=None if max_requests is None else max_requests - spent - index))
         reserved += cost or 0.0
     return plans
 
@@ -245,11 +284,14 @@ def _run_rows(rows: _Rows, requests_for: Callable[[List[int]], List[List[Request
               default_batch_size: int, max_concurrency: Optional[int], budget: Optional[Budget],
               deadline_at: Optional[float], effect_name: str,
               estimate: Optional[Callable[[Sequence[RequestT]], Optional[float]]] = None,
-              local_answers: Optional[Callable[[Sequence[RequestT]], object]] = None
+              local_answers: Optional[Callable[[Sequence[RequestT]], object]] = None,
+              prepare: Optional[Callable[[Sequence[RequestT], Admit], bool]] = None
               ) -> RequestOutcomes[RequestT, ResultT]:
     """The row driver: batch the attempted rows, run the calls under the limits, align each provider return, and
     return ``(position, request, outcome, aligned results of that request)`` for every request, sent or not.
-    ``local_answers`` answers every call without the provider, before any budget planning."""
+    ``local_answers`` answers every call without the provider, before any budget planning. ``prepare`` runs once
+    before planning when there are calls; its admitted setup requests are charged to the budget, False skips every
+    call (``budget``) and raising makes every call a ``provider_exception``."""
     size = batch_size or capabilities.max_rows_per_request or default_batch_size
     if capabilities.max_rows_per_request is not None:
         size = min(size, capabilities.max_rows_per_request)
@@ -266,7 +308,17 @@ def _run_rows(rows: _Rows, requests_for: Callable[[List[int]], List[List[Request
                 and (estimate is None or estimate(calls[0]) is None):
             raise ValueError("budget.max_cost_usd is set but the provider cannot estimate cost; give the provider "
                              "prices it can estimate with, or drop the cost cap")
-        outcomes = _execute(calls, _plan_calls(calls, budget, estimate), invoke, deadline_at, threads, effect_name)
+        setup = _Setup(budget)
+        try:
+            ready: Optional[bool] = prepare is None or not calls or prepare(
+                [request for requests in calls for request in requests], setup)
+        except Exception:
+            ready = None
+        if setup.requests:
+            record_effect(effect_name)
+        outcomes = [_CallOutcome(raised=True)] * len(calls) if ready is None else _execute(
+            calls, _plan_calls(calls, budget, estimate, setup) if ready else [], invoke, deadline_at, threads,
+            effect_name)
     never_sent = [(requests, _CallOutcome(skipped=reason)) for position, reason in enumerate(rows.skip_reason)
                   if reason is not None for requests in requests_for([position])]
     position_of = {request_id: position for position, request_id in enumerate(rows.request_ids)}
@@ -492,7 +544,8 @@ def sem_decide(
     :param deadline_s: seconds for the whole run; unfinished rows become ``skipped`` (calls already sent are
         abandoned, not cancelled: they may still finish, and keep the process alive, in the background)
     :param budget: ``Budget`` or dict with ``max_cost_usd`` (summed provider estimates; a provider that cannot
-        estimate raises) and/or ``max_requests`` (provider calls)
+        estimate raises) and/or ``max_requests`` (provider calls); host probes a provider sends for the run count
+        against both
     :param max_rows: rows at positions >= ``max_rows`` are ``skipped``, never dropped
     :param min_p: ``ok`` answers whose ``q__p`` is below this (or undefined) become ``uncertain``
     :param require_probabilities: False preserves default behavior; True requires native or token-logprob p for
@@ -539,15 +592,23 @@ def sem_decide(
     per_call = capabilities.max_questions_per_request
     hashes = {(position, question.id): compute_decision_hash(evidence, question, task_version)
               for position, evidence in enumerate(rows.evidence) for question in coerced}
+    deadline_at = None if deadline is None else started + deadline
+    run = [resolved]
+
+    def prepare(requests_: Sequence[DecisionRequest], admit: Admit) -> bool:
+        prepared = _prepared(resolved, requests_, admit, deadline_at)
+        run[0] = prepared or resolved
+        return prepared is not None
+
     cells = _run_rows(
         rows, lambda positions: [[request(position, coerced[start:start + per_call]) for position in positions]
                                  for start in range(0, len(coerced), per_call)],
-        lambda batch, remaining, call_budget: resolved.decide_batch(batch, deadline_s=remaining, budget=call_budget),
+        lambda batch, remaining, call_budget: run[0].decide_batch(batch, deadline_s=remaining, budget=call_budget),
         result_type=DecisionResult, capabilities=capabilities, batch_size=batch_size,
         default_batch_size=DEFAULT_DECIDE_BATCH_SIZE, max_concurrency=max_concurrency, budget=run_budget,
-        deadline_at=None if deadline is None else started + deadline, effect_name="sem_decide",
-        estimate=lambda batch: _estimate_cost(resolved, batch),
-        local_answers=_unavailable_answers(identity) if known_probability_gap(resolved, require_probabilities) else None)
+        deadline_at=deadline_at, effect_name="sem_decide", estimate=lambda batch: _estimate_cost(run[0], batch),
+        local_answers=_unavailable_answers(identity) if known_probability_gap(resolved, require_probabilities) else None,
+        prepare=prepare)
     grid = {(position, question.id): _decision_cell(request_, question, outcome, row, identity, capabilities,
                                                     threshold, hashes[(position, question.id)], require_probabilities)
             for position, request_, outcome, row in cells for question in request_.questions}

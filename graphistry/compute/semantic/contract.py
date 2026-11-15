@@ -299,7 +299,10 @@ class DecisionProvider(Protocol):
     (calls a run abandoned at its deadline may still be running when the next run starts). ``deadline_s`` and
     ``budget`` are what remains of the run. The kernel reads answers and distributions as plain Python values.
     ``estimate_cost_usd`` returns None when it cannot estimate, else a finite value >= 0; operators treat any
-    other value as "cannot estimate".
+    other value as "cannot estimate". An optional ``prepare_run(requests, admit, *, deadline_s)`` runs once per
+    run before any call, for setup requests such as host probes: it calls ``admit(estimated_cost_usd)`` before each
+    one (each counts against the run's budget; False means stop) and returns the provider that answers the run, or
+    None when the budget stopped it.
     """
 
     name: str

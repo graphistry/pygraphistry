@@ -13,7 +13,7 @@ import string
 import threading
 import time
 from abc import abstractmethod
-from typing import Dict, List, Literal, Mapping, NamedTuple, Optional, Sequence, Tuple, Union, get_args
+from typing import Callable, Dict, List, Literal, Mapping, NamedTuple, Optional, Sequence, Tuple, Union, get_args
 
 from graphistry.compute.semantic.contract import (
     Budget, DecisionQuestion, DecisionRequest, DecisionResult, Evidence, ExtraValue, ProviderCapabilities, StatusReason,
@@ -41,6 +41,7 @@ PROBE_TTL_S = 3600.0
 PROBE_REQUEST = DecisionRequest(
     request_id="probe", evidence="The sky is blue.", task_id="probe", task_version="1",
     questions=(DecisionQuestion(id="probe", kind="predicate", text="Is the evidence about the sky?"),))
+Admit = Callable[[object], bool]
 _SPECIAL_TOKEN = re.compile(r"<[^<>]+>|\[[^\[\]\s]+\]")
 _probed: Dict[Tuple[str, ...], Tuple[float, Strategy]] = {}
 _probe_locks: Dict[Tuple[str, ...], threading.Lock] = {}
@@ -48,11 +49,19 @@ _probe_guard = threading.Lock()
 _probe_epoch = [0]
 
 
+class ProbeStopped(Exception):
+    """The run's budget stopped a host probe before it found a strategy."""
+
+
 def forget_probes() -> None:
     """Drop every kept probe result, for example after fixing a host's settings; a probe running now is not kept."""
     with _probe_guard:
         _probed.clear()
         _probe_epoch[0] += 1
+
+
+def _sendable(requests_: Sequence[DecisionRequest]) -> bool:
+    return any(answer_codes(question) is not None for request in requests_ for question in request.questions)
 
 
 def answer_labels(question: DecisionQuestion) -> Tuple[Union[bool, str], ...]:
@@ -300,7 +309,8 @@ class OpenAIChatProvider(_ChatDecisionProvider):
     ``"tool"`` (the answer constrained to the codes by a JSON schema or a forced tool call; no probabilities; raise
     ``max_answer_tokens`` for hosts that wrap tool calls in text), or
     ``"auto"`` (probe the host once per endpoint, model and settings, keep the first strategy that works for an
-    hour; probes are billed outside the run's budget; ``forget_probes()`` drops kept results). Answers read with
+    hour; in ``sem_decide`` each probe request counts against the run's budget, and a failed probe errors the
+    run's rows without probing again; ``forget_probes()`` drops kept results). Answers read with
     ``json_schema`` or ``tool`` carry ``extra.answer_strategy``. ``json_mode`` and legacy ``function`` also
     validate an answer object. ``vllm_choice`` / ``vllm_regex`` / ``vllm_grammar``, legacy ``guided_*`` and
     ``sglang_regex`` / ``sglang_ebnf`` constrain a bare answer code and never read probabilities.
@@ -350,21 +360,40 @@ class OpenAIChatProvider(_ChatDecisionProvider):
         self.max_tokens_field = max_tokens_field
         self.strategy: Strategy = strategy
         self.strategy_in_use: Strategy = "logprobs" if strategy == "auto" else strategy
+        self.run_failure: Optional[RequestFailure] = None
+
+    def prepare_run(self, requests_: Sequence[DecisionRequest], admit: Admit, *,
+                    deadline_s: Optional[float]) -> Optional["OpenAIChatProvider"]:
+        """This provider for one ``sem_decide`` run with its strategy settled. A probe asks ``admit`` before each
+        request with its estimated cost; None when the budget stops it, and a failed probe is kept for the run."""
+        if self.strategy != "auto" or not _sendable(requests_):
+            return self
+        run = copy.copy(self)
+        try:
+            run.strategy = run.strategy_in_use = self.resolve_strategy(
+                None if deadline_s is None else time.monotonic() + deadline_s, admit)
+        except ProbeStopped:
+            return None
+        except RequestFailure as failure:
+            run.run_failure = failure
+        return run
 
     def decide_batch(self, requests_: Sequence[DecisionRequest], *, deadline_s: Optional[float],
                      budget: Optional[Budget]) -> List[DecisionResult]:
         started = time.monotonic()
-        sendable = any(answer_codes(question) is not None for request in requests_ for question in request.questions)
         chosen = self.strategy_in_use
-        if self.strategy == "auto" and sendable:
+        failure = self.run_failure
+        if failure is None and self.strategy == "auto" and _sendable(requests_):
             try:
                 chosen = self.resolve_strategy(None if deadline_s is None else started + deadline_s)
                 self.strategy_in_use = chosen
-            except RequestFailure as failure:
-                return [unanswered_result(request, question, provider=self.name, model=self.model,
-                                          error_code=failure.error_code, latency_ms=failure.latency_ms,
-                                          retry_count=failure.retry_count)
-                        for request in requests_ for question in request.questions]
+            except RequestFailure as failed:
+                failure = failed
+        if failure is not None:
+            return [unanswered_result(request, question, provider=self.name, model=self.model,
+                                      error_code=failure.error_code, latency_ms=failure.latency_ms,
+                                      retry_count=failure.retry_count)
+                    for request in requests_ for question in request.questions]
         resolved = copy.copy(self)
         resolved.strategy_in_use = chosen
         remaining = None if deadline_s is None else max(0.0, deadline_s - (time.monotonic() - started))
@@ -384,7 +413,7 @@ class OpenAIChatProvider(_ChatDecisionProvider):
             found = _probed.get(self.probe_key())
         return found[1] if found is not None and time.monotonic() - found[0] < PROBE_TTL_S else None
 
-    def resolve_strategy(self, deadline_at: Optional[float]) -> Strategy:
+    def resolve_strategy(self, deadline_at: Optional[float], admit: Optional[Admit] = None) -> Strategy:
         """The strategy this host supports, probed once per ``probe_key`` and kept for ``PROBE_TTL_S``. Probes of one
         key run one at a time; waiting for one ends at the deadline. A probe that fails on transport or auth is not
         kept."""
@@ -403,7 +432,7 @@ class OpenAIChatProvider(_ChatDecisionProvider):
                 found = _probed.get(key)
             if found is not None and time.monotonic() - found[0] < PROBE_TTL_S:
                 return found[1]
-            chosen = self.probe(deadline_at)
+            chosen = self.probe(deadline_at, admit)
             with _probe_guard:
                 if chosen is not None and epoch == _probe_epoch[0]:
                     _probed[key] = (time.monotonic(), chosen)
@@ -413,17 +442,21 @@ class OpenAIChatProvider(_ChatDecisionProvider):
         finally:
             lock.release()
 
-    def probe(self, deadline_at: Optional[float]) -> Optional[Strategy]:
+    def probe(self, deadline_at: Optional[float], admit: Optional[Admit] = None) -> Optional[Strategy]:
         """The first configured strategy that answers a synthetic question in its expected form.
 
         Plain chat can keep the final text rung even for an off-code reply. Terminal request failures raise
-        RequestFailure; unusable replies keep nothing. Probe requests are billed outside the run's budget.
+        RequestFailure; unusable replies keep nothing. Each request first asks ``admit`` with its estimated cost
+        and raises ProbeStopped when refused.
         """
         question = PROBE_REQUEST.questions[0]
         codes = answer_codes(question) or LETTERS
         payload: Optional[JSONObject] = None
         last_failure: Optional[RequestFailure] = None
         for strategy in self.probe_strategies:
+            if admit is not None and not admit(
+                    self.prices.estimate_usd(self.strategy_texts(PROBE_REQUEST, question, strategy), 1)):
+                raise ProbeStopped()
             try:
                 payload, _, _ = post_json(
                     f"{self.base_url}{self.path}", self.strategy_body(PROBE_REQUEST, question, strategy), self.headers(),

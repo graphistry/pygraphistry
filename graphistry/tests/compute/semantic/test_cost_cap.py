@@ -1,9 +1,10 @@
-from typing import Optional
+from typing import List, Optional, Sequence
 
+import pandas as pd
 import pytest
 
 from graphistry import call
-from graphistry.compute.semantic.contract import Budget
+from graphistry.compute.semantic.contract import Budget, DecisionRequest
 from graphistry.tests.compute.semantic.semantic_test_utils import Recording, frame
 from graphistry.tests.compute.semantic.test_gfql_bindings import SEL, counting, decide_params, polars_graph, run
 from graphistry.tests.compute.semantic.test_sem_decide import decide, reasons
@@ -79,3 +80,79 @@ def test_no_provider_call_means_plain_auto_fallback() -> None:
     provider.estimate_cost_usd = lambda requests: 1.0  # type: ignore[method-assign]
     out = run(provider, [call("sem_decide", decide_params(budget={"max_cost_usd": 0.5}))] + SEL, g=polars_graph())
     assert provider.answers == 0 and type(out._nodes).__module__.startswith("pandas")
+
+
+class Probing(Recording):
+    """Recording provider whose ``prepare_run`` sends setup requests costing ``costs`` through ``admit``."""
+
+    def __init__(self, costs: Sequence[object] = (), outcome: object = "self", **kwargs: object) -> None:
+        super().__init__(**kwargs)
+        self.costs, self.outcome = list(costs), outcome
+        self.admitted: List[bool] = []
+        self.prepared: List[List[str]] = []
+
+    def prepare_run(self, requests: Sequence[DecisionRequest], admit, *, deadline_s):  # type: ignore[no-untyped-def]
+        self.prepared.append([request.request_id for request in requests])
+        for cost in self.costs:
+            self.admitted.append(admit(cost))
+            if not self.admitted[-1]:
+                return None
+        if self.outcome == "raise":
+            raise RuntimeError("setup failed")
+        return self if self.outcome == "self" else self.outcome
+
+
+class TestSetupRequests:
+
+    def test_setup_requests_count_against_max_requests(self) -> None:
+        provider = Probing([0.0, 0.0])
+        out = decide(frame(5), provider, batch_size=1, max_concurrency=1, budget={"max_requests": 4})
+        assert out["p__status"].tolist() == ["ok"] * 2 + ["skipped"] * 3 and set(reasons(out)[2:]) == {"budget"}
+        assert [b.max_requests for b in provider.budgets if b] == [2, 1]
+        assert provider.prepared == [["0", "1", "2", "3", "4"]]
+
+    def test_setup_cost_is_reserved_before_row_calls(self) -> None:
+        provider = Probing([0.25])
+        provider.estimate_cost_usd = per_request(0.1)  # type: ignore[method-assign]
+        out = decide(frame(4), provider, batch_size=1, max_concurrency=1, budget={"max_cost_usd": 0.5})
+        assert out["p__status"].tolist() == ["ok"] * 2 + ["skipped"] * 2
+        assert [round(b.max_cost_usd, 6) for b in provider.budgets if b and b.max_cost_usd is not None] == [0.25, 0.15]
+
+    @pytest.mark.parametrize("costs,budget,admitted", [
+        ([0.0, 0.0], {"max_requests": 1}, [True, False]), ([0.6], {"max_cost_usd": 0.5}, [False]),
+        ([None], {"max_cost_usd": 0.5}, [False]), ([float("nan")], {"max_cost_usd": 0.5}, [False]),
+        ([0.3, 0.3], {"max_cost_usd": 0.5}, [True, False])])
+    def test_setup_the_budget_refuses_skips_every_row(self, costs: List[object], budget: object,
+                                                      admitted: List[bool]) -> None:
+        provider = Probing(costs)
+        provider.estimate_cost_usd = per_request(0.0)  # type: ignore[method-assign]
+        out = decide(frame(3), provider, budget=budget)
+        assert provider.admitted == admitted and provider.calls == []
+        assert out["p__status"].tolist() == ["skipped"] * 3 and set(reasons(out)) == {"budget"}
+
+    def test_without_a_budget_setup_runs_and_its_provider_answers(self) -> None:
+        answering = Recording()
+        provider = Probing([None, 0.1], outcome=answering)
+        out = decide(frame(3), provider)
+        assert provider.admitted == [True, True] and set(out["p__status"]) == {"ok"}
+        assert provider.calls == [] and sorted(answering.request_ids) == ["0", "1", "2"]
+
+    @pytest.mark.parametrize("budget", [None, {"max_cost_usd": 1.0}])
+    @pytest.mark.parametrize("outcome", ["raise", object()])
+    def test_a_failing_or_invalid_setup_is_a_provider_exception(self, outcome: object, budget: object) -> None:
+        provider = Probing(outcome=outcome)
+        out = decide(frame(3), provider, budget=budget)
+        assert provider.calls == [] and out["p__error_code"].tolist() == ["provider_exception"] * 3
+
+    def test_no_setup_when_no_row_is_sent(self) -> None:
+        provider = Probing([0.0])
+        out = decide(pd.DataFrame({"name": [None, None]}), provider)
+        assert provider.prepared == [] and provider.admitted == [] and set(reasons(out)) == {"null_evidence"}
+
+    def test_setup_requests_alone_are_a_side_effect(self) -> None:
+        from graphistry.compute.gfql.effects import effect_scope
+        with effect_scope() as probed:
+            decide(frame(2), Probing([0.0]), budget={"max_requests": 1})
+        with effect_scope() as refused:
+            decide(frame(2), Probing([0.6]), budget={"max_cost_usd": 0.5})
+        assert (probed, refused) == (["sem_decide"], [])

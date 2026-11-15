@@ -1955,7 +1955,7 @@ calls are sent. Eligible rows receive ``probabilities_unavailable`` with zero co
 ``max_rows`` and reached-deadline skips remain. This capability check precedes provider-call budget planning
 and consumes no request budget. Anthropic and LangChain adapters are always value-only. OpenAI chat can provide
 token logprobs, but cannot provide native-decision probabilities. An ``auto`` profile that includes logprobs
-is checked from its actual answers; its usual opt-in probe accounting still applies. Custom providers and
+is checked from its actual answers; its probes still count against the run's budget. Custom providers and
 subclasses are checked from their validated results rather than inferred from their type name.
 No path converts generated confidence or constrained tokens into probabilities.
 
@@ -1986,7 +1986,7 @@ unambiguous codes is an ``unsupported_question`` error and is not sent. A reply 
 (``A. yes``). For hosts whose free-text replies cannot be read, ``OpenAIChatProvider(strategy='json_schema')`` or
 ``strategy='tool'`` constrains the answer to the codes (no distribution; ``extra.answer_strategy`` says which), and
 ``strategy='text'`` sends no logprobs fields; ``strategy='auto'`` probes the host once per endpoint, model and
-settings (billed, outside the run's budget), keeps the first strategy that works for an hour, and
+settings (each probe request counts against the run's budget), keeps the first strategy that works for an hour, and
 ``graphistry.compute.semantic.forget_probes()`` drops kept results. Servers with the
 OpenAI Decisions API and smaller limits set ``max_questions_per_request``, ``max_choice_options`` and ``max_levels``
 on ``OpenAIDecisionsProvider``. ``OpenAIDecisionsProvider`` sends one request per row by default;
@@ -2028,9 +2028,11 @@ ordered profile. For example::
 The default profile stays ``logprobs``, ``json_schema``, ``tool``, ``text``. New rungs require an
 explicit profile. A profile probes synthetic evidence and caches only a validated reply for its
 endpoint, model, settings and ordered profile. Each rung can send up to ``max_retries + 1`` attempts.
-Probes use the remaining deadline. They are billed outside the kernel's ``budget.max_requests``
-and cost estimate; the caller must allow for their spend. A probe that fails on authentication,
-transport, rate limits or a server error returns that error without sending user evidence.
+Probes use the remaining deadline and the run's budget: in ``sem_decide`` each probe request counts as one of
+``budget.max_requests`` and its estimated cost counts toward ``max_cost_usd``, before any row call is planned.
+A probe the budget cannot cover is not sent, nothing is kept, and every row is skipped for budget. A kept strategy
+costs nothing. A probe that fails on authentication, transport, rate limits or a server error returns that error
+for every row of the run without sending user evidence or probing again.
 A real row's failure is returned without resending it through a lower strategy.
 The existing cost estimate includes the selected constraint payload, or the largest profile payload
 before discovery. It estimates input cost and is not a bound on billed spend.
