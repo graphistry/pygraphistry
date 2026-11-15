@@ -2168,3 +2168,78 @@ def test_set_keeps_the_original_node_row_order(engine) -> None:
     result = source.gfql("MATCH (n) WHERE n.id IN [1, 2, 3] SET n.p = n.v + 1", engine=engine)
     assert [row["id"] for row in _records(result._nodes)] == [3, 1, 4, 2]
     assert [row["p"] for row in _records(result._nodes)] == [31, 11, None, 21]
+
+
+# Wave-4 W4-F1: aggregation is not a SET value (it would group by node identity and store wrong values).
+_W4_AGGREGATES = [
+    "MATCH (n:N) SET n.c = count(*)",
+    "MATCH (n:N) SET n.t = sum(n.num)",
+    "MATCH (n:N) SET n.m = max(n.num) + 1",
+]
+
+
+@pytest.mark.parametrize("query", _W4_AGGREGATES)
+def test_set_declines_aggregate_values_at_compile_and_validate(query) -> None:
+    with pytest.raises(GFQLValidationError) as exc:
+        compile_cypher_query(parse_cypher(query))
+    assert exc.value.code == ErrorCode.E108
+    assert exc.value.context["field"] == "set"
+    assert exc.value.context["value"] == "aggregate_value"
+    with pytest.raises(GFQLValidationError) as exc:
+        _graph("pandas").gfql_validate(query)
+    assert exc.value.context["value"] == "aggregate_value"
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_set_aggregate_value_leaves_the_caller_untouched_on_every_engine(engine) -> None:
+    source = _label_n_graph(engine, [1, 2])
+    before = _records(source._nodes)
+    with pytest.raises(GFQLValidationError) as exc:
+        source.gfql(_W4_AGGREGATES[0], engine=engine)
+    assert exc.value.context["value"] == "aggregate_value"
+    assert _records(source._nodes) == before
+
+
+# Wave-4 W4-F3: SET requires unique non-null node keys before any effect, like CREATE.
+@pytest.mark.parametrize("engine", ENGINES)
+@pytest.mark.parametrize("ids", [[1, 1, 2], [1, None, 2]])
+def test_set_rejects_duplicate_or_null_node_keys_before_effects(engine, ids) -> None:
+    frame = pd.DataFrame({"id": pd.Series(ids, dtype="Int64"), "tag": ["a", "b", "c"]})
+    if engine == "cudf":
+        import cudf
+        frame = cudf.from_pandas(frame)
+    elif engine == "polars":
+        frame = pytest.importorskip("polars").from_pandas(frame)
+    source = graphistry.nodes(frame, "id")
+    before = _records(source._nodes)
+    with pytest.raises(GFQLValidationError) as exc:
+        source.gfql("MATCH (n) WHERE n.tag = 'a' SET n.x = 1", engine=engine)
+    assert exc.value.code == ErrorCode.E105
+    assert exc.value.context["value"] == "invalid_identity"
+    assert _records(source._nodes) == before
+
+
+# Wave-4 W4-F5: fail closed on any identifier other than the matched alias used as alias.prop (or a comprehension local).
+def test_set_declines_unbound_identifiers_and_admits_comprehension_locals() -> None:
+    with pytest.raises(GFQLValidationError) as exc:
+        compile_cypher_query(parse_cypher("MATCH p = (n) SET n.b = head(nodes(p)).a"))
+    assert exc.value.code == ErrorCode.E108
+    assert exc.value.context["field"] == "set"
+    assert exc.value.context["value"] in {"unbound_variable", "whole_entity_read"}
+    with pytest.raises(GFQLValidationError) as exc:
+        compile_cypher_query(parse_cypher("MATCH (n) SET n.b = stranger + 1"))
+    assert exc.value.context["value"] == "unbound_variable"
+    assert compile_cypher_query(parse_cypher("MATCH (n) SET n.b = [x IN [1, 2] | x + 1][0]")) is not None
+
+
+# Wave-4 W4-F2: unspaced / unary / negative-zero parameter forms.
+@pytest.mark.parametrize("engine", ENGINES)
+@pytest.mark.parametrize("expression,value,expected", [
+    ("n.a -$v", -5, {1: 15, 2: 25}),
+    ("-$v", -5, {1: 5, 2: 5}),
+    ("n.a - $v", -0.0, {1: 10.0, 2: 20.0}),
+])
+def test_set_parameter_forms_execute(engine, expression, value, expected) -> None:
+    source = graphistry.nodes(_foundation_frame(engine, {"id": [1, 2], "a": [10, 20]}), "id")
+    result = source.gfql(f"MATCH (n) SET n.b = {expression}", engine=engine, params={"v": value})
+    assert _set_values(result, "b") == expected
