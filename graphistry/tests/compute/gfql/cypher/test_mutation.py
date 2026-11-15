@@ -2225,7 +2225,7 @@ def test_set_declines_unbound_identifiers_and_admits_comprehension_locals() -> N
         compile_cypher_query(parse_cypher("MATCH p = (n) SET n.b = head(nodes(p)).a"))
     assert exc.value.code == ErrorCode.E108
     assert exc.value.context["field"] == "set"
-    assert exc.value.context["value"] in {"unbound_variable", "whole_entity_read"}
+    assert exc.value.context["value"] == "unbound_variable"
     with pytest.raises(GFQLValidationError) as exc:
         compile_cypher_query(parse_cypher("MATCH (n) SET n.b = stranger + 1"))
     assert exc.value.context["value"] == "unbound_variable"
@@ -2237,9 +2237,87 @@ def test_set_declines_unbound_identifiers_and_admits_comprehension_locals() -> N
 @pytest.mark.parametrize("expression,value,expected", [
     ("n.a -$v", -5, {1: 15, 2: 25}),
     ("-$v", -5, {1: 5, 2: 5}),
-    ("n.a - $v", -0.0, {1: 10.0, 2: 20.0}),
+    ("n.a -$v", -0.0, {1: 10.0, 2: 20.0}),
 ])
 def test_set_parameter_forms_execute(engine, expression, value, expected) -> None:
     source = graphistry.nodes(_foundation_frame(engine, {"id": [1, 2], "a": [10, 20]}), "id")
     result = source.gfql(f"MATCH (n) SET n.b = {expression}", engine=engine, params={"v": value})
     assert _set_values(result, "b") == expected
+
+
+
+# Wave-5 W5-F4: an edges-only graph (no node table) materializes its nodes like the read path; no raw AssertionError.
+def _edges_only(engine: str) -> Any:
+    frame = _foundation_frame(engine, {"s": [1, 2], "d": [2, 3]})
+    return graphistry.edges(frame, "s", "d")
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_set_on_an_edges_only_graph_materializes_nodes(engine) -> None:
+    source = _edges_only(engine)
+    result = source.gfql("MATCH (n) WHERE n.id = 2 SET n.x = 5", engine=engine)
+    assert _set_values(result, "x") == {1: None, 2: 5, 3: None}
+    assert source._nodes is None
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_set_on_an_edges_only_graph_with_no_match_is_a_clean_no_op(engine) -> None:
+    source = _edges_only(engine)
+    result = source.gfql("MATCH (n) WHERE n.id = 99 SET n.x = 5", engine=engine)
+    assert "x" not in list(result._nodes.columns)
+    assert source._nodes is None
+
+
+# Wave-5 W5-F1: a comprehension/quantifier variable that shadows the SET alias is declined (the read rewrite is not
+# scope-aware, so it would store the node instead of the value).
+@pytest.mark.parametrize("query", [
+    "MATCH (n) SET n.b = [n IN ['x'] | n][0]",
+    "MATCH (n) SET n.b = size([n IN [1, 2] | n])",
+    "MATCH (n) SET n.b = any(n IN [1, 2] WHERE n > 1)",
+])
+def test_set_declines_a_local_variable_that_shadows_the_matched_alias(query) -> None:
+    with pytest.raises(GFQLValidationError) as exc:
+        compile_cypher_query(parse_cypher(query))
+    assert exc.value.code == ErrorCode.E108
+    assert exc.value.context["field"] == "set"
+    assert exc.value.context["value"] == "shadowed_alias"
+
+
+# Wave-5 W5-F2 / W5-F3: parameter edge cases.
+@pytest.mark.parametrize("value", [2 ** 1030, -(2 ** 1030)])
+def test_set_huge_integer_parameter_fails_structurally(value) -> None:
+    with pytest.raises(GFQLValidationError):
+        compile_cypher_query(parse_cypher("MATCH (n) SET n.p = $v"), params={"v": value})
+
+
+@pytest.mark.parametrize("param", [[1, 2], (1, 2), {"a": 1}, [float("inf")], [float("nan")]])
+def test_set_declines_list_and_map_parameters_anywhere_in_the_value(param) -> None:
+    for text in ("$v", "$v[0]", "head($v)"):
+        with pytest.raises(GFQLValidationError) as exc:
+            compile_cypher_query(parse_cypher(f"MATCH (n) SET n.p = {text}"), params={"v": param})
+        assert exc.value.code == ErrorCode.E108
+        assert exc.value.context["value"] == "non_scalar_value"
+
+
+# Wave-5 W5-F5: the unsupported SET forms and the dead-code guard.
+@pytest.mark.parametrize("query", ["MATCH (n) SET n:L", "MATCH (n) SET n = {a: 1}", "MATCH (n) SET n += {a: 1}"])
+def test_set_label_and_map_replacement_forms_are_unsupported(query) -> None:
+    with pytest.raises(Exception) as exc:
+        parse_cypher(query)
+    assert getattr(exc.value, "code", None) == ErrorCode.E107
+
+
+@pytest.mark.parametrize("engine", ["pandas", "polars"])
+def test_set_combine_step_rejects_conflicting_and_repeated_assignments(engine) -> None:
+    from graphistry.compute.gfql.mutation import SET_IDENTITY, SET_VALUE, _combine_assignment_frames
+
+    def make(values: list[int]) -> Any:
+        frame = pd.DataFrame({SET_IDENTITY: [1] * len(values), SET_VALUE: values})
+        return pytest.importorskip("polars").from_pandas(frame) if engine == "polars" else frame
+
+    with pytest.raises(GFQLValidationError) as exc:
+        _combine_assignment_frames([make([1, 2])], object())
+    assert exc.value.code == ErrorCode.E105 and exc.value.context["value"] == "conflicting_updates"
+    with pytest.raises(GFQLValidationError) as exc:
+        _combine_assignment_frames([make([1]), make([1])], object())
+    assert exc.value.code == ErrorCode.E105 and exc.value.context["value"] == "repeated_property"
