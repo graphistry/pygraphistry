@@ -1783,7 +1783,6 @@ _SET_READ_AFTER_WRITE = [
     "MATCH (n:N) SET n.a = 1 SET n.b = n.a RETURN n.b AS b",
     "MATCH (n:N) SET n.a = 1, n.b = n.a RETURN n.b AS b",
     "MATCH (n:N) SET n.x = n.y, n.y = n.x RETURN n.x AS x",
-    "MATCH (n:N) SET n.a = 1 SET n.b = n['a'] RETURN n.b AS b",
 ]
 
 
@@ -2006,7 +2005,7 @@ def test_set_bad_parameters_fail_at_compile_validate_and_execute(params, code, v
         with pytest.raises(GFQLValidationError) as exc:
             entry()
         assert exc.value.code == code
-        assert exc.value.context["field"] in {"set", "create"} or exc.value.context["value"] == value
+        assert exc.value.context["field"] == "set"
         assert exc.value.context["value"] == value
 
 
@@ -2028,7 +2027,7 @@ def test_set_with_no_matches_still_normalizes_to_the_requested_engine() -> None:
 
 # Wave-2 W2-F4 / W2-F7: static declines with one code on every engine.
 @pytest.mark.parametrize("query,value", [
-    ("MATCH (n) SET n.b = n", "non_scalar_value"),
+    ("MATCH (n) SET n.b = n", "whole_entity_read"),
     ("MATCH (n) SET n.p = 1, n.p = 'x'", "repeated_property"),
     ("MATCH (n) SET n.p = 1 SET n.p = 1", "repeated_property"),
 ])
@@ -2047,3 +2046,125 @@ def test_set_partial_update_emits_no_future_warning_on_pandas() -> None:
         warnings.simplefilter("error", FutureWarning)
         result = source.gfql("MATCH (n) WHERE n.id = 1 SET n.s = 'z'", engine="pandas")
     assert _set_values(result, "s") == {1: "z", 2: "b"}
+
+
+
+# Wave-3 W3-F1: the alias may appear in a SET right-hand side only as a direct property access; any other occurrence is
+# a whole-entity read (allowlist, not a denylist of read shapes) and is declined before any effect.
+_W3_WHOLE_ENTITY = [
+    "MATCH (n:N) SET n.a = 5, n.b = head([n]).a",
+    "MATCH (n:N) SET n.b = head([n])",
+    "MATCH (n:N) SET n.b = coalesce(n)",
+    "MATCH (n:N) SET n.b = [n][0].a",
+    "MATCH (n:N) SET n.b = [x IN [n] | x.a][0]",
+    "MATCH (n:N) SET n.a = 1 SET n.b = n['a']",
+]
+
+
+@pytest.mark.parametrize("query", _W3_WHOLE_ENTITY)
+def test_set_declines_every_whole_entity_read_of_the_alias(query) -> None:
+    with pytest.raises(GFQLValidationError) as exc:
+        compile_cypher_query(parse_cypher(query))
+    assert exc.value.code == ErrorCode.E108
+    assert exc.value.context["field"] == "set"
+    assert exc.value.context["value"] == "whole_entity_read"
+    with pytest.raises(GFQLValidationError) as exc:
+        _graph("pandas").gfql_validate(query)
+    assert exc.value.context["value"] == "whole_entity_read"
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_set_whole_entity_read_leaves_the_caller_untouched_on_every_engine(engine) -> None:
+    source = _label_n_graph(engine, [1])
+    before = _records(source._nodes)
+    with pytest.raises(GFQLValidationError) as exc:
+        source.gfql(_W3_WHOLE_ENTITY[0], engine=engine)
+    assert exc.value.context["value"] == "whole_entity_read"
+    assert _records(source._nodes) == before
+
+
+@pytest.mark.parametrize("query", [
+    "MATCH (n:N) SET n.num = n.num + 1",
+    "MATCH (n:N) SET n.b = n.num + 1",
+    "MATCH (n:N) SET n.b = n.num * 2, n.c = n.num - 1",
+])
+def test_set_admits_direct_property_reads_of_unassigned_or_self_properties(query) -> None:
+    assert compile_cypher_query(parse_cypher(query)) is not None
+
+
+# Wave-3 W3-F3: SET followed by a WITH re-entry is an unsupported shape (E108), not a syntax error; only a SET before
+# the FIRST MATCH is a syntax error.
+def test_set_then_with_reentry_is_unsupported_not_a_syntax_error() -> None:
+    with pytest.raises(GFQLValidationError) as exc:
+        compile_cypher_query(parse_cypher("MATCH (a) SET a.x = 1 WITH a MATCH (b) RETURN b"))
+    assert exc.value.code == ErrorCode.E108
+    assert exc.value.context["field"] == "set"
+    assert exc.value.context["value"] == "mixed_clauses"
+
+
+# Wave-3 W3-F4: parameter rendering edge cases.
+@pytest.mark.parametrize("engine", ENGINES)
+def test_set_negative_parameter_after_a_binary_minus_executes(engine) -> None:
+    source = graphistry.nodes(_foundation_frame(engine, {"id": [1, 2], "a": [10, 20]}), "id")
+    result = source.gfql("MATCH (n) SET n.b = n.a - $v", engine=engine, params={"v": -5})
+    assert _set_values(result, "b") == {1: 15, 2: 25}
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_set_string_parameter_that_spells_nan_is_a_string(engine) -> None:
+    source = graphistry.nodes(_foundation_frame(engine, {"id": [1, 2]}), "id")
+    result = source.gfql("MATCH (n) WHERE n.id = 1 SET n.p = $v", engine=engine, params={"v": "NaN"})
+    assert _set_values(result, "p") == {1: "NaN", 2: None}
+
+
+def test_set_nan_scan_ignores_parameter_names_inside_string_literals() -> None:
+    compiled = compile_cypher_query(parse_cypher("MATCH (n) SET n.s = 'cost $v'"), params={"v": float("nan")})
+    assert compiled is not None
+
+
+@pytest.mark.parametrize("value", [float("inf"), float("-inf")])
+def test_set_infinite_parameter_is_declined_precisely(value) -> None:
+    with pytest.raises(GFQLValidationError) as exc:
+        compile_cypher_query(parse_cypher("MATCH (n) SET n.p = $v"), params={"v": value})
+    assert exc.value.code == ErrorCode.E108
+    assert exc.value.context["field"] == "set"
+    assert exc.value.context["value"] == "non_finite_parameter"
+
+
+# Wave-3 W3-F6: more behavior coverage.
+@pytest.mark.parametrize("engine", ENGINES)
+@pytest.mark.parametrize("value,kind,expected", [(True, "bool", True), (2.5, "float", 2.5)])
+def test_set_bool_and_float_parameters_execute(engine, value, kind, expected) -> None:
+    source = graphistry.nodes(_foundation_frame(engine, {"id": [1, 2]}), "id")
+    result = source.gfql("MATCH (n) WHERE n.id = 1 SET n.p = $v", engine=engine, params={"v": value})
+    assert _set_values(result, "p") == {1: expected, 2: None}
+    assert _column_kind(result._nodes, "p") == kind
+
+
+def test_set_declines_an_out_of_range_integer_behaviorally() -> None:
+    with pytest.raises(GFQLValidationError) as exc:
+        compile_cypher_query(parse_cypher("MATCH (n:N) SET n.a = 9223372036854775808 SET n.b = n.a"))
+    assert exc.value.code == ErrorCode.E108
+    assert exc.value.context["field"] == "set"
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_set_empty_match_still_normalizes_the_engine_and_checks_physical_identity(engine) -> None:
+    source = graphistry.nodes(_foundation_frame(engine, {"uid": [1, 2], "label__N": [True, True]}), "uid")
+    result = source.gfql("MATCH (n:Missing) SET n.x = 1", engine=engine)
+    _assert_served(engine, result._nodes)
+    before = _records(source._nodes)
+    with pytest.raises(GFQLValidationError) as exc:
+        source.gfql("MATCH (n:Missing) SET n.uid = 1", engine=engine)
+    assert exc.value.code == ErrorCode.E108
+    assert exc.value.context["value"] == "physical_identity"
+    assert _records(source._nodes) == before
+
+
+# Wave-3 W3-F8: SET keeps the node row order on every engine.
+@pytest.mark.parametrize("engine", ENGINES)
+def test_set_keeps_the_original_node_row_order(engine) -> None:
+    source = graphistry.nodes(_foundation_frame(engine, {"id": [3, 1, 4, 2], "v": [30, 10, 40, 20]}), "id")
+    result = source.gfql("MATCH (n) WHERE n.id IN [1, 2, 3] SET n.p = n.v + 1", engine=engine)
+    assert [row["id"] for row in _records(result._nodes)] == [3, 1, 4, 2]
+    assert [row["p"] for row in _records(result._nodes)] == [31, 11, None, 21]
