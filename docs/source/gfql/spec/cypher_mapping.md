@@ -2,8 +2,8 @@
 
 # Cypher to GFQL Python & Wire Protocol Mapping
 
-GFQL supports Cypher syntax out of the box for a bounded read-only surface on
-bound graphs, while executing through GFQL's columnar engine with optional GPU
+GFQL supports Cypher syntax out of the box for a bounded surface on
+bound graphs (reads, plus functional node and relationship `CREATE` and node `SET`, which return a new graph), while executing through GFQL's columnar engine with optional GPU
 acceleration. This page explains how to translate familiar Cypher patterns into
 native GFQL Python and wire protocol forms when you want more explicit control.
 
@@ -546,7 +546,7 @@ ordinary Chain/Call messages, not graph-constructor-specific wire types.
   as a single Chain); use `g.gfql("...")` for direct execution instead
 
 ## Not Supported
-- `CREATE`, `DELETE`, `SET`: GFQL is read-only.
+- `DELETE`, relationship `SET`, `REMOVE`, `MERGE` and `MATCH ... CREATE`: not supported. Standalone node and relationship `CREATE` and node `MATCH ... SET` run through `g.gfql("...")` functionally (they return a new graph and never mutate the caller) but have no single GFQL chain translation.
 - `OPTIONAL MATCH`: direct `g.gfql("MATCH ...")` execution supports a bounded subset,
   but pure GFQL translation still has no single general operator for full
   outer-join/null-extension semantics.

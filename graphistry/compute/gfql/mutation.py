@@ -438,6 +438,13 @@ def execute_set_properties(
         base_graph = ensure_local_engine_match(base_graph, Engine.PANDAS)  # a cuDF frame is moved to the host, as reads do
     if base_graph._nodes is None and base_graph._edges is not None:
         base_graph = base_graph.materialize_nodes(engine=concrete_engine.value)
+    for alias_name, alias_kind in alias_kinds:
+        identity_key = base_graph._node if alias_kind == "node" else base_graph._edge
+        if identity_key is not None and alias_name == identity_key:
+            raise GFQLMutationError(
+                ErrorCode.E108, f"SET cannot update a matched alias named like the {alias_kind} identity column {identity_key!r}",
+                field="set", value="alias_named_like_identity", suggestion="Rename the matched variable.", language="cypher",
+            )
     frame = matched_rows._nodes
     if frame is None:
         raise GFQLMutationError(

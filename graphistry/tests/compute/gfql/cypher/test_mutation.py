@@ -1115,7 +1115,7 @@ def test_rebinding_metadata_is_typed_not_silently_reused(engine):
     assert _records(rebound._nodes)==before
 
 
-@pytest.mark.parametrize("heading", ["Functional Node Creation", "Functional Relationship Creation"])
+@pytest.mark.parametrize("heading", ["Functional Node Creation", "Functional Node SET", "Functional Relationship Creation"])
 def test_functional_create_documentation_example(heading: str) -> None:
     from pathlib import Path
     import textwrap
@@ -2933,6 +2933,35 @@ def test_pandas_engine_set_on_a_cudf_graph_runs_on_the_host(shape, where, matche
     returned = source.gfql(f"MATCH (n) {where} SET n.x = 1 RETURN n.x AS x", engine="pandas")
     assert isinstance(returned.gfql_graph._nodes, pd.DataFrame)
     assert _records(returned._nodes) == ([{"x": 1}] * 3 if matched else [])
+
+
+# W12-F1: a matched alias named like the identity column is a structured decline on every engine, never a wrong write
+def _edges_only(engine: str) -> Any:
+    frame = pd.DataFrame({"s": [1, 2], "d": [2, 3]})
+    if engine == "cudf":
+        import cudf
+        frame = cudf.from_pandas(frame)
+    elif engine == "polars":
+        frame = pytest.importorskip("polars").from_pandas(frame)
+    return graphistry.edges(frame, "s", "d")
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_set_on_an_alias_named_like_the_materialized_node_key_is_a_structured_decline(engine) -> None:
+    source = _edges_only(engine)
+    with _declined(ErrorCode.E108, field="set", value="alias_named_like_identity"):
+        source.gfql("MATCH (id) SET id.x = 1", engine=engine)
+    assert _records(source._edges) == [{"s": 1, "d": 2}, {"s": 2, "d": 3}]
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_set_on_an_alias_named_like_the_bound_node_key_is_declined_before_effects(engine) -> None:
+    source = graphistry.nodes(_typed_frame(engine, {"n": [1, 2, 3], "v": [10, 20, 30]}, {}), "n")
+    before = _records(source._nodes)
+    with pytest.raises(GFQLValidationError) as exc:
+        source.gfql("MATCH (n) SET n.x = 1", engine=engine)
+    assert "node-ID binding column" in str(exc.value)
+    assert _records(source._nodes) == before
 
 
 # W11-F2: the matched alias keeps its spelling (backticks) in the internal identity expression
