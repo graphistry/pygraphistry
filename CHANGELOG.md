@@ -12,6 +12,11 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 - **GFQL semantic table operators `sem_decide` and `sem_map`**: ask a model provider typed questions (predicate, choice, score) or generate one text value for every node or edge row, as Plottable methods and GFQL `call()` operations. Each row keeps its position; `sem_decide` adds an answer, status (`ok`/`uncertain`/`error`/`skipped`), probability, distribution, probability kind, error code and JSON metadata per question, and `sem_map` adds the value, status, error code and metadata; provider faults become per-row errors. Includes a provider contract (`graphistry.compute.semantic`; its `contract` module is standard-library only), execution-scoped provider binding (`bind_providers`) and callable providers. Deadlines, a request limit and `max_rows` mark the rest `skipped`. Policy hooks fire on the GFQL path. Remote execution refuses these calls, and `engine='auto'` never re-runs a query after it called a provider.
 
+### Fixed
+
+- **GFQL nullable entity keys on cuDF** (#2312): `keys(n)` now returns empty lists for rows with no non-null properties alongside populated rows. Native empty key lists use the string child type expected by the grouped result, and key lists remain aligned with their original entities after the native grouping join.
+- **GFQL Cypher empty property maps**: an explicit node `{}` no longer replaces labels, so `MATCH (n:Foo {})` still selects `Foo` nodes. An explicit relationship `{}` no longer replaces relationship types with an empty tuple, so `MATCH ()-[r:R {}]->()` matches only typed `R` relationships on every supported engine, while untyped `n {}` and `r {}` controls remain untyped (#2318).
+
 ## [0.62.1] - 2026-11-12
 
 ### Fixed
