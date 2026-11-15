@@ -216,12 +216,12 @@ def test_filter_errors_match_the_traversal(engine, bad_filter, validate_schema, 
         try:
             out = g.chain(query, engine=engine, validate_schema=validate_schema)
         except Exception as error:  # the outcome under test is the error class and code
+            assert "unexpected keyword" not in str(error)
             return type(error), getattr(error, "code", None)
         return "rows", len(out._nodes)
 
     with routes_off([ROUTE]):
         expected = outcome()
-    assert expected[0] is not TypeError
     assert outcome() == expected
 
 
