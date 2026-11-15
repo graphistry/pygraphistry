@@ -20,7 +20,7 @@ from graphistry.compute.gfql.index.types import TraceEngine
 from graphistry.compute.typing import DataFrameT
 from graphistry.utils.json import JSONVal
 
-FrameSchema = Tuple[Tuple[object, object], ...]
+FrameSchema = Tuple[Tuple[Tuple[type, object], object], ...]
 
 _FILTER_FIELDS = ("filter_dict", "edge_match", "source_node_match", "destination_node_match")
 _TWINS: "OrderedDict[Tuple[object, ...], Tuple[DataFrameT, DataFrameT]]" = OrderedDict()
@@ -80,8 +80,9 @@ def may_skip_unread_middle_traversal(
     Declines when a frame is unbound (the canonical path raises or materializes), when
     the index policy may serve the traversal (its index decisions stay observable), when a
     multi-hop or hop-labelled edge makes the traversal's output dtypes depend on the data,
-    which a zero-row twin cannot reproduce, and when a frame carries ``attrs``, which some
-    pandas versions propagate through the traversal.
+    which a zero-row twin cannot reproduce, when a frame carries ``attrs``, which some
+    pandas versions propagate through the traversal, and when a frame has a categorical
+    column or an unhashable dtype, which the twin key cannot capture exactly.
     """
     from graphistry.compute.gfql.index.api import index_policy_may_serve, record_fast_path_decision
 
@@ -97,6 +98,10 @@ def may_skip_unread_middle_traversal(
         reason = "query strings evaluate only on traversed rows"
     elif _carries_attrs(g._nodes) or _carries_attrs(g._edges):
         reason = "frame attrs may propagate through the traversal, depending on the pandas version"
+    elif _has_categorical(g._nodes) or _has_categorical(g._edges):
+        reason = "categorical columns would need their categories in the twin key"
+    elif _frame_schema(g._nodes) is None or _frame_schema(g._edges) is None:
+        reason = "a column dtype is not hashable, so the twin cannot be keyed exactly"
     else:
         reason = ""
     record_fast_path_decision(
@@ -108,6 +113,15 @@ def may_skip_unread_middle_traversal(
 
 def _carries_attrs(frame: DataFrameT) -> bool:
     return bool(getattr(frame, "attrs", None))
+
+
+_CATEGORICAL_DTYPE_NAMES = frozenset({"CategoricalDtype", "Categorical", "Enum"})
+
+
+def _has_categorical(frame: DataFrameT) -> bool:
+    """A pandas/cuDF categorical or a Polars Categorical/Enum column; costs one dtype read per column."""
+    dtypes = frame.schema.values() if is_polars_df(frame) else frame.dtypes.values
+    return any(type(dtype).__name__ in _CATEGORICAL_DTYPE_NAMES for dtype in dtypes)
 
 
 def _has_query_string(op: ASTObject) -> bool:
@@ -196,33 +210,19 @@ def _fresh(frame: DataFrameT) -> DataFrameT:
     return copied
 
 
-def _frame_schema(df: DataFrameT) -> FrameSchema:
-    """Typed column labels and dtype objects, with category order for categoricals.
+def _frame_schema(df: DataFrameT) -> Optional[FrameSchema]:
+    """Typed column labels with their exact dtype objects, or None when a dtype is unhashable.
 
-    Label types keep ``1`` and ``True`` apart; unordered categoricals compare equal
-    across category orders, so the order is keyed explicitly.
+    Label types keep ``1`` and ``True`` apart; dtype objects compare and hash exactly (tz,
+    unit, precision, nested fields), so no repr is ever used as a key.
     """
     items = df.schema.items() if is_polars_df(df) else df.dtypes.items()
-    return tuple(((type(column), column), (_dtype_key(dtype), _category_order(dtype))) for column, dtype in items)
-
-
-def _dtype_key(dtype: object) -> object:
-    """The dtype itself when hashable; cuDF categorical dtypes are not, so those key on type and repr."""
+    schema = tuple(((type(column), column), dtype) for column, dtype in items)
     try:
-        hash(dtype)
+        hash(schema)
     except TypeError:
-        return (type(dtype), repr(dtype))
-    return dtype
-
-
-def _category_order(dtype: object) -> Tuple[object, ...]:
-    """Category order of a pandas/cuDF categorical; Polars dtypes compare their own categories, and iterating its ``Categories`` never ends."""
-    categories = getattr(dtype, "categories", None)
-    if categories is None or type(dtype).__module__.startswith("polars"):
-        return ()
-    if hasattr(categories, "to_pandas"):  # cuDF refuses host list conversion on its index
-        categories = categories.to_pandas()
-    return tuple(categories.to_list() if hasattr(categories, "to_list") else categories)
+        return None
+    return schema
 
 
 def _plan_shape(middle: List[ASTObject]) -> Tuple[object, ...]:
