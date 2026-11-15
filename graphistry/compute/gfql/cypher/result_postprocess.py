@@ -14,6 +14,7 @@ from graphistry.compute.gfql.series_str_compat import is_non_textual_scalar_dtyp
 
 from .lowering import ResultProjectionColumn, ResultProjectionPlan
 from graphistry.compute.gfql.row.entity_props import (
+    INTERNAL_IDENTITY_COLUMNS,
     MUTATION_NODE_ID,
     ID_PROPERTY_PRESENT,
     _const_text,
@@ -130,7 +131,6 @@ def _flat_entity_field_names(
     source_rows_df: DataFrameT,
     projection: ResultProjectionPlan,
     id_column: Optional[str],
-    include_internal_identity: bool = False,
 ) -> list[str]:
     """Ordered field names for a flattened whole-entity projection (#1650).
 
@@ -154,23 +154,11 @@ def _flat_entity_field_names(
         extra = ["type"] if "type" in source_rows_df.columns else []
 
     fields: list[str] = []
-    public_id = None
-    if id_column is not None and not id_column.startswith("__") and include_internal_identity:
-        public_id = id_column
+    public_id = None if id_column in INTERNAL_IDENTITY_COLUMNS else id_column
     for col in [public_id, *prop_cols, *extra]:
         if col is not None and col in source_rows_df.columns and col not in fields:
             fields.append(str(col))
     return fields
-
-
-def _include_identity_in_flat_entity_projection(
-    result_node_id: Optional[str], source_node_id: Optional[str]
-) -> bool:
-    """Include explicit source identity, while retaining mutation identity as internal."""
-    return bool(
-        (result_node_id is not None or source_node_id is not None)
-        and MUTATION_NODE_ID not in {result_node_id, source_node_id}
-    )
 
 
 def _flat_entity_columns(
@@ -178,7 +166,6 @@ def _flat_entity_columns(
     projection: ResultProjectionPlan,
     output_name: str,
     id_column: Optional[str],
-    include_internal_identity: bool = False,
 ) -> Dict[str, SeriesT]:
     """Structured (flattened) whole-entity projection (issue #1650).
 
@@ -190,9 +177,7 @@ def _flat_entity_columns(
     """
     return {
         f"{output_name}.{field}": cast(SeriesT, source_rows_df[field])
-        for field in _flat_entity_field_names(
-            source_rows_df, projection, id_column, include_internal_identity
-        )
+        for field in _flat_entity_field_names(source_rows_df, projection, id_column)
     }
 
 
@@ -462,9 +447,6 @@ def _apply_result_projection_pandas(
                     source_projection,
                     column.output_name,
                     id_column,
-                    include_internal_identity=_include_identity_in_flat_entity_projection(
-                        result._node, source_node_id
-                    ),
                 )
                 if structured
                 else {}
