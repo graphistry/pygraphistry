@@ -236,9 +236,12 @@ Support Matrix
    * - Node ``SET`` after ``MATCH``
      - Supported
      - Scalar property updates on existing nodes (literals, parameters, computed expressions), with optional ``RETURN``.
-   * - Relationship ``CREATE``, ``MATCH ... CREATE``, ``DELETE``, relationship ``SET``, ``REMOVE``, ``MERGE``
+   * - Standalone relationship ``CREATE``
+     - Supported
+     - Directed one-hop relationships between nodes created or bound in the same ``CREATE``, with a type and scalar properties.
+   * - ``MATCH ... CREATE``, ``DELETE``, relationship ``SET``, ``REMOVE``, ``MERGE``
      - Not supported
-     - These mutation clauses remain outside this initial creation subset.
+     - These mutation clauses remain outside this creation subset.
    * - Multiple disconnected ``MATCH`` patterns and arbitrary joins
      - Not supported
      - Split the work into separate GFQL / dataframe steps.
@@ -608,7 +611,7 @@ Not Supported Today
   ``MATCH ... WITH ... MATCH ... RETURN`` form.
 - ``RETURN *`` after unsupported re-entry shapes or when it would require
   unsupported multi-alias/path projection shaping.
-- Relationship ``CREATE``, ``MATCH ... CREATE``, ``DELETE``, relationship ``SET``, ``REMOVE``, and ``MERGE``.
+- ``MATCH ... CREATE``, ``DELETE``, relationship ``SET``, ``REMOVE``, and ``MERGE``.
 - Generic database procedures outside ``CALL graphistry.*``.
 - The full Cypher expression/function surface.
 
@@ -716,10 +719,49 @@ reuses the graph's physical identity binding.
 This initial subset requires unique non-null integer or string physical
 identities and compatible scalar property columns. Unsupported value unions,
 reserved metadata/label property names, identity exhaustion, and ambiguous
-rebinding fail with a structured error. Relationship creation, read/write clause
-combinations, and other mutation operators remain unsupported. Explicit
+rebinding fail with a structured error. A standalone node pattern may not
+re-declare a variable that is already bound (``CREATE (a), (a)``); a
+relationship endpoint may reuse one. Read/write clause combinations and other
+mutation operators remain unsupported. Explicit
 ``engine="polars-gpu"`` and remote mutation execution decline before dispatch;
 CPU Polars and native cuDF routes are available.
+
+Functional Relationship Creation
+--------------------------------
+
+Standalone ``CREATE`` can also add directed one-hop relationships. Each endpoint
+is a node created by the same statement, or a variable bound earlier in it. The
+relationship takes the edge ``type`` column and optional scalar properties, and
+the caller's frames and bindings stay unchanged.
+
+.. code-block:: python
+
+   import graphistry
+   import pandas as pd
+
+   source = graphistry.nodes(pd.DataFrame({"id": pd.Series([], dtype="int64")}), "id").edges(
+       pd.DataFrame({"s": pd.Series([], dtype="int64"), "d": pd.Series([], dtype="int64")}),
+       "s", "d",
+   )
+   created = source.gfql(
+       "CREATE (a:Person {name: 'Ada'})-[:KNOWS {since: 2020}]->(b:Person {name: 'Grace'})",
+       engine="pandas",
+   )
+   assert len(created._nodes) == 2 and len(created._edges) == 1
+   assert created._edges["type"].tolist() == ["KNOWS"]
+   assert len(source._edges) == 0
+
+Edge identity follows the graph's binding: an existing compatible string or
+integer edge identity column is kept; otherwise the physical edge identity is a
+separate ``__graphistry_edge_identity__`` column. Endpoint aliases and
+relationship variables follow Cypher scoping within the statement. A reverse
+arrow (``(a)<-[:R]-(b)``) points the edge from ``b`` to ``a``.
+
+Limits: only one-hop directed relationships are created (no variable-length
+or undirected forms); returning a relationship variable is not supported and
+raises a structured error before effects; ``MATCH ... CREATE`` and the other
+mutation operators are not supported; rejected mutations leave the caller
+unchanged.
 
 Validation And Unsupported Shapes
 ---------------------------------

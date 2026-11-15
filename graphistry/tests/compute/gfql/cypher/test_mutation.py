@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import importlib.util
 import os
 from typing import Any
@@ -48,6 +49,18 @@ def test_node_create_declines_filtered_label_names_without_effects(engine, label
 def test_node_create_label_name_case_is_preserved(engine):
     result = _graph(engine).gfql("CREATE (:none)", engine=engine)
     assert sum(bool(row.get("label__none")) for row in _records(result._nodes)) == 1
+
+
+@contextlib.contextmanager
+def _declined(code: Any, *, field: Any = None, value: Any = None):
+    """Structured-decline assertion on code/field/value instead of message text."""
+    with pytest.raises(GFQLValidationError) as exc:
+        yield exc
+    assert exc.value.code == code
+    if field is not None:
+        assert exc.value.context["field"] == field
+    if value is not None:
+        assert exc.value.context["value"] == value
 
 
 def _records(frame: Any) -> list[dict[str, Any]]:
@@ -194,7 +207,7 @@ def test_create_declines_old_legacy_type_with_new_canonical_label(engine: str) -
         "id",
     )
 
-    with pytest.raises(GFQLValidationError, match="legacy type labels"):
+    with _declined(ErrorCode.E108, field="create"):
         source.gfql("CREATE (:New)", engine=engine, language="cypher")
     assert _records(source._nodes) == [{"id": "old", "type": "Old"}]
 
@@ -228,7 +241,7 @@ def test_create_declines_same_legacy_and_canonical_label(engine: str) -> None:
         "id",
     )
 
-    with pytest.raises(GFQLValidationError, match="legacy type labels"):
+    with _declined(ErrorCode.E108, field="create"):
         source.gfql("CREATE (:Shared)", engine=engine, language="cypher")
 
 
@@ -304,7 +317,7 @@ def test_create_preserves_string_existing_identity() -> None:
 def test_create_rejects_missing_existing_identity_column() -> None:
     source = graphistry.bind(node="id").nodes(pd.DataFrame({"name": ["Ada"]}))
 
-    with pytest.raises(GFQLValidationError, match="missing identity column 'id'"):
+    with _declined(ErrorCode.E108, field="id", value="missing"):
         source.gfql("CREATE (a:L)", engine="pandas", language="cypher")
 
 
@@ -312,6 +325,8 @@ def test_create_return_has_rows_and_same_execution_graph() -> None:
     source = _graph("pandas")
     result = source.gfql("CREATE (a:L {name:'new'}) RETURN a.name AS name", engine="pandas")
     assert _records(result._nodes) == [{"name": "new"}]
+    assert len(result.gfql_graph._nodes) == 3
+    assert result.gfql_graph._nodes[result.gfql_graph._node].tolist() == [1, 2, 3]
 
 
 @pytest.mark.parametrize("engine", ENGINES)
@@ -437,7 +452,7 @@ def test_create_relationship_rejects_duplicate_alias_before_effects() -> None:
     source = _graph("pandas")
     before = _records(source._edges)
 
-    with pytest.raises(GFQLValidationError, match="relationship variable is already bound"):
+    with _declined(ErrorCode.E105, field="create"):
         source.gfql(
             "CREATE (a)-[r:T]->(b), (c)-[r:U]->(d)",
             engine="pandas",
@@ -453,7 +468,7 @@ def test_create_rejects_decorated_repeated_alias_before_effects(decorated: str) 
     before_nodes = _records(source._nodes)
     before_edges = _records(source._edges)
 
-    with pytest.raises(GFQLValidationError, match="variable is already bound"):
+    with _declined(ErrorCode.E105, field="create"):
         source.gfql(
             f"CREATE (n:Foo)\nCREATE (n{decorated})",
             engine="pandas",
@@ -470,7 +485,7 @@ def test_create_rejects_same_clause_decorated_repeated_alias_before_effects(deco
     before_nodes = _records(source._nodes)
     before_edges = _records(source._edges)
 
-    with pytest.raises(GFQLValidationError, match="variable is already bound"):
+    with _declined(ErrorCode.E105, field="create"):
         source.gfql(
             f"CREATE (n:Foo), (n{decorated})",
             engine="pandas",
@@ -505,7 +520,7 @@ def test_compile_create_accepts_structurally_bare_repeated_alias(query: str) -> 
     ],
 )
 def test_compile_create_rejects_structurally_decorated_repeated_alias(query: str) -> None:
-    with pytest.raises(GFQLValidationError, match="variable is already bound"):
+    with _declined(ErrorCode.E105, field="create"):
         compile_cypher_query(parse_cypher(query))
 
 
@@ -601,7 +616,7 @@ def test_create_relationship_rejects_shared_node_relationship_alias() -> None:
     before_nodes = _records(source._nodes)
     before_edges = _records(source._edges)
 
-    with pytest.raises(GFQLValidationError, match="variable is already bound"):
+    with _declined(ErrorCode.E108, field="create"):
         source.gfql("CREATE (a)-[a:T]->(b)", engine="pandas", language="cypher")
 
     assert _records(source._nodes) == before_nodes
@@ -609,7 +624,7 @@ def test_create_relationship_rejects_shared_node_relationship_alias() -> None:
 
 
 def test_compile_create_relationship_rejects_shared_node_relationship_alias() -> None:
-    with pytest.raises(GFQLValidationError, match="variable is already bound"):
+    with _declined(ErrorCode.E108, field="create"):
         compile_cypher_query(parse_cypher("CREATE (a)-[a:T]->(b)"))
 
 
@@ -636,7 +651,7 @@ def test_create_relationship_rejects_configured_missing_edge_key() -> None:
     )
     before = _records(source._edges)
 
-    with pytest.raises(GFQLValidationError, match="missing identity column 'eid'"):
+    with _declined(ErrorCode.E108, field="eid", value="missing"):
         source.gfql("CREATE (a)-[r:T]->(b)", engine="pandas", language="cypher")
 
     assert _records(source._edges) == before
@@ -649,7 +664,7 @@ def test_create_relationship_rejects_edge_key_property_override() -> None:
     )
     before = _records(source._edges)
 
-    with pytest.raises(GFQLValidationError, match="Duplicate CREATE edge property 'eid'"):
+    with _declined(ErrorCode.E105, field="eid"):
         source.gfql(
             "CREATE (a)-[r:T {eid: 999}]->(b)",
             engine="pandas",
@@ -2422,3 +2437,150 @@ def test_set_combine_step_rejects_conflicting_and_repeated_assignments(engine) -
     with pytest.raises(GFQLValidationError) as exc:
         _combine_assignment_frames([make([1]), make([1])], object())
     assert exc.value.code == ErrorCode.E105 and exc.value.context["value"] == "repeated_property"
+
+
+def _typed_frame(engine, data, dtypes):
+    frame = pd.DataFrame({name: pd.Series(values, dtype=dtypes.get(name)) for name, values in data.items()})
+    if engine == "cudf":
+        import cudf
+        return cudf.from_pandas(frame)
+    if engine == "polars":
+        return pytest.importorskip("polars").from_pandas(frame)
+    return frame
+
+
+# A16-F1: created ids must skip every edge endpoint, so a new node never attaches to a dangling edge.
+@pytest.mark.parametrize("engine", ENGINES)
+def test_create_ids_skip_edge_endpoints_so_a_new_node_has_no_dangling_edge(engine):
+    nodes = _typed_frame(engine, {"id": [1, 2]}, {"id": "int64"})
+    edges = _typed_frame(engine, {"s": [1], "d": [3]}, {"s": "int64", "d": "int64"})
+    source = graphistry.nodes(nodes, "id").edges(edges, "s", "d")
+    result = source.gfql("CREATE (:New)", engine=engine)
+    assert sorted(row[result._node] for row in _records(result._nodes)) == [1, 2, 4]
+    count = result.gfql("MATCH (n:New)--() RETURN count(*) AS c", engine=engine)
+    assert _records(count._nodes) == [{"c": 0}]
+    assert _records(source._nodes) == [{"id": 1}, {"id": 2}]
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_create_ids_skip_edge_endpoints_on_an_empty_node_frame(engine):
+    nodes = _typed_frame(engine, {"id": []}, {"id": "int64"})
+    edges = _typed_frame(engine, {"s": [0], "d": [1]}, {"s": "int64", "d": "int64"})
+    result = graphistry.nodes(nodes, "id").edges(edges, "s", "d").gfql("CREATE (:New)", engine=engine)
+    assert [row[result._node] for row in _records(result._nodes)] == [2]
+    count = result.gfql("MATCH (n:New)--() RETURN count(*) AS c", engine=engine)
+    assert _records(count._nodes) == [{"c": 0}]
+
+
+# A16-F2: a legacy list-valued labels column is declined before effects, like the legacy type column.
+@pytest.mark.parametrize("engine", ENGINES)
+@pytest.mark.parametrize("query", ["CREATE (:C)", "CREATE ()"])
+def test_create_declines_a_legacy_list_valued_labels_column_before_effects(engine, query):
+    frame = pd.DataFrame({"id": [1, 2], "labels": [["A"], ["B"]]})
+    if engine == "cudf":
+        import cudf
+        frame = cudf.from_pandas(frame)
+    elif engine == "polars":
+        frame = pytest.importorskip("polars").from_pandas(frame)
+    source = graphistry.nodes(frame, "id")
+    before = _records(source._nodes)
+    with pytest.raises(GFQLValidationError) as exc:
+        source.gfql(query, engine=engine)
+    assert exc.value.code == ErrorCode.E108
+    assert exc.value.context["field"] == "create" and exc.value.context["value"] == "legacy_labels"
+    assert _records(source._nodes) == before
+
+
+# A16-F5: created ids keep an unsigned integer id dtype, so a second CREATE does not fail on a widened column.
+@pytest.mark.parametrize("engine", ENGINES)
+def test_create_keeps_an_unsigned_integer_id_dtype_across_repeated_creates(engine):
+    source = graphistry.nodes(_typed_frame(engine, {"id": [1, 2]}, {"id": "uint64"}), "id")
+    first = source.gfql("CREATE (:A)", engine=engine)
+    second = first.gfql("CREATE (:B)", engine=engine)
+    assert sorted(row[second._node] for row in _records(second._nodes)) == [1, 2, 3, 4]
+    dtype = second._nodes.schema[second._node] if engine == "polars" else second._nodes[second._node].dtype
+    assert "uint" in str(dtype).lower()
+
+
+# A16-F6: reserved and duplicate property keys are declined before any effect.
+@pytest.mark.parametrize("engine", ENGINES)
+@pytest.mark.parametrize("query,code,field", [
+    ("CREATE (n {labels: 1})", ErrorCode.E108, "labels"),
+    ("CREATE (n {type: 1})", ErrorCode.E108, "type"),
+    ("CREATE (n {__x__: 1})", ErrorCode.E108, "__x__"),
+    ("CREATE (n {label__X: 1})", ErrorCode.E108, "label__X"),
+    ("CREATE (n {p: 1, p: 2})", ErrorCode.E105, "p"),
+])
+def test_create_declines_reserved_and_duplicate_keys_before_effects(engine, query, code, field):
+    source = _graph(engine)
+    before = _records(source._nodes)
+    with pytest.raises(GFQLValidationError) as exc:
+        source.gfql(query, engine=engine)
+    assert exc.value.code == code
+    assert exc.value.context["field"] == field
+    assert _records(source._nodes) == before
+
+
+# Documented contract: a node key starting with __ is internal and omitted from flattened whole-entity RETURN fields.
+def test_node_key_starting_with_double_underscore_is_not_returned_as_a_flattened_field():
+    graph = graphistry.nodes(pd.DataFrame({"__vid": [1, 2], "name": ["a", "b"]}), "__vid")
+    result = graph.gfql("MATCH (x) RETURN x", engine="pandas")
+    assert "x.__vid" not in result._nodes.columns
+    assert "x.name" in result._nodes.columns
+
+
+
+# A15-F1: a standalone node pattern may not re-declare a bound variable; a relationship endpoint may reuse one.
+@pytest.mark.parametrize("engine", ENGINES)
+@pytest.mark.parametrize("query", [
+    "CREATE (a), (a)",
+    "CREATE (a) CREATE (a)",
+    "CREATE (a)-[:R]->(b), (a)",
+])
+def test_create_declines_a_standalone_node_that_redeclares_a_bound_variable(engine, query):
+    source = _graph(engine)
+    before_nodes, before_edges = _records(source._nodes), _records(source._edges)
+    for entry in (lambda: source.gfql(query, engine=engine), lambda: source.gfql_validate(query)):
+        with _declined(ErrorCode.E105, field="create", value="a"):
+            entry()
+    assert _records(source._nodes) == before_nodes and _records(source._edges) == before_edges
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_create_endpoint_reuse_is_admitted_and_reserves_one_identity_per_new_node(engine):
+    # int8 ids 124,125: exactly two new ids (126,127) fit; reserving one per endpoint occurrence would exhaust them.
+    source = graphistry.nodes(_typed_frame(engine, {"id": [124, 125]}, {"id": "int8"}), "id")
+    result = source.gfql("CREATE (a)-[:R]->(b), (a)-[:S]->(b)", engine=engine)
+    assert sorted(row[result._node] for row in _records(result._nodes)) == [124, 125, 126, 127]
+    assert len(_records(result._edges)) == 2
+
+
+# A15-F3: a reverse self-loop binds the source endpoint first, so it is one node with one self loop.
+@pytest.mark.parametrize("engine", ENGINES)
+def test_create_reverse_self_loop_is_one_node_with_one_self_loop(engine):
+    source = _graph(engine)
+    result = source.gfql("CREATE (a:L)<-[:T]-(a)", engine=engine)
+    assert len(_records(result._nodes)) == len(_records(source._nodes)) + 1
+    created = [edge for edge in _records(result._edges) if edge["type"] == "T"]
+    assert len(created) == 1 and created[0][result._source] == created[0][result._destination]
+
+
+# A15-F5: row oracles instead of counts only.
+@pytest.mark.parametrize("engine", ENGINES)
+def test_create_relationship_with_empty_property_maps_creates_the_expected_rows(engine):
+    source = _graph(engine)
+    result = source.gfql("CREATE (a:L {})-[:R {}]->(b)", engine=engine)
+    created = _records(result._nodes)[len(_records(source._nodes)):]
+    assert [row["label__L"] for row in created] == [True, False]
+    edge = [row for row in _records(result._edges) if row["type"] == "R"]
+    assert len(edge) == 1
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_create_relationship_return_rows_are_the_created_endpoint_values(engine):
+    source = _graph(engine)
+    result = source.gfql(
+        "CREATE (a:P {name: 'x'})-[:R]->(b:P {name: 'y'}) RETURN a.name AS a, b.name AS b", engine=engine,
+    )
+    assert _records(result._nodes) == [{"a": "x", "b": "y"}]
+    assert len(result.gfql_graph._nodes) == len(source._nodes) + 2
