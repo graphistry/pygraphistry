@@ -564,14 +564,14 @@ def _match_key_dtype(nodes: DataFrameT, new_nodes: DataFrameT, key: str) -> Data
                 return new_nodes
         return new_nodes.with_columns(pl.col(key).cast(target))  # type: ignore[return-value]  # polars frame, not the pandas alias
     dtype = nodes[key].dtype
-    if pd.api.types.is_integer_dtype(dtype):
-        created = new_nodes[key]
-        if len(created) and pd.api.types.is_integer_dtype(created.dtype):
-            info = np.iinfo(getattr(dtype, "numpy_dtype", dtype))
-            if int(created.min()) < int(info.min) or int(created.max()) > int(info.max):
-                return new_nodes
-        return new_nodes.assign(**{key: created.astype(dtype)})
-    return new_nodes
+    created = new_nodes[key]
+    if not pd.api.types.is_integer_dtype(dtype) or not pd.api.types.is_integer_dtype(created.dtype):
+        return new_nodes
+    if len(created):
+        info = np.iinfo(getattr(dtype, "numpy_dtype", dtype))
+        if int(created.min()) < int(info.min) or int(created.max()) > int(info.max):
+            return new_nodes
+    return new_nodes.assign(**{key: created.astype(dtype)})
 
 
 def execute_create_nodes(

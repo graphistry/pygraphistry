@@ -1483,6 +1483,26 @@ def test_relationship_create_keeps_unsigned_edge_columns_across_repeated_creates
         assert "uint" in str(dtype).lower(), (column, dtype)
 
 
+# C15-F1: string node ids next to integer-typed edge columns never reach an integer cast of string endpoints.
+@pytest.mark.parametrize("engine", ENGINES)
+def test_relationship_create_on_string_ids_with_typed_empty_integer_edges_succeeds(engine):
+    nodes = _typed_frame(engine, {"id": ["a", "b"]}, {"id": "object"})
+    edges = _typed_frame(engine, {"s": [], "d": []}, {"s": "int64", "d": "int64"})
+    result = graphistry.nodes(nodes, "id").edges(edges, "s", "d").gfql("CREATE (x)-[:R]->(y)", engine=engine)
+    assert len(_records(result._edges)) == 1 and len(_records(result._nodes)) == 4
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_relationship_create_on_string_ids_with_integer_edges_is_a_structured_decline(engine):
+    nodes = _typed_frame(engine, {"id": ["a", "b"]}, {"id": "object"})
+    edges = _typed_frame(engine, {"s": [1], "d": [2]}, {"s": "int64", "d": "int64"})
+    source = graphistry.nodes(nodes, "id").edges(edges, "s", "d")
+    before = (_records(source._nodes), _records(source._edges))
+    with _declined(ErrorCode.E108, field="s"):
+        source.gfql("CREATE (x)-[:R]->(y)", engine=engine)
+    assert (_records(source._nodes), _records(source._edges)) == before
+
+
 # the #2316 id contract, extended to relationship CREATE
 @pytest.mark.parametrize("engine", ENGINES)
 def test_relationship_create_ids_skip_a_dangling_edge_endpoint(engine):
