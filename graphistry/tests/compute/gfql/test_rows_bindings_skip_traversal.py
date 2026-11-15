@@ -551,6 +551,10 @@ def test_data_evaluation_errors_in_the_skipped_path_replay_the_traversal(monkeyp
 
     monkeypatch.setattr(rows_skip_traversal, "_zero_row_twin", failing)
     assert _consulted(g, query, "pandas") == {True, False}  # engaged, then replayed the traversal
+    with index_trace() as steps:
+        _run(g, query, "pandas")
+    reasons = [str(s.get("reason")) for s in steps if s.get("op") == "fast_path" and s.get("seam") == SEAM and not s.get("served")]
+    assert any(type(error).__name__ in reason for reason in reasons), reasons  # a replay is visible in the trace
     assert _outcome(g, query, "pandas") == expected
 
 
