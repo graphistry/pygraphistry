@@ -178,14 +178,14 @@ Supported Cypher Surface Through ``g.gfql()``
 ---------------------------------------------
 
 The current GFQL Cypher compiler supports bounded reads and functional standalone
-node creation. At a high level, that includes:
+node and relationship creation. At a high level, that includes:
 
 - ``MATCH`` and a bounded ``OPTIONAL MATCH`` subset
 - ``WHERE``
 - ``RETURN`` and ``WITH``
 - ``ORDER BY``, ``SKIP``, ``LIMIT``, and ``DISTINCT``
 - ``UNWIND``
-- standalone node ``CREATE``, with optional ``RETURN``
+- standalone node and one-hop relationship ``CREATE``, with optional ``RETURN`` of created node values
 - supported ``UNION`` / ``UNION ALL`` and ``CALL graphistry.*`` flows when executed
   directly through ``g.gfql("...")``
 
@@ -234,7 +234,7 @@ Support Matrix
      - Named or anonymous nodes, labels, scalar properties, optional ``RETURN``.
    * - Standalone relationship ``CREATE``
      - Supported
-     - Directed one-hop relationships between nodes created or bound in the same ``CREATE``, with a type and scalar properties.
+     - Directed one-hop relationships between nodes created or bound in the same ``CREATE`` clause, with a type and scalar properties.
    * - ``MATCH ... CREATE``, ``DELETE``, ``SET``, ``REMOVE``, ``MERGE``
      - Not supported
      - These mutation clauses remain outside this creation subset.
@@ -668,7 +668,8 @@ Functional Relationship Creation
 --------------------------------
 
 Standalone ``CREATE`` can also add directed one-hop relationships. Each endpoint
-is a node created by the same statement, or a variable bound earlier in it. The
+is a node created by the same statement, or a variable bound earlier in the same
+clause. The
 relationship takes the edge ``type`` column and optional scalar properties, and
 the caller's frames and bindings stay unchanged.
 
@@ -692,7 +693,10 @@ the caller's frames and bindings stay unchanged.
 Edge identity follows the graph's binding: an existing compatible string or
 integer edge identity column is kept; otherwise the physical edge identity is a
 separate ``__graphistry_edge_identity__`` column. Endpoint aliases and
-relationship variables follow Cypher scoping within the statement. A reverse
+relationship variables follow Cypher scoping within a clause: an endpoint may
+reuse a node bound earlier in the same clause, while reusing a node from another
+clause (``CREATE (a) CREATE (a)-[:R]->(b)``) or repeating a relationship
+variable is declined with a structured error. A reverse
 arrow (``(a)<-[:R]-(b)``) points the edge from ``b`` to ``a``.
 
 Limits: only one-hop directed relationships are created (no variable-length

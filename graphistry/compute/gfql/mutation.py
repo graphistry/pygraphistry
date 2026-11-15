@@ -411,8 +411,12 @@ def _prepare_append_frames(nodes: DataFrameT, new_nodes: DataFrameT) -> tuple[Da
 
 
 def validate_create_node_reuse(creates: tuple[CreateClause, ...]) -> None:
-    """Reject re-declaring a bound CREATE node (standalone, or decorated as an endpoint) before any effects."""
+    """Reject re-declaring a bound CREATE node or relationship variable before any effects.
+
+    Compile, ``gfql_validate`` and execution share this check, so every layout gets the same code, field and value.
+    """
     bound: set[str] = set()
+    bound_relationships: set[str] = set()
     for clause in creates:
         for pattern in clause.patterns:
             lone = isinstance(pattern, NodePattern)
@@ -427,11 +431,24 @@ def validate_create_node_reuse(creates: tuple[CreateClause, ...]) -> None:
                     raise GFQLMutationError(
                         ErrorCode.E105, "CREATE node variable is already bound",
                         field="create", value=node.variable,
-                        suggestion="Reference the bound node without labels or properties, or use a new variable.",
+                        suggestion=(
+                            "A bound node can be reused only as a relationship endpoint; use a new variable for another node."
+                            if lone else "Reference the bound node without labels or properties, or use a new variable."
+                        ),
                         line=node.span.line, column=node.span.column, language="cypher",
                     )
                 if node.variable is not None:
                     bound.add(node.variable)
+            if isinstance(pattern, CreateRelationship) and pattern.relationship.variable is not None:
+                variable = pattern.relationship.variable
+                if variable in bound_relationships:
+                    raise GFQLMutationError(
+                        ErrorCode.E105, "CREATE relationship variable is already bound",
+                        field="create", value=variable,
+                        suggestion="Use a new variable for each relationship.",
+                        line=pattern.relationship.span.line, column=pattern.relationship.span.column, language="cypher",
+                    )
+                bound_relationships.add(variable)
 
 
 def _validate_label_names(creates: tuple[CreateClause, ...]) -> None:
@@ -508,8 +525,24 @@ def _validate_no_legacy_labels_column(nodes: Optional[DataFrameT]) -> None:
         )
 
 
+def _polars_integer_bounds(dtype: "PolarsDType") -> Optional[tuple[int, int]]:
+    import polars as pl
+
+    signed: dict["PolarsDType", int] = {pl.Int8: 8, pl.Int16: 16, pl.Int32: 32, pl.Int64: 64}
+    unsigned: dict["PolarsDType", int] = {pl.UInt8: 8, pl.UInt16: 16, pl.UInt32: 32, pl.UInt64: 64}
+    if dtype in signed:
+        return -(1 << (signed[dtype] - 1)), (1 << (signed[dtype] - 1)) - 1
+    if dtype in unsigned:
+        return 0, (1 << unsigned[dtype]) - 1
+    return None
+
+
 def _match_key_dtype(nodes: DataFrameT, new_nodes: DataFrameT, key: str) -> DataFrameT:
-    """Created physical ids take the existing integer key dtype, so the union never widens an id column to float."""
+    """Created integer ids take the existing integer column dtype, so the union never widens an id column to float.
+
+    Values that do not fit the existing dtype keep their own dtype and the union widens, as before.
+    """
+    import numpy as np
     import pandas as pd
 
     if key not in nodes.columns or key not in new_nodes.columns:
@@ -518,12 +551,26 @@ def _match_key_dtype(nodes: DataFrameT, new_nodes: DataFrameT, key: str) -> Data
         import polars as pl
         if not isinstance(nodes, pl.DataFrame) or not isinstance(new_nodes, pl.DataFrame):
             raise _lazy_frame_error("nodes")
-        if not nodes.schema[key].is_integer():
+        target = nodes.schema[key]
+        if not target.is_integer() or not new_nodes.schema[key].is_integer():
             return new_nodes
-        return new_nodes.with_columns(pl.col(key).cast(nodes.schema[key]))  # type: ignore[return-value]  # polars frame, not the pandas alias
+        created = new_nodes.get_column(key)
+        if len(created):
+            low, high = created.min(), created.max()
+            if not isinstance(low, int) or not isinstance(high, int):
+                return new_nodes
+            bounds = _polars_integer_bounds(target)
+            if bounds is None or low < bounds[0] or high > bounds[1]:
+                return new_nodes
+        return new_nodes.with_columns(pl.col(key).cast(target))  # type: ignore[return-value]  # polars frame, not the pandas alias
     dtype = nodes[key].dtype
     if pd.api.types.is_integer_dtype(dtype):
-        return new_nodes.assign(**{key: new_nodes[key].astype(dtype)})
+        created = new_nodes[key]
+        if len(created) and pd.api.types.is_integer_dtype(created.dtype):
+            info = np.iinfo(getattr(dtype, "numpy_dtype", dtype))
+            if int(created.min()) < int(info.min) or int(created.max()) > int(info.max):
+                return new_nodes
+        return new_nodes.assign(**{key: created.astype(dtype)})
     return new_nodes
 
 
@@ -895,6 +942,8 @@ def execute_create_nodes(
         assert edge_key is not None
         new_edges = _new_nodes_frame(concrete_engine, edge_records, set())
         if old_edges is not None:
+            for column_name in (source_key, destination_key, edge_key):
+                new_edges = _match_key_dtype(old_edges, new_edges, column_name)
             old_edges, new_edges = _prepare_append_frames(old_edges, new_edges)
             if is_polars_df(old_edges):
                 import polars as pl
