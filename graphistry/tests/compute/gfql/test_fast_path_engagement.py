@@ -150,6 +150,7 @@ def test_grouped_aggregate_fast_path_declines_output_name_colliding_with_edge_en
     assert sorted(out["s"].tolist()) == ["LA", "NY"]
 
 
+@pytest.mark.route_engaged("bindings-skip-traversal")
 @pytest.mark.parametrize("engine", ENGINES)
 def test_a_shape_neither_path_serves_declines_both(engine: str) -> None:
     """The negative side: EVERY path consulted, all decline, answer still correct.

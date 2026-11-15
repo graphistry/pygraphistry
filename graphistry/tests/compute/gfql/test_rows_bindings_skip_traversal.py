@@ -30,8 +30,9 @@ def graph(engine):
         "label__City": [False, False, False, False, True, True, False],
         "name": ["a", "b", None, "d", "x", "y", "lonely"],
         "score": [1.5, None, 3.0, 4.0, None, None, 7.0],
-        "blank": [None] * 7,
     })
+    nodes = nodes.assign(blank=nodes["score"] * float("nan")) if engine in ("pandas", "cudf") else (
+        nodes.with_columns(blank=nodes["score"] * None))
     edges = cons({
         "s": [1, 2, 3, 1, 2, 4, 4, 3],
         "d": [5, 5, 6, 2, 3, 1, 2, 4],
@@ -144,27 +145,43 @@ def test_rows_that_read_the_traversal_keep_it(engine, shape):
     assert len(_run(g, query, engine)._nodes) == expected_rows
 
 
+UNBOUND_QUERY = [n({"id": 1}, name="p"), e_forward(), n(name="q"), rows(), select([("q", "q.id")])]
+
+
+@pytest.mark.route_engaged(ROUTE)
+def test_unbound_node_frame_declines_the_skip(engine):
+    assert _consulted(graphistry.edges(graph(engine)._edges, "s", "d"), UNBOUND_QUERY, engine) == {False}
+
+
 def test_unbound_node_frame_keeps_the_traversal(engine):
-    g = graph(engine)
-    edges_only = graphistry.edges(g._edges, "s", "d")
-    query = [n({"id": 1}, name="p"), e_forward(), n(name="q"), rows(), select([("q", "q.id")])]
-    assert _consulted(edges_only, query, engine) == {False}
+    edges_only = graphistry.edges(graph(engine)._edges, "s", "d")
+    query = UNBOUND_QUERY
     with routes_off([ROUTE]):
         expected = _run(edges_only, query, engine)
     assert len(expected._nodes) == 2
     assert_same_frame(_run(edges_only, query, engine)._nodes, expected._nodes, engine)
 
 
-@pytest.mark.parametrize("index_policy,served", [("off", True), ("use", False), ("auto", False), ("force", False)])
+POLICIES = [("off", True), ("use", False), ("auto", False), ("force", False)]
+NAMED_SEED = [n({"name": "a"}, name="p"), e_forward(), n(name="q"), rows(), select([("q", "q.id")])]
+
+
+@pytest.mark.route_engaged(ROUTE)
+@pytest.mark.parametrize("index_policy,served", POLICIES)
 def test_index_policy_that_may_serve_keeps_the_traversal(engine, index_policy, served):
     g = graph(engine).create_index("node_prop", column="name", engine=engine)
-    query = [n({"name": "a"}, name="p"), e_forward(), n(name="q"), rows(), select([("q", "q.id")])]
-    assert _consulted(g, query, engine, index_policy) == {served}
-    expected = g.gfql(query, engine=engine, index_policy="off")
+    assert _consulted(g, NAMED_SEED, engine, index_policy) == {served}
+
+
+@pytest.mark.parametrize("index_policy", [policy for policy, _ in POLICIES])
+def test_every_index_policy_returns_the_same_rows(engine, index_policy):
+    g = graph(engine).create_index("node_prop", column="name", engine=engine)
+    expected = g.gfql(NAMED_SEED, engine=engine, index_policy="off")
     assert len(expected._nodes) == 2
-    assert_same_frame(g.gfql(query, engine=engine, index_policy=index_policy)._nodes, expected._nodes, engine)
+    assert_same_frame(g.gfql(NAMED_SEED, engine=engine, index_policy=index_policy)._nodes, expected._nodes, engine)
 
 
+@pytest.mark.route_engaged(ROUTE)
 def test_default_policy_without_indexes_skips(engine):
     query = [n({"id": 1}, name="p"), e_forward(), n(name="q"), rows(), select([("q", "q.id")])]
     assert _consulted(graph(engine), query, engine, "use") == {True}
