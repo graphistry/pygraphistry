@@ -65,7 +65,8 @@ def answer(instance: LangChainDecisionProvider, question: DecisionQuestion = PRE
 
 
 @pytest.mark.parametrize("content,expected", [("no", False), ("<think>it is fine</think>\nB", False), ("nope", None),
-                                              ("B<think>x</think>", None)])
+                                              ("B<think>x</think>", None), ("It is fine.\n\nB", False),
+                                              ("A\n\nB", None), ("It is fine.\nB", None)])
 def test_text_replies_may_be_a_label_or_follow_a_reasoning_block(content: str, expected: object) -> None:
     result = answer(LangChainDecisionProvider(FakeModel(Message(content=content)), strategy="text"))
     assert (result.value, result.error_code) == (expected, None if expected is not None else "invalid_provider_result")

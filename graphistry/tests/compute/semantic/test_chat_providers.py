@@ -397,6 +397,22 @@ class TestFallbacks:
         session = FakeSession([chat_reply('<reasoning>x</reasoning>{"answer": "B"}')])
         assert checked(openai(session, strategy="json_schema"), request((CHOICE,)))[0].value == "tech"
 
+    @pytest.mark.parametrize("text", ["The box is fine.\n\nB", "It arrived.\nNothing is wrong.\n\nB. no", "x\n\nno\n",
+                                      "x\n\n\n\nn.", "x\n\nB\n\n", "<think>x</think>Looks fine.\n\nB"])
+    def test_an_answer_on_the_last_line_after_a_blank_line_is_read(self, text: str) -> None:
+        result = checked(openai(FakeSession([chat_reply(text, top(B=0.6, A=0.3))])), request((PRED,)))[0]
+        assert (result.value, result.distribution, result.probability_kind) == (False, None, "none")
+        claude = AnthropicMessagesProvider("k", "claude-x", session=FakeSession([anthropic_reply(text)]))
+        assert checked(claude, request((PRED,)))[0].value is False
+
+    @pytest.mark.parametrize("text", ["A\n\nB", "yes\n\nB", "x\nB", "x\n\ny\nB", "x\n\nA. no", "x\n\nmaybe", "x\n\nB\n\ny",
+                                      "x\n\nB or A", "\n\n"])
+    def test_other_text_around_an_answer_line_is_an_error(self, text: str) -> None:
+        result = checked(openai(FakeSession([chat_reply(text)])), request((PRED,)))[0]
+        assert (result.status, result.error_code) == ("error", "invalid_provider_result")
+        claude = AnthropicMessagesProvider("k", "claude-x", session=FakeSession([anthropic_reply(text)]))
+        assert checked(claude, request((PRED,)))[0].error_code == "invalid_provider_result"
+
     @pytest.mark.parametrize("text", ["B<reasoning>x</reasoning>", "<reasoning>never closed B", "<note>x</note>B",
                                       "<reasoning>x</think>B", "<reasoning>x</reasoning>"])
     def test_other_markup_around_an_answer_is_an_error(self, text: str) -> None:

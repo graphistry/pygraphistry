@@ -107,7 +107,16 @@ def shown_labels(question: DecisionQuestion) -> List[str]:
 
 def reply_index(text: object, codes: str, question: DecisionQuestion) -> Optional[int]:
     """The answer index of a reply: a code alone, a code followed by its own label (``"A. yes"``), or a label alone
-    (``"yes"``); else None."""
+    (``"yes"``); or one of those as the last line, after a blank line, of a reply that is otherwise not an answer;
+    else None."""
+    index = _line_index(text, codes, question)
+    head, gap, last = text.rstrip().rpartition("\n\n") if isinstance(text, str) else ("", "", "")
+    if index is None and gap and reply_index(head, codes, question) is None:
+        return _line_index(last, codes, question)
+    return index
+
+
+def _line_index(text: object, codes: str, question: DecisionQuestion) -> Optional[int]:
     index = code_index(text, codes)
     if not isinstance(text, str) or (index is not None and index < len(answer_labels(question))):
         return index

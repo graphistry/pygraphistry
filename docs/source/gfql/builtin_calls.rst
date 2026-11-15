@@ -1983,7 +1983,7 @@ the host returns token logprobs, read a label distribution from the answer token
 ``token_logprob``, conditional on the answer being a code; the codes' share of the answer token's probability is
 ``extra.label_mass``); without logprobs the answer has no distribution. A question whose labels cannot be given
 unambiguous codes is an ``unsupported_question`` error and is not sent. A reply may also echo its code's label
-(``A. yes``) or be one label alone (``yes``; a predicate also takes ``y`` and ``n``), and a leading ``<think>`` or ``<reasoning>`` block is ignored. For hosts whose free-text replies cannot be read, ``OpenAIChatProvider(strategy='json_schema')`` or
+(``A. yes``) or be one label alone (``yes``; a predicate also takes ``y`` and ``n``), a leading ``<think>`` or ``<reasoning>`` block is ignored, and a reply that reasons first is read when its last line, after a blank line, is such an answer. For hosts whose free-text replies cannot be read, ``OpenAIChatProvider(strategy='json_schema')`` or
 ``strategy='tool'`` constrains the answer to the codes (no distribution; ``extra.answer_strategy`` says which), and
 ``strategy='text'`` sends no logprobs fields; ``strategy='auto'`` probes the host once per endpoint, model and
 settings (each probe request counts against the run's budget), keeps the first strategy that works for an hour, and
@@ -2065,7 +2065,7 @@ LangChain or add it as a required dependency. Install and configure the model in
 Strategies ``json_schema``, ``function_calling`` and ``json_mode`` pass that method to
 ``with_structured_output(..., include_raw=True)``. ``structured`` uses the model's default structured
 method. ``tool`` uses ``bind_tools`` to request one tool named ``answer``; no tool is executed.
-``text`` validates a code, its matching label echo or a label alone. Each structured answer must contain exactly
+``text`` validates a code, its matching label echo or a label alone, as the whole reply or as its last line after a blank line. Each structured answer must contain exactly
 one ``answer`` field with a valid code; refusals, unfinished answers and malformed replies do not
 become successful values. All strategies return no probabilities, even when the model exposes logprobs.
 Metadata records the selected strategy and semantic level.
@@ -2102,8 +2102,9 @@ Anthropic structured answers
 schema. Both validate the returned code and return no distribution or probability. Metadata
 records ``answer_strategy`` and ``semantic_level``. ``strategy='text'`` remains the default.
 A model that writes prose before its answer code can run into the answer-token limit under ``text``
-(``answer_truncated``); ``json_schema`` constrains the reply to the code and avoids that, and the schema
-adds input tokens to every request.
+(``answer_truncated``). A larger ``max_answer_tokens`` lets such a reply finish, and it is read when it ends
+with the code on its own line after a blank line. ``json_schema`` constrains the reply to the code instead,
+and the schema adds input tokens to every request.
 The selected strategy controls format/tool fields in ``extra_body``; other ``output_config``
 settings are retained. The cost estimate includes the selected schema or tool payload.
 
