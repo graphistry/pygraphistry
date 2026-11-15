@@ -2957,7 +2957,7 @@ def _gfql_with_strictness(
                                 from graphistry.compute.gfql.lazy.engine.polars.membership import is_in_ids
                                 assert isinstance(matched_frame, pl.DataFrame)
                                 assert isinstance(mutated_frame, pl.DataFrame)
-                                start_nodes = mutated_frame.filter(
+                                start_nodes = mutated_frame.filter(  # type: ignore[assignment]  # polars frame, not the pandas alias
                                     is_in_ids(pl.col(mutated._node), matched_frame[seed_column]),
                                 )
                             else:

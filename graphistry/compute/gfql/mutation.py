@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import math
-from typing import TYPE_CHECKING, Any, Mapping, NamedTuple, Optional, Sequence, Union, cast
+from typing import TYPE_CHECKING, Any, Mapping, NamedTuple, Optional, Sequence, Union
 from typing_extensions import Literal
 
 import numpy as np
@@ -48,7 +48,9 @@ MUTATION_EDGE_ID = "__graphistry_edge_identity__"
 
 
 def _copy_frame(frame: DataFrameT) -> DataFrameT:
-    return frame.clone() if is_polars_df(frame) else frame.copy()
+    if is_polars_df(frame):
+        return frame.clone()  # type: ignore[return-value]  # polars frame, not the pandas alias
+    return frame.copy()
 
 
 def _frame_family(frame: DataFrameT, column: str) -> str:
@@ -57,14 +59,14 @@ def _frame_family(frame: DataFrameT, column: str) -> str:
     if is_polars_df(frame):
         import polars as pl
         assert isinstance(frame, pl.DataFrame)
-        dtype = frame.schema[column]
-        if dtype == pl.Boolean:
+        polars_dtype = frame.schema[column]
+        if polars_dtype == pl.Boolean:
             return "bool"
-        if dtype.is_integer():
+        if polars_dtype.is_integer():
             return "integer"
-        if dtype.is_float():
+        if polars_dtype.is_float():
             return "float"
-        if dtype == pl.String:
+        if polars_dtype == pl.String:
             return "string"
         return "other"
     dtype = frame[column].dtype
@@ -85,7 +87,7 @@ def _assignment_value_family(frame: DataFrameT, column: str) -> str:
         assert isinstance(frame, pl.DataFrame)
         if frame.height and frame.select(pl.col(column).is_null().all()).item():
             return "null"
-        return _frame_family(frame, column)
+        return _frame_family(frame, column)  # type: ignore[arg-type]  # polars frame, not the pandas alias
     if len(frame) and bool(frame[column].isna().all()):
         return "null"
     import pandas as pd
@@ -105,20 +107,16 @@ SET_VALUE = "__gfql_set_value__"
 
 def _combine_assignment_frames(
     assignment_frames: list[DataFrameT],
-    engine: Engine,
     span: object,
 ) -> DataFrameT:
-    if len(assignment_frames) == 1:
-        combined = assignment_frames[0]
-    elif is_polars_df(assignment_frames[0]):
-        import polars as pl
-        assert all(is_polars_df(part) for part in assignment_frames)
-        combined = pl.concat(assignment_frames, how="vertical_relaxed")
-    else:
-        combined = df_concat(engine)(assignment_frames, ignore_index=True, sort=False)
-
     line = getattr(span, "line", None)
     column = getattr(span, "column", None)
+    if len(assignment_frames) != 1:
+        raise GFQLMutationError(
+            ErrorCode.E105, "SET assigns the same property more than once",
+            field=SET_VALUE, value="repeated_property", line=line, column=column, language="cypher",
+        )
+    combined = assignment_frames[0]
     if is_polars_df(combined):
         import polars as pl
         assert isinstance(combined, pl.DataFrame)
@@ -135,7 +133,7 @@ def _combine_assignment_frames(
                 field=SET_VALUE, value="conflicting_updates",
                 line=line, column=column, language="cypher",
             )
-        return combined.unique(subset=[SET_IDENTITY], keep="first", maintain_order=True)
+        return combined.unique(subset=[SET_IDENTITY], keep="first", maintain_order=True)  # type: ignore[return-value]  # polars frame, not the pandas alias
 
     if combined[SET_IDENTITY].isna().any():
         raise GFQLMutationError(
@@ -414,10 +412,11 @@ def execute_set_properties(
             assignment_spans[(alias, assignment.target.property)] = assignment.span
             if empty_match:
                 continue
+            assignment_frame: DataFrameT
             if is_polars_df(frame):
                 import polars as pl
                 assert isinstance(frame, pl.DataFrame)
-                assignment_frame = frame.select(
+                assignment_frame = frame.select(  # type: ignore[assignment]  # polars frame, not the pandas alias
                     pl.col(identity_column).alias(SET_IDENTITY),
                     pl.col(value_column).alias(SET_VALUE),
                 )
@@ -472,8 +471,7 @@ def execute_set_properties(
         combined_updates[alias] = {}
         for property_name, assignment_frames in source_properties.items():
             combined_updates[alias][property_name] = _combine_assignment_frames(
-                assignment_frames, concrete_engine,
-                assignment_spans[(alias, property_name)],
+                assignment_frames, assignment_spans[(alias, property_name)],
             )
     targets = _resolve_set_targets(
         combined_updates,
@@ -523,9 +521,9 @@ def execute_set_properties(
                     .alias(property_name)
                 ).drop([new_value, matched])
             if kind == "node":
-                nodes = frame
+                nodes = frame  # type: ignore[assignment]  # polars frame, not the pandas alias
             else:
-                edges = frame
+                edges = frame  # type: ignore[assignment]  # polars frame, not the pandas alias
         else:
             for property_name, values in combined_properties.items():
                 frame = _set_property_dataframe(
@@ -1283,7 +1281,7 @@ def execute_create_nodes(
                 polars_new_nodes = polars_new_nodes.with_columns(
                     pl.col(label_column).fill_null(False).cast(pl.Boolean)
                 )
-            new_nodes = cast(DataFrameT, polars_new_nodes)  # hygiene-ok: explicit-cast -- Polars frame at the engine boundary; DataFrameT is the pandas type under mypy
+            new_nodes = polars_new_nodes
         else:
             for label_column in sorted(label_columns):
                 new_nodes = new_nodes.assign(
