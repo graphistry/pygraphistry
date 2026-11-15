@@ -573,7 +573,7 @@ def test_create_relationship_rejects_shared_node_relationship_alias() -> None:
     before_nodes = _records(source._nodes)
     before_edges = _records(source._edges)
 
-    with _declined(ErrorCode.E105, field="create"):
+    with _declined(ErrorCode.E108, field="create"):
         source.gfql("CREATE (a)-[a:T]->(b)", engine="pandas", language="cypher")
 
     assert _records(source._nodes) == before_nodes
@@ -581,7 +581,7 @@ def test_create_relationship_rejects_shared_node_relationship_alias() -> None:
 
 
 def test_compile_create_relationship_rejects_shared_node_relationship_alias() -> None:
-    with _declined(ErrorCode.E105, field="create"):
+    with _declined(ErrorCode.E108, field="create"):
         compile_cypher_query(parse_cypher("CREATE (a)-[a:T]->(b)"))
 
 
@@ -1332,11 +1332,11 @@ def test_create_declines_a_standalone_node_that_redeclares_a_bound_variable(engi
 
 @pytest.mark.parametrize("engine", ENGINES)
 def test_create_endpoint_reuse_is_admitted_and_reserves_one_identity_per_new_node(engine):
-    # int8 ids 124,125: exactly two new ids (126,127) fit; reserving a third for the reused endpoint would exhaust them.
+    # int8 ids 124,125: exactly two new ids (126,127) fit; reserving one per endpoint occurrence would exhaust them.
     source = graphistry.nodes(_typed_frame(engine, {"id": [124, 125]}, {"id": "int8"}), "id")
-    result = source.gfql("CREATE (a) CREATE (a)-[:R]->(b)", engine=engine)
+    result = source.gfql("CREATE (a)-[:R]->(b), (a)-[:S]->(b)", engine=engine)
     assert sorted(row[result._node] for row in _records(result._nodes)) == [124, 125, 126, 127]
-    assert len(_records(result._edges)) == 1
+    assert len(_records(result._edges)) == 2
 
 
 # A15-F3: a reverse self-loop binds the source endpoint first, so it is one node with one self loop.
