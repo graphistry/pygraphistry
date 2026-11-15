@@ -22,6 +22,7 @@ from graphistry.compute.gfql.cypher.ast import (
     ParameterRef,
 )
 from graphistry.Plottable import Plottable
+from graphistry.compute.engine_coercion import ensure_local_engine_match
 from graphistry.compute.gfql.row.entity_props import (
     ID_PROPERTY_PRESENT,
     MUTATION_NODE_ID,
@@ -505,6 +506,8 @@ def execute_create_nodes(
 
     from graphistry.compute.ComputeMixin import _coerce_input_formats
     base_graph = _coerce_input_formats(self, concrete_engine)
+    if concrete_engine == Engine.PANDAS:
+        base_graph = ensure_local_engine_match(base_graph, Engine.PANDAS)  # a cuDF frame is moved to the host, as reads do
     _reject_lazy_frames(base_graph)
     if base_graph._gfql_graph is not None:
         base_graph = base_graph.bind()
