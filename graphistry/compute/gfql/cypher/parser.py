@@ -1820,7 +1820,7 @@ def _build_transformer(source: str) -> _TransformerLike:
                         )
                     use_clause_node = item
                 elif isinstance(item, MatchClause):
-                    if set_clauses:
+                    if set_clauses and not match_clauses and not reentry_match_clauses:
                         raise _to_syntax_error(
                             "Cypher SET must follow the MATCH that binds its variables",
                             line=item.span.line,

@@ -9351,13 +9351,56 @@ def _maybe_pushdown_row_prefilters(
     return replace(result, chain=new_chain)
 
 
+def _prepare_set_param_text(
+    text: str, params: Optional[Mapping[str, Any]], span: Any
+) -> str:
+    """Quote-aware pre-pass over a SET value: decline NaN/inf parameters, parenthesize negative numbers.
+
+    Parenthesizing keeps ``n.a -$v`` with ``v = -5`` from rendering as ``n.a --5``.
+    """
+    from graphistry.compute.gfql.cypher.expression_text import cypher_literal_expr_text
+
+    out: List[str] = []
+    idx = 0
+    in_single = in_double = False
+    while idx < len(text):
+        ch = text[idx]
+        if ch == "'" and not in_double and (idx == 0 or text[idx - 1] != "\\"):
+            in_single = not in_single
+        elif ch == '"' and not in_single and (idx == 0 or text[idx - 1] != "\\"):
+            in_double = not in_double
+        elif ch == "$" and not in_single and not in_double:
+            token = _CYPHER_PARAM_TOKEN_RE.match(text, idx)
+            supplied = (params or {}).get(token.group(1)) if token is not None else None
+            if token is not None and isinstance(supplied, float) and math.isnan(supplied):
+                raise _unsupported_at_span(
+                    "GFQL SET cannot represent a NaN parameter value as distinct from null",
+                    field="set", value="nan_property", span=span,
+                )
+            if token is not None and isinstance(supplied, float) and math.isinf(supplied):
+                raise _unsupported_at_span(
+                    "GFQL SET cannot store an infinite parameter value",
+                    field="set", value="non_finite_parameter", span=span,
+                )
+            if (
+                token is not None and isinstance(supplied, (int, float))
+                and not isinstance(supplied, bool) and supplied < 0
+            ):
+                out.append(f"({cypher_literal_expr_text(supplied)})")
+                idx = token.end()
+                continue
+        out.append(ch)
+        idx += 1
+    return "".join(out)
+
+
 def _analyze_set_value(
     assignment: SetProperty, *, params: Optional[Mapping[str, Any]]
 ) -> tuple[str, ExprNode]:
     """Parameter-substituted text and parsed expression of a SET value, analyzed like execution does.
 
     Uses the execution row-expression parser; an expression it cannot analyze is declined, never skipped,
-    so the read-after-write check can never be bypassed. NaN parameters are declined like CREATE does.
+    so the read-after-write check can never be bypassed.
     """
     from graphistry.compute.gfql.cypher.expression_text import cypher_literal_expr_text
 
@@ -9369,13 +9412,7 @@ def _analyze_set_value(
     else:
         text = cypher_literal_expr_text(value)
     line, column = assignment.span.line, assignment.span.column
-    for token in _CYPHER_PARAM_TOKEN_RE.finditer(text):
-        supplied = (params or {}).get(token.group(1))
-        if isinstance(supplied, float) and math.isnan(supplied):
-            raise _unsupported_at_span(
-                "GFQL SET cannot represent a NaN parameter value as distinct from null",
-                field="set", value="nan_property", span=assignment.span,
-            )
+    text = _prepare_set_param_text(text, params, assignment.span)
     prepared = _rewrite_param_expr(
         text, params=params, field="set", line=line, column=column, allow_missing=False,
     )
@@ -9389,31 +9426,34 @@ def _analyze_set_value(
     return prepared, expression
 
 
-def _set_expression_reads_written_property(
-    expression: ExprNode, written: set[tuple[str, str]]
-) -> bool:
-    """True when a SET right-hand side reads a property assigned by an earlier SET item.
+def _set_alias_uses(
+    expression: ExprNode, aliases: Mapping[str, object]
+) -> tuple[set[tuple[str, str]], bool]:
+    """Property reads of the SET aliases, and whether an alias appears anywhere but as a direct property access.
 
-    Every right-hand side is evaluated once, on the graph before any SET, so such a read would
-    silently see the old value; the compiler declines it instead.
+    The alias is allowed only as ``alias.property``; every other occurrence (inside a list, map, subscript,
+    comprehension or function call) is a whole-entity read that SET cannot evaluate faithfully.
     """
-    if not written:
-        return False
-    property_reads: set[str] = set(collect_identifiers(expression))
-    whole_entity_reads: set[str] = set()
+    reads: set[tuple[str, str]] = set()
+    whole_entity = False
 
-    def _enter(node: ExprNode) -> None:
-        if isinstance(node, PropertyAccessExpr) and isinstance(node.value, Identifier):
-            property_reads.add(f"{node.value.name}.{node.property}")
-        elif isinstance(node, SubscriptExpr) and isinstance(node.value, Identifier):
-            whole_entity_reads.add(node.value.name)
-        elif isinstance(node, FunctionCall) and node.name.lower() in {"properties", "keys"}:
-            whole_entity_reads.update(arg.name for arg in node.args if isinstance(arg, Identifier))
+    def visit(node: ExprNode) -> None:
+        nonlocal whole_entity
+        if isinstance(node, PropertyAccessExpr) and isinstance(node.value, Identifier) and node.value.name in aliases:
+            reads.add((node.value.name, node.property))
+            return
+        if isinstance(node, Identifier):
+            alias, dot, remainder = node.name.partition(".")
+            if dot and alias in aliases:
+                reads.add((alias, remainder.split(".")[0]))
+            elif node.name in aliases:
+                whole_entity = True
+            return
+        for child in iter_expr_children(node):
+            visit(child)
 
-    walk_expr_nodes(expression, enter=_enter)
-    return any(f"{alias}.{name}" in property_reads for alias, name in written) or any(
-        alias in whole_entity_reads for alias, _ in written
-    )
+    visit(expression)
+    return reads, whole_entity
 
 
 def compile_cypher_query(
@@ -9503,16 +9543,22 @@ def compile_cypher_query(
                 if assignment.target.alias not in aliases:
                     aliases.append(assignment.target.alias)
                 value_text, set_value_expr = _analyze_set_value(assignment, params=params)
-                if isinstance(set_value_expr, (ListLiteral, ListComprehension, MapLiteral)) or (
-                    isinstance(set_value_expr, Identifier) and set_value_expr.name in alias_kinds
-                ):
+                if isinstance(set_value_expr, (ListLiteral, ListComprehension, MapLiteral)):
                     raise _unsupported_at_span(
                         "GFQL SET supports ordinary scalar properties only",
                         field="set",
                         value="non_scalar_value",
                         span=assignment.span,
                     )
-                if _set_expression_reads_written_property(set_value_expr, written_properties):
+                property_reads, whole_entity_read = _set_alias_uses(set_value_expr, alias_kinds)
+                if whole_entity_read:
+                    raise _unsupported_at_span(
+                        "GFQL SET may read the matched entity only through direct property access (alias.property)",
+                        field="set",
+                        value="whole_entity_read",
+                        span=assignment.span,
+                    )
+                if property_reads & written_properties:
                     raise _unsupported_at_span(
                         "GFQL SET evaluates every right-hand side on the graph before the SET; "
                         "it cannot read a property assigned earlier in the same query",

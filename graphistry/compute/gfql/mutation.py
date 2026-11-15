@@ -343,7 +343,12 @@ def _set_property_dataframe(
     if cast is not None:
         update[new_value] = update[new_value].astype(cast)
     update[matched] = True
+    order = generate_safe_column_name("set_row_order", frame, prefix="__gfql_", suffix="__")
+    if cudf:
+        frame = frame.assign(**{order: np.arange(len(frame))})
     frame = frame.merge(update, how="left", on=key, sort=False)
+    if cudf:
+        frame = frame.sort_values(order).reset_index(drop=True).drop(columns=[order])
     update_mask = frame[matched].notna()
     if target.keep_existing:
         kept = frame[property_name]
@@ -508,7 +513,7 @@ def execute_set_properties(
                     update_value.alias(new_value),
                     pl.lit(True).alias(matched),
                 )
-                frame = frame.join(update, left_on=key, right_on=SET_IDENTITY, how="left")
+                frame = frame.join(update, left_on=key, right_on=SET_IDENTITY, how="left", maintain_order="left")
                 if target.keep_existing:
                     existing = pl.col(property_name)
                     if target_dtype is not None:
