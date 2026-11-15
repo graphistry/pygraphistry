@@ -8,6 +8,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [Development]
 <!-- Do Not Erase This Section - Used for tracking unreleased changes -->
 
+### Added
+
+- **GFQL native Polars `labels(n)` and constant-string `n['key']` projections**: `MATCH (n) RETURN labels(n)` and `n['name']`/`n[$key]` for declared node bindings run natively on `engine='polars'` instead of raising the Polars parity-or-error `NotImplementedError`. Declared-node and physical-identity checks keep scalar, Struct and relationship columns from being read as nodes, a non-string or non-constant subscript key stays declined, and the lowering context is reset after each call.
+
 ## [0.62.1] - 2026-11-12
 
 ### Fixed
