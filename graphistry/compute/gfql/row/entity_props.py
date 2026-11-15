@@ -4,7 +4,7 @@ from typing import Any, Iterable, List, Literal, Optional, Sequence, Tuple, cast
 
 import pandas as pd
 
-from graphistry.compute.dataframe_utils import df_cons as template_df_cons, is_cudf_obj
+from graphistry.compute.dataframe_utils import df_cons as template_df_cons
 from graphistry.Engine import is_polars_df
 from graphistry.compute.gfql.series_str_compat import series_str_contains, series_str_extract, series_str_match
 from graphistry.compute.gfql.temporal.constructors import (
@@ -20,6 +20,9 @@ from graphistry.compute.typing import DataFrameT, IndexT, SeriesT
 
 # Mutation metadata is internal and collision-checked before construction.
 MUTATION_NODE_ID = "__graphistry_node_identity__"
+MUTATION_EDGE_ID = "__graphistry_edge_identity__"
+#: The only identity columns omitted from flattened whole-entity RETURN fields; user keys, even ``__``-prefixed, stay public.
+INTERNAL_IDENTITY_COLUMNS = frozenset({MUTATION_NODE_ID, MUTATION_EDGE_ID})
 ID_PROPERTY_PRESENT = "__gfql_id_property_present__"
 
 #: Node columns that are engine structure, not user properties.

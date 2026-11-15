@@ -292,19 +292,13 @@ def _flat_entity_columns_polars(
     source_alias: str,
     output_name: str,
     id_column: typing.Optional[str],
-    include_internal_identity: bool = False,
 ) -> typing.Optional[typing.Sequence[pl.Series]]:
     """Flatten one alias view using its existing native columns."""
     from dataclasses import replace
-    from graphistry.compute.gfql.cypher.result_postprocess import (
-        _flat_entity_field_names,
-        _include_identity_in_flat_entity_projection,
-    )
+    from graphistry.compute.gfql.cypher.result_postprocess import _flat_entity_field_names
 
     source_projection = projection if source_alias == projection.alias else replace(projection, alias=source_alias)
-    fields = _flat_entity_field_names(
-        view.frame, source_projection, id_column, include_internal_identity
-    )
+    fields = _flat_entity_field_names(view.frame, source_projection, id_column)
     if not fields:
         return None  # synthesized absent entity -> caller falls back to text
     out = []
@@ -346,9 +340,6 @@ def _try_native_projection(
     """Native projection for property/expr columns already in the polars row table + structured-
     flat or entity-text whole-entity returns; None → caller raises NIE."""
     import polars as pl
-    from graphistry.compute.gfql.cypher.result_postprocess import (
-        _include_identity_in_flat_entity_projection,
-    )
 
     exprs: typing.List[typing.Union[pl.Expr, pl.Series]] = []
     entity_meta: typing.Dict[str, WholeRowProjectionMeta] = {}
@@ -370,9 +361,6 @@ def _try_native_projection(
                     source_alias,
                     column.output_name,
                     id_column,
-                    include_internal_identity=_include_identity_in_flat_entity_projection(
-                        result._node, source_node_id
-                    ),
                 )
                 if flat is not None:
                     exprs.extend(flat)

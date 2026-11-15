@@ -178,14 +178,14 @@ Supported Cypher Surface Through ``g.gfql()``
 ---------------------------------------------
 
 The current GFQL Cypher compiler supports bounded reads and functional standalone
-node creation. At a high level, that includes:
+node and relationship creation. At a high level, that includes:
 
 - ``MATCH`` and a bounded ``OPTIONAL MATCH`` subset
 - ``WHERE``
 - ``RETURN`` and ``WITH``
 - ``ORDER BY``, ``SKIP``, ``LIMIT``, and ``DISTINCT``
 - ``UNWIND``
-- standalone node ``CREATE``, with optional ``RETURN``
+- standalone node and one-hop relationship ``CREATE``, with optional ``RETURN`` of created node values
 - standalone node ``SET`` after ``MATCH``, with optional ``RETURN``
 - supported ``UNION`` / ``UNION ALL`` and ``CALL graphistry.*`` flows when executed
   directly through ``g.gfql("...")``
@@ -238,7 +238,7 @@ Support Matrix
      - Scalar property updates on existing nodes (literals, parameters, computed expressions), with optional ``RETURN``.
    * - Standalone relationship ``CREATE``
      - Supported
-     - Directed one-hop relationships between nodes created or bound in the same ``CREATE``, with a type and scalar properties.
+     - Directed one-hop relationships between nodes created or bound in the same ``CREATE`` clause, with a type and scalar properties.
    * - ``MATCH ... CREATE``, ``DELETE``, relationship ``SET``, ``REMOVE``, ``MERGE``
      - Not supported
      - These mutation clauses remain outside this creation subset.
@@ -467,7 +467,8 @@ Notes:
 - A whole entity with no fields to flatten (no id binding, no properties, no
   type/label — in practice only an edge whose graph has no edge-id binding) has
   nothing to flatten and falls back to a single Cypher-display-text column under the
-  bare alias. Nodes always carry an id field and always flatten.
+  bare alias. Nodes carry an id field and flatten, except a node created by
+  ``CREATE`` without properties or labels, whose internal identity column is not a public field.
 
 Procedure And Multi-Branch Forms
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -713,16 +714,24 @@ on pandas, cuDF, and Polars.
 Physical node identity is separate from properties: ``CREATE (n {id: 12})``
 writes an ordinary ``id`` property, while ``CREATE (n)`` leaves that property
 absent. Allocation does not become an implicit property. Existing node identities
-and edge endpoints are retained, including string identities; repeated creation
-reuses the graph's physical identity binding.
+and edge endpoints are retained, and a created identity never equals an existing
+node key or edge endpoint value: numeric identities start above every existing
+numeric identity and edge endpoint (integer, float, numeric-string or categorical
+columns), and string identities skip existing string keys and endpoints.
+Repeated creation reuses the graph's physical identity binding.
 
 This initial subset requires unique non-null integer or string physical
 identities and compatible scalar property columns. Unsupported value unions,
 reserved metadata/label property names, identity exhaustion, and ambiguous
-rebinding fail with a structured error. A standalone node pattern may not
-re-declare a variable that is already bound (``CREATE (a), (a)``); a
-relationship endpoint may reuse one. Read/write clause combinations and other
-mutation operators remain unsupported. Explicit
+rebinding fail with a structured error. A graph with a non-null ``labels``
+column (list-valued or not, with or without ``label__*`` flags) is declined,
+because readers would render created rows as ``nan``; an unsigned integer
+identity above 2**53 is declined with a structured error as well. A Polars
+``LazyFrame`` is a structured ``lazy_frame`` decline (collect it first; ``AUTO``
+may fall back to pandas). A standalone node pattern may not re-declare a
+variable that is already bound (``CREATE (a), (a)``); a relationship endpoint
+may reuse one. Read/write clause combinations and other mutation operators
+remain unsupported. Explicit
 ``engine="polars-gpu"`` and remote mutation execution decline before dispatch;
 CPU Polars and native cuDF routes are available.
 
@@ -730,7 +739,8 @@ Functional Relationship Creation
 --------------------------------
 
 Standalone ``CREATE`` can also add directed one-hop relationships. Each endpoint
-is a node created by the same statement, or a variable bound earlier in it. The
+is a node created by the same statement, or a variable bound earlier in the same
+clause. The
 relationship takes the edge ``type`` column and optional scalar properties, and
 the caller's frames and bindings stay unchanged.
 
@@ -754,7 +764,10 @@ the caller's frames and bindings stay unchanged.
 Edge identity follows the graph's binding: an existing compatible string or
 integer edge identity column is kept; otherwise the physical edge identity is a
 separate ``__graphistry_edge_identity__`` column. Endpoint aliases and
-relationship variables follow Cypher scoping within the statement. A reverse
+relationship variables follow Cypher scoping within a clause: an endpoint may
+reuse a node bound earlier in the same clause, while reusing a node from another
+clause (``CREATE (a) CREATE (a)-[:R]->(b)``) or repeating a relationship
+variable is declined with a structured error. A reverse
 arrow (``(a)<-[:R]-(b)``) points the edge from ``b`` to ``a``.
 
 Limits: only one-hop directed relationships are created (no variable-length
