@@ -464,6 +464,9 @@ DTYPE_MATRIX = {
     "large_string": (
         lambda pd: pd.Series(list("abcdefg"), dtype=pd.ArrowDtype(__import__("pyarrow").large_string())),
         lambda pl: pl.Series(list("abcdefg"))),
+    "arrow_dictionary": (
+        lambda pd: pd.Series(list("abcabca")).astype(pd.ArrowDtype(__import__("pyarrow").dictionary(__import__("pyarrow").int32(), __import__("pyarrow").string()))),
+        lambda pl: pl.Series(list("abcabca")).cast(pl.Categorical)),
     "unordered_categorical": (lambda pd: pd.Categorical(list("abcabca")), lambda pl: pl.Series(list("abcabca")).cast(pl.Categorical)),
     "ordered_categorical": (
         lambda pd: pd.Categorical(list("abcabca"), categories=list("cba"), ordered=True),
