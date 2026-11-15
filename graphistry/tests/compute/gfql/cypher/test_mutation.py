@@ -2560,6 +2560,35 @@ def test_create_on_a_polars_lazy_frame_is_a_structured_decline(lazy):
         assert auto_exc.context["value"] == "lazy_frame"
 
 
+# D16-F1: engine='pandas' on a cuDF graph moves the frames to the host (as reads do) instead of mixing frame types.
+cudf_only = pytest.mark.skipif(os.environ.get("TEST_CUDF") != "1", reason="cudf tests need TEST_CUDF=1")
+
+
+@cudf_only
+@pytest.mark.parametrize("ids", [[1, 2], ["a", "b"]])
+@pytest.mark.parametrize("query,rows", [
+    ("CREATE (n)", None),
+    ("CREATE (n:L {name: 'z'}) RETURN n.name AS name", [{"name": "z"}]),
+])
+def test_pandas_engine_create_on_a_cudf_graph_runs_on_the_host(ids, query, rows):
+    import cudf
+    source = graphistry.nodes(cudf.DataFrame({"id": ids}), "id")
+    result = source.gfql(query, engine="pandas")
+    graph = result if rows is None else result.gfql_graph
+    assert isinstance(graph._nodes, pd.DataFrame) and len(graph._nodes) == 3
+    if rows is not None:
+        assert _records(result._nodes) == rows
+    assert isinstance(source._nodes, cudf.DataFrame) and len(source._nodes) == 2
+
+
+@cudf_only
+def test_auto_engine_create_on_a_pandas_edges_cudf_nodes_graph_does_not_crash():
+    import cudf
+    source = graphistry.nodes(cudf.DataFrame({"id": [1, 2]}), "id").edges(pd.DataFrame({"s": [1], "d": [2]}), "s", "d")
+    result = source.gfql("CREATE (n)")
+    assert len(_records(result._nodes)) == 3
+
+
 # A16-F5: created ids keep an unsigned integer id dtype, so a second CREATE does not fail on a widened column.
 @pytest.mark.parametrize("engine", ENGINES)
 def test_create_keeps_an_unsigned_integer_id_dtype_across_repeated_creates(engine):
@@ -2914,6 +2943,37 @@ def test_relationship_create_keeps_unsigned_edge_columns_across_repeated_creates
     for column in ("s", "d", "eid"):
         dtype = second._edges.schema[column] if engine == "polars" else second._edges[column].dtype
         assert "uint" in str(dtype).lower(), (column, dtype)
+
+
+# C15-F1: string node ids next to integer-typed edge columns never reach an integer cast of string endpoints.
+@pytest.mark.parametrize("engine", ENGINES)
+def test_relationship_create_on_string_ids_with_typed_empty_integer_edges_succeeds(engine):
+    nodes = _typed_frame(engine, {"id": ["a", "b"]}, {"id": "object"})
+    edges = _typed_frame(engine, {"s": [], "d": []}, {"s": "int64", "d": "int64"})
+    result = graphistry.nodes(nodes, "id").edges(edges, "s", "d").gfql("CREATE (x)-[:R]->(y)", engine=engine)
+    assert len(_records(result._edges)) == 1 and len(_records(result._nodes)) == 4
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_relationship_create_on_string_ids_with_integer_edges_is_a_structured_decline(engine):
+    nodes = _typed_frame(engine, {"id": ["a", "b"]}, {"id": "object"})
+    edges = _typed_frame(engine, {"s": [1], "d": [2]}, {"s": "int64", "d": "int64"})
+    source = graphistry.nodes(nodes, "id").edges(edges, "s", "d")
+    before = (_records(source._nodes), _records(source._edges))
+    with _declined(ErrorCode.E108, field="s"):
+        source.gfql("CREATE (x)-[:R]->(y)", engine=engine)
+    assert (_records(source._nodes), _records(source._edges)) == before
+
+
+# D16-F1 on the edge frames: engine='pandas' relationship CREATE on a cuDF graph runs on the host.
+@cudf_only
+def test_pandas_engine_relationship_create_on_a_cudf_graph_runs_on_the_host():
+    import cudf
+    source = graphistry.nodes(cudf.DataFrame({"id": [1, 2]}), "id").edges(cudf.DataFrame({"s": [1], "d": [2]}), "s", "d")
+    result = source.gfql("CREATE (a)-[:R]->(b)", engine="pandas")
+    assert isinstance(result._nodes, pd.DataFrame) and isinstance(result._edges, pd.DataFrame)
+    assert len(result._nodes) == 4 and len(result._edges) == 2
+    assert isinstance(source._edges, cudf.DataFrame) and len(source._edges) == 1
 
 
 # the #2316 id contract, extended to relationship CREATE

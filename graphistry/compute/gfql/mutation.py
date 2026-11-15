@@ -30,6 +30,7 @@ from graphistry.compute.gfql.cypher.ast import (
     SetClause,
 )
 from graphistry.Plottable import Plottable
+from graphistry.compute.engine_coercion import ensure_local_engine_match
 from graphistry.compute.gfql.row.entity_props import (
     ID_PROPERTY_PRESENT,
     MUTATION_EDGE_ID,
@@ -953,11 +954,11 @@ def _prepare_append_frames(nodes: DataFrameT, new_nodes: DataFrameT) -> tuple[Da
         if nullable:
             nodes = nodes.assign(**nullable)
     # All-null properties take the non-null created dtype without losing values.
-    null_old = [name for name in set(nodes.columns).intersection(new_nodes.columns)
+    null_old = [name for name in new_nodes.columns if name in nodes.columns
                 if bool(nodes[name].is_null().all() if polars else nodes[name].isna().all())]
     if null_old:
         nodes = nodes.drop(null_old) if polars else nodes.drop(columns=null_old)
-    for name in set(nodes.columns).intersection(new_nodes.columns):
+    for name in [column for column in new_nodes.columns if column in nodes.columns]:
         old, new = nodes[name], new_nodes[name]
         old_null = old.is_null().all() if polars else old.isna().all()
         if bool(old_null):
@@ -1174,14 +1175,14 @@ def _match_key_dtype(nodes: DataFrameT, new_nodes: DataFrameT, key: str) -> Data
                 return new_nodes
         return new_nodes.with_columns(pl.col(key).cast(target))  # type: ignore[return-value]  # polars frame, not the pandas alias
     dtype = nodes[key].dtype
-    if pd.api.types.is_integer_dtype(dtype):
-        created = new_nodes[key]
-        if len(created) and pd.api.types.is_integer_dtype(created.dtype):
-            info = np.iinfo(getattr(dtype, "numpy_dtype", dtype))
-            if int(created.min()) < int(info.min) or int(created.max()) > int(info.max):
-                return new_nodes
-        return new_nodes.assign(**{key: created.astype(dtype)})
-    return new_nodes
+    created = new_nodes[key]
+    if not pd.api.types.is_integer_dtype(dtype) or not pd.api.types.is_integer_dtype(created.dtype):
+        return new_nodes
+    if len(created):
+        info = np.iinfo(getattr(dtype, "numpy_dtype", dtype))
+        if int(created.min()) < int(info.min) or int(created.max()) > int(info.max):
+            return new_nodes
+    return new_nodes.assign(**{key: created.astype(dtype)})
 
 
 def execute_create_nodes(
@@ -1211,6 +1212,8 @@ def execute_create_nodes(
 
     from graphistry.compute.ComputeMixin import _coerce_input_formats
     base_graph = _coerce_input_formats(self, concrete_engine)
+    if concrete_engine == Engine.PANDAS:
+        base_graph = ensure_local_engine_match(base_graph, Engine.PANDAS)  # a cuDF frame is moved to the host, as reads do
     _reject_lazy_frames(base_graph)
     if base_graph._gfql_graph is not None:
         base_graph = base_graph.bind()
