@@ -423,13 +423,13 @@ def execute_set_properties(
                 if assignment_frame.schema[SET_VALUE].is_float():
                     assignment_frame = assignment_frame.with_columns(pl.col(SET_VALUE).fill_nan(None))
             else:
-                values = frame[value_column]
-                if values.dtype.kind == "f":
-                    values = values.where(values == values)  # NaN is null for SET on every engine
+                value_series = frame[value_column]
+                if value_series.dtype.kind == "f":
+                    value_series = value_series.where(value_series == value_series)  # NaN is null for SET on every engine
                 assignment_frame = frame[[identity_column]].rename(
                     columns={identity_column: SET_IDENTITY}
                 )
-                assignment_frame = assignment_frame.assign(**{SET_VALUE: values})
+                assignment_frame = assignment_frame.assign(**{SET_VALUE: value_series})
             value_family = _assignment_value_family(assignment_frame, SET_VALUE)
             if value_family == "other":
                 raise GFQLMutationError(
