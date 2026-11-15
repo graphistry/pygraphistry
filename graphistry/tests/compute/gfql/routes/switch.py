@@ -2,7 +2,7 @@
 from contextlib import contextmanager
 from typing import Iterable, Iterator, List, Tuple
 
-ROUTES = ("polars-point-rows", "point-rows", "native-fast", "polars-single-node", "polars-seeded", "polars-plain", "index-hop", "indexed-kernel", "polars-bindings-select", "cypher-fast", "cross-alias-or", "binding-limit")
+ROUTES = ("polars-point-rows", "point-rows", "native-fast", "polars-single-node", "polars-seeded", "polars-plain", "index-hop", "indexed-kernel", "polars-bindings-select", "cypher-fast", "cross-alias-or", "binding-limit", "bindings-skip-traversal")
 
 
 def _none(*a, **k):
@@ -48,6 +48,8 @@ def _targets(routes: Iterable[str]) -> List[Tuple[object, str]]:
             "_execute_single_hop_grouped_aggregate_fast_path", "_execute_two_hop_count_fast_path")]
     if "cross-alias-or" in routes or "cypher-fast" in routes:
         out.append((or_bindings, "prepare_indexed_or_bindings"))
+    if "bindings-skip-traversal" in routes:
+        out.append((chain_mod, "_skip_unread_middle_traversal"))
     if "binding-limit" in routes or "cypher-fast" in routes:
         out.append((limit_bindings, "try_limited_bindings_state"))
     return out

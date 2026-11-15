@@ -726,6 +726,81 @@ def _get_boundary_calls(ops: List[ASTObject]) -> Tuple[List[ASTObject], List[AST
 
 
 
+def _bindings_rows_call(
+    middle: List[ASTObject], suffix: List[ASTObject],
+) -> Optional[ASTCall]:
+    """The leading ``rows()`` call when it rebuilds every binding of ``middle`` from the base graph.
+
+    That holds when the call already carries exactly these binding ops, or when the
+    named-middle rewrite installs them. A rows call with no binding ops over an
+    UNNAMED middle instead reads the traversal-narrowed node table, and a ``source``,
+    ``alias_endpoints`` or non-default ``table`` reads something other than bindings.
+    ``table`` is compared against "nodes", not None: ``rows()`` always emits it.
+    """
+    if not (middle and suffix):
+        return None
+    call = suffix[0]
+    if not isinstance(call, ASTCall) or call.function != "rows":
+        return None
+    params = call.params
+    if (
+        params.get("source") is not None
+        or params.get("alias_endpoints") is not None
+        or params.get("table", "nodes") != "nodes"
+        or not all(isinstance(op, (ASTNode, ASTEdge)) for op in middle)
+    ):
+        return None
+    binding_ops = params.get("binding_ops")
+    if binding_ops is None:
+        consumed = any(op._name is not None for op in middle)
+    else:
+        consumed = binding_ops == serialize_binding_ops(middle)
+    return call if consumed else None
+
+
+def _skip_unread_middle_traversal(
+    g: Plottable, middle: List[ASTObject], suffix: List[ASTObject], engine: Union[Engine, EngineAbstract, str],
+) -> Optional[bool]:
+    """Whether the boundary may skip the canonical middle traversal; None declines.
+
+    The bindings builders on every engine read only the base graph, the carried
+    start nodes and the alias prefilters, so a traversal whose output the leading
+    rows call never reads is pure cost. Callers keep the traversal when a policy
+    must observe it, and both frames must be bound so an unbound graph still
+    raises or materializes on the canonical path. A caller that skips still runs
+    ``validate_chain_schema`` on the middle: the traversal's filters raise those
+    schema errors whatever ``validate_schema`` says.
+    """
+    from graphistry.compute.gfql.index.api import record_fast_path_decision
+
+    if _bindings_rows_call(middle, suffix) is None:
+        return None
+    served = g._nodes is not None and g._edges is not None and g._node is not None
+    record_fast_path_decision(
+        path="rows_bindings_skip_traversal", engine=engine, served=served,
+        reason="rows rebuilds bindings from the base graph" if served else "graph frames not bound",
+    )
+    return True if served else None
+
+
+def _traversal_skipped_handoff(
+    middle: List[ASTObject], index_handoff: Optional["IndexedBindingsHandoff"],
+) -> "IndexedBindingsHandoff":
+    """The handoff for a skipped traversal, keeping any index decision already made."""
+    from dataclasses import replace
+    from .gfql.index.handoff import IndexedBindingsHandoff
+
+    edge_aliases = tuple(
+        op._name for op in middle if isinstance(op, ASTEdge) and isinstance(op._name, str)
+    )
+    if index_handoff is None:
+        return IndexedBindingsHandoff(
+            binding_ops=serialize_binding_ops(middle), edge_aliases=edge_aliases,
+            index_attempted=False, traversal_skipped=True,
+        )
+    return replace(index_handoff, edge_aliases=edge_aliases, traversal_skipped=True)
+
+
 def _plan_indexed_middle(
     g: Plottable,
     prefix: List[ASTObject],
@@ -744,42 +819,14 @@ def _plan_indexed_middle(
     comparable instead of two inline condition chains that drift.
     """
     from .gfql.index.handoff import IndexedBindingsHandoff
-    if not (middle and suffix) or prefix or start_nodes is not None or policy:
+    if prefix or start_nodes is not None or policy:
         return None
-    call = suffix[0]
-    if not isinstance(call, ASTCall) or call.function != "rows":
-        return None
-    if (
-        call.params.get("source") is not None
-        or call.params.get("alias_endpoints") is not None
-        or call.params.get("alias_prefilters")
-        # Serving the bypass SKIPS the canonical traversal, so the suffix runs against the
-        # PRE-traversal graph. That is sound for a bindings table (the path bag already is
-        # the answer) but not for `rows(table="edges")`, which would read the whole edge
-        # table instead of the traversal-narrowed one. Non-default `table` therefore keeps
-        # the scan path, for the same reason `source`/`alias_endpoints` do above. Compared
-        # against "nodes", not None: `rows()` defaults `table` to "nodes" and always emits
-        # it, so an `is None` test would disable the bypass outright — the same trap the
-        # named-middle rewrite's guard documents below.
-        or call.params.get("table", "nodes") != "nodes"
-        or not all(isinstance(op, (ASTNode, ASTEdge)) for op in middle)
-    ):
+    # Serving the bypass SKIPS the canonical traversal, which is only sound when the rows
+    # call consumes the whole middle as bindings; prefilters are not index-servable.
+    call = _bindings_rows_call(middle, suffix)
+    if call is None or call.params.get("alias_prefilters"):
         return None
     plan = serialize_binding_ops(middle)
-    # The bypass is only sound when the rows call actually consumes the WHOLE
-    # middle as binding ops: either it already carries them, or the named-middle
-    # rewrite installs exactly them. A rows call with no binding ops over an
-    # UNNAMED middle instead reads the traversal-narrowed node table, which the
-    # bypass would not produce.
-    if not (
-        call.params.get("binding_ops") == plan
-        or (
-            call.params.get("binding_ops") is None
-            and any(op._name is not None for op in middle
-                    if isinstance(op, (ASTNode, ASTEdge)))
-        )
-    ):
-        return None
 
     engine_concrete = resolve_engine(engine, g)  # type: ignore[arg-type]
     if engine_concrete not in (Engine.PANDAS, Engine.CUDF):
@@ -890,6 +937,14 @@ def _handle_boundary_calls(
         assert handoff.state is not None
         if handoff.state.edge_template is not None:
             g_temp = g_temp.edges(handoff.state.edge_template)
+    elif (
+        not prefix and not policy
+        and _skip_unread_middle_traversal(g_temp, middle, suffix, engine)
+    ):
+        if validate_schema:
+            Chain(middle)
+        validate_chain_schema(g_temp, middle, collect_all=False)
+        g_temp = attach_handoff(g_temp, _traversal_skipped_handoff(middle, handoff))
     else:
         if middle:
             logger.debug('Executing middle operations: %s', middle)

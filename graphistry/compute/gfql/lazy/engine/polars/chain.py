@@ -25,6 +25,7 @@ from .chain_specializations.hotpaths import _plain_seeded_index_hop_polars, _pla
 
 if TYPE_CHECKING:
     import polars as pl
+    from graphistry.Engine import Engine
     from graphistry.compute.gfql.index.bindings import IndexedBindingsState
     from .dtypes import PolarsFrame, PolarsT
 from .hop_eager import ensure_nodes_polars
@@ -855,7 +856,9 @@ def chain_polars(self: Plottable, ops, start_nodes: Optional[Any] = None) -> Plo
             "use engine='pandas' or engine='cudf' for this chain."
         )
 
-    from graphistry.compute.chain import serialize_binding_ops
+    from graphistry.compute.chain import (
+        _skip_unread_middle_traversal, _traversal_skipped_handoff, serialize_binding_ops,
+    )
     from graphistry.compute.gfql.index.handoff import (
         IndexedBindingsHandoff, attach_handoff,
     )
@@ -883,6 +886,12 @@ def chain_polars(self: Plottable, ops, start_nodes: Optional[Any] = None) -> Plo
                 if isinstance(op, ASTEdge) and isinstance(op._name, str)
             ),
         ))
+    elif _skip_unread_middle_traversal(self, middle, suffix, _active_polars_engine()):
+        from graphistry.compute.validate.validate_schema import validate_chain_schema
+        validate_chain_schema(self, middle, collect_all=False)
+        g_cur = attach_handoff(self, _traversal_skipped_handoff(middle, IndexedBindingsHandoff(
+            binding_ops=serialize_binding_ops(middle),
+        ) if indexed_attempted else None))
     else:
         g_cur = _chain_traversal_polars(self, middle, start_nodes)
         if indexed_attempted:
@@ -912,42 +921,24 @@ def _try_indexed_middle_polars(
     ops. Everything else (prefiltered/seeded/aliased-endpoint rows, unnamed middle
     without binding ops, non-traversal middle) keeps the canonical path.
     """
-    from graphistry.compute.ast import ASTCall
-    from graphistry.compute.chain import serialize_binding_ops
+    from graphistry.compute.chain import _bindings_rows_call
 
-    if (
-        not middle
-        or not suffix
-        or start_nodes is not None
-        or not isinstance(suffix[0], ASTCall)
-        or suffix[0].function != "rows"
-        or suffix[0].params.get("source") is not None
-        or suffix[0].params.get("alias_endpoints") is not None
-        or suffix[0].params.get("alias_prefilters")
-        # See the twin guard in chain._plan_indexed_middle: serving the bypass skips the
-        # canonical traversal, so a non-default `table` would read the PRE-traversal edge
-        # table (the whole graph) instead of the narrowed one. "nodes", not None — `rows()`
-        # always emits `table`.
-        or suffix[0].params.get("table", "nodes") != "nodes"
-        or not all(isinstance(op, (ASTNode, ASTEdge)) for op in middle)
-    ):
-        return None, False
-    binding_ops = suffix[0].params.get("binding_ops")
-    if not (
-        binding_ops == serialize_binding_ops(middle)
-        or (
-            binding_ops is None
-            and any(op._name is not None for op in middle)
-        )
-    ):
+    # See the twin gate in chain._plan_indexed_middle: serving the bypass skips the
+    # canonical traversal, so the rows call must consume the whole middle as bindings.
+    call = _bindings_rows_call(middle, suffix) if start_nodes is None else None
+    if call is None or call.params.get("alias_prefilters"):
         return None, False
 
-    from graphistry.Engine import Engine
     from graphistry.compute.gfql.index.bindings import try_indexed_connected_bindings_state
+
+    return try_indexed_connected_bindings_state(g, middle, engine=_active_polars_engine()), True
+
+
+def _active_polars_engine() -> "Engine":
+    from graphistry.Engine import Engine
     from graphistry.compute.gfql.lazy import active_target, ExecutionTarget
 
-    engine = Engine.POLARS_GPU if active_target() == ExecutionTarget.GPU else Engine.POLARS
-    return try_indexed_connected_bindings_state(g, middle, engine=engine), True
+    return Engine.POLARS_GPU if active_target() == ExecutionTarget.GPU else Engine.POLARS
 
 
 def _bound_edge_endpoints(g: Plottable) -> Tuple[str, str]:

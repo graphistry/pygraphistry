@@ -28,14 +28,19 @@ if TYPE_CHECKING:
 class IndexedBindingsHandoff:
     """One boundary decision about one exact plan.
 
-    ``state is None`` records a DECLINE, which is as important as a serve: without
-    it the row materializer would re-attempt the same plan (and re-record the same
-    trace decision) after the canonical traversal already ran.
+    ``state is None`` with ``index_attempted`` records a DECLINE, which is as important
+    as a serve: without it the row materializer would re-attempt the same plan (and
+    re-record the same trace decision) after the canonical traversal already ran.
+    ``traversal_skipped`` says the boundary did not run the canonical traversal because
+    the rows call rebuilds every binding from the base graph; the row table then
+    synthesizes the edge alias markers that traversal would have added.
     """
 
     binding_ops: List[Dict[str, JSONVal]]
     state: Optional["IndexedBindingsState"] = None
     edge_aliases: Tuple[str, ...] = field(default=())
+    index_attempted: bool = True
+    traversal_skipped: bool = False
 
     def serves(self, binding_ops: List[Dict[str, JSONVal]], engine: Engine) -> bool:
         """True when this handoff carries a usable state for exactly this plan."""
@@ -47,7 +52,11 @@ class IndexedBindingsHandoff:
 
     def declined(self, binding_ops: List[Dict[str, JSONVal]]) -> bool:
         """True when this exact plan was already tried and safely declined."""
-        return self.state is None and self.binding_ops == binding_ops
+        return self.index_attempted and self.state is None and self.binding_ops == binding_ops
+
+    def synthesizes_edge_aliases(self) -> bool:
+        """True when no canonical traversal produced the edge frame this handoff rides on."""
+        return self.state is not None or self.traversal_skipped
 
 
 def attach_handoff(g: "Plottable", handoff: IndexedBindingsHandoff) -> "Plottable":

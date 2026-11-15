@@ -158,7 +158,7 @@ def row_table(ctx: RowPipelineCtx, table_df: Any) -> "Plottable":
         out._edges = _empty_like(ctx._edges)
     else:
         out._edges = _empty_like(table_df)
-    if handoff is not None and handoff.state is not None and out._edges is not None:
+    if handoff is not None and handoff.synthesizes_edge_aliases() and out._edges is not None:
         # The canonical traversal we skipped is what would have added these alias
         # marker columns to the (zero-row) edge frame; synthesize them for parity.
         indexed_edge_aliases = handoff.edge_aliases
