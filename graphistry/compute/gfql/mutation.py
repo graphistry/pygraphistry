@@ -101,6 +101,15 @@ def _assignment_value_family(frame: DataFrameT, column: str) -> str:
     return _frame_family(frame, column)
 
 
+def _require_table(frame: Optional[DataFrameT], entity: str) -> DataFrameT:
+    if frame is None:
+        raise GFQLMutationError(
+            ErrorCode.E108, f"SET requires a {entity} table",
+            field=entity, value="missing_table", language="cypher",
+        )
+    return frame
+
+
 def _require_unique_identity(frame: DataFrameT, key: str, entity: str) -> None:
     """Reject null or repeated physical identities before any effect, like CREATE does."""
     if is_polars_df(frame):
@@ -289,8 +298,7 @@ def _resolve_set_targets(
     targets: dict[tuple[str, str], _SetTarget] = {}
     for alias, properties in updates.items():
         entity = "node" if alias_kinds[alias] == "node" else "edge"
-        frame = nodes if entity == "node" else edges
-        assert frame is not None
+        frame = _require_table(nodes if entity == "node" else edges, entity)
         for property_name, update_frame in properties.items():
             targets[(alias, property_name)] = _resolve_set_target(
                 frame, entity, property_name, update_frame, update_families[alias][property_name],
@@ -397,6 +405,9 @@ def execute_set_properties(
     concrete_engine = resolve_engine(
         engine, self._edges if self._edges is not None else self._nodes,
     )
+    base_graph = self
+    if base_graph._nodes is None and base_graph._edges is not None:
+        base_graph = base_graph.materialize_nodes(engine=concrete_engine.value)
     if concrete_engine == Engine.POLARS_GPU:
         raise GFQLUnsupportedError(
             ErrorCode.E108,
@@ -461,10 +472,10 @@ def execute_set_properties(
             update_families[alias][assignment.target.property].add(value_family)
             updates[alias][assignment.target.property].append(assignment_frame)
     alias_kind_map = dict(alias_kinds)
-    nodes = _copy_frame(df_to_engine(self._nodes, concrete_engine)) if self._nodes is not None else None
-    edges = _copy_frame(df_to_engine(self._edges, concrete_engine)) if self._edges is not None else None
-    node_key = self._node
-    edge_key = self._edge
+    nodes = _copy_frame(df_to_engine(base_graph._nodes, concrete_engine)) if base_graph._nodes is not None else None
+    edges = _copy_frame(df_to_engine(base_graph._edges, concrete_engine)) if base_graph._edges is not None else None
+    node_key = base_graph._node
+    edge_key = base_graph._edge
     if any(alias_kind_map[alias] == "node" for alias in updates) and node_key is None:
         raise GFQLMutationError(
             ErrorCode.E108, "SET requires a node identity column",
@@ -476,9 +487,13 @@ def execute_set_properties(
             field="edge", value="missing", language="cypher",
         )
     for alias, properties in updates.items():
-        frame = nodes if alias_kind_map[alias] == "node" else edges
+        frame = _require_table(nodes if alias_kind_map[alias] == "node" else edges, alias_kind_map[alias])
         key = node_key if alias_kind_map[alias] == "node" else edge_key
-        assert frame is not None and key is not None
+        if key is None:
+            raise GFQLMutationError(
+                ErrorCode.E108, f"SET requires a {alias_kind_map[alias]} identity column",
+                field=alias_kind_map[alias], value="missing", language="cypher",
+            )
         if key in properties:
             raise GFQLMutationError(
                 ErrorCode.E108,
@@ -502,9 +517,13 @@ def execute_set_properties(
 
     for alias, combined_properties in combined_updates.items():
         kind = alias_kind_map[alias]
-        frame = nodes if kind == "node" else edges
+        frame = _require_table(nodes if kind == "node" else edges, kind)
         key = node_key if kind == "node" else edge_key
-        assert frame is not None and key is not None
+        if key is None:
+            raise GFQLMutationError(
+                ErrorCode.E108, f"SET requires a {kind} identity column",
+                field=kind, value="missing", language="cypher",
+            )
         if is_polars_df(frame):
             import polars as pl
             assert isinstance(frame, pl.DataFrame)
@@ -556,11 +575,11 @@ def execute_set_properties(
             else:
                 edges = frame
 
-    result = self.bind()
+    result = base_graph.bind()
     if nodes is not None:
         result = result.nodes(nodes, node_key)
     if edges is not None:
-        result = result.edges(edges, self._source, self._destination, edge_key)
+        result = result.edges(edges, base_graph._source, base_graph._destination, edge_key)
     return result
 
 

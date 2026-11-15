@@ -9372,6 +9372,11 @@ def _prepare_set_param_text(
         elif ch == "$" and not in_single and not in_double:
             token = _CYPHER_PARAM_TOKEN_RE.match(text, idx)
             supplied = (params or {}).get(token.group(1)) if token is not None else None
+            if token is not None and isinstance(supplied, (list, tuple, set, dict)):
+                raise _unsupported_at_span(
+                    "GFQL SET supports ordinary scalar properties only",
+                    field="set", value="non_scalar_value", span=span,
+                )
             if token is not None and isinstance(supplied, float) and math.isnan(supplied):
                 raise _unsupported_at_span(
                     "GFQL SET cannot represent a NaN parameter value as distinct from null",
@@ -9382,9 +9387,9 @@ def _prepare_set_param_text(
                     "GFQL SET cannot store an infinite parameter value",
                     field="set", value="non_finite_parameter", span=span,
                 )
-            if (
-                token is not None and isinstance(supplied, (int, float))
-                and not isinstance(supplied, bool) and math.copysign(1.0, supplied) < 0
+            if token is not None and not isinstance(supplied, bool) and (
+                (isinstance(supplied, float) and math.copysign(1.0, supplied) < 0)
+                or (isinstance(supplied, int) and supplied < 0)
             ):
                 out.append(f"({cypher_literal_expr_text(supplied)})")
                 idx = token.end()
@@ -9428,14 +9433,16 @@ def _analyze_set_value(
 
 def _set_alias_uses(
     expression: ExprNode, aliases: Mapping[str, object]
-) -> tuple[set[tuple[str, str]], bool, set[str]]:
-    """Property reads of the SET aliases, whether an alias is used other than as ``alias.property``, and unbound names.
+) -> tuple[set[tuple[str, str]], bool, set[str], set[str]]:
+    """Property reads of the SET aliases, whether an alias is used other than as ``alias.property``, unbound names,
+    and aliases shadowed by a comprehension or quantifier variable.
 
     Fails closed: the alias is allowed only as a direct property access, a name bound by an enclosing
     comprehension or quantifier is local, and any other identifier is unbound and reported.
     """
     reads: set[tuple[str, str]] = set()
     unbound: set[str] = set()
+    shadowed: set[str] = set()
     whole_entity = False
 
     def visit(node: ExprNode, bound: frozenset[str]) -> None:
@@ -9455,6 +9462,8 @@ def _set_alias_uses(
                 unbound.add(node.name)
             return
         if isinstance(node, (ListComprehension, QuantifierExpr)):
+            if node.var in aliases:
+                shadowed.add(node.var)
             visit(node.source, bound)
             inner = bound | {node.var}
             for child in (node.predicate, getattr(node, "projection", None)):
@@ -9465,7 +9474,7 @@ def _set_alias_uses(
             visit(child, bound)
 
     visit(expression, frozenset())
-    return reads, whole_entity, unbound
+    return reads, whole_entity, unbound, shadowed
 
 
 def compile_cypher_query(
@@ -9569,7 +9578,16 @@ def compile_cypher_query(
                         value="aggregate_value",
                         span=assignment.span,
                     )
-                property_reads, whole_entity_read, unbound_names = _set_alias_uses(set_value_expr, alias_kinds)
+                property_reads, whole_entity_read, unbound_names, shadowed_aliases = _set_alias_uses(
+                    set_value_expr, alias_kinds,
+                )
+                if shadowed_aliases:
+                    raise _unsupported_at_span(
+                        "GFQL SET values cannot bind a local variable with the name of the matched node",
+                        field="set",
+                        value="shadowed_alias",
+                        span=assignment.span,
+                    )
                 if unbound_names:
                     raise _unsupported_at_span(
                         "GFQL SET values may use only the matched node's properties and locally bound names",
