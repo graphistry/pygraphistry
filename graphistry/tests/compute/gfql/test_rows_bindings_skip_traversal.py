@@ -535,6 +535,7 @@ def test_concurrent_queries_fill_the_cache_consistently():
     assert all(actual[i] == expected[i % 2] for i in range(32))
 
 
+@pytest.mark.route_engaged(ROUTE)
 @pytest.mark.parametrize("error", [TypeError("bad compare"), ValueError("bad value"), KeyError("missing"), ZeroDivisionError("zero")])
 def test_data_evaluation_errors_in_the_skipped_path_replay_the_traversal(monkeypatch, error):
     from graphistry.compute.gfql import rows_skip_traversal
