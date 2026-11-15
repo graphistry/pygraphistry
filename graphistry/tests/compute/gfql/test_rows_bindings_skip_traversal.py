@@ -196,3 +196,17 @@ def test_filter_errors_match_the_traversal(engine, bad_filter, validate_schema):
     with routes_off([ROUTE]):
         expected = outcome()
     assert outcome() == expected
+
+
+def test_cached_zero_row_twin_follows_input_schema_and_clears(engine):
+    from graphistry.compute.gfql_unified import gfql_clear_caches
+
+    query = SHAPES["seeded_undirected_edge_alias"][0]
+    g = graph(engine)
+    _assert_matches_traversal(g, query, engine, 3)
+    widened = g.edges(g._edges.with_columns(weight=g._edges["since"] * 2) if engine.startswith("polars")
+                      else g._edges.assign(weight=g._edges["since"] * 2))
+    _assert_matches_traversal(widened, query, engine, 3)
+    assert "weight" in _run(widened, query, engine)._edges.columns
+    gfql_clear_caches()
+    _assert_matches_traversal(g, query, engine, 3)

@@ -1,4 +1,5 @@
 import logging
+import threading
 from typing import Any, Callable, Dict, Union, cast, List, Tuple, Sequence, Optional, TYPE_CHECKING
 from graphistry.Engine import Engine, EngineAbstract, POLARS_ENGINES, align_shared_column_dtypes, df_concat, df_cons, df_to_engine, resolve_engine, safe_map_series, safe_row_concat, s_na
 from graphistry.compute.dataframe_utils import dbg_df
@@ -25,6 +26,7 @@ from graphistry.compute.gfql.same_path_types import (
 from .gfql.policy import PolicyContext, PolicyException, PolicyFunction
 from .gfql.policy.stats import extract_graph_stats
 from graphistry.otel import otel_traced, otel_detail_enabled
+from graphistry.compute.gfql.cache_registry import register_clearable_callable
 
 if TYPE_CHECKING:
     from .execution_context import ExecutionContext
@@ -792,6 +794,15 @@ def _skip_unread_middle_traversal(
 
 _ZERO_ROW_TRAVERSALS: Dict[Tuple[object, ...], Tuple[DataFrameT, DataFrameT]] = {}
 _ZERO_ROW_TRAVERSALS_MAX = 256
+_ZERO_ROW_TRAVERSALS_LOCK = threading.Lock()
+
+
+def _clear_zero_row_traversals() -> None:
+    with _ZERO_ROW_TRAVERSALS_LOCK:
+        _ZERO_ROW_TRAVERSALS.clear()
+
+
+register_clearable_callable("_ZERO_ROW_TRAVERSALS", _clear_zero_row_traversals)
 
 
 def _frame_schema(df: DataFrameT) -> Tuple[Tuple[str, str], ...]:
@@ -818,14 +829,16 @@ def _zero_row_traversal(
         g._node, g._source, g._destination, g._edge,
         json.dumps(serialize_binding_ops(middle), sort_keys=True, default=str),
     )
-    frames = _ZERO_ROW_TRAVERSALS.get(key)
+    with _ZERO_ROW_TRAVERSALS_LOCK:
+        frames = _ZERO_ROW_TRAVERSALS.get(key)
     if frames is None:
         empty = with_index_policy(drop_index(g.nodes(g._nodes[:0]).edges(g._edges[:0])), "off")
         out = traverse(empty)
         frames = (out._nodes, out._edges)
-        if len(_ZERO_ROW_TRAVERSALS) >= _ZERO_ROW_TRAVERSALS_MAX:
-            _ZERO_ROW_TRAVERSALS.pop(next(iter(_ZERO_ROW_TRAVERSALS)))
-        _ZERO_ROW_TRAVERSALS[key] = frames
+        with _ZERO_ROW_TRAVERSALS_LOCK:
+            if len(_ZERO_ROW_TRAVERSALS) >= _ZERO_ROW_TRAVERSALS_MAX:
+                _ZERO_ROW_TRAVERSALS.pop(next(iter(_ZERO_ROW_TRAVERSALS)))
+            _ZERO_ROW_TRAVERSALS[key] = frames
     twin = g.bind()
     twin._nodes, twin._edges = (
         frame.copy() if hasattr(frame, "copy") and not hasattr(frame, "schema") else frame
