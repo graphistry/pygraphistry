@@ -203,7 +203,16 @@ def _frame_schema(df: DataFrameT) -> FrameSchema:
     across category orders, so the order is keyed explicitly.
     """
     items = df.schema.items() if is_polars_df(df) else df.dtypes.items()
-    return tuple(((type(column), column), (dtype, _category_order(dtype))) for column, dtype in items)
+    return tuple(((type(column), column), (_dtype_key(dtype), _category_order(dtype))) for column, dtype in items)
+
+
+def _dtype_key(dtype: object) -> object:
+    """The dtype itself when hashable; cuDF categorical dtypes are not, so those key on type and repr."""
+    try:
+        hash(dtype)
+    except TypeError:
+        return (type(dtype), repr(dtype))
+    return dtype
 
 
 def _category_order(dtype: object) -> Tuple[object, ...]:
