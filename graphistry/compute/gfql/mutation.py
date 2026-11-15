@@ -3,7 +3,10 @@ from __future__ import annotations
 import math
 from typing import TYPE_CHECKING, Optional, Union
 
+import numpy as np
+
 from graphistry.compute.typing import DataFrameT, SeriesT
+from graphistry.compute.dataframe_utils import is_cudf_obj
 from graphistry.Engine import (
     Engine,
     EngineAbstract,
@@ -14,17 +17,12 @@ from graphistry.Engine import (
     series_not_null_mask,
 )
 from graphistry.compute.exceptions import ErrorCode, GFQLUnsupportedError, GFQLValidationError
-from graphistry.compute.gfql.cypher.ast import (
-    CreateClause,
-    CypherParams,
-    CypherScalar,
-    NodePattern,
-    ParameterRef,
-)
+from graphistry.compute.gfql.cypher.ast import CreateClause, CreateRelationship, CypherParams, CypherScalar, NodePattern, ParameterRef
 from graphistry.Plottable import Plottable
 from graphistry.compute.engine_coercion import ensure_local_engine_match
 from graphistry.compute.gfql.row.entity_props import (
     ID_PROPERTY_PRESENT,
+    MUTATION_EDGE_ID,
     MUTATION_NODE_ID,
     NULLISH_LABEL_NAMES,
     label_flag_columns,
@@ -42,8 +40,18 @@ def validate_create_parameters(creates: tuple[CreateClause, ...], params: Option
     """Validate required parameters and scalar values without appending graph rows."""
     for clause in creates:
         for pattern in clause.patterns:
-            for entry in pattern.properties:
-                _property_value(entry.value, params=params, span=entry.span)
+            if isinstance(pattern, CreateRelationship):
+                _validate_node_parameters(pattern.source, params)
+                _validate_node_parameters(pattern.destination, params)
+                for entry in pattern.relationship.properties:
+                    _property_value(entry.value, params=params, span=entry.span)
+            else:
+                _validate_node_parameters(pattern, params)
+
+
+def _validate_node_parameters(pattern: NodePattern, params: Optional[CypherParams]) -> None:
+    for entry in pattern.properties:
+        _property_value(entry.value, params=params, span=entry.span)
 
 
 def _property_value(value: object, *, params: Optional[CypherParams], span: object) -> object:
@@ -374,11 +382,11 @@ def _prepare_append_frames(nodes: DataFrameT, new_nodes: DataFrameT) -> tuple[Da
         if nullable:
             nodes = nodes.assign(**nullable)
     # All-null properties take the non-null created dtype without losing values.
-    null_old = [name for name in set(nodes.columns).intersection(new_nodes.columns)
+    null_old = [name for name in new_nodes.columns if name in nodes.columns
                 if bool(nodes[name].is_null().all() if polars else nodes[name].isna().all())]
     if null_old:
         nodes = nodes.drop(null_old) if polars else nodes.drop(columns=null_old)
-    for name in set(nodes.columns).intersection(new_nodes.columns):
+    for name in [column for column in new_nodes.columns if column in nodes.columns]:
         old, new = nodes[name], new_nodes[name]
         old_null = old.is_null().all() if polars else old.isna().all()
         if bool(old_null):
@@ -403,17 +411,69 @@ def _prepare_append_frames(nodes: DataFrameT, new_nodes: DataFrameT) -> tuple[Da
     return nodes, new_nodes
 
 
-def _validate_label_names(creates: tuple[CreateClause, ...]) -> None:
-    """Decline literal label names suppressed by the established flag reader."""
+def validate_create_node_reuse(creates: tuple[CreateClause, ...]) -> None:
+    """Reject re-declaring a bound CREATE node or relationship variable before any effects.
+
+    Compile, ``gfql_validate`` and execution share this check, so every layout gets the same code, field and value.
+    """
+    bound: set[str] = set()
+    bound_relationships: set[str] = set()
     for clause in creates:
         for pattern in clause.patterns:
-            unsupported = sorted(set(pattern.labels) & NULLISH_LABEL_NAMES)
-            if unsupported:
-                raise GFQLMutationError(
-                    ErrorCode.E108, "CREATE cannot faithfully represent this label name",
-                    field="create", value=unsupported, language="cypher",
-                    line=pattern.span.line, column=pattern.span.column,
-                )
+            lone = isinstance(pattern, NodePattern)
+            candidates: tuple[NodePattern, ...] = (
+                (pattern,) if isinstance(pattern, NodePattern)
+                else (pattern.source, pattern.destination)
+            )
+            for node in candidates:
+                if node.variable is not None and node.variable in bound and (
+                    lone or node.labels or node.explicit_properties or node.properties
+                ):
+                    raise GFQLMutationError(
+                        ErrorCode.E105, "CREATE node variable is already bound",
+                        field="create", value=node.variable,
+                        suggestion=(
+                            "A bound node can be reused only as a relationship endpoint; use a new variable for another node."
+                            if lone else "Reference the bound node without labels or properties, or use a new variable."
+                        ),
+                        line=node.span.line, column=node.span.column, language="cypher",
+                    )
+                if node.variable is not None:
+                    bound.add(node.variable)
+            if isinstance(pattern, CreateRelationship) and pattern.relationship.variable is not None:
+                variable = pattern.relationship.variable
+                if variable in bound_relationships:
+                    raise GFQLMutationError(
+                        ErrorCode.E105, "CREATE relationship variable is already bound",
+                        field="create", value=variable,
+                        suggestion="Use a new variable for each relationship.",
+                        line=pattern.relationship.span.line, column=pattern.relationship.span.column, language="cypher",
+                    )
+                bound_relationships.add(variable)
+
+
+def _validate_label_names(creates: tuple[CreateClause, ...]) -> None:
+    """Reject labels whose names cannot be represented as non-null flag text."""
+    for clause in creates:
+        for pattern in clause.patterns:
+            node_patterns = (
+                (pattern,)
+                if not isinstance(pattern, CreateRelationship)
+                else (pattern.source, pattern.destination)
+            )
+            for node_pattern in node_patterns:
+                unsupported_labels = sorted(set(node_pattern.labels) & NULLISH_LABEL_NAMES)
+                if unsupported_labels:
+                    raise GFQLMutationError(
+                        ErrorCode.E108,
+                        "CREATE cannot represent a null-like label name without silently dropping it",
+                        field="create",
+                        value=unsupported_labels,
+                        suggestion="Use a label that is not None, nan, or <NA>.",
+                        line=node_pattern.span.line,
+                        column=node_pattern.span.column,
+                        language="cypher",
+                    )
 
 
 def _validate_legacy_label_transition(
@@ -424,12 +484,16 @@ def _validate_legacy_label_transition(
         return
     if label_flag_columns(nodes.columns):
         return
-    created_labels = {
-        label
-        for clause in creates
-        for pattern in clause.patterns
-        for label in pattern.labels
-    }
+    created_labels: set[Optional[str]] = set()
+    for clause in creates:
+        for pattern in clause.patterns:
+            node_patterns = (
+                (pattern,)
+                if not isinstance(pattern, CreateRelationship)
+                else (pattern.source, pattern.destination)
+            )
+            for node_pattern in node_patterns:
+                created_labels.update(node_pattern.labels)
     if not created_labels:
         return
     type_series = nodes["type"]
@@ -462,8 +526,24 @@ def _validate_no_legacy_labels_column(nodes: Optional[DataFrameT]) -> None:
         )
 
 
+def _polars_integer_bounds(dtype: "PolarsDType") -> Optional[tuple[int, int]]:
+    import polars as pl
+
+    signed: dict["PolarsDType", int] = {pl.Int8: 8, pl.Int16: 16, pl.Int32: 32, pl.Int64: 64}
+    unsigned: dict["PolarsDType", int] = {pl.UInt8: 8, pl.UInt16: 16, pl.UInt32: 32, pl.UInt64: 64}
+    if dtype in signed:
+        return -(1 << (signed[dtype] - 1)), (1 << (signed[dtype] - 1)) - 1
+    if dtype in unsigned:
+        return 0, (1 << unsigned[dtype]) - 1
+    return None
+
+
 def _match_key_dtype(nodes: DataFrameT, new_nodes: DataFrameT, key: str) -> DataFrameT:
-    """Created physical ids take the existing integer key dtype, so the union never widens an id column to float."""
+    """Created integer ids take the existing integer column dtype, so the union never widens an id column to float.
+
+    Values that do not fit the existing dtype keep their own dtype and the union widens, as before.
+    """
+    import numpy as np
     import pandas as pd
 
     if key not in nodes.columns or key not in new_nodes.columns:
@@ -472,13 +552,27 @@ def _match_key_dtype(nodes: DataFrameT, new_nodes: DataFrameT, key: str) -> Data
         import polars as pl
         if not isinstance(nodes, pl.DataFrame) or not isinstance(new_nodes, pl.DataFrame):
             raise _lazy_frame_error("nodes")
-        if not nodes.schema[key].is_integer():
+        target = nodes.schema[key]
+        if not target.is_integer() or not new_nodes.schema[key].is_integer():
             return new_nodes
-        return new_nodes.with_columns(pl.col(key).cast(nodes.schema[key]))  # type: ignore[return-value]  # polars frame, not the pandas alias
+        created = new_nodes.get_column(key)
+        if len(created):
+            low, high = created.min(), created.max()
+            if not isinstance(low, int) or not isinstance(high, int):
+                return new_nodes
+            bounds = _polars_integer_bounds(target)
+            if bounds is None or low < bounds[0] or high > bounds[1]:
+                return new_nodes
+        return new_nodes.with_columns(pl.col(key).cast(target))  # type: ignore[return-value]  # polars frame, not the pandas alias
     dtype = nodes[key].dtype
-    if pd.api.types.is_integer_dtype(dtype):
-        return new_nodes.assign(**{key: new_nodes[key].astype(dtype)})
-    return new_nodes
+    created = new_nodes[key]
+    if not pd.api.types.is_integer_dtype(dtype) or not pd.api.types.is_integer_dtype(created.dtype):
+        return new_nodes
+    if len(created):
+        info = np.iinfo(getattr(dtype, "numpy_dtype", dtype))
+        if int(created.min()) < int(info.min) or int(created.max()) > int(info.max):
+            return new_nodes
+    return new_nodes.assign(**{key: created.astype(dtype)})
 
 
 def execute_create_nodes(
@@ -489,6 +583,8 @@ def execute_create_nodes(
     params: Optional[CypherParams] = None,
 ) -> tuple[Plottable, dict[str, CypherScalar]]:
     """Create node rows and return a new Plottable without changing the caller."""
+    validate_create_node_reuse(creates)
+    _validate_label_names(creates)
     concrete_engine = resolve_engine(
         engine, self._edges if self._edges is not None else self._nodes,
     )
@@ -554,10 +650,18 @@ def execute_create_nodes(
                 MUTATION_NODE_ID: nodes[old_key], ID_PROPERTY_PRESENT: include_id,
             })
     node_key = MUTATION_NODE_ID
-    _validate_label_names(creates)
     _validate_legacy_label_transition(creates, nodes)
     _validate_no_legacy_labels_column(nodes)
-    count = sum(len(clause.patterns) for clause in creates)
+    node_count = 0
+    seen_nodes: set[str] = set()
+    for clause in creates:
+        for pattern in clause.patterns:
+            patterns = (pattern.source, pattern.destination) if isinstance(pattern, CreateRelationship) else (pattern,)
+            for node_pattern in patterns:
+                if node_pattern.variable is None or node_pattern.variable not in seen_nodes:
+                    node_count += 1
+                    if node_pattern.variable is not None:
+                        seen_nodes.add(node_pattern.variable)
     identities: list[Union[int, str]]
     string_identity = nodes is not None and _column_family(nodes[node_key]) == "string"
     if nodes is not None:
@@ -570,64 +674,210 @@ def execute_create_nodes(
         # Membership is checked on the native frames; no existing identity leaves them.
         offset = 0
         while True:
-            identities = [f"__gfql_created_{offset + i}" for i in range(count)]
+            identities = [f"__gfql_created_{offset + i}" for i in range(node_count)]
             values = nodes[node_key]
             hits = values.is_in(identities) if is_polars_df(nodes) else values.isin(identities)
             if not bool(hits.any()) and not _endpoint_hits_strings(
                 base_graph._edges, base_graph._source, base_graph._destination, identities,
             ):
                 break
-            offset += count
+            offset += node_count
     else:
         seed = 0 if nodes is None else _numeric_id_seed(
-            nodes, node_key, count=count, line=line, column=column,
+            nodes, node_key, count=node_count, line=line, column=column,
             edges=base_graph._edges, source=base_graph._source, destination=base_graph._destination,
         )
-        identities = list(range(seed, seed + count))
-    bindings: dict[str, CypherScalar] = {"": identities[-1]}
-    identity_index = 0
+        identities = list(range(seed, seed + node_count))
 
+    relationships = [
+        pattern
+        for clause in creates
+        for pattern in clause.patterns
+        if isinstance(pattern, CreateRelationship)
+    ]
+    source_key = base_graph._source or "_source"
+    destination_key = base_graph._destination or "_destination"
+    edge_key = base_graph._edge
+    old_edges = base_graph._edges
+    edge_count = len(relationships)
+    edge_identities: list[Union[int, str]] = []
+    if edge_count:
+        if old_edges is not None:
+            missing_endpoint = {source_key, destination_key} - set(old_edges.columns)
+            if missing_endpoint:
+                raise GFQLMutationError(
+                    ErrorCode.E108, "Existing edge frame is missing CREATE endpoint columns",
+                    field=sorted(missing_endpoint)[0], value=sorted(missing_endpoint), line=line, column=column, language="cypher",
+                )
+            if edge_key is None:
+                if MUTATION_EDGE_ID in old_edges.columns:
+                    raise GFQLMutationError(
+                        ErrorCode.E108,
+                        "CREATE reserved edge metadata columns collide with input columns",
+                        field="create", value=[MUTATION_EDGE_ID], language="cypher",
+                    )
+                edge_key = MUTATION_EDGE_ID
+                old_edge_count = len(old_edges)
+                edge_identities = list(range(edge_count))
+                if is_polars_df(old_edges):
+                    import polars as pl
+                    if not isinstance(old_edges, pl.DataFrame):
+                        raise GFQLUnsupportedError(
+                            ErrorCode.E108, "CREATE requires materialized Polars frames",
+                            field="engine", value="lazy_frame", language="cypher",
+                        )
+                    old_edges = old_edges.with_columns(
+                        pl.Series(MUTATION_EDGE_ID, np.arange(-old_edge_count, 0, dtype=np.int64), dtype=pl.Int64),
+                    )
+                else:
+                    if is_cudf_obj(old_edges):
+                        import cupy as cp
+                        import cudf
+                        old_edge_identities = cudf.Series(
+                            cp.arange(-old_edge_count, 0, dtype=cp.int64),
+                            index=old_edges.index,
+                            dtype=cudf.dtype("int64"),
+                        )
+                    else:
+                        import pandas as pd
+                        old_edge_identities = pd.Series(
+                            np.arange(-old_edge_count, 0, dtype=np.int64),
+                            index=old_edges.index,
+                            dtype="int64",
+                        )
+                    old_edges = old_edges.assign(**{MUTATION_EDGE_ID: old_edge_identities})
+            elif edge_key not in old_edges.columns:
+                raise GFQLMutationError(
+                    ErrorCode.E108, f"Existing edge frame is missing identity column {edge_key!r}",
+                    field=edge_key, value="missing", line=line, column=column, language="cypher",
+                )
+            else:
+                edge_family = _column_family(old_edges[edge_key])
+                if edge_family == "string":
+                    edge_offset = 0
+                    while True:
+                        edge_identities = [f"__gfql_edge_{edge_offset + i}" for i in range(edge_count)]
+                        values = old_edges[edge_key]
+                        if is_polars_df(old_edges):
+                            hits = values.is_in(edge_identities)
+                        else:
+                            hits = values.isin(edge_identities)
+                        if not bool(hits.any()):
+                            break
+                        edge_offset += edge_count
+                elif edge_family == "integer":
+                    edge_seed = _numeric_id_seed(old_edges, edge_key, count=edge_count, line=line, column=column)
+                    edge_identities = list(range(edge_seed, edge_seed + edge_count))
+                else:
+                    raise GFQLMutationError(
+                        ErrorCode.E108, "CREATE requires integer or string edge identities",
+                        field=str(edge_key), value=str(old_edges[edge_key].dtype), line=line, column=column, language="cypher",
+                    )
+        else:
+            edge_key = MUTATION_EDGE_ID
+            edge_identities = list(range(edge_count))
+        if edge_identities and old_edges is not None and edge_key in old_edges.columns:
+            values = old_edges[edge_key]
+            nulls = values.is_null().any() if is_polars_df(old_edges) else values.isna().any()
+            duplicates = values.n_unique() != len(values) if is_polars_df(old_edges) else values.duplicated().any()
+            if bool(nulls) or bool(duplicates):
+                raise GFQLMutationError(
+                    ErrorCode.E105, "CREATE requires unique non-null edge identities",
+                    field=str(edge_key), value="invalid_identity", line=line, column=column, language="cypher",
+                )
+
+    bindings: dict[str, CypherScalar] = {"": identities[-1] if identities else None}
+    identity_index = 0
+    node_bindings: dict[str, CypherScalar] = {}
+    relationship_bindings: dict[str, CypherScalar] = {}
     records: list[dict[str, object]] = []
     label_columns: set[str] = set()
+
+    def _node_record(pattern: NodePattern) -> CypherScalar:
+        nonlocal identity_index
+        if pattern.variable is not None and pattern.variable in node_bindings:
+            if pattern.labels or pattern.explicit_properties or pattern.properties:
+                raise GFQLMutationError(
+                    ErrorCode.E105, "CREATE node variable is already bound",
+                    field="create", value=pattern.variable,
+                    suggestion="Reference the bound node without labels or properties, or use a new variable.",
+                    line=pattern.span.line, column=pattern.span.column, language="cypher",
+                )
+            return node_bindings[pattern.variable]
+        identity = identities[identity_index]
+        identity_index += 1
+        row: dict[str, object] = {node_key: identity, ID_PROPERTY_PRESENT: False}
+        for label in pattern.labels:
+            label_column = f"label__{label}"
+            label_columns.add(label_column)
+            row[label_column] = True
+        for entry in pattern.properties:
+            if entry.key in {"labels", "type"} or entry.key.startswith(("label__", "__")):
+                raise GFQLMutationError(
+                    ErrorCode.E108, "CREATE properties cannot use reserved metadata or label namespaces",
+                    field=entry.key, value=entry.key, line=entry.span.line, column=entry.span.column, language="cypher",
+                )
+            if entry.key in row:
+                raise GFQLMutationError(
+                    ErrorCode.E105, f"Duplicate CREATE property {entry.key!r}",
+                    field=entry.key, value=entry.key,
+                    suggestion="Use one value per property per node.",
+                    line=entry.span.line, column=entry.span.column, language="cypher",
+                )
+            row[entry.key] = _property_value(entry.value, params=params, span=entry.span)
+        row[ID_PROPERTY_PRESENT] = row.get("id") is not None
+        records.append(row)
+        if pattern.variable is not None:
+            node_bindings[pattern.variable] = identity
+        return identity
+
+    edge_records: list[dict[str, object]] = []
     for clause in creates:
         for pattern in clause.patterns:
-            identity = identities[identity_index]
-            identity_index += 1
-            if pattern.variable is not None:
-                if pattern.variable in bindings:
-                    raise GFQLMutationError(
-                        ErrorCode.E105, "CREATE variable is already bound", field="create",
-                        value=pattern.variable, line=pattern.span.line, column=pattern.span.column,
-                        language="cypher",
-                    )
-                bindings[pattern.variable] = identity
-            row: dict[str, object] = {node_key: identity, ID_PROPERTY_PRESENT: False}
-            for label in pattern.labels:
-                label_column = f"label__{label}"
-                label_columns.add(label_column)
-                row[label_column] = True
-            for entry in pattern.properties:
+            if not isinstance(pattern, CreateRelationship):
+                _node_record(pattern)
+                continue
+            if pattern.relationship.variable is not None and pattern.relationship.variable in relationship_bindings:
+                raise GFQLMutationError(
+                    ErrorCode.E105, "CREATE relationship variable is already bound",
+                    field="create", value=pattern.relationship.variable,
+                    line=pattern.relationship.span.line, column=pattern.relationship.span.column, language="cypher",
+                )
+            edge_identity = edge_identities[len(edge_records)]
+            assert edge_key is not None
+            first_identity = _node_record(pattern.source)
+            second_identity = _node_record(pattern.destination)
+            if pattern.relationship.direction == "reverse":
+                source_identity, destination_identity = second_identity, first_identity
+            else:
+                source_identity, destination_identity = first_identity, second_identity
+            edge_row: dict[str, object] = {
+                source_key: source_identity,
+                destination_key: destination_identity,
+                edge_key: edge_identity,
+                "type": pattern.relationship.types[0],
+            }
+            for entry in pattern.relationship.properties:
                 if entry.key in {"labels", "type"} or entry.key.startswith(("label__", "__")):
                     raise GFQLMutationError(
-                        ErrorCode.E108, "CREATE properties cannot use reserved metadata or label namespaces",
-                        field=entry.key, value=entry.key, language="cypher",
+                        ErrorCode.E108, "CREATE edge properties cannot use reserved metadata or label namespaces",
+                        field=entry.key, value=entry.key, line=entry.span.line, column=entry.span.column, language="cypher",
                     )
-                if entry.key in row:
+                if entry.key in edge_row:
                     raise GFQLMutationError(
-                        ErrorCode.E105,
-                        f"Duplicate CREATE property {entry.key!r}",
-                        field=entry.key,
-                        value=entry.key,
-                        suggestion="Use one value per property per node.",
-                        line=entry.span.line,
-                        column=entry.span.column,
-                        language="cypher",
+                        ErrorCode.E105, f"Duplicate CREATE edge property {entry.key!r}",
+                        field=entry.key, value=entry.key,
+                        suggestion="Use one value per property per edge.",
+                        line=entry.span.line, column=entry.span.column, language="cypher",
                     )
-                row[entry.key] = _property_value(
-                    entry.value, params=params, span=entry.span
-                )
-            row[ID_PROPERTY_PRESENT] = row.get("id") is not None
-            records.append(row)
+                edge_row[entry.key] = _property_value(entry.value, params=params, span=entry.span)
+            edge_records.append(edge_row)
+            if pattern.relationship.variable is not None:
+                relationship_bindings[pattern.relationship.variable] = edge_identity
+
+    if relationship_bindings:
+        bindings.update(relationship_bindings)
+    bindings.update(node_bindings)
 
     new_nodes = _new_nodes_frame(concrete_engine, records, label_columns)
     if nodes is not None:
@@ -643,20 +893,18 @@ def execute_create_nodes(
                     ErrorCode.E108, "CREATE requires materialized Polars frames",
                     field="engine", value="lazy_frame", language="cypher",
                 )
-            polars_nodes = pl.concat([nodes, new_nodes], how="diagonal_relaxed")
+            combined_nodes = pl.concat([nodes, new_nodes], how="diagonal_relaxed")
             label_columns_to_fill = [
-                name for name in polars_nodes.columns if name.startswith("label__")
+                name for name in combined_nodes.columns if name.startswith("label__")
             ]
             if label_columns_to_fill:
-                polars_nodes = polars_nodes.with_columns(
+                combined_nodes = combined_nodes.with_columns(
                     [
                         pl.col(column).fill_null(False).cast(pl.Boolean)
                         for column in label_columns_to_fill
                     ]
                 )
-            result = base_graph.nodes(polars_nodes, node_key)
-            result._gfql_mutation_identity = True
-            return result, bindings
+            result = base_graph.nodes(combined_nodes, node_key)
         else:
             concat = df_concat(concrete_engine)
             nodes = concat([nodes, new_nodes], ignore_index=True, sort=False)
@@ -670,25 +918,50 @@ def execute_create_nodes(
                         for label_column in label_columns_to_fill
                     }
                 )
+            result = base_graph.nodes(nodes, node_key)
     else:
         if is_polars_df(new_nodes):
             import polars as pl
 
-            polars_new_nodes = new_nodes
+            if not isinstance(new_nodes, pl.DataFrame):
+                raise GFQLUnsupportedError(
+                    ErrorCode.E108, "CREATE requires materialized Polars frames",
+                    field="engine", value="lazy_frame", language="cypher",
+                )
+            polars_new_nodes: pl.DataFrame = new_nodes
             for label_column in sorted(label_columns):
                 polars_new_nodes = polars_new_nodes.with_columns(
                     pl.col(label_column).fill_null(False).cast(pl.Boolean)
                 )
             result = base_graph.nodes(polars_new_nodes, node_key)
-            result._gfql_mutation_identity = True
-            return result, bindings
         else:
             for label_column in sorted(label_columns):
                 new_nodes = new_nodes.assign(
                     **{label_column: new_nodes[label_column].fillna(False).astype(bool)}
                 )
-        nodes = new_nodes
+            result = base_graph.nodes(new_nodes, node_key)
 
-    result = base_graph.nodes(nodes, node_key)
+    if edge_records:
+        assert edge_key is not None
+        new_edges = _new_nodes_frame(concrete_engine, edge_records, set())
+        if old_edges is not None:
+            for column_name in (source_key, destination_key, edge_key):
+                new_edges = _match_key_dtype(old_edges, new_edges, column_name)
+            old_edges, new_edges = _prepare_append_frames(old_edges, new_edges)
+            if is_polars_df(old_edges):
+                import polars as pl
+                if not isinstance(old_edges, pl.DataFrame) or not isinstance(new_edges, pl.DataFrame):
+                    raise GFQLUnsupportedError(
+                        ErrorCode.E108, "CREATE requires materialized Polars frames",
+                        field="engine", value="lazy_frame", language="cypher",
+                    )
+                combined_edges = pl.concat([old_edges, new_edges], how="diagonal_relaxed")
+                result = result.edges(combined_edges, source_key, destination_key, edge_key)
+            else:
+                edges = df_concat(concrete_engine)([old_edges, new_edges], ignore_index=True, sort=False)
+                result = result.edges(edges, source_key, destination_key, edge_key)
+        else:
+            edges = new_edges
+            result = result.edges(edges, source_key, destination_key, edge_key)
     result._gfql_mutation_identity = True
     return result, bindings

@@ -355,7 +355,13 @@ def _try_native_projection(
             if view is None:
                 return None
             if structured:
-                flat = _flat_entity_columns_polars(view, projection, source_alias, column.output_name, id_column)
+                flat = _flat_entity_columns_polars(
+                    view,
+                    projection,
+                    source_alias,
+                    column.output_name,
+                    id_column,
+                )
                 if flat is not None:
                     exprs.extend(flat)
                     _record_entity_meta(entity_meta, view, projection, source_alias, column.output_name, id_column)

@@ -20,6 +20,9 @@ from graphistry.compute.typing import DataFrameT, IndexT, SeriesT
 
 # Mutation metadata is internal and collision-checked before construction.
 MUTATION_NODE_ID = "__graphistry_node_identity__"
+MUTATION_EDGE_ID = "__graphistry_edge_identity__"
+#: The only identity columns omitted from flattened whole-entity RETURN fields; user keys, even ``__``-prefixed, stay public.
+INTERNAL_IDENTITY_COLUMNS = frozenset({MUTATION_NODE_ID, MUTATION_EDGE_ID})
 ID_PROPERTY_PRESENT = "__gfql_id_property_present__"
 
 #: Node columns that are engine structure, not user properties.

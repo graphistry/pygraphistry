@@ -14,6 +14,7 @@ from graphistry.compute.gfql.series_str_compat import is_non_textual_scalar_dtyp
 
 from .lowering import ResultProjectionColumn, ResultProjectionPlan
 from graphistry.compute.gfql.row.entity_props import (
+    INTERNAL_IDENTITY_COLUMNS,
     MUTATION_NODE_ID,
     ID_PROPERTY_PRESENT,
     _const_text,
@@ -127,13 +128,16 @@ def _label_flag_columns(df: DataFrameT) -> list[str]:
 
 
 def _flat_entity_field_names(
-    source_rows_df: DataFrameT, projection: ResultProjectionPlan, id_column: Optional[str]
+    source_rows_df: DataFrameT,
+    projection: ResultProjectionPlan,
+    id_column: Optional[str],
 ) -> list[str]:
     """Ordered field names for a flattened whole-entity projection (#1650).
 
     Mirrors the renderer's column selection (``node_property_columns`` /
     ``edge_property_columns`` honor ``exclude_columns`` so sibling aliases and
-    engine-internal columns are not pulled in), then prepends the entity id and
+    engine-internal columns are not pulled in). Only a non-internal entity id is
+    exposed; identity metadata still uses the physical id column. This prepends the entity id and
     (nodes) appends ``label__*`` flags / (edges) the ``type`` column so
     :func:`render_entity_text` can losslessly reconstruct the Cypher form.
     """
@@ -150,7 +154,7 @@ def _flat_entity_field_names(
         extra = ["type"] if "type" in source_rows_df.columns else []
 
     fields: list[str] = []
-    public_id = None if id_column == MUTATION_NODE_ID else id_column
+    public_id = None if id_column in INTERNAL_IDENTITY_COLUMNS else id_column
     for col in [public_id, *prop_cols, *extra]:
         if col is not None and col in source_rows_df.columns and col not in fields:
             fields.append(str(col))
@@ -438,7 +442,12 @@ def _apply_result_projection_pandas(
             else:
                 id_column = result._edge
             flat_columns = (
-                _flat_entity_columns(source_rows_df, source_projection, column.output_name, id_column)
+                _flat_entity_columns(
+                    source_rows_df,
+                    source_projection,
+                    column.output_name,
+                    id_column,
+                )
                 if structured
                 else {}
             )
