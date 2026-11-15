@@ -21,7 +21,11 @@
 
 PyGraphistry is an open source Python library for data scientists and developers to leverage the power of graph visualization, analytics, AI, including with native GPU acceleration:
 
+* [**Visualize & explore large graphs:**](https://pygraphistry.readthedocs.io/en/latest/visualization/10min.html#) In just a few minutes, create stunning interactive visualizations with millions of edges and many point-and-click built-ins like drilldowns, timebars, and filtering. When ready, customize with Python, JavaScript, and REST APIs.
+
 * [**Python dataframe-native graph processing:**](https://pygraphistry.readthedocs.io/en/latest/10min.html) Quickly ingest & prepare data in many formats, shapes, and scales as graphs. Use tools like Pandas, Spark, [RAPIDS (GPU)](https://www.rapids.ai), and [Apache Arrow](https://arrow.apache.org/).
+
+* [**Query graphs with GFQL:**](https://pygraphistry.readthedocs.io/en/latest/gfql/index.html) Query relationships in dataframes with Cypher syntax or Python chains. With `engine='polars'`, GFQL runs vectorized dataframe operations in Rust on CPU. Use `engine='polars-gpu'` for GPU acceleration. Run queries locally through `g.gfql(...)` or remotely through `g.gfql_remote([...])`.
 
 * [**Integrations:**](https://pygraphistry.readthedocs.io/en/latest/plugins.html) Connect to graph databases, data platforms, Python tools, and more.
 
@@ -35,11 +39,7 @@ PyGraphistry is an open source Python library for data scientists and developers
 
 * [**Prototype locally and deploy remotely:**](https://www.graphistry.com/get-started) Prototype from notebooks like Jupyter and Databricks using local CPUs & GPUs, and then power production dashboards & pipelines with Graphistry Hub and your own self-hosted servers.
 
-* [**Query graphs with GFQL:**](https://pygraphistry.readthedocs.io/en/latest/gfql/index.html) Use GFQL, the first fully vectorized dataframe-native graph query language with an open-source GPU runtime, to ask relationship questions that are difficult for tabular tools without requiring a database. It supports friendly Cypher syntax and declarative graph semantics through `g.gfql("MATCH ...")`, with the same execution model available on the current bound graph or remotely via `g.gfql_remote([...])`.
-
 * [**graphistry[ai]:**](https://pygraphistry.readthedocs.io/en/latest/gfql/combo.html#) Call streamlined graph ML & AI methods to benefit from clustering, UMAP embeddings, graph neural networks, automatic feature engineering, and more.
-
-* [**Visualize & explore large graphs:**](https://pygraphistry.readthedocs.io/en/latest/visualization/10min.html#) In just a few minutes, create stunning interactive visualizations with millions of edges and many point-and-click built-ins like drilldowns, timebars, and filtering. When ready, customize with Python, JavaScript, and REST APIs.
 
 * [**Columnar & GPU acceleration:**](https://pygraphistry.readthedocs.io/en/latest/performance.html) CPU-mode ingestion and wrangling is fast due to native use of Apache Arrow and columnar analytics, and the optional RAPIDS-based GPU mode delivers 100X+ speedups.
 

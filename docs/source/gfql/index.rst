@@ -4,13 +4,16 @@ GFQL: The Dataframe-Native Graph Query Language
 GFQL is a graph query language that runs directly on Python dataframes. It
 needs no graph database. The same query runs on pandas, Polars, cuDF (GPU), or
 Polars-GPU, and on a remote Graphistry server. Install it with
-``pip install graphistry``.
+``pip install graphistry``. With ``engine='polars'``, GFQL runs vectorized dataframe operations in Rust on CPU.
+Use ``engine='polars-gpu'`` for GPU acceleration.
 
 GFQL accepts two syntaxes. The Python chain syntax composes ``n()`` and ``e()``
 steps. The Cypher syntax, ``g.gfql("MATCH (a)-[e]->(b) ...")``, covers a
 bounded subset of Cypher, the graph query language popularized by Neo4j. Both
 compile to vectorized dataframe operations, so one machine handles graphs of
-100M+ edges in interactive time (see :doc:`benchmark_graphframes`).
+100M+ edges in interactive time. See the comparisons with
+:doc:`Neo4j + GDS <benchmark_filter_pagerank>` and
+:doc:`Apache Spark GraphFrames <benchmark_graphframes>`.
 
 Where to start
 --------------
