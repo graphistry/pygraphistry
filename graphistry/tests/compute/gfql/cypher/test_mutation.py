@@ -2315,21 +2315,24 @@ def test_set_declines_a_list_or_map_parameter_that_is_the_whole_value(param) -> 
 
 # Wave-6 W6-F1: scalar-valued uses of list/map parameters are admitted and computed; NaN/inf inside them are declined.
 @pytest.mark.parametrize("engine", ENGINES)
-def test_set_admits_scalar_valued_uses_of_list_and_map_parameters(engine) -> None:
+@pytest.mark.parametrize("expression,params,expected,polars_lacks_it", [
+    ("n.id IN $ids", {"ids": [1, 3]}, {1: True, 2: False, 3: True}, False),
+    ("size($tags)", {"tags": ["a", "b", "c"]}, {1: 3, 2: 3, 3: 3}, False),
+    ("coalesce($m.k, 0)", {"m": {"k": 7}}, {1: 7, 2: 7, 3: 7}, True),
+])
+def test_set_admits_scalar_valued_uses_of_list_and_map_parameters(
+    engine, expression, params, expected, polars_lacks_it
+) -> None:
     source = graphistry.nodes(_foundation_frame(engine, {"id": [1, 2, 3]}), "id")
     before = _records(source._nodes)
-    query = "MATCH (n) SET n.member = n.id IN $ids, n.count = size($tags), n.k = coalesce($m.k, 0)"
-    params = {"ids": [1, 3], "tags": ["a", "b", "c"], "m": {"k": 7}}
+    query = f"MATCH (n) SET n.p = {expression}"
     compile_cypher_query(parse_cypher(query), params=params)
-    if engine == "polars":
+    if engine == "polars" and polars_lacks_it:
         with pytest.raises(NotImplementedError):  # native Polars row pipeline is parity-or-error for these forms
             source.gfql(query, engine=engine, params=params)
         assert _records(source._nodes) == before
         return
-    result = source.gfql(query, engine=engine, params=params)
-    assert _set_values(result, "member") == {1: True, 2: False, 3: True}
-    assert _set_values(result, "count") == {1: 3, 2: 3, 3: 3}
-    assert _set_values(result, "k") == {1: 7, 2: 7, 3: 7}
+    assert _set_values(source.gfql(query, engine=engine, params=params), "p") == expected
 
 
 @pytest.mark.parametrize("text", ["$v", "n.id IN $v", "$v[0]", "size($v)"])
@@ -2584,3 +2587,48 @@ def test_create_relationship_return_rows_are_the_created_endpoint_values(engine)
     )
     assert _records(result._nodes) == [{"a": "x", "b": "y"}]
     assert len(result.gfql_graph._nodes) == len(source._nodes) + 2
+
+
+
+# Wave-7 W7-F1: list-valued SET results and list-typed target columns are a structured E108 on every engine (cuDF raised a
+# raw TypeError from pandas' dtype predicates).
+def _list_graph(engine: str) -> Any:
+    frame = pd.DataFrame({"id": [1, 2], "tags": [["a"], ["b"]], "n": [1, 2]})
+    if engine == "cudf":
+        import cudf
+        frame = cudf.from_pandas(frame)
+    elif engine == "polars":
+        frame = pytest.importorskip("polars").from_pandas(frame)
+    return graphistry.nodes(frame, "id")
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+@pytest.mark.parametrize("expression,params", [
+    ("range(1, 3)", None),
+    ("n.tags", None),
+    ("$v[0..2]", {"v": [1, 2, 3]}),
+    ("head([[1, 2]])", None),
+])
+def test_set_list_valued_result_is_a_structured_decline_on_every_engine(engine, expression, params) -> None:
+    source = _list_graph(engine)
+    before = _records(source._nodes)
+    try:
+        if engine == "cudf" and "[0..2]" in expression:  # cuDF's read pipeline fails on a list slice before any SET effect
+            with _declined(ErrorCode.E306):
+                source.gfql(f"MATCH (n) SET n.t = {expression}", engine=engine, params=params)
+        else:
+            with _declined(ErrorCode.E108, field="set", value="non_scalar_value"):
+                source.gfql(f"MATCH (n) SET n.t = {expression}", engine=engine, params=params)
+    except NotImplementedError:
+        if engine != "polars":
+            raise  # native Polars may raise its parity-or-error NotImplementedError for forms it lacks
+    assert _records(source._nodes) == before
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_set_into_an_existing_list_column_is_a_structured_decline_on_every_engine(engine) -> None:
+    source = _list_graph(engine)
+    before = _records(source._nodes)
+    with _declined(ErrorCode.E108, field="tags"):
+        source.gfql("MATCH (n) WHERE n.id = 1 SET n.tags = 5", engine=engine)
+    assert _records(source._nodes) == before

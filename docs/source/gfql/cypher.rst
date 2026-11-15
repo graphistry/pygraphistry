@@ -679,7 +679,7 @@ parameter is declined only when it is the whole value; scalar-valued uses such a
 ``n.id IN $ids`` or ``size($tags)`` are allowed), aggregation, a name that is not
 bound, a comprehension or quantifier variable named like the matched node, an
 expression the compiler cannot analyze, and a NaN or infinite number in a
-parameter, including inside a list or map parameter. On an edges-only graph the node table is materialized from
+parameter, including inside a list or map parameter. On native Polars, a value built from a map parameter such as ``coalesce($m.k, 0)`` raises the Polars engine's parity-or-error ``NotImplementedError`` before any effect (the list forms ``n.id IN $ids`` and ``size($tags)`` run); a list-valued result is declined with ``E108`` on every engine. On an edges-only graph the node table is materialized from
 the edges, as for reads. Each property may be assigned at most once per query (``E105``,
 ``repeated_property``), and ``SET`` must follow the ``MATCH`` that binds its
 variable. Several ``SET`` clauses are allowed, but every right-hand side

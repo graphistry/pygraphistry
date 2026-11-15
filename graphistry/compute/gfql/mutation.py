@@ -70,14 +70,17 @@ def _frame_family(frame: DataFrameT, column: str) -> str:
             return "string"
         return "other"
     dtype = frame[column].dtype
-    if pd.api.types.is_bool_dtype(dtype):
-        return "bool"
-    if pd.api.types.is_integer_dtype(dtype):
-        return "integer"
-    if pd.api.types.is_float_dtype(dtype):
-        return "float"
-    if pd.api.types.is_string_dtype(dtype) or pd.api.types.is_object_dtype(dtype):
-        return "string"
+    try:
+        if pd.api.types.is_bool_dtype(dtype):
+            return "bool"
+        if pd.api.types.is_integer_dtype(dtype):
+            return "integer"
+        if pd.api.types.is_float_dtype(dtype):
+            return "float"
+        if pd.api.types.is_string_dtype(dtype) or pd.api.types.is_object_dtype(dtype):
+            return "string"
+    except TypeError:  # pandas' dtype predicates raise on cuDF list and struct dtypes
+        return "other"
     return "other"
 
 
