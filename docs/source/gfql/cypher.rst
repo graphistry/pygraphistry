@@ -644,6 +644,30 @@ provides the updated graph from that same execution. On an ordinary graph,
 ``gfql_graph`` returns that graph itself. ``output=`` retains its existing role
 as the selector for a native GFQL DAG binding.
 
+Physical node identity is separate from properties: ``CREATE (n {id: 12})``
+writes an ordinary ``id`` property, while ``CREATE (n)`` leaves that property
+absent. Allocation does not become an implicit property. Existing node identities
+and edge endpoints are retained, and a created identity never equals an existing
+node key or edge endpoint value: numeric identities start above every existing
+numeric identity and edge endpoint (integer, float, numeric-string or categorical
+columns), and string identities skip existing string keys and endpoints.
+Repeated creation reuses the graph's physical identity binding.
+
+This initial subset requires unique non-null integer or string physical
+identities and compatible scalar property columns. Unsupported value unions,
+reserved metadata/label property names, identity exhaustion, and ambiguous
+rebinding fail with a structured error. A graph with a non-null ``labels``
+column (list-valued or not, with or without ``label__*`` flags) is declined,
+because readers would render created rows as ``nan``; an unsigned integer
+identity above 2**53 is declined with a structured error as well. A Polars
+``LazyFrame`` is a structured ``lazy_frame`` decline (collect it first; ``AUTO``
+may fall back to pandas). A standalone node pattern may not re-declare a
+variable that is already bound (``CREATE (a), (a)``); a relationship endpoint
+may reuse one. Read/write clause combinations and other mutation operators
+remain unsupported. Explicit
+``engine="polars-gpu"`` and remote mutation execution decline before dispatch;
+CPU Polars and native cuDF routes are available.
+
 Functional Node SET
 -------------------
 
@@ -680,7 +704,7 @@ parameter is declined only when it is the whole value; scalar-valued uses such a
 ``n.id IN $ids`` or ``size($tags)`` are allowed), aggregation, a name that is not
 bound, a comprehension or quantifier variable named like the matched node, an
 expression the compiler cannot analyze, and a NaN or infinite number in a
-parameter, including inside a list or map parameter. On native Polars, a value built from a map parameter such as ``coalesce($m.k, 0)`` raises the Polars engine's parity-or-error ``NotImplementedError`` before any effect (the list forms ``n.id IN $ids`` and ``size($tags)`` run); a list-valued result is declined with ``E108`` on every engine. On an edges-only graph the node table is materialized from
+parameter, including inside a list or map parameter. On native Polars, a value built from a map parameter such as ``coalesce($m.k, 0)`` raises the Polars engine's parity-or-error ``NotImplementedError`` before any effect (the list forms ``n.id IN $ids`` and ``size($tags)`` run); a list-valued or map-valued result (a list, a map, or ``properties()``) is declined with ``E108`` (``non_scalar_value``) before any effect on pandas and cuDF, while native Polars raises the same parity-or-error ``NotImplementedError`` for the forms its row pipeline lacks. On an edges-only graph the node table is materialized from
 the edges, as for reads. Each property may be assigned at most once per query (``E105``,
 ``repeated_property``), and ``SET`` must follow the ``MATCH`` that binds its
 variable. Several ``SET`` clauses are allowed, but every right-hand side
@@ -704,36 +728,15 @@ integer values keep integer storage where they fit (a signed column widens to
 update a float column only when it is exactly representable (at most 2**53 in
 magnitude). Assigning another kind, such as an integer into a string column or
 a wide integer into a float column, fails with ``E108`` before any effect rather
-than casting. On pandas a numpy integer or boolean column becomes the nullable
+than casting. Only boolean, integer, float and string columns accept values; a
+column of any other dtype (category, decimal, datetime, timedelta, list, struct,
+...) accepts only ``null`` (which removes the value in the column's own dtype) and
+declines every other assignment with ``E108`` on every engine. On pandas a numpy integer or boolean column becomes the nullable
 ``Int*``/``boolean`` dtype when a partial update leaves nulls, so no value goes
 through ``float64``. A query that matches no rows changes nothing on any engine.
 A NaN produced from the data collapses to null (it removes the property) on every
 engine, which deviates from openCypher where NaN is a value. The same rules apply
 on pandas, cuDF, and Polars.
-
-Physical node identity is separate from properties: ``CREATE (n {id: 12})``
-writes an ordinary ``id`` property, while ``CREATE (n)`` leaves that property
-absent. Allocation does not become an implicit property. Existing node identities
-and edge endpoints are retained, and a created identity never equals an existing
-node key or edge endpoint value: numeric identities start above every existing
-numeric identity and edge endpoint (integer, float, numeric-string or categorical
-columns), and string identities skip existing string keys and endpoints.
-Repeated creation reuses the graph's physical identity binding.
-
-This initial subset requires unique non-null integer or string physical
-identities and compatible scalar property columns. Unsupported value unions,
-reserved metadata/label property names, identity exhaustion, and ambiguous
-rebinding fail with a structured error. A graph with a non-null ``labels``
-column (list-valued or not, with or without ``label__*`` flags) is declined,
-because readers would render created rows as ``nan``; an unsigned integer
-identity above 2**53 is declined with a structured error as well. A Polars
-``LazyFrame`` is a structured ``lazy_frame`` decline (collect it first; ``AUTO``
-may fall back to pandas). A standalone node pattern may not re-declare a
-variable that is already bound (``CREATE (a), (a)``); a relationship endpoint
-may reuse one. Read/write clause combinations and other mutation operators
-remain unsupported. Explicit
-``engine="polars-gpu"`` and remote mutation execution decline before dispatch;
-CPU Polars and native cuDF routes are available.
 
 Functional Relationship Creation
 --------------------------------

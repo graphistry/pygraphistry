@@ -13,7 +13,9 @@ from graphistry.compute.exceptions import ErrorCode, GFQLValidationError
 from graphistry.compute.gfql.cypher.ast import CypherParams, ExpressionText, SetProperty, SourceSpan
 from graphistry.compute.gfql.cypher.expression_text import cypher_literal_expr_text
 from graphistry.compute.gfql.expr_parser import (
+    CaseWhen,
     ExprNode,
+    FunctionCall,
     Identifier,
     ListComprehension,
     ListLiteral,
@@ -131,6 +133,21 @@ def alias_uses(
     return reads, whole_entity, unbound, shadowed
 
 
+_MAP_RETURNING_FUNCTIONS = frozenset({"properties"})
+
+
+def _may_return_map(node: ExprNode) -> bool:
+    """Whether the value can be a map (the read path would render it as text), through CASE branches and coalesce."""
+    if isinstance(node, FunctionCall):
+        name = node.name.lower()
+        if name in _MAP_RETURNING_FUNCTIONS:
+            return True
+        return name in {"coalesce", "nullif"} and any(_may_return_map(arg) for arg in node.args)
+    if isinstance(node, CaseWhen):
+        return _may_return_map(node.when_true) or _may_return_map(node.when_false)
+    return False
+
+
 def analyze_set_assignment(
     assignment: SetProperty,
     *,
@@ -157,7 +174,7 @@ def analyze_set_assignment(
         expression = lowering._parse_row_expr(prepared, field="set", line=span.line, column=span.column)
     except GFQLValidationError as exc:
         raise _decline("GFQL SET cannot analyze this value expression", "unanalyzable_value", span) from exc
-    if isinstance(expression, (ListLiteral, ListComprehension, MapLiteral)):
+    if isinstance(expression, (ListLiteral, ListComprehension, MapLiteral)) or _may_return_map(expression):
         raise _decline("GFQL SET supports ordinary scalar properties only", "non_scalar_value", span)
     if lowering._contains_aggregate_call(expression):
         raise _decline("GFQL SET values cannot use aggregation", "aggregate_value", span)

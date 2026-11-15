@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+import re
 from typing import TYPE_CHECKING, Any, Mapping, NamedTuple, Optional, Sequence, Union
 from typing_extensions import Literal
 
@@ -51,9 +52,20 @@ def _copy_frame(frame: DataFrameT) -> DataFrameT:
     return frame.copy()
 
 
-def _frame_family(frame: DataFrameT, column: str) -> str:
-    import pandas as pd
+_FAMILY_BY_DTYPE_NAME = re.compile(
+    r"^(?:(?P<bool>bool|boolean)"
+    r"|(?P<integer>[Uu]?[Ii]nt(?:8|16|32|64)(?:\[pyarrow\])?)"
+    r"|(?P<float>[Ff]loat(?:16|32|64)(?:\[pyarrow\])?)"
+    r"|(?P<string>string|str|string\[python\]|string\[pyarrow\]|large_string\[pyarrow\]))$"
+)
 
+
+def _frame_family(frame: DataFrameT, column: str) -> str:
+    """Storage family of a column; only dtypes known to be safe map to a family, everything else is ``other``.
+
+    One classifier for every engine: category, decimal, datetime, timedelta, list, struct, interval and any future dtype
+    fail closed to ``other`` (an ``E108`` decline) instead of reaching engine-specific merge code.
+    """
     if is_polars_df(frame):
         import polars as pl
         assert isinstance(frame, pl.DataFrame)
@@ -68,18 +80,15 @@ def _frame_family(frame: DataFrameT, column: str) -> str:
             return "string"
         return "other"
     dtype = frame[column].dtype
-    try:
-        if pd.api.types.is_bool_dtype(dtype):
-            return "bool"
-        if pd.api.types.is_integer_dtype(dtype):
-            return "integer"
-        if pd.api.types.is_float_dtype(dtype):
-            return "float"
-        if pd.api.types.is_string_dtype(dtype) or pd.api.types.is_object_dtype(dtype):
-            return "string"
-    except TypeError:  # pandas' dtype predicates raise on cuDF list and struct dtypes
-        return "other"
-    return "other"
+    name = str(dtype)
+    if name == "object":
+        if is_cudf_obj(frame):
+            return "string"  # cuDF object columns hold strings only
+        import pandas as pd
+        # a pandas object column may hold anything (lists, dicts, decimals); only all-string cells are strings
+        return "string" if pd.api.types.infer_dtype(frame[column], skipna=True) in {"string", "empty"} else "other"
+    matched = _FAMILY_BY_DTYPE_NAME.match(name)
+    return matched.lastgroup if matched is not None and matched.lastgroup is not None else "other"
 
 
 def _assignment_value_family(frame: DataFrameT, column: str) -> str:
@@ -187,6 +196,7 @@ class _SetTarget(NamedTuple):
     family: str  # integer | float | bool | string | null | other
     keep_existing: bool  # False: absent or all-null column is replaced by the assigned family
     integer_dtype: Optional[str]  # numpy integer dtype name when family == "integer"
+    null_only: bool = False  # only null is assigned: the value is removed in the column's own dtype, never cast or filled
 
 
 def _is_all_null_column(frame: DataFrameT, column: str) -> bool:
@@ -260,6 +270,7 @@ def _resolve_set_target(
         return _SetTarget(
             existing_family, True,
             _integer_dtype_name(frame, property_name) if existing_family == "integer" else None,
+            null_only=True,
         )
     numeric = {"integer", "float"}
     if "other" in families:
@@ -364,7 +375,7 @@ def _set_property_dataframe(
         f"set_matched_{property_name}", frame, prefix="__gfql_", suffix="__",
     )
     update = values.rename(columns={SET_IDENTITY: key, SET_VALUE: new_value})
-    if cast is not None:
+    if cast is not None and not target.null_only:
         update[new_value] = update[new_value].astype(cast)
     update[matched] = True
     order = generate_safe_column_name("set_row_order", frame, prefix="__gfql_", suffix="__")
@@ -378,7 +389,8 @@ def _set_property_dataframe(
         kept = frame[property_name]
         if cast is not None:
             kept = kept.astype(cast)
-        merged = kept.where(~update_mask, frame[new_value])
+        # a null-only update nulls in the column's own dtype; a cast or fill column raises (datetime, list) or stores False (cuDF bool)
+        merged = kept.where(~update_mask) if target.null_only else kept.where(~update_mask, frame[new_value])
     else:
         merged = frame[new_value]
     if (

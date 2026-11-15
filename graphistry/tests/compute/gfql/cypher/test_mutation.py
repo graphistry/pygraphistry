@@ -2675,27 +2675,149 @@ def _list_graph(engine: str) -> Any:
     return graphistry.nodes(frame, "id")
 
 
+# forms native Polars' row pipeline lacks raise its parity-or-error NotImplementedError; everything else is pinned to E108
+POLARS_NO_ROW_OP = {"range(1, 3)", "$v[0..2]", "head([[1, 2]])"}
+
+
 @pytest.mark.parametrize("engine", ENGINES)
 @pytest.mark.parametrize("expression,params", [
     ("range(1, 3)", None),
     ("n.tags", None),
     ("$v[0..2]", {"v": [1, 2, 3]}),
     ("head([[1, 2]])", None),
+    ("properties($m)", {"m": {"k": 7}}),
+    ("coalesce(properties($m), 1)", {"m": {"k": 7}}),
+    ("CASE WHEN n.id = 1 THEN properties($m) ELSE 1 END", {"m": {"k": 7}}),
 ])
-def test_set_list_valued_result_is_a_structured_decline_on_every_engine(engine, expression, params) -> None:
+def test_set_list_or_map_valued_result_is_a_structured_decline(engine, expression, params) -> None:
     source = _list_graph(engine)
     before = _records(source._nodes)
-    try:
-        if engine == "cudf" and "[0..2]" in expression:  # cuDF's read pipeline fails on a list slice before any SET effect
-            with _declined(ErrorCode.E306):
-                source.gfql(f"MATCH (n) SET n.t = {expression}", engine=engine, params=params)
-        else:
-            with _declined(ErrorCode.E108, field="set", value="non_scalar_value"):
-                source.gfql(f"MATCH (n) SET n.t = {expression}", engine=engine, params=params)
-    except NotImplementedError:
-        if engine != "polars":
-            raise  # native Polars may raise its parity-or-error NotImplementedError for forms it lacks
+    query = f"MATCH (n) SET n.t = {expression}"
+    if engine == "polars" and expression in POLARS_NO_ROW_OP:
+        with pytest.raises(NotImplementedError, match="does not yet natively support cypher row op"):
+            source.gfql(query, engine=engine, params=params)
+    elif engine == "cudf" and "[0..2]" in expression:  # cuDF's read pipeline fails on a list slice before any SET effect
+        with _declined(ErrorCode.E306):
+            source.gfql(query, engine=engine, params=params)
+    else:
+        with _declined(ErrorCode.E108, field="set", value="non_scalar_value"):
+            source.gfql(query, engine=engine, params=params)
     assert _records(source._nodes) == before
+
+
+# W8: ONE dtype contract for every engine. Only boolean/integer/float/string columns accept values; any other dtype
+# accepts only null. Each cell is E108 (field = the column) or the exact stored values for the two rows (node 1 updated).
+def _matrix_frame() -> Any:
+    import decimal
+    return pd.DataFrame({
+        "id": [1, 2],
+        "c_int": pd.Series([1, 2], dtype="int64"),
+        "c_uint64": pd.Series([1, 2], dtype="uint64"),
+        "c_float": [10.0, 20.0],
+        "c_bool": [False, True],
+        "c_string": ["a", "b"],
+        "c_cat_str": pd.Categorical(["a", "b"]),
+        "c_cat_int": pd.Categorical([1, 2]),
+        "c_datetime": pd.to_datetime(["2020-01-01", "2020-01-02"]),
+        "c_timedelta": pd.to_timedelta([1, 2], unit="s"),
+        "c_decimal": [decimal.Decimal("1.5"), decimal.Decimal("2.5")],
+        "c_list": [["a"], ["b"]],
+        "c_struct": [{"k": 1}, {"k": 2}],
+    })
+
+
+E108 = "E108"
+# column -> assignment -> (expression text, params, expected); expected is E108 or [node1, node2] after the update
+def _matrix_cells() -> list[tuple[str, str, str, Any, Any]]:
+    import datetime
+    import decimal
+    ts2, td2, dec2 = datetime.datetime(2020, 1, 2), datetime.timedelta(seconds=2), decimal.Decimal("2.5")
+    rows: list[tuple[str, str, str, Any, Any]] = []
+    for column, same, same_value, other, stored in [
+        ("c_int", "5", 5, "'z'", [5, 2]),
+        ("c_uint64", "5", 5, "'z'", [5, 2]),
+        ("c_float", "2.5", 2.5, "'z'", [2.5, 20.0]),
+        ("c_bool", "true", True, "5", [True, True]),
+        ("c_string", "'z'", "z", "5", ["z", "b"]),
+    ]:
+        nulled = [None, stored[1]]
+        rows += [
+            (column, "same", same, None, stored), (column, "other", other, None, E108),
+            (column, "null", "null", None, nulled), (column, "param", "$v", {"v": same_value}, stored),
+        ]
+    for column, same, same_value, other, remaining in [
+        ("c_cat_str", "'z'", "z", "5", "b"), ("c_cat_int", "5", 5, "'z'", 2),
+        ("c_datetime", "'z'", "z", "5", ts2), ("c_timedelta", "'z'", "z", "5", td2),
+        ("c_decimal", "2.5", 2.5, "'z'", dec2), ("c_list", "'z'", "z", "5", ["b"]), ("c_struct", "'z'", "z", "5", {"k": 2}),
+    ]:
+        rows += [
+            (column, "same", same, None, E108), (column, "other", other, None, E108),
+            (column, "null", "null", None, [None, remaining]), (column, "param", "$v", {"v": same_value}, E108),
+        ]
+    return rows
+
+
+def _cells(frame: Any, column: str) -> list[Any]:
+    if isinstance(frame, pd.DataFrame):
+        values = frame[column].tolist()
+    else:
+        values = frame.to_arrow().column(column).to_pylist()
+    out: list[Any] = []
+    for value in values:
+        if isinstance(value, pd.Timestamp):
+            value = value.to_pydatetime()
+        elif isinstance(value, pd.Timedelta):
+            value = value.to_pytimedelta()
+        elif hasattr(value, "tolist") and not isinstance(value, (str, bytes)):
+            value = value.tolist()
+        elif not isinstance(value, (list, dict, str)) and pd.isna(value):
+            value = None
+        out.append(value)
+    return out
+
+
+def _matrix_graph(engine: str) -> Any:
+    frame = _matrix_frame()
+    if engine == "cudf":
+        import cudf
+        frame = cudf.from_pandas(frame)
+    elif engine == "polars":
+        frame = pytest.importorskip("polars").from_pandas(frame)
+    return graphistry.nodes(frame, "id")
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+@pytest.mark.parametrize("column,kind,expression,params,expected", _matrix_cells())
+def test_set_dtype_matrix_is_identical_on_every_engine(engine, column, kind, expression, params, expected) -> None:
+    if engine == "polars" and column == "c_cat_int":
+        pytest.skip("Polars categoricals are string-only; from_pandas turns an integer category into integers")
+    source = _matrix_graph(engine)
+    before = _records(source._nodes)
+    query = f"MATCH (n) WHERE n.id = 1 SET n.{column} = {expression}"
+    if expected == E108:
+        with _declined(ErrorCode.E108, field=column):
+            source.gfql(query, engine=engine, params=params)
+        assert _records(source._nodes) == before
+        return
+    result = source.gfql(query, engine=engine, params=params)
+    assert _cells(result._nodes, column) == expected
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+@pytest.mark.parametrize("column", ["c_cat_str", "c_cat_int", "c_list", "c_struct", "c_decimal", "c_datetime"])
+def test_set_value_read_from_a_non_scalar_dtype_column_is_declined(engine, column) -> None:
+    if engine == "polars" and column == "c_cat_int":
+        pytest.skip("Polars categoricals are string-only; from_pandas turns an integer category into integers")
+    source = _matrix_graph(engine)
+    with _declined(ErrorCode.E108, field="set", value="non_scalar_value"):
+        source.gfql(f"MATCH (n) SET n.copy = n.{column}", engine=engine)
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_set_map_projection_is_a_structured_decline(engine) -> None:
+    from graphistry.compute.exceptions import GFQLSyntaxError
+    with pytest.raises((GFQLValidationError, GFQLSyntaxError)):
+        _graph(engine).gfql("MATCH (n) SET n.p = n {.id}", engine=engine)
 
 
 @pytest.mark.parametrize("engine", ENGINES)
