@@ -552,8 +552,6 @@ def _run_calls_polars(g_cur, calls, start_nodes, base_graph, middle):
     g_cur = attach_row_exec_context(g_cur, start_nodes=start_nodes, rows_base_graph=base_graph)
 
     from graphistry.compute.gfql.rows_skip_traversal import named_middle_rows_rewrite_applies
-    # See the twin in compute/chain.py: a non-default `table`, `source` or `alias_endpoints`
-    # keeps the caller's call (see `bindings_rows_call`).
     if named_middle_rows_rewrite_applies(middle, calls):
         # See the twin in compute/chain.py: ADD binding_ops to the caller's call rather
         # than building a fresh one, so the params the rewrite has no opinion about
@@ -917,8 +915,7 @@ def _try_indexed_middle_polars(
     """
     from graphistry.compute.gfql.rows_skip_traversal import bindings_rows_call
 
-    # See the twin gate in chain._plan_indexed_middle: serving the bypass skips the
-    # canonical traversal, so the rows call must consume the whole middle as bindings.
+    # Alias prefilters are not index-servable (twin gate: chain._plan_indexed_middle).
     call = bindings_rows_call(middle, suffix) if start_nodes is None else None
     if call is None or call.params.get("alias_prefilters"):
         return None, False

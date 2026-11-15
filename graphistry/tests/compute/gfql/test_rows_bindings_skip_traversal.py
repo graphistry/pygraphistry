@@ -1,4 +1,5 @@
 """A boundary rows() call that rebuilds bindings from the base graph skips the unread middle traversal."""
+import inspect
 import os
 
 import pytest
@@ -207,19 +208,26 @@ def test_policy_keeps_the_traversal():
 @pytest.mark.parametrize("bad_filter", [
     {"name": 5}, {"score": "high"}, {"missing": 1}, {"name": gt(1)},
 ])
-@pytest.mark.parametrize("seed", [1, 99])
-def test_filter_errors_match_the_traversal(engine, bad_filter, validate_schema, seed):
-    g = with_index_policy(graph(engine), "off")
-    query = [n({"id": seed}, name="p"), e_forward(), n(bad_filter, name="q"), rows(), select([("q", "q.id")])]
+@pytest.mark.parametrize("seed", [1, 99, None])
+@pytest.mark.parametrize("string_ids", [False, True])
+def test_filter_errors_match_the_traversal(engine, bad_filter, validate_schema, seed, string_ids):
+    g = graph(engine)
+    if string_ids:
+        g = g.nodes(g._nodes.with_columns(g._nodes["id"].cast(str)) if engine.startswith("polars")
+                    else g._nodes.assign(id=g._nodes["id"].astype(str)))
+    g = with_index_policy(g, "off")
+    first = n(name="p") if seed is None else n({"id": seed}, name="p")
+    query = [first, e_forward(), n(bad_filter, name="q"), rows(), select([("q", "q.id")])]
 
     def outcome():
         try:
             out = g.chain(query, engine=engine, validate_schema=validate_schema)
         except Exception as error:  # the outcome under test is the error class and code
-            assert "unexpected keyword" not in str(error)
             return type(error), getattr(error, "code", None)
         return "rows", len(out._nodes)
 
+    from graphistry.compute.chain import chain as chain_impl
+    assert "validate_schema" in inspect.signature(inspect.unwrap(chain_impl)).parameters
     with routes_off([ROUTE]):
         expected = outcome()
     assert outcome() == expected
@@ -329,3 +337,15 @@ def test_partially_bound_graph_matches_the_traversal(engine, unbind):
     with routes_off([ROUTE]):
         expected = outcome()
     assert outcome() == expected
+
+
+def test_default_engine_twins_stay_per_frame_type(engine):
+    query = SHAPES["seeded_undirected_edge_alias"][0]
+    graph("pandas").gfql(query, index_policy="off")
+    g = graph(engine)
+    with routes_off([ROUTE]):
+        expected = g.gfql(query, index_policy="off")
+    actual = g.gfql(query, index_policy="off")
+    assert type(actual._edges) is type(g._edges)
+    assert_same_frame(actual._edges, expected._edges, engine)
+    assert_same_frame(actual._nodes, expected._nodes, engine)

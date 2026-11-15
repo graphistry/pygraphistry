@@ -10,16 +10,16 @@ from __future__ import annotations
 
 import threading
 from collections import OrderedDict
-from typing import Callable, List, Optional, Tuple, Type, Union
+from typing import Callable, List, Optional, Tuple, Type
 
-from graphistry.Engine import Engine, EngineAbstract, is_polars_df
+from graphistry.Engine import is_polars_df
 from graphistry.Plottable import Plottable
 from graphistry.compute.ast import ASTCall, ASTEdge, ASTNode, ASTObject, serialize_binding_ops
 from graphistry.compute.gfql.cache_registry import register_clearable_callable
+from graphistry.compute.gfql.index.types import TraceEngine
 from graphistry.compute.typing import DataFrameT
 from graphistry.utils.json import JSONVal
 
-TraceEngine = Union[Engine, EngineAbstract, str]
 FrameSchema = Tuple[Tuple[object, object], ...]
 
 _FILTER_FIELDS = ("filter_dict", "edge_match", "source_node_match", "destination_node_match")
@@ -144,13 +144,11 @@ def _zero_row_twin(
     The traversal runs once per input schema and plan shape on a zero-row copy of ``g``,
     outside any caller's index trace, and the frames are reused for later queries.
     """
-    from graphistry.compute.gfql.index.api import (
-        _get_trace_steps, _set_trace_steps, drop_index, with_index_policy,
-    )
+    from graphistry.compute.gfql.index.api import drop_index, suspended_index_trace, with_index_policy
 
     assert g._nodes is not None and g._edges is not None
     key = (
-        engine_key, _frame_schema(g._nodes), _frame_schema(g._edges),
+        engine_key, type(g._nodes), type(g._edges), _frame_schema(g._nodes), _frame_schema(g._edges),
         g._node, g._source, g._destination, g._edge, _plan_shape(middle),
     )
     with _TWINS_LOCK:
@@ -159,12 +157,8 @@ def _zero_row_twin(
             _TWINS.move_to_end(key)
     if frames is None:
         empty = with_index_policy(drop_index(g.nodes(g._nodes[:0]).edges(g._edges[:0])), "off")
-        caller_trace = _get_trace_steps()
-        _set_trace_steps(None)
-        try:
+        with suspended_index_trace():
             out = traverse(empty)
-        finally:
-            _set_trace_steps(caller_trace)
         frames = (out._nodes, out._edges)
         with _TWINS_LOCK:
             _TWINS[key] = frames

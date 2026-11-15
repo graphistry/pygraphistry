@@ -81,6 +81,17 @@ class index_trace:
         return False
 
 
+class suspended_index_trace:
+    """Context manager: work inside records nothing into the caller's ``index_trace()``."""
+    def __enter__(self) -> None:
+        self.prev = _get_trace_steps()
+        _set_trace_steps(None)
+
+    def __exit__(self, *exc: object) -> Literal[False]:
+        _set_trace_steps(self.prev)
+        return False
+
+
 def _get_trace_steps() -> Optional[IndexTrace]:
     return cast(Optional[IndexTrace], getattr(_TRACE, "steps", None))
 

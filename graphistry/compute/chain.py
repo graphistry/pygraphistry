@@ -746,8 +746,7 @@ def _plan_indexed_middle(
     from .gfql.index.handoff import IndexedBindingsHandoff
     if prefix or start_nodes is not None or policy:
         return None
-    # Serving the bypass SKIPS the canonical traversal, which is only sound when the rows
-    # call consumes the whole middle as bindings; prefilters are not index-servable.
+    # Alias prefilters are not index-servable.
     from .gfql.rows_skip_traversal import bindings_rows_call
     call = bindings_rows_call(middle, suffix)
     if call is None or call.params.get("alias_prefilters"):
@@ -870,8 +869,6 @@ def _handle_boundary_calls(
             g_temp = attach_row_exec_context(
                 g_temp, start_nodes=start_nodes, rows_base_graph=suffix_base_graph
             )
-            # A non-default `table`, `source` or `alias_endpoints` keeps the caller's call:
-            # rewriting it answers a different question (see `bindings_rows_call`).
             if named_middle_rows_rewrite_applies(middle, suffix):
                 # ADD binding_ops to the call the caller wrote; do not build a fresh one. The
                 # rewrite's job is to say WHERE the bindings come from, and every other param
@@ -921,6 +918,8 @@ def _handle_boundary_calls(
         return finish(g_temp, suffix)
 
     if not prefix and not policy and may_skip_unread_middle_traversal(g_temp, middle, suffix, engine):
+        if validate_schema:
+            validate_chain_schema(g_temp, middle, collect_all=False)
         twin_answer = run_without_traversal(
             g_temp, middle, engine,
             traverse=lambda empty: _chain_impl(empty, middle, engine, False, None, context, None),
