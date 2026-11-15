@@ -208,7 +208,11 @@ def _frame_schema(df: DataFrameT) -> FrameSchema:
 
 def _category_order(dtype: object) -> Tuple[object, ...]:
     categories = getattr(dtype, "categories", None)
-    return () if categories is None else tuple(categories.to_list() if hasattr(categories, "to_list") else categories)
+    if categories is None:
+        return ()
+    if hasattr(categories, "to_pandas"):  # cuDF refuses host list conversion on its index
+        categories = categories.to_pandas()
+    return tuple(categories.to_list() if hasattr(categories, "to_list") else categories)
 
 
 def _plan_shape(middle: List[ASTObject]) -> Tuple[object, ...]:

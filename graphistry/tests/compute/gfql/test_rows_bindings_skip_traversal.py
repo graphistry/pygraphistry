@@ -292,6 +292,26 @@ def test_cached_twin_keeps_each_graphs_categories():
     assert results == [["x", "y"], ["p", "q", "z"]]
 
 
+def test_categorical_columns_match_the_traversal_on_every_engine(engine):
+    import pandas as pd
+
+    query = SHAPES["seeded_undirected_edge_alias"][0]
+    g = graph(engine)
+    kinds = ["x", "y"] * 4
+    if engine == "polars":
+        import polars as pl
+        g = g.edges(g._edges.with_columns(kind=pl.Series(kinds).cast(pl.Categorical)))
+    elif engine == "polars-gpu":
+        pytest.skip("polars-gpu does not execute categorical columns; the decline is pinned elsewhere")
+    else:
+        frame = graph("pandas")._edges.assign(kind=pd.Categorical(kinds, categories=["y", "x"]))
+        if engine == "cudf":
+            import cudf
+            frame = cudf.from_pandas(frame)
+        g = g.edges(frame)
+    _assert_matches_traversal(g, query, engine, 3)
+
+
 def test_column_named_schema_keys_on_dtypes():
     query = SHAPES["seeded_undirected_edge_alias"][0]
     for values in ([1] * 8, ["a"] * 8):
