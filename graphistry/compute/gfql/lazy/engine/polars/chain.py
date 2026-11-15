@@ -538,7 +538,7 @@ def _run_calls_polars(g_cur, calls, start_nodes, base_graph, middle):
     ``_try_native_row_op``; a row op with no native impl raises NotImplementedError (no pandas
     fallback) rather than secretly running the pandas row pipeline.
     """
-    from graphistry.compute.ast import ASTCall, ASTNode as _ASTNode, ASTEdge as _ASTEdge, rows as rows_fn
+    from graphistry.compute.ast import rows as rows_fn
     from graphistry.compute.chain import serialize_binding_ops, select_attach_prop_columns
     from graphistry.compute.gfql.exec_context import attach_row_exec_context, clear_row_exec_context
 
@@ -551,22 +551,10 @@ def _run_calls_polars(g_cur, calls, start_nodes, base_graph, middle):
     # left the WITH re-entry seed behind for the next, unrelated query.
     g_cur = attach_row_exec_context(g_cur, start_nodes=start_nodes, rows_base_graph=base_graph)
 
-    if (
-        middle
-        and any(op._name is not None for op in middle)
-        and isinstance(calls[0], ASTCall)
-        and calls[0].function == "rows"
-        and calls[0].params.get("binding_ops") is None
-        and calls[0].params.get("source") is None
-        and calls[0].params.get("alias_endpoints") is None
-        # See the twin guard in compute/chain.py: a NON-DEFAULT `table` names the table the
-        # caller wants, so the bindings rewrite must not override it. Both surfaces need
-        # the check — this one is the native polars chain, that one the generic chain.
-        # `== "nodes"`, not `is None`: `rows()` defaults table to "nodes" and always emits
-        # it, so an `is None` test disables the rewrite entirely.
-        and calls[0].params.get("table", "nodes") == "nodes"
-        and all(isinstance(op, (_ASTNode, _ASTEdge)) for op in middle)
-    ):
+    from graphistry.compute.gfql.rows_skip_traversal import named_middle_rows_rewrite_applies
+    # See the twin in compute/chain.py: a non-default `table`, `source` or `alias_endpoints`
+    # keeps the caller's call (see `bindings_rows_call`).
+    if named_middle_rows_rewrite_applies(middle, calls):
         # See the twin in compute/chain.py: ADD binding_ops to the caller's call rather
         # than building a fresh one, so the params the rewrite has no opinion about
         # (`attach_prop_aliases`, `alias_prefilters`) reach the binding_ops builder.
@@ -856,8 +844,9 @@ def chain_polars(self: Plottable, ops, start_nodes: Optional[Any] = None) -> Plo
             "use engine='pandas' or engine='cudf' for this chain."
         )
 
-    from graphistry.compute.chain import (
-        _skip_unread_middle_traversal, _zero_row_traversal, serialize_binding_ops,
+    from graphistry.compute.chain import serialize_binding_ops
+    from graphistry.compute.gfql.rows_skip_traversal import (
+        may_skip_unread_middle_traversal, run_without_traversal,
     )
     from graphistry.compute.gfql.index.handoff import (
         IndexedBindingsHandoff, attach_handoff,
@@ -887,23 +876,26 @@ def chain_polars(self: Plottable, ops, start_nodes: Optional[Any] = None) -> Plo
             ),
         ))
     else:
-        if _skip_unread_middle_traversal(self, middle, suffix, _active_polars_engine()):
-            from graphistry.compute.validate.validate_schema import validate_chain_schema
-            validate_chain_schema(self, middle, collect_all=False)
-            g_cur = _zero_row_traversal(
-                self, middle, str(_active_polars_engine()),
-                lambda empty: _chain_traversal_polars(empty, middle, None),
-            )
-        else:
-            g_cur = _chain_traversal_polars(self, middle, start_nodes)
-        if indexed_attempted:
+        def with_declined_index(g_mid: Plottable) -> Plottable:
             # Record the exact declined plan so the rows materializer does not
             # re-attempt (and re-record) the same decision. Attach, never mutate:
             # the pandas twin does the same, so neither boundary can write onto a
             # graph it does not own.
-            g_cur = attach_handoff(g_cur, IndexedBindingsHandoff(
-                binding_ops=serialize_binding_ops(middle),
-            ))
+            if not indexed_attempted:
+                return g_mid
+            return attach_handoff(g_mid, IndexedBindingsHandoff(binding_ops=serialize_binding_ops(middle)))
+
+        engine = _active_polars_engine()
+        if may_skip_unread_middle_traversal(self, middle, suffix, engine):
+            twin_answer = run_without_traversal(
+                self, middle, engine,
+                traverse=lambda empty: _chain_traversal_polars(empty, middle, None),
+                run_suffix=lambda twin: _run_calls_polars(
+                    with_declined_index(twin), suffix, start_nodes, base_graph=self, middle=middle),
+            )
+            if twin_answer is not None:
+                return twin_answer
+        g_cur = with_declined_index(_chain_traversal_polars(self, middle, start_nodes))
     if suffix:
         g_cur = _run_calls_polars(g_cur, suffix, start_nodes, base_graph=self, middle=middle)
     return g_cur
@@ -923,11 +915,11 @@ def _try_indexed_middle_polars(
     ops. Everything else (prefiltered/seeded/aliased-endpoint rows, unnamed middle
     without binding ops, non-traversal middle) keeps the canonical path.
     """
-    from graphistry.compute.chain import _bindings_rows_call
+    from graphistry.compute.gfql.rows_skip_traversal import bindings_rows_call
 
     # See the twin gate in chain._plan_indexed_middle: serving the bypass skips the
     # canonical traversal, so the rows call must consume the whole middle as bindings.
-    call = _bindings_rows_call(middle, suffix) if start_nodes is None else None
+    call = bindings_rows_call(middle, suffix) if start_nodes is None else None
     if call is None or call.params.get("alias_prefilters"):
         return None, False
 

@@ -309,6 +309,12 @@ def get_index_policy(g: Plottable) -> IndexPolicy:
     return g._gfql_index_policy
 
 
+def index_policy_may_serve(g: Plottable) -> bool:
+    """Whether ``g``'s index policy may build or use an index, so a scan shortcut must defer."""
+    policy = get_index_policy(g)
+    return policy in ("auto", "force") or (policy == "use" and not get_registry(g).is_empty())
+
+
 def with_index_policy(g: Plottable, policy: IndexPolicy) -> Plottable:
     """A copy of ``g`` carrying ``policy`` (never mutates ``g``)."""
     out = g.bind()

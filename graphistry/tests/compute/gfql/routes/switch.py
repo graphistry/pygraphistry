@@ -49,7 +49,8 @@ def _targets(routes: Iterable[str]) -> List[Tuple[object, str]]:
     if "cross-alias-or" in routes or "cypher-fast" in routes:
         out.append((or_bindings, "prepare_indexed_or_bindings"))
     if "bindings-skip-traversal" in routes:
-        out.append((chain_mod, "_skip_unread_middle_traversal"))
+        import graphistry.compute.gfql.rows_skip_traversal as rows_skip
+        out.append((rows_skip, "may_skip_unread_middle_traversal"))
     if "binding-limit" in routes or "cypher-fast" in routes:
         out.append((limit_bindings, "try_limited_bindings_state"))
     return out

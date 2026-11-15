@@ -1,11 +1,14 @@
 """A boundary rows() call that rebuilds bindings from the base graph skips the unread middle traversal."""
+import os
+
 import pytest
 
 import graphistry
 from graphistry import e_forward, e_reverse, e_undirected, n
 from graphistry.Engine import Engine, df_cons
 from graphistry.compute.ast import rows, select
-from graphistry.compute.gfql.index.api import index_trace
+from graphistry.compute.gfql.index.api import index_trace, with_index_policy
+from graphistry.compute.predicates.numeric import gt
 from graphistry.tests.compute.gfql.index.test_float_property_index import assert_same_frame
 from graphistry.tests.compute.gfql.routes.switch import routes_off
 
@@ -13,12 +16,16 @@ SEAM = "rows_bindings_skip_traversal"
 ROUTE = "bindings-skip-traversal"
 
 
-@pytest.fixture(params=["pandas", "cudf", "polars", "polars-gpu"])
+@pytest.fixture(params=[
+    "pandas",
+    "polars",
+    pytest.param("cudf", marks=pytest.mark.skipif(os.environ.get("TEST_CUDF") != "1", reason="cudf tests need TEST_CUDF=1")),
+    pytest.param("polars-gpu", marks=pytest.mark.skipif(
+        os.environ.get("TEST_POLARS_GPU") != "1", reason="requires actual polars-gpu")),
+])
 def engine(request):
-    if request.param == "polars-gpu":
-        pytest.importorskip("cudf_polars")
-    elif request.param != "pandas":
-        pytest.importorskip(request.param)
+    if request.param != "pandas":
+        pytest.importorskip("cudf_polars" if request.param == "polars-gpu" else request.param)
     return request.param
 
 
@@ -78,7 +85,6 @@ SHAPES = {
 }
 CYPHER = {
     "multi_alias_return": ("MATCH (p {id: 4})-[r]-(f) RETURN f.id AS fid, r.since AS since ORDER BY fid", 3),
-    "var_length_zero_hop": ("MATCH (p)-[*0..2]->(q) WHERE p.id = 7 RETURN p.id AS p, q.id AS q", 1),
     "single_alias_prefilter": (
         "MATCH (p)-[r]->(q) WHERE p.score > 2 RETURN p.id AS p, q.id AS q ORDER BY p, q", 4),
 }
@@ -198,32 +204,128 @@ def test_policy_keeps_the_traversal():
 
 
 @pytest.mark.parametrize("validate_schema", [True, False])
-@pytest.mark.parametrize("bad_filter", [{"name": 5}, {"score": "high"}, {"missing": 1}])
-def test_filter_errors_match_the_traversal(engine, bad_filter, validate_schema):
-    g = graph(engine)
-    query = [n(bad_filter, name="p"), e_forward(), n(name="q"), rows(), select([("q", "q.id")])]
+@pytest.mark.parametrize("bad_filter", [
+    {"name": 5}, {"score": "high"}, {"missing": 1}, {"name": gt(1)},
+])
+@pytest.mark.parametrize("seed", [1, 99])
+def test_filter_errors_match_the_traversal(engine, bad_filter, validate_schema, seed):
+    g = with_index_policy(graph(engine), "off")
+    query = [n({"id": seed}, name="p"), e_forward(), n(bad_filter, name="q"), rows(), select([("q", "q.id")])]
 
     def outcome():
         try:
-            out = g.gfql(query, engine=engine, index_policy="off", validate_schema=validate_schema)
+            out = g.chain(query, engine=engine, validate_schema=validate_schema)
         except Exception as error:  # the outcome under test is the error class and code
             return type(error), getattr(error, "code", None)
         return "rows", len(out._nodes)
 
     with routes_off([ROUTE]):
         expected = outcome()
+    assert expected[0] is not TypeError
     assert outcome() == expected
 
 
-def test_cached_zero_row_twin_follows_input_schema_and_clears(engine):
-    from graphistry.compute.gfql_unified import gfql_clear_caches
+VAR_LENGTH = [
+    "MATCH (p)-[*0..2]->(q) WHERE p.id = 7 RETURN p.id AS p, q.id AS q",
+    "MATCH (p)-[*1..3]->(q) WHERE p.id = 1 RETURN p.id AS p, q.id AS q",
+]
 
+
+@pytest.mark.parametrize("query", VAR_LENGTH)
+def test_variable_length_keeps_its_traversal_schema(engine, query):
+    _assert_matches_traversal(graph(engine), query, engine, len(_run(graph(engine), query, engine)._nodes))
+
+
+@pytest.mark.route_engaged(ROUTE)
+@pytest.mark.parametrize("query", VAR_LENGTH)
+def test_variable_length_declines_the_skip(engine, query):
+    assert _consulted(graph(engine), query, engine) == {False}
+
+
+def _widened(g, engine):
+    since = g._edges["since"] * 2
+    return g.edges(g._edges.with_columns(weight=since) if engine.startswith("polars") else g._edges.assign(weight=since))
+
+
+def test_zero_row_twin_follows_input_schema(engine):
     query = SHAPES["seeded_undirected_edge_alias"][0]
     g = graph(engine)
     _assert_matches_traversal(g, query, engine, 3)
-    widened = g.edges(g._edges.with_columns(weight=g._edges["since"] * 2) if engine.startswith("polars")
-                      else g._edges.assign(weight=g._edges["since"] * 2))
-    _assert_matches_traversal(widened, query, engine, 3)
-    assert "weight" in _run(widened, query, engine)._edges.columns
+    _assert_matches_traversal(_widened(g, engine), query, engine, 3)
+    assert "weight" in _run(_widened(g, engine), query, engine)._edges.columns
+
+
+@pytest.mark.route_engaged(ROUTE)
+def test_zero_row_twin_cache_fills_and_clears(engine):
+    from graphistry.compute.gfql import rows_skip_traversal
+    from graphistry.compute.gfql_unified import gfql_clear_caches
+
     gfql_clear_caches()
-    _assert_matches_traversal(g, query, engine, 3)
+    assert not rows_skip_traversal._TWINS
+    _run(graph(engine), SHAPES["seeded_undirected_edge_alias"][0], engine)
+    assert len(rows_skip_traversal._TWINS) == 1
+    _run(graph(engine), SHAPES["seeded_undirected_edge_alias"][0], engine)
+    assert len(rows_skip_traversal._TWINS) == 1
+    gfql_clear_caches()
+    assert not rows_skip_traversal._TWINS
+
+
+def test_cached_twin_keeps_each_graphs_categories():
+    import pandas as pd
+
+    query = SHAPES["seeded_undirected_edge_alias"][0]
+    results = []
+    for categories in (["x", "y"], ["p", "q", "z"]):
+        g = graph("pandas")
+        kinds = pd.Categorical([categories[i % 2] for i in range(len(g._edges))], categories=categories)
+        g = g.edges(g._edges.assign(kind=kinds))
+        _assert_matches_traversal(g, query, "pandas", 3)
+        results.append(list(_run(g, query, "pandas")._edges["kind"].cat.categories))
+    assert results == [["x", "y"], ["p", "q", "z"]]
+
+
+def test_column_named_schema_keys_on_dtypes():
+    query = SHAPES["seeded_undirected_edge_alias"][0]
+    for values in ([1] * 8, ["a"] * 8):
+        g = graph("pandas")
+        g = g.edges(g._edges.assign(schema=values))
+        _assert_matches_traversal(g, query, "pandas", 3)
+
+
+def test_explain_trace_does_not_depend_on_the_twin_cache(engine):
+    from graphistry.compute.gfql_unified import gfql_clear_caches
+
+    query = SHAPES["seeded_forward_select"][0]
+    g = graph(engine)
+    gfql_clear_caches()
+    cold = g.gfql_explain(query, engine=engine, index_policy="off")["steps"]
+    warm = g.gfql_explain(query, engine=engine, index_policy="off")["steps"]
+    assert cold == warm
+
+
+def test_prefix_call_keeps_the_traversal():
+    from graphistry.compute.ast import call
+
+    g = graph("pandas")
+    query = [call("get_degrees"), n({"id": 1}, name="p"), e_forward(), n(name="q"), rows(), select([("q", "q.id")])]
+    with routes_off(["polars-point-rows"]), index_trace() as steps:
+        out = g.gfql(query, engine="pandas", index_policy="off")
+    assert not any(s.get("seam") == SEAM for s in steps)
+    assert len(out._nodes) == 2
+
+
+@pytest.mark.parametrize("unbind", ["node_column", "edges"])
+def test_partially_bound_graph_matches_the_traversal(engine, unbind):
+    g = graph(engine)
+    g = g.bind(node=None) if unbind == "node_column" else graphistry.nodes(g._nodes, "id")
+    query = [n({"id": 1}, name="p"), e_forward(), n(name="q"), rows(), select([("q", "q.id")])]
+
+    def outcome():
+        try:
+            return "rows", _run(g, query, engine)._nodes.shape
+        except Exception as error:  # the outcome under test is the error class and code
+            return type(error), getattr(error, "code", None)
+
+    with routes_off([ROUTE]):
+        expected = outcome()
+    assert outcome() == expected
