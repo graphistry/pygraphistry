@@ -21,10 +21,14 @@ ENGINES = [
     pytest.param("polars", marks=pytest.mark.skipif(
         importlib.util.find_spec("polars") is None, reason="polars is not installed",
     )),
+    pytest.param("polars-gpu", marks=pytest.mark.skipif(
+        os.environ.get("TEST_POLARS_GPU") != "1", reason="requires actual polars-gpu (TEST_POLARS_GPU=1)",
+    )),
 ]
+POLARS_ENGINES = ("polars", "polars-gpu")
 
-# native Polars' parity-or-error decline for row operations it lacks: asserted, never skipped
-POLARS_ROW_OP = r"does not yet natively support cypher row op"
+# native Polars' parity-or-error declines (a row operation it lacks, or a plan polars-gpu cannot run on the GPU): asserted, never skipped
+POLARS_ROW_OP = r"does not yet natively support cypher row op|not fully GPU-executable"
 
 
 def _graph(engine: str) -> Any:
@@ -32,9 +36,22 @@ def _graph(engine: str) -> Any:
     if engine == "cudf":
         import cudf
         frame = cudf.from_pandas(frame)
-    elif engine == "polars":
+    elif engine in POLARS_ENGINES:
         frame = pytest.importorskip("polars").from_pandas(frame)
     return graphistry.nodes(frame, "id")
+
+
+def _graph3(engine: str) -> Any:
+    """Three nodes joined by two ``T`` edges, for edge-alias and multi-alias shapes."""
+    nodes = pd.DataFrame({"id": [1, 2, 3], "tags": ["a", "b", "c"]})
+    edges = pd.DataFrame({"s": [1, 2], "d": [2, 3], "type": ["T", "T"]})
+    if engine == "cudf":
+        import cudf
+        nodes, edges = cudf.from_pandas(nodes), cudf.from_pandas(edges)
+    elif engine in POLARS_ENGINES:
+        polars = pytest.importorskip("polars")
+        nodes, edges = polars.from_pandas(nodes), polars.from_pandas(edges)
+    return graphistry.nodes(nodes, "id").edges(edges, "s", "d")
 
 
 def _rows(frame: Any) -> List[dict[str, Any]]:
@@ -46,7 +63,7 @@ def _rows(frame: Any) -> List[dict[str, Any]]:
 def _run(engine: str, query: str, params: Any = None, polars_declines: Optional[str] = None) -> Optional[List[dict[str, Any]]]:
     """Rows of a read query; with ``polars_declines`` native Polars must raise exactly that decline (returns None)."""
     graph = _graph(engine)
-    if engine == "polars" and polars_declines is not None:
+    if engine in POLARS_ENGINES and polars_declines is not None:
         with pytest.raises(NotImplementedError, match=polars_declines):
             graph.gfql(query, engine=engine, params=params)
         return None
@@ -63,7 +80,7 @@ def _check(
 ) -> None:
     """Rows of a read query equal ``expected``; with ``polars_declines`` native Polars must raise exactly that decline."""
     graph = _graph(engine)
-    if engine == "polars" and polars_declines is not None:
+    if engine in POLARS_ENGINES and polars_declines is not None:
         with pytest.raises(NotImplementedError, match=polars_declines):
             graph.gfql(query, engine=engine, params=params)
         return
@@ -246,19 +263,6 @@ def test_comprehension_local_does_not_leak_into_properties_of_the_outer_alias(en
 
 
 @pytest.mark.parametrize("engine", ENGINES)
-def test_numeric_local_named_like_an_alias_is_not_taken_for_the_node_marker(engine) -> None:
-    graph = _graph(engine)
-    try:
-        rows = _rows(graph.gfql("MATCH (n) RETURN [n IN [1] | n.tags][0] AS v", engine=engine)._nodes)
-    except NotImplementedError:
-        assert engine == "polars"
-        return
-    except GFQLValidationError:
-        return
-    assert all(row["v"] is None or row["v"] != row["v"] for row in rows)
-
-
-@pytest.mark.parametrize("engine", ENGINES)
 def test_nested_scopes_bind_the_innermost_local(engine) -> None:
     _check(
         engine, "MATCH (n) WHERE n.id = 1 RETURN [x IN [1, 2] | [x IN [10, 20] | x]][0] AS v", [{"v": [10, 20]}],
@@ -280,14 +284,6 @@ def test_whole_parameter_projected_next_to_an_entity_keeps_edge_numbers(engine, 
         assert all(math.copysign(1.0, row["w"]) == -1.0 for row in rows)
 
 
-@pytest.mark.parametrize("engine", ENGINES)
-def test_nan_parameter_projected_next_to_an_entity_is_a_structured_decline(engine) -> None:
-    with pytest.raises(GFQLValidationError) as exc:
-        _graph(engine).gfql("MATCH (n) WITH n, $v AS w RETURN w", engine=engine, params={"v": float("nan")})
-    assert exc.value.code == ErrorCode.E108 and exc.value.context["value"] == "nan_parameter"
-
-
-# R2-F5: list and map whole parameters, a bare UNWIND of a scalar string, empty and non-ASCII strings
 def normalize(cell: Any) -> Any:
     return cell.tolist() if hasattr(cell, "tolist") else cell
 
@@ -318,37 +314,128 @@ def test_subscript_of_a_shadowing_local_reads_the_local_not_the_outer_node(engin
     )
 
 
+def _expect(engine, graph, query, params=None, *, rows=None, error=None, polars_native=False):
+    """One outcome per engine: rows, or ``error=(exception type, ErrorCode or None)``; Polars declines unless ``polars_native``."""
+    if engine in POLARS_ENGINES and not polars_native:
+        with pytest.raises(NotImplementedError, match=POLARS_ROW_OP):
+            graph.gfql(query, engine=engine, params=params)
+        return
+    if error is not None:
+        exc_type, code = error
+        with pytest.raises(exc_type) as exc:
+            graph.gfql(query, engine=engine, params=params)
+        if code is not None:
+            assert exc.value.code == code
+        return
+    got = _rows(graph.gfql(query, engine=engine, params=params)._nodes)
+    assert sorted(got, key=repr) == sorted(rows, key=repr)
+
+
+# generalization: locals in every clause position, with empty/null sources, on a 3-node graph with edges
+@pytest.mark.parametrize("engine", ENGINES)
+@pytest.mark.parametrize("query,rows", [
+    ("MATCH ()-[r]->() RETURN [r IN [1] | r] AS v", [{"v": [1]}] * 2),
+    ("MATCH (n) WHERE any(n IN [1] WHERE n = 1) RETURN n.id AS id", [{"id": 1}, {"id": 2}, {"id": 3}]),
+    ("MATCH (n) WITH n.id AS x RETURN [x IN [9] | x] AS v", [{"v": [9]}] * 3),
+    (
+        "MATCH (n) WHERE n.id = 1 RETURN all(n IN [1, 2] WHERE n > 0) AS a, none(n IN [1, 2] WHERE n > 5) AS b,"
+        " single(n IN [1, 2] WHERE n = 1) AS c",
+        [{"a": True, "b": True, "c": True}],
+    ),
+    ("MATCH (n) WHERE n.id = 1 RETURN [n IN [] | n] AS e, [n IN null | n] AS z", [{"e": [], "z": None}]),
+])
+def test_shadowing_locals_in_every_clause_position(engine, query, rows) -> None:
+    _expect(engine, _graph3(engine), query, rows=rows)
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_label_predicate_on_a_shadowing_local_is_a_structured_error(engine) -> None:
+    """master returned null (it read the outer node's label flags); a local integer has no labels."""
+    _expect(
+        engine, _graph3(engine), "MATCH (n) WHERE n.id = 1 RETURN [n IN [1] | n:Foo] AS v",
+        error=(GFQLCallExecutionError, ErrorCode.E306),
+    )
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_numeric_local_named_like_an_alias_is_not_taken_for_the_node_marker(engine) -> None:
+    """master returned the outer tags (the local 1 read as the node marker); now a structured error."""
+    _expect(
+        engine, _graph(engine), "MATCH (n) RETURN [n IN [1] | n.tags][0] AS v", error=(GFQLCallExecutionError, ErrorCode.E306),
+    )
+
+
 @pytest.mark.parametrize("engine", ENGINES)
 def test_properties_of_a_shadowing_local_is_never_the_outer_nodes_properties(engine) -> None:
-    """The evaluator has no properties() of a local map: a structured error on pandas, a bare NotImplementedError on cuDF."""
-    query = "MATCH (n) RETURN [n IN [{a: 1}] | properties(n)][0] AS p"
-    if engine == "pandas":
-        with pytest.raises(GFQLCallExecutionError, match=r"properties\(\) requires a graph element"):
-            _graph(engine).gfql(query, engine=engine)
-    elif engine == "cudf":
-        with pytest.raises(NotImplementedError):
-            _graph(engine).gfql(query, engine=engine)
-    else:
-        with pytest.raises(NotImplementedError, match=POLARS_ROW_OP):
-            _graph(engine).gfql(query, engine=engine)
+    """The evaluator has no properties() of a local map. pandas: structured E306. cuDF: a bare NotImplementedError from
+    cudf Column.as_string_column (cuDF cannot cast a struct column to string); tracked in #2339."""
+    _expect(
+        engine, _graph(engine), "MATCH (n) RETURN [n IN [{a: 1}] | properties(n)][0] AS p",
+        error=(NotImplementedError, None) if engine == "cudf" else (GFQLCallExecutionError, ErrorCode.E306),
+    )
 
 
 @pytest.mark.parametrize("engine", ENGINES)
 def test_type_of_a_shadowing_local_is_not_the_outer_relationship(engine) -> None:
-    """master returned the outer relationship's type ('T'); now pandas and cuDF raise a structured error, Polars its decline."""
-    edges = pd.DataFrame({"s": [1], "d": [2], "type": ["T"]})
-    nodes = pd.DataFrame({"id": [1, 2]})
-    if engine == "cudf":
-        import cudf
-        nodes, edges = cudf.from_pandas(nodes), cudf.from_pandas(edges)
-    elif engine == "polars":
-        polars = pytest.importorskip("polars")
-        nodes, edges = polars.from_pandas(nodes), polars.from_pandas(edges)
-    graph = graphistry.nodes(nodes, "id").edges(edges, "s", "d")
-    query = "MATCH ()-[r]->() RETURN [r IN [1] | type(r)][0] AS t"
-    if engine == "polars":
-        with pytest.raises(NotImplementedError, match=POLARS_ROW_OP):
-            graph.gfql(query, engine=engine)
+    """master returned the outer relationship's type ('T'); now a structured error."""
+    _expect(
+        engine, _graph3(engine), "MATCH ()-[r]->() RETURN [r IN [1] | type(r)][0] AS t",
+        error=(GFQLCallExecutionError, ErrorCode.E306),
+    )
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_shadowing_local_in_a_multi_alias_path_is_a_structured_decline(engine) -> None:
+    with pytest.raises(GFQLValidationError) as exc:
+        _graph3(engine).gfql(
+            "MATCH (a)-[r]->(b) RETURN [a IN [{tags: 'z'}] | a.tags][0] AS v, b.tags AS bt", engine=engine,
+        )
+    assert exc.value.code == ErrorCode.E108
+
+
+# string and non-finite parameters in WHERE / ORDER BY
+@pytest.mark.parametrize("engine", ENGINES)
+def test_string_parameter_in_where_and_order_by(engine) -> None:
+    graph = _graph3(engine)
+    _expect(engine, graph, "MATCH (n) WHERE n.tags = $v RETURN n.id AS id", {"v": "b"}, rows=[{"id": 2}], polars_native=True)
+    if engine in POLARS_ENGINES:
+        # native Polars cannot order by a constant parameter (a structured error at master too)
+        with pytest.raises(Exception) as exc:
+            graph.gfql("MATCH (n) RETURN n.id AS id ORDER BY $v DESC, n.id", engine=engine, params={"v": "x"})
+        assert getattr(exc.value, "code", None) == "invalid-node-reference"
     else:
-        with pytest.raises(GFQLCallExecutionError, match=r"type\(\) requires a graph element"):
-            graph.gfql(query, engine=engine)
+        got = _rows(graph.gfql("MATCH (n) RETURN n.id AS id ORDER BY $v DESC, n.id", engine=engine, params={"v": "x"})._nodes)
+        assert got == [{"id": 1}, {"id": 2}, {"id": 3}]
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+@pytest.mark.parametrize("value,ids", [(float("inf"), [1, 2, 3]), (float("-inf"), [])])
+def test_infinite_parameter_in_where_compares_as_infinity(engine, value, ids) -> None:
+    _expect(
+        engine, _graph3(engine), "MATCH (n) WHERE n.id < $v RETURN n.id AS id", {"v": value},
+        rows=[{"id": i} for i in ids], polars_native=True,
+    )
+
+
+# NaN parameters: raw in a plain RETURN (as master), null inside an expression (as master), a structured E108 through WITH
+# or next to a whole entity (where master failed or, with the new rendering, would have silently returned null)
+@pytest.mark.parametrize("engine", ENGINES)
+def test_nan_parameter_in_a_plain_return_stays_nan(engine) -> None:
+    rows = _run(engine, "MATCH (n) WHERE n.id = 1 RETURN $v AS v", {"v": float("nan")})
+    assert rows is not None and len(rows) == 1 and math.isnan(rows[0]["v"])
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_nan_parameter_inside_an_expression_is_null(engine) -> None:
+    _check(engine, "MATCH (n) WHERE n.id = 1 RETURN $v + 1 AS v", [{"v": None}], {"v": float("nan")})
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+@pytest.mark.parametrize("query", [
+    "MATCH (n) WITH n, $v AS w RETURN w",
+    "MATCH (n) WITH $v AS w RETURN w",
+])
+def test_nan_parameter_through_with_is_a_structured_decline(engine, query) -> None:
+    with pytest.raises(GFQLValidationError) as exc:
+        _graph(engine).gfql(query, engine=engine, params={"v": float("nan")})
+    assert exc.value.code == ErrorCode.E108 and exc.value.context["value"] == "nan_parameter"

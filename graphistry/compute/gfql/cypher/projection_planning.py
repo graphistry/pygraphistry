@@ -177,6 +177,7 @@ def _build_projection_plan(
     source_alias: Optional[str] = None
     all_source_aliases: Optional[Set[str]] = None
     whole_row_output_names: List[str] = []
+    nan_items: List[object] = []
     whole_row_sources: Dict[str, str] = {}
     projection_items: List[Tuple[str, Any]] = []
     projection_columns: List[ResultProjectionColumn] = []
@@ -370,22 +371,28 @@ def _build_projection_plan(
                 )
             )
         else:
-            if isinstance(runtime_expr, float) and runtime_expr != runtime_expr:
-                raise GFQLValidationError(
-                    ErrorCode.E108, "GFQL cannot project a NaN parameter next to a whole entity",
-                    field=f"{clause.kind}.items", value="nan_parameter", line=item.span.line, column=item.span.column,
-                    suggestion="Pass null or a finite number.", language="cypher",
-                )
+            is_nan = isinstance(runtime_expr, float) and runtime_expr != runtime_expr
+            if is_nan:
+                nan_items.append(item)
             if isinstance(runtime_expr, str):
                 output_to_expr_source[output_name] = runtime_expr
             projection_columns.append(
                 ResultProjectionColumn(
                     output_name=output_name,
                     kind="expr",
-                    source_name=runtime_expr if isinstance(runtime_expr, str) else _scalar_source_text(runtime_expr),
+                    source_name=(
+                        runtime_expr if isinstance(runtime_expr, str)
+                        else item.expression.text if is_nan else _scalar_source_text(runtime_expr)
+                    ),
                 )
             )
 
+    if nan_items and (whole_row_output_names or clause.kind == "with"):
+        raise GFQLValidationError(
+            ErrorCode.E108, "GFQL cannot carry a NaN parameter through WITH or next to a whole entity",
+            field=f"{clause.kind}.items", value="nan_parameter", line=nan_items[0].span.line, column=nan_items[0].span.column,
+            suggestion="Pass null or a finite number, or return the parameter directly.", language="cypher",
+        )
     if source_alias is None:
         raise GFQLValidationError(
             ErrorCode.E108,
