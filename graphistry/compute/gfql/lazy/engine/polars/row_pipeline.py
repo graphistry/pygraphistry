@@ -718,8 +718,7 @@ def _subscript_key_diverges_from_pandas(key: str) -> bool:
     if key in {"labels", "type", _NODE_ID_TOKEN} or key.startswith(("label__", "__")):
         return True
     if key == "id":
-        node_id = _NODE_ID.get()
-        dtype = _SCHEMA.get().get(node_id) if node_id is not None else None
+        dtype = _SCHEMA.get().get("id")  # the column literally named "id", as the pandas property
         return dtype is None or not dtype.is_numeric()
     return False
 

@@ -1061,8 +1061,8 @@ def test_native_polars_declines_subscript_keys_pandas_reads_as_null(key):
 def test_native_polars_keeps_a_numeric_id_subscript_and_declines_a_non_constant_key():
     numeric = _META_FRAME.assign(id=[1, 2])
     oracle, native = _pandas_and_polars(numeric, "MATCH (n) RETURN n['id'] AS v")
-    if native is not None:
-        pd.testing.assert_frame_equal(oracle, native, check_dtype=False)
+    assert native is not None
+    pd.testing.assert_frame_equal(oracle, native, check_dtype=False)
     with pytest.raises(NotImplementedError):
         graphistry.nodes(pl.from_pandas(_META_FRAME), "id").gfql("MATCH (n) RETURN n[1] AS v", engine="polars")
 
