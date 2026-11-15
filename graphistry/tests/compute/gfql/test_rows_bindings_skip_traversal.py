@@ -487,6 +487,10 @@ def test_dtype_matrix_matches_the_traversal(engine, dtype):
         off = _outcome(g, MATRIX_QUERY, engine)
     assert on == off
     assert on[0][0] == "rows" or dtype not in ROWS_EXPECTED, on[0]
+    if on[0][0] == "rows":
+        declined = dtype in ("ordered_categorical", "unordered_categorical") or (engine == "polars" and dtype == "arrow_dictionary")
+        # served means served: a replay would also record a False decision
+        assert _consulted(g, MATRIX_QUERY, engine) == ({False} if declined else {True})
 
 
 def _structural_graph(engine, case):
