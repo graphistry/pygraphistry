@@ -6,7 +6,13 @@ from typing import Any, Mapping, Optional, Union
 from graphistry.compute.chain import Chain
 from graphistry.compute.exceptions import ErrorCode, GFQLValidationError
 
-from .lowering import CompiledCypherGraphQuery, CompiledCypherQuery, CompiledCypherUnionQuery, compile_cypher_query
+from .lowering import (
+    CompiledCypherGraphQuery,
+    CompiledCypherMutationQuery,
+    CompiledCypherQuery,
+    CompiledCypherUnionQuery,
+    compile_cypher_query,
+)
 from .parser import parse_cypher
 
 
@@ -37,6 +43,15 @@ def cypher_to_gfql(
             "Cypher UNION cannot be represented as a single GFQL Chain",
             field="union",
             value=compiled.union_kind,
+            suggestion="Execute the query through g.gfql(\"...\", language=\"cypher\") instead of cypher_to_gfql().",
+            language="cypher",
+        )
+    if isinstance(compiled, CompiledCypherMutationQuery):
+        raise GFQLValidationError(
+            ErrorCode.E108,
+            "Standalone Cypher CREATE cannot be represented as a single GFQL Chain",
+            field="create",
+            value=None,
             suggestion="Execute the query through g.gfql(\"...\", language=\"cypher\") instead of cypher_to_gfql().",
             language="cypher",
         )
@@ -82,7 +97,7 @@ def compile_cypher(
     *,
     params: Optional[Mapping[str, Any]] = None,
     _warn_deprecated: bool = True,
-) -> Union[CompiledCypherQuery, CompiledCypherUnionQuery, CompiledCypherGraphQuery]:
+) -> Union[CompiledCypherQuery, CompiledCypherMutationQuery, CompiledCypherUnionQuery, CompiledCypherGraphQuery]:
     """Deprecated compatibility helper for inspecting compiled Cypher internals.
 
     .. deprecated::

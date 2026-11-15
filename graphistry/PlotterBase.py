@@ -252,12 +252,19 @@ class PlotterBase(Plottable):
     _gfql_index_registry: Optional["GfqlIndexRegistry"] = None
     _gfql_indexed_bindings_handoff: Optional["IndexedBindingsHandoff"] = None
     _gfql_rows_base_graph: Optional["Plottable"] = None
+    _gfql_graph: Optional["Plottable"] = None
+    _gfql_mutation_identity: bool = False
     _gfql_start_nodes: Optional["DataFrameT"] = None
     _gfql_preserve_start_node_multiplicity: bool = False
     _gfql_rows_edge_aliases: Optional[Iterable[str]] = None
     _gfql_rows_node_aliases: Optional[Iterable[str]] = None
     _gfql_shortest_path_backend: str = "auto"
     _g: Optional["Plottable"] = None  # set only on row-pipeline adapters
+
+    @property
+    def gfql_graph(self) -> "Plottable":
+        """Graph state from this result's mutation execution, or this graph itself."""
+        return self if self._gfql_graph is None else self._gfql_graph
 
     _defaultNodeId = NODE
     _defaultEdgeSourceId = SRC
@@ -1798,6 +1805,10 @@ class PlotterBase(Plottable):
         res._destination = destination or self._destination
         res._node = node or self._node
         res._edge = edge or self._edge
+        if (res._source, res._destination, res._node, res._edge) != (
+            self._source, self._destination, self._node, self._edge
+        ):
+            res._gfql_graph = None
 
         res._edge_title = edge_title or self._edge_title
         res._edge_label = edge_label or self._edge_label
@@ -1914,6 +1925,8 @@ class PlotterBase(Plottable):
             _warn_unused_nodes_edges_args('nodes', 'nodes', args, kwargs)
             res = copy.copy(base)
             res._nodes = nodes
+            # Replacing data ends the previous mutation-result association.
+            res._gfql_graph = None
         # for use in text_utils.py search index
         if hasattr(res, 'search_index'):
             delattr(res, 'search_index')  # reset so that g.search will rebuild index
@@ -2036,6 +2049,7 @@ class PlotterBase(Plottable):
             _warn_unused_nodes_edges_args('edges', 'edges', args, kwargs)
             res = copy.copy(base)
             res._edges = edges
+            res._gfql_graph = None
 
         if res._dataset_id is not None:
             res._dataset_id = None

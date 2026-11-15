@@ -7,6 +7,7 @@ from .ast import (
     BooleanExpr,
     BooleanOp,
     CallClause,
+    CreateClause,
     CypherGraphQuery,
     CypherQuery,
     CypherUnionQuery,
@@ -50,6 +51,7 @@ __all__ = [
     "CypherQuery",
     "CypherUnionQuery",
     "CallClause",
+    "CreateClause",
     "compile_cypher",
     "cypher_to_gfql",
     "ASTNormalizer",
@@ -83,7 +85,7 @@ __all__ = [
 
 
 def __getattr__(name: str) -> Any:
-    if name in {"CompiledCypherProcedureCall", "CompiledCypherQuery", "CompiledCypherUnionQuery", "compile_cypher_query"}:
+    if name in {"CompiledCypherProcedureCall", "CompiledCypherMutationQuery", "CompiledCypherQuery", "CompiledCypherUnionQuery", "compile_cypher_query"}:
         warnings.warn(
             f"{name} is a deprecated compiler internal and will be removed in a future release; "
             "prefer g.gfql(..., language='cypher') or cypher_to_gfql(). "
@@ -95,6 +97,9 @@ def __getattr__(name: str) -> Any:
             from .call_procedures import CompiledCypherProcedureCall
             return CompiledCypherProcedureCall
         from .lowering import CompiledCypherQuery, CompiledCypherUnionQuery, compile_cypher_query
+        if name == "CompiledCypherMutationQuery":
+            from .lowering import CompiledCypherMutationQuery
+            return CompiledCypherMutationQuery
         if name == "CompiledCypherQuery":
             return CompiledCypherQuery
         if name == "CompiledCypherUnionQuery":

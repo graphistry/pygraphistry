@@ -8,7 +8,15 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [Development]
 <!-- Do Not Erase This Section - Used for tracking unreleased changes -->
 
+### Added
+
+- **Functional GFQL node creation**: standalone Cypher `CREATE` supports named or anonymous nodes, labels, scalar literal/parameter properties, and optional `RETURN` on pandas, cuDF, and CPU Polars. Creation preserves the caller, existing endpoints, and exact supported numeric values; physical identities are separate from user `id` properties. Row results expose the updated graph through read-only `gfql_graph`. Unsupported mixed clauses, lossy type unions, remote mutation, and explicit Polars GPU creation raise structured errors without changing the caller instead of ignoring semantics. A created node id never equals an existing node key or edge endpoint value: numeric ids start above every existing numeric id and edge endpoint (integer, float, numeric-string or categorical columns, so a created node never attaches to a dangling edge) and string ids skip existing string keys and endpoints; created ids keep an existing integer id column's dtype (including unsigned, with ids above 2**53 declined structurally); CREATE on a graph with any non-null `labels` column, with or without `label__*` flags, is declined with a structured `E108` (`legacy_labels`) instead of rendering new rows as `nan`; and a Polars `LazyFrame` is a structured `lazy_frame` decline.
+
+### Fixed
+
 - **GFQL Cypher empty property maps**: an explicit node `{}` no longer replaces labels, so `MATCH (n:Foo {})` still selects `Foo` nodes. An explicit relationship `{}` no longer replaces relationship types with an empty tuple, so `MATCH ()-[r:R {}]->()` matches only typed `R` relationships on every supported engine, while untyped `n {}` and `r {}` controls remain untyped (#2318).
+
+- **GFQL nullable entity keys on cuDF** (#2312): `keys(n)` now returns empty lists for rows with no non-null properties alongside populated rows. Native empty key lists use the string child type expected by the grouped result, and key lists remain aligned with their original entities after the native grouping join.
 
 ## [0.62.1] - 2026-11-12
 

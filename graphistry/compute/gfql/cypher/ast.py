@@ -102,6 +102,18 @@ class MatchClause:
 
 
 @dataclass(frozen=True)
+class CreateClause:
+    """A standalone node-pattern CREATE clause.
+
+    Relationship patterns and MATCH-bound variables are intentionally excluded
+    until their multiplicity, identity, and own-write semantics are implemented.
+    """
+
+    patterns: Tuple[NodePattern, ...]
+    span: SourceSpan
+
+
+@dataclass(frozen=True)
 class UnwindClause:
     expression: ExpressionText
     alias: str
@@ -326,9 +338,11 @@ class CypherQuery:
     reentry_matches: Tuple[MatchClause, ...] = ()
     reentry_wheres: Tuple[Optional[WhereClause], ...] = ()
     reentry_unwinds: Tuple[UnwindClause, ...] = ()
+    creates: Tuple[CreateClause, ...] = ()
     graph_bindings: Tuple[GraphBinding, ...] = ()
     use: Optional[UseClause] = None
     return_is_reentry_carry: bool = False
+    return_is_synthetic: bool = False
 
     @property
     def match(self) -> Optional[MatchClause]:

@@ -68,6 +68,8 @@ class Plottable(Protocol):
     _gfql_index_registry: Optional["GfqlIndexRegistry"]
     _gfql_indexed_bindings_handoff: Optional["IndexedBindingsHandoff"]
     _gfql_rows_base_graph: Optional["Plottable"]
+    _gfql_graph: Optional["Plottable"]
+    _gfql_mutation_identity: bool
     _gfql_start_nodes: Optional["DataFrameT"]
     _gfql_preserve_start_node_multiplicity: bool
     _gfql_rows_edge_aliases: Optional[Iterable[str]]
@@ -76,6 +78,10 @@ class Plottable(Protocol):
     _cypher_entity_projection_kinds: Optional[Dict[str, GraphEntityKind]]
     _cypher_entity_projection_presence: Dict[str, "DataFrameT"]
     _cypher_entity_projection_meta: Dict[str, "WholeRowProjectionMeta"]
+
+    @property
+    def gfql_graph(self) -> "Plottable":
+        ...
 
     _edges : Any
     _nodes : Any
