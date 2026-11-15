@@ -416,12 +416,13 @@ def execute_set_properties(
             if is_polars_df(frame):
                 import polars as pl
                 assert isinstance(frame, pl.DataFrame)
-                assignment_frame = frame.select(  # type: ignore[assignment]  # polars frame, not the pandas alias
+                polars_assignment = frame.select(
                     pl.col(identity_column).alias(SET_IDENTITY),
                     pl.col(value_column).alias(SET_VALUE),
                 )
-                if assignment_frame.schema[SET_VALUE].is_float():
-                    assignment_frame = assignment_frame.with_columns(pl.col(SET_VALUE).fill_nan(None))
+                if polars_assignment.schema[SET_VALUE].is_float():
+                    polars_assignment = polars_assignment.with_columns(pl.col(SET_VALUE).fill_nan(None))
+                assignment_frame = polars_assignment  # type: ignore[assignment]  # polars frame, not the pandas alias
             else:
                 value_series = frame[value_column]
                 if value_series.dtype.kind == "f":
