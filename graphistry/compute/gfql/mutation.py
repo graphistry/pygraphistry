@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import math
-from typing import TYPE_CHECKING, Optional, Union
+import re
+from typing import TYPE_CHECKING, Any, Mapping, NamedTuple, Optional, Sequence, Union
+from typing_extensions import Literal
 
 import numpy as np
 
@@ -17,7 +19,16 @@ from graphistry.Engine import (
     series_not_null_mask,
 )
 from graphistry.compute.exceptions import ErrorCode, GFQLUnsupportedError, GFQLValidationError
-from graphistry.compute.gfql.cypher.ast import CreateClause, CreateRelationship, CypherParams, CypherScalar, NodePattern, ParameterRef
+from graphistry.compute.gfql.cypher.ast import (
+    CreateClause,
+    CreateRelationship,
+    CypherParams,
+    CypherScalar,
+    NodePattern,
+    ParameterRef,
+    PropertyEntry,
+    SetClause,
+)
 from graphistry.Plottable import Plottable
 from graphistry.compute.engine_coercion import ensure_local_engine_match
 from graphistry.compute.gfql.row.entity_props import (
@@ -34,6 +45,576 @@ if TYPE_CHECKING:
 
 class GFQLMutationError(GFQLValidationError):
     """Typed failure surface for unsupported or invalid mutation inputs."""
+
+
+def _copy_frame(frame: DataFrameT) -> DataFrameT:
+    if is_polars_df(frame):
+        return frame.clone()  # type: ignore[return-value]  # polars frame, not the pandas alias
+    return frame.copy()
+
+
+# pandas ArrowDtype columns ("int64[pyarrow]", "double[pyarrow]", ...) and float16 are declined: assigning would retype them
+_FAMILY_BY_DTYPE_NAME = re.compile(
+    r"^(?:(?P<bool>bool|boolean)"
+    r"|(?P<integer>[Uu]?[Ii]nt(?:8|16|32|64))"
+    r"|(?P<float>[Ff]loat(?:32|64))"
+    r"|(?P<string>string|str))$"
+)
+
+
+def _polars_integer_widths() -> frozenset["PolarsDType"]:
+    import polars as pl
+    return frozenset({pl.Int8, pl.Int16, pl.Int32, pl.Int64, pl.UInt8, pl.UInt16, pl.UInt32, pl.UInt64})
+
+
+def _frame_family(frame: DataFrameT, column: str) -> str:
+    """Storage family of a column; only dtypes known to be safe map to a family, everything else is ``other``.
+
+    One classifier for every engine: category, decimal, datetime, timedelta, list, struct, interval and any future dtype
+    fail closed to ``other`` (an ``E108`` decline) instead of reaching engine-specific merge code.
+    """
+    if is_polars_df(frame):
+        import polars as pl
+        assert isinstance(frame, pl.DataFrame)
+        polars_dtype = frame.schema[column]
+        if polars_dtype == pl.Boolean:
+            return "bool"
+        if polars_dtype in _polars_integer_widths():
+            return "integer"
+        if polars_dtype in {pl.Float32, pl.Float64}:
+            return "float"
+        if polars_dtype == pl.String:
+            return "string"
+        return "other"
+    dtype = frame[column].dtype
+    name = str(dtype)
+    if name == "object":
+        if is_cudf_obj(frame):
+            return "string"  # cuDF object columns hold strings only
+        import pandas as pd
+        # a pandas object column may hold anything (lists, dicts, decimals); only all-string cells are strings
+        return "string" if pd.api.types.infer_dtype(frame[column], skipna=True) in {"string", "empty"} else "other"
+    matched = _FAMILY_BY_DTYPE_NAME.match(name)
+    return matched.lastgroup if matched is not None and matched.lastgroup is not None else "other"
+
+
+def _assignment_value_family(frame: DataFrameT, column: str) -> str:
+    if is_polars_df(frame):
+        import polars as pl
+        assert isinstance(frame, pl.DataFrame)
+        if frame.height and frame.select(pl.col(column).is_null().all()).item():
+            return "null"
+        return _frame_family(frame, column)  # type: ignore[arg-type]  # polars frame, not the pandas alias
+    if len(frame) and bool(frame[column].isna().all()):
+        return "null"
+    import pandas as pd
+    if isinstance(frame, pd.DataFrame) and pd.api.types.is_object_dtype(frame[column].dtype):
+        inferred = pd.api.types.infer_dtype(frame[column], skipna=True)
+        return {
+            "string": "string", "unicode": "string", "boolean": "bool",
+            "integer": "integer", "floating": "float", "mixed-integer-float": "float",
+            "empty": "null",
+        }.get(inferred, "other")
+    return _frame_family(frame, column)
+
+
+def _require_table(frame: Optional[DataFrameT], entity: str) -> DataFrameT:
+    if frame is None:
+        raise GFQLMutationError(
+            ErrorCode.E108, f"SET requires a {entity} table",
+            field=entity, value="missing_table", language="cypher",
+        )
+    return frame
+
+
+def _require_unique_identity(frame: DataFrameT, key: str, entity: str) -> None:
+    """Reject null or repeated physical identities before any effect, like CREATE does."""
+    if is_polars_df(frame):
+        import polars as pl
+        assert isinstance(frame, pl.DataFrame)
+        invalid = bool(frame[key].is_null().any()) or frame[key].n_unique() != frame.height
+    else:
+        invalid = bool(frame[key].isna().any()) or bool(frame[key].duplicated().any())
+    if invalid:
+        raise GFQLMutationError(
+            ErrorCode.E105, f"SET requires unique non-null {entity} physical identities",
+            field=key, value="invalid_identity", language="cypher",
+        )
+
+
+SET_IDENTITY = "__gfql_set_identity__"
+SET_VALUE = "__gfql_set_value__"
+
+
+def _combine_assignment_frames(
+    assignment_frames: list[DataFrameT],
+    span: object,
+) -> DataFrameT:
+    line = getattr(span, "line", None)
+    column = getattr(span, "column", None)
+    if len(assignment_frames) != 1:
+        raise GFQLMutationError(
+            ErrorCode.E105, "SET assigns the same property more than once",
+            field=SET_VALUE, value="repeated_property", line=line, column=column, language="cypher",
+        )
+    combined = assignment_frames[0]
+    if is_polars_df(combined):
+        import polars as pl
+        assert isinstance(combined, pl.DataFrame)
+        if combined.select(pl.col(SET_IDENTITY).is_null().any()).item():
+            raise GFQLMutationError(
+                ErrorCode.E105, "SET requires non-null matched entity identities",
+                field=SET_IDENTITY, value="null", language="cypher",
+            )
+        conflicts = combined.unique(subset=[SET_IDENTITY, SET_VALUE], maintain_order=True)
+        counts = conflicts.group_by(SET_IDENTITY).len()
+        if counts.filter(pl.col("len") > 1).height:
+            raise GFQLMutationError(
+                ErrorCode.E105, "SET assigns conflicting values to a matched entity",
+                field=SET_VALUE, value="conflicting_updates",
+                line=line, column=column, language="cypher",
+            )
+        return combined.unique(subset=[SET_IDENTITY], keep="first", maintain_order=True)  # type: ignore[return-value]  # polars frame, not the pandas alias
+
+    if combined[SET_IDENTITY].isna().any():
+        raise GFQLMutationError(
+            ErrorCode.E105, "SET requires non-null matched entity identities",
+            field=SET_IDENTITY, value="null", language="cypher",
+        )
+    distinct_pairs = combined.drop_duplicates(subset=[SET_IDENTITY, SET_VALUE])
+    identity_counts = distinct_pairs.groupby(SET_IDENTITY, sort=False).size()
+    if bool((identity_counts > 1).any()):
+        raise GFQLMutationError(
+            ErrorCode.E105, "SET assigns conflicting values to a matched entity",
+            field=SET_VALUE, value="conflicting_updates",
+            line=line, column=column, language="cypher",
+        )
+    return combined.drop_duplicates(subset=[SET_IDENTITY], keep="first")
+
+
+_INT64_MIN = -(1 << 63)
+_INT64_MAX = (1 << 63) - 1
+_EXACT_FLOAT_INTEGER = 1 << 53
+
+
+class _SetTarget(NamedTuple):
+    """Resolved storage for one SET property: what the column holds after the update."""
+
+    family: str  # integer | float | bool | string | null | other
+    keep_existing: bool  # False: absent or all-null column is replaced by the assigned family
+    integer_dtype: Optional[str]  # numpy integer dtype name when family == "integer"
+    null_only: bool = False  # only null is assigned: the value is removed in the column's own dtype, never cast or filled
+
+
+def _is_all_null_column(frame: DataFrameT, column: str) -> bool:
+    if is_polars_df(frame):
+        import polars as pl
+        assert isinstance(frame, pl.DataFrame)
+        return bool(frame.select(pl.col(column).is_null().all()).item())
+    return bool(frame[column].isna().all())
+
+
+def _integer_dtype_name(frame: DataFrameT, column: str) -> str:
+    if is_polars_df(frame):
+        return str(frame.schema[column]).lower()
+    dtype: Any = frame[column].dtype
+    return np.dtype(getattr(dtype, "numpy_dtype", dtype)).name
+
+
+def _value_bounds(values: DataFrameT) -> Optional[tuple[int, int]]:
+    if is_polars_df(values):
+        import polars as pl
+        assert isinstance(values, pl.DataFrame)
+        low, high = values.select(
+            pl.col(SET_VALUE).min().alias("low"), pl.col(SET_VALUE).max().alias("high"),
+        ).row(0)
+    else:
+        present = values[SET_VALUE].dropna()
+        if len(present) == 0:
+            return None
+        low, high = present.min(), present.max()
+    if low is None or high is None:
+        return None
+    return int(low), int(high)
+
+
+def _integer_target_name(existing: Optional[str], bounds: Optional[tuple[int, int]]) -> Optional[str]:
+    """Keep the existing integer width when the values fit, else widen to int64, else unrepresentable."""
+    low, high = bounds if bounds is not None else (0, 0)
+    if existing is None:
+        return "int64" if _INT64_MIN <= low and high <= _INT64_MAX else None
+    info = np.iinfo(existing)
+    if info.min <= low and high <= info.max:
+        return existing
+    if not existing.startswith("u") and _INT64_MIN <= low and high <= _INT64_MAX:
+        return "int64"
+    return None
+
+
+def _resolve_set_target(
+    frame: DataFrameT,
+    entity: str,
+    property_name: str,
+    values: DataFrameT,
+    new_families: set[str],
+) -> _SetTarget:
+    """Decide the post-SET column type, or reject before effects when it cannot hold the values losslessly."""
+    families = new_families - {"null"}
+    present = property_name in frame.columns
+    existing_family = _frame_family(frame, property_name) if present else None
+    replace = not present or _is_all_null_column(frame, property_name)
+
+    def reject(value: object = None) -> GFQLMutationError:
+        return GFQLMutationError(
+            ErrorCode.E108,
+            f"SET cannot change {entity} property {property_name!r} to incompatible values",
+            field=property_name, value=sorted(new_families) if value is None else value, language="cypher",
+        )
+
+    if not families:
+        if replace or existing_family is None:
+            return _SetTarget("null", False, None)
+        return _SetTarget(
+            existing_family, True,
+            _integer_dtype_name(frame, property_name) if existing_family == "integer" else None,
+            null_only=True,
+        )
+    numeric = {"integer", "float"}
+    if "other" in families:
+        raise reject()
+    if families == {"integer"}:
+        kind = "integer"
+    elif families <= numeric:
+        kind = "float"
+    elif len(families) == 1:
+        kind = next(iter(families))
+    else:
+        raise reject()
+    if not replace and existing_family != kind and not (
+        existing_family == "float" and kind in numeric
+    ):
+        raise reject()
+    if kind == "integer":
+        bounds = _value_bounds(values)
+        if not replace and existing_family == "float":
+            if bounds is not None and (bounds[0] < -_EXACT_FLOAT_INTEGER or bounds[1] > _EXACT_FLOAT_INTEGER):
+                raise reject("incompatible_numeric_types")
+            return _SetTarget("float", True, None)
+        name = _integer_target_name(None if replace else _integer_dtype_name(frame, property_name), bounds)
+        if name is None:
+            raise reject("integer_out_of_range")
+        return _SetTarget("integer", not replace, name)
+    return _SetTarget(kind, not replace, None)
+
+
+def _resolve_set_targets(
+    updates: Mapping[str, Mapping[str, DataFrameT]],
+    nodes: Optional[DataFrameT],
+    edges: Optional[DataFrameT],
+    alias_kinds: Mapping[str, str],
+    update_families: Mapping[str, Mapping[str, set[str]]],
+) -> dict[tuple[str, str], _SetTarget]:
+    targets: dict[tuple[str, str], _SetTarget] = {}
+    for alias, properties in updates.items():
+        entity = "node" if alias_kinds[alias] == "node" else "edge"
+        frame = _require_table(nodes if entity == "node" else edges, entity)
+        for property_name, update_frame in properties.items():
+            targets[(alias, property_name)] = _resolve_set_target(
+                frame, entity, property_name, update_frame, update_families[alias][property_name],
+            )
+    return targets
+
+
+def _polars_target_dtype(target: _SetTarget) -> "Optional[PolarsDType]":
+    import polars as pl
+    if target.family == "integer":
+        assert target.integer_dtype is not None
+        return {
+            "int8": pl.Int8, "int16": pl.Int16, "int32": pl.Int32, "int64": pl.Int64,
+            "uint8": pl.UInt8, "uint16": pl.UInt16, "uint32": pl.UInt32, "uint64": pl.UInt64,
+        }[target.integer_dtype]
+    if target.family == "float":
+        return pl.Float64
+    if target.family == "bool":
+        return pl.Boolean
+    return None
+
+
+def _pandas_target_dtype(target: _SetTarget, existing_dtype: Any, cudf: bool) -> Any:  # hygiene-ok: explicit-any -- pandas/cuDF dtype objects (numpy, extension, string spellings) have no common stub type
+    """Dtype for the update values and kept column; nullable on pandas so unmatched rows never go through float64."""
+    import pandas as pd
+
+    if target.family == "integer":
+        assert target.integer_dtype is not None
+        if cudf:
+            return target.integer_dtype
+        bits = np.dtype(target.integer_dtype).itemsize * 8
+        return getattr(pd, f"{'UInt' if target.integer_dtype.startswith('u') else 'Int'}{bits}Dtype")()
+    if target.family == "float":
+        if existing_dtype is not None and not cudf and pd.api.types.is_extension_array_dtype(existing_dtype):
+            return pd.Float64Dtype()
+        return "float64"
+    if target.family == "bool":
+        return "bool" if cudf else pd.BooleanDtype()
+    return None
+
+
+def _set_property_dataframe(
+    frame: DataFrameT,
+    key: str,
+    property_name: str,
+    values: DataFrameT,
+    target: _SetTarget,
+) -> DataFrameT:
+    """pandas/cuDF SET: type values to the resolved target before the left merge so unmatched rows keep dtype."""
+    import pandas as pd
+    from graphistry.compute.util import generate_safe_column_name
+
+    if target.family == "null" and not target.keep_existing:
+        return frame  # null assigned to an absent or all-null property changes nothing
+    cudf = is_cudf_obj(frame)
+    existing_dtype: Any = frame[property_name].dtype if target.keep_existing else None
+    cast = _pandas_target_dtype(target, existing_dtype, cudf)
+    new_value = generate_safe_column_name(
+        f"set_new_{property_name}", frame, prefix="__gfql_", suffix="__",
+    )
+    matched = generate_safe_column_name(
+        f"set_matched_{property_name}", frame, prefix="__gfql_", suffix="__",
+    )
+    update = values.rename(columns={SET_IDENTITY: key, SET_VALUE: new_value})
+    if cast is not None and not target.null_only:
+        update[new_value] = update[new_value].astype(cast)
+    update[matched] = True
+    order = generate_safe_column_name("set_row_order", frame, prefix="__gfql_", suffix="__")
+    if cudf:
+        frame = frame.assign(**{order: np.arange(len(frame))})
+    frame = frame.merge(update, how="left", on=key, sort=False)
+    if cudf:
+        frame = frame.sort_values(order).reset_index(drop=True).drop(columns=[order])
+    update_mask = frame[matched].notna()
+    if target.keep_existing:
+        kept = frame[property_name]
+        if cast is not None:
+            kept = kept.astype(cast)
+        # a null-only update nulls in the column's own dtype; a cast or fill column raises (datetime, list) or stores False (cuDF bool)
+        merged = kept.where(~update_mask) if target.null_only else kept.where(~update_mask, frame[new_value])
+    else:
+        merged = frame[new_value]
+    if (
+        cast is not None and not cudf and target.family in {"integer", "bool"}
+        and not (existing_dtype is not None and pd.api.types.is_extension_array_dtype(existing_dtype))
+        and not bool(merged.isna().any())
+    ):
+        numpy_name: Any = target.integer_dtype if target.family == "integer" else "bool"
+        merged = merged.astype(numpy_name)
+    frame[property_name] = merged
+    return frame.drop(columns=[new_value, matched])
+
+
+def execute_set_properties(
+    self: Plottable,
+    matched_rows: Plottable,
+    sets: tuple[SetClause, ...],
+    *,
+    alias_kinds: tuple[tuple[str, Literal["node", "edge"]], ...],
+    engine: EngineAbstract = EngineAbstract.AUTO,
+) -> Plottable:
+    """Return a new Plottable with properties updated by matched physical identity."""
+    if not sets:
+        return self
+    concrete_engine = resolve_engine(
+        engine, self._edges if self._edges is not None else self._nodes,
+    )
+    if concrete_engine == Engine.POLARS_GPU:
+        raise GFQLUnsupportedError(
+            ErrorCode.E108,
+            "SET does not yet have a native Polars GPU execution route",
+            field="engine", value=concrete_engine.value,
+            suggestion="Use engine='polars' on CPU or engine='cudf' for the native cuDF route.",
+            language="cypher",
+        )
+    base_graph = self
+    if concrete_engine == Engine.PANDAS:
+        base_graph = ensure_local_engine_match(base_graph, Engine.PANDAS)  # a cuDF frame is moved to the host, as reads do
+    if base_graph._nodes is None and base_graph._edges is not None:
+        base_graph = base_graph.materialize_nodes(engine=concrete_engine.value)
+    for alias_name, alias_kind in alias_kinds:
+        identity_key = base_graph._node if alias_kind == "node" else base_graph._edge
+        if identity_key is not None and alias_name == identity_key:
+            raise GFQLMutationError(
+                ErrorCode.E108, f"SET cannot update a matched alias named like the {alias_kind} identity column {identity_key!r}",
+                field="set", value="alias_named_like_identity", suggestion="Rename the matched variable.", language="cypher",
+            )
+    frame = matched_rows._nodes
+    if frame is None:
+        raise GFQLMutationError(
+            ErrorCode.E108, "SET produced no matched rows",
+            field="set", value="missing_projection", language="cypher",
+        )
+
+    empty_match = len(frame) == 0  # sets nothing and resolves no types, but still normalizes the engine and checks identity
+
+    updates: dict[str, dict[str, list[DataFrameT]]] = {}
+    update_families: dict[str, dict[str, set[str]]] = {}
+    assignment_spans: dict[tuple[str, str], object] = {}
+    alias_positions: dict[str, int] = {}
+    assignment_index = 0
+    for clause in sets:
+        for assignment in clause.assignments:
+            if assignment.target.alias not in alias_positions:
+                alias_positions[assignment.target.alias] = len(alias_positions)
+            alias = assignment.target.alias
+            identity_column = f"__gfql_set_identity_{alias_positions[alias]}__"
+            value_column = f"__gfql_set_value_{assignment_index}__"
+            assignment_index += 1
+            updates.setdefault(alias, {}).setdefault(assignment.target.property, [])
+            update_families.setdefault(alias, {}).setdefault(assignment.target.property, set())
+            assignment_spans[(alias, assignment.target.property)] = assignment.span
+            if empty_match:
+                continue
+            assignment_frame: DataFrameT
+            if is_polars_df(frame):
+                import polars as pl
+                assert isinstance(frame, pl.DataFrame)
+                polars_assignment = frame.select(
+                    pl.col(identity_column).alias(SET_IDENTITY),
+                    pl.col(value_column).alias(SET_VALUE),
+                )
+                if polars_assignment.schema[SET_VALUE].is_float():
+                    polars_assignment = polars_assignment.with_columns(pl.col(SET_VALUE).fill_nan(None))
+                assignment_frame = polars_assignment  # type: ignore[assignment]  # polars frame, not the pandas alias
+            else:
+                value_series = frame[value_column]
+                if value_series.dtype.kind == "f":
+                    value_series = value_series.where(value_series == value_series)  # NaN is null for SET on every engine
+                assignment_frame = frame[[identity_column]].rename(
+                    columns={identity_column: SET_IDENTITY}
+                )
+                assignment_frame = assignment_frame.assign(**{SET_VALUE: value_series})
+            value_family = _assignment_value_family(assignment_frame, SET_VALUE)
+            if value_family == "other":
+                raise GFQLMutationError(
+                    ErrorCode.E108, "SET properties support scalar values only",
+                    field="set", value="non_scalar_value", language="cypher",
+                    line=assignment.span.line, column=assignment.span.column,
+                )
+            update_families[alias][assignment.target.property].add(value_family)
+            updates[alias][assignment.target.property].append(assignment_frame)
+    alias_kind_map = dict(alias_kinds)
+    nodes = _copy_frame(df_to_engine(base_graph._nodes, concrete_engine)) if base_graph._nodes is not None else None
+    edges = _copy_frame(df_to_engine(base_graph._edges, concrete_engine)) if base_graph._edges is not None else None
+    node_key = base_graph._node
+    edge_key = base_graph._edge
+    if any(alias_kind_map[alias] == "node" for alias in updates) and node_key is None:
+        raise GFQLMutationError(
+            ErrorCode.E108, "SET requires a node identity column",
+            field="node", value="missing", language="cypher",
+        )
+    for alias, properties in updates.items():
+        frame = _require_table(nodes if alias_kind_map[alias] == "node" else edges, alias_kind_map[alias])
+        key = node_key if alias_kind_map[alias] == "node" else edge_key
+        if key is None:
+            raise GFQLMutationError(
+                ErrorCode.E108, f"SET requires a {alias_kind_map[alias]} identity column",
+                field=alias_kind_map[alias], value="missing", language="cypher",
+            )
+        if key in properties:
+            raise GFQLMutationError(
+                ErrorCode.E108,
+                f"SET cannot rekey physical identity column {key!r}",
+                field=key, value="physical_identity", language="cypher",
+            )
+        _require_unique_identity(frame, key, alias_kind_map[alias])
+    combined_updates: dict[str, dict[str, DataFrameT]] = {}
+    for alias, source_properties in updates.items():
+        if empty_match:
+            break
+        combined_updates[alias] = {}
+        for property_name, assignment_frames in source_properties.items():
+            combined_updates[alias][property_name] = _combine_assignment_frames(
+                assignment_frames, assignment_spans[(alias, property_name)],
+            )
+    targets = _resolve_set_targets(
+        combined_updates,
+        nodes, edges, alias_kind_map, update_families,
+    )
+
+    for alias, combined_properties in combined_updates.items():
+        kind = alias_kind_map[alias]
+        frame = _require_table(nodes if kind == "node" else edges, kind)
+        key = node_key if kind == "node" else edge_key
+        if key is None:
+            raise GFQLMutationError(
+                ErrorCode.E108, f"SET requires a {kind} identity column",
+                field=kind, value="missing", language="cypher",
+            )
+        if is_polars_df(frame):
+            import polars as pl
+            assert isinstance(frame, pl.DataFrame)
+            for property_name, values in combined_properties.items():
+                assert isinstance(values, pl.DataFrame)
+                from graphistry.compute.util import generate_safe_column_name
+                target = targets[(alias, property_name)]
+                if target.family == "null" and not target.keep_existing:
+                    continue  # null assigned to an absent or all-null property changes nothing
+                target_dtype = _polars_target_dtype(target)
+                new_value = generate_safe_column_name(
+                    f"set_new_{property_name}", frame, prefix="__gfql_", suffix="__",
+                )
+                matched = generate_safe_column_name(
+                    f"set_matched_{property_name}", frame, prefix="__gfql_", suffix="__",
+                )
+                update_value = pl.col(SET_VALUE)
+                if target_dtype is not None:
+                    update_value = update_value.cast(target_dtype)
+                if target.null_only:
+                    update = values.select(pl.col(SET_IDENTITY), pl.lit(None).alias(new_value), pl.lit(True).alias(matched))
+                    frame = frame.join(update, left_on=key, right_on=SET_IDENTITY, how="left", maintain_order="left")
+                    frame = frame.with_columns(
+                        pl.when(pl.col(matched).fill_null(False))
+                        .then(pl.lit(None, dtype=frame.schema[property_name]))
+                        .otherwise(pl.col(property_name))
+                        .alias(property_name)
+                    ).drop([new_value, matched])
+                    continue  # a null-only update nulls in the column's own dtype, whatever dtype the null value carried
+                update = values.select(
+                    pl.col(SET_IDENTITY),
+                    update_value.alias(new_value),
+                    pl.lit(True).alias(matched),
+                )
+                frame = frame.join(update, left_on=key, right_on=SET_IDENTITY, how="left", maintain_order="left")
+                if target.keep_existing:
+                    existing = pl.col(property_name)
+                    if target_dtype is not None:
+                        existing = existing.cast(target_dtype)
+                else:
+                    existing = pl.lit(None, dtype=update.schema[new_value])
+                frame = frame.with_columns(
+                    pl.when(pl.col(matched).fill_null(False))
+                    .then(pl.col(new_value))
+                    .otherwise(existing)
+                    .alias(property_name)
+                ).drop([new_value, matched])
+            if kind == "node":
+                nodes = frame  # type: ignore[assignment]  # polars frame, not the pandas alias
+            else:
+                edges = frame  # type: ignore[assignment]  # polars frame, not the pandas alias
+        else:
+            for property_name, values in combined_properties.items():
+                frame = _set_property_dataframe(
+                    frame, key, property_name, values, targets[(alias, property_name)],
+                )
+            if kind == "node":
+                nodes = frame
+            else:
+                edges = frame
+
+    result = base_graph.bind()
+    if nodes is not None:
+        result = result.nodes(nodes, node_key)
+    if edges is not None:
+        result = result.edges(edges, base_graph._source, base_graph._destination, edge_key)
+    return result
 
 
 def validate_create_parameters(creates: tuple[CreateClause, ...], params: Optional[CypherParams]) -> None:
@@ -476,6 +1057,44 @@ def _validate_label_names(creates: tuple[CreateClause, ...]) -> None:
                     )
 
 
+def _validate_property_keys(entries: Sequence[PropertyEntry], *, edge: bool) -> None:
+    """Reject reserved metadata/label keys and repeated keys within one CREATE property map."""
+    noun = "edge " if edge else ""
+    seen: set[str] = set()
+    for entry in entries:
+        if entry.key in {"labels", "type"} or entry.key.startswith(("label__", "__")):
+            raise GFQLMutationError(
+                ErrorCode.E108, f"CREATE {noun}properties cannot use reserved metadata or label namespaces",
+                field=entry.key, value=entry.key, line=entry.span.line, column=entry.span.column, language="cypher",
+            )
+        if entry.key in seen:
+            raise GFQLMutationError(
+                ErrorCode.E105, f"Duplicate CREATE {noun}property {entry.key!r}",
+                field=entry.key, value=entry.key,
+                suggestion=f"Use one value per property per {'edge' if edge else 'node'}.",
+                line=entry.span.line, column=entry.span.column, language="cypher",
+            )
+        seen.add(entry.key)
+
+
+def validate_create_static(creates: tuple[CreateClause, ...]) -> None:
+    """Pure AST admission shared by compile, validation and execution; reads no graph and builds no frames.
+
+    Rejects what execution would reject from the query text alone: null-like label names, reserved
+    metadata/label property keys, and repeated keys. Graph-dependent limits stay at execution.
+    """
+    _validate_label_names(creates)
+    for clause in creates:
+        for pattern in clause.patterns:
+            if isinstance(pattern, CreateRelationship):
+                _validate_property_keys(pattern.relationship.properties, edge=True)
+                nodes: tuple[NodePattern, ...] = (pattern.source, pattern.destination)
+            else:
+                nodes = (pattern,)
+            for node in nodes:
+                _validate_property_keys(node.properties, edge=False)
+
+
 def _validate_legacy_label_transition(
     creates: tuple[CreateClause, ...], nodes: Optional[DataFrameT]
 ) -> None:
@@ -487,11 +1106,11 @@ def _validate_legacy_label_transition(
     created_labels: set[Optional[str]] = set()
     for clause in creates:
         for pattern in clause.patterns:
-            node_patterns = (
-                (pattern,)
-                if not isinstance(pattern, CreateRelationship)
-                else (pattern.source, pattern.destination)
-            )
+            node_patterns: tuple[NodePattern, ...]
+            if isinstance(pattern, CreateRelationship):
+                node_patterns = (pattern.source, pattern.destination)
+            else:
+                node_patterns = (pattern,)
             for node_pattern in node_patterns:
                 created_labels.update(node_pattern.labels)
     if not created_labels:
@@ -584,7 +1203,7 @@ def execute_create_nodes(
 ) -> tuple[Plottable, dict[str, CypherScalar]]:
     """Create node rows and return a new Plottable without changing the caller."""
     validate_create_node_reuse(creates)
-    _validate_label_names(creates)
+    validate_create_static(creates)
     concrete_engine = resolve_engine(
         engine, self._edges if self._edges is not None else self._nodes,
     )
@@ -812,11 +1431,6 @@ def execute_create_nodes(
             label_columns.add(label_column)
             row[label_column] = True
         for entry in pattern.properties:
-            if entry.key in {"labels", "type"} or entry.key.startswith(("label__", "__")):
-                raise GFQLMutationError(
-                    ErrorCode.E108, "CREATE properties cannot use reserved metadata or label namespaces",
-                    field=entry.key, value=entry.key, line=entry.span.line, column=entry.span.column, language="cypher",
-                )
             if entry.key in row:
                 raise GFQLMutationError(
                     ErrorCode.E105, f"Duplicate CREATE property {entry.key!r}",
@@ -858,11 +1472,6 @@ def execute_create_nodes(
                 "type": pattern.relationship.types[0],
             }
             for entry in pattern.relationship.properties:
-                if entry.key in {"labels", "type"} or entry.key.startswith(("label__", "__")):
-                    raise GFQLMutationError(
-                        ErrorCode.E108, "CREATE edge properties cannot use reserved metadata or label namespaces",
-                        field=entry.key, value=entry.key, line=entry.span.line, column=entry.span.column, language="cypher",
-                    )
                 if entry.key in edge_row:
                     raise GFQLMutationError(
                         ErrorCode.E105, f"Duplicate CREATE edge property {entry.key!r}",

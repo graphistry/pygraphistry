@@ -434,6 +434,57 @@ def test_node_identity_sentinel_resolution():
         rp._NODE_ID.reset(tok)
 
 
+def test_native_node_label_rendering_declines_non_contract_dtypes():
+    import polars as pl
+
+    from graphistry.compute.gfql.lazy.engine.polars.projection import (
+        _AliasView,
+        _native_node_labels_text_expr,
+    )
+
+    def view(frame):
+        return _AliasView(
+            frame=frame,
+            columns={},
+            presence_column="n",
+            presence_source="n",
+            node_id_column=None,
+        )
+
+    list_labels = pl.DataFrame({"n": [1], "labels": [["Legacy"]]})
+    assert _native_node_labels_text_expr(view(list_labels)) is None
+
+    non_boolean_flag = pl.DataFrame({"n": [1], "label__Legacy": ["yes"]})
+    assert _native_node_labels_text_expr(view(non_boolean_flag)) is None
+
+    numeric_type = pl.DataFrame({"n": [1], "type": [1]})
+    assert _native_node_labels_text_expr(view(numeric_type)) is None
+
+    string_type = pl.DataFrame({"n": [1], "type": ["Legacy"]})
+    rendered = _native_node_labels_text_expr(view(string_type))
+    assert rendered is not None
+    assert string_type.select(rendered.alias("labels"))["labels"].to_list() == ["['Legacy']"]
+
+
+def test_polars_subscript_declines_non_string_constant_key():
+    import polars as pl
+
+    from graphistry.compute.gfql.expr_parser import Identifier, Literal, SubscriptExpr
+    from graphistry.compute.gfql.lazy.engine.polars import row_pipeline as rp
+
+    node = SubscriptExpr(Identifier("n"), Literal(1))
+    columns = ["id", "n", "n.id"]
+    node_aliases = rp._NODE_ALIASES.set({"n"})
+    node_id = rp._NODE_ID.set("id")
+    schema = rp._SCHEMA.set({"n": pl.Boolean})
+    try:
+        assert rp._constant_string_key(Literal(1)) is None
+        assert rp.lower_expr(node, columns) is None
+    finally:
+        rp._SCHEMA.reset(schema)
+        rp._NODE_ID.reset(node_id)
+        rp._NODE_ALIASES.reset(node_aliases)
+
 def test_polars_frame_op_limit_matches_slice():
     """limit/skip operate on a polars active table without index artifacts."""
     g = BASE.gfql("MATCH (n) RETURN n LIMIT 4", engine="polars")

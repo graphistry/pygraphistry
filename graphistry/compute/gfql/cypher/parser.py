@@ -43,6 +43,8 @@ from graphistry.compute.gfql.cypher.ast import (
     RelationshipPattern,
     ReturnClause,
     ReturnItem,
+    SetClause,
+    SetProperty,
     SkipClause,
     SourceSpan,
     UnwindClause,
@@ -103,6 +105,7 @@ union_op: "UNION"i "ALL"i       -> union_all
 
 query_item: match_clause
           | create_clause
+          | set_clause
           | call_clause
           | unwind_clause
           | use_clause
@@ -129,6 +132,9 @@ pattern: node_pattern (relationship_pattern node_pattern)*
 create_clause: "CREATE"i create_item ("," create_item)*
 create_item: node_pattern -> create_node
            | node_pattern relationship_pattern node_pattern -> create_relationship
+
+set_clause: "SET"i set_item ("," set_item)*
+set_item: property_ref "=" return_expr -> set_property
 
 node_pattern: "(" variable? labels? properties? ")"
 labels: label+
@@ -1759,6 +1765,25 @@ def _build_transformer(source: str) -> _TransformerLike:
                 span=_span_from_meta(meta),
             )
 
+        def set_clause(self, meta: _ParserMeta, items: Sequence[object]) -> SetClause:
+            if not items:
+                raise _to_syntax_error("SET clause must contain at least one assignment", line=meta.line, column=meta.column)
+            assignments: list[SetProperty] = []
+            for item in items:
+                if not isinstance(item, SetProperty):
+                    raise _to_syntax_error("Invalid SET assignment", line=meta.line, column=meta.column)
+                assignments.append(item)
+            return SetClause(assignments=tuple(assignments), span=_span_from_meta(meta))
+
+        def set_property(self, meta: _ParserMeta, items: Sequence[object]) -> SetProperty:
+            if len(items) != 2 or not isinstance(items[0], PropertyRef):
+                raise _to_syntax_error("Invalid SET assignment", line=meta.line, column=meta.column)
+            raw_value = items[1]
+            if not isinstance(raw_value, _ExpressionSlice) or not raw_value.text:
+                raise _to_syntax_error("SET value must be a literal, parameter, or expression", line=meta.line, column=meta.column)
+            value: CypherPropertyValue = ExpressionText(text=raw_value.text, span=raw_value.span)
+            return SetProperty(target=items[0], value=value, span=_span_from_meta(meta))
+
         def query_body(self, meta: Any, items: Sequence[Any]) -> CypherQuery:
             # The grammar bundles WHERE onto its MATCH clause (there is no
             # standalone WHERE item), so this state machine consumes
@@ -1777,6 +1802,7 @@ def _build_transformer(source: str) -> _TransformerLike:
             stages: List[ProjectionStage] = []
             ordered_row_items: List[Union[ProjectionStage, UnwindClause]] = []
             creates: List[CreateClause] = []
+            set_clauses: List[SetClause] = []
             seen_stage = False
             for item in items:
                 if isinstance(item, UseClause):
@@ -1794,6 +1820,14 @@ def _build_transformer(source: str) -> _TransformerLike:
                         )
                     use_clause_node = item
                 elif isinstance(item, MatchClause):
+                    if set_clauses and not match_clauses and not reentry_match_clauses:
+                        raise _to_syntax_error(
+                            "Cypher SET must follow the MATCH that binds its variables",
+                            line=item.span.line,
+                            column=item.span.column,
+                            field="set",
+                            value="set_before_match",
+                        )
                     if reentry_where_pending_with_idx is not None:
                         raise _to_syntax_error(
                             "Cypher MATCH after post-WITH WHERE is not yet supported in the current GFQL Cypher compiler",
@@ -1862,10 +1896,30 @@ def _build_transformer(source: str) -> _TransformerLike:
                     if match_clauses or reentry_match_clauses or stages or unwind_clauses or call_clause is not None:
                         raise _to_unsupported(
                             "GFQL CREATE is currently supported only before an optional RETURN in standalone node or relationship mutations",
+                            field="create",
+                            value="mixed_clauses",
                             line=item.span.line,
                             column=item.span.column,
                         )
                     creates.append(item)
+                elif isinstance(item, SetClause):
+                    if reentry_match_clauses or stages or unwind_clauses or call_clause is not None:
+                        raise _to_unsupported(
+                            "GFQL SET is currently supported only directly after a single MATCH",
+                            field="set",
+                            value="mixed_clauses",
+                            line=item.span.line,
+                            column=item.span.column,
+                        )
+                    if creates:
+                        raise _to_unsupported(
+                            "GFQL CREATE and SET cannot be combined in the current mutation compiler",
+                            field="set",
+                            value="create_with_set",
+                            line=item.span.line,
+                            column=item.span.column,
+                        )
+                    set_clauses.append(item)
                 elif isinstance(item, ProjectionStage):
                     if call_clause is not None and reentry_match_clauses:
                         raise _to_syntax_error(
@@ -1884,7 +1938,7 @@ def _build_transformer(source: str) -> _TransformerLike:
                     seen_stage = True
                     if reentry_where_pending_with_idx is not None and item.clause.kind == "with":
                         reentry_where_pending_with_idx = None
-            if len(stages) == 0 and call_clause is None and not creates:
+            if len(stages) == 0 and call_clause is None and not creates and not set_clauses:
                 raise _to_syntax_error(
                     "Cypher query must contain a RETURN/WITH clause",
                     line=meta.line,
@@ -1985,6 +2039,7 @@ def _build_transformer(source: str) -> _TransformerLike:
             return CypherQuery(
                 matches=tuple(match_clauses),
                 creates=tuple(creates),
+                sets=tuple(set_clauses),
                 where=where_clause,
                 call=call_clause,
                 unwinds=tuple(unwind_clauses),

@@ -186,6 +186,7 @@ node and relationship creation. At a high level, that includes:
 - ``ORDER BY``, ``SKIP``, ``LIMIT``, and ``DISTINCT``
 - ``UNWIND``
 - standalone node and one-hop relationship ``CREATE``, with optional ``RETURN`` of created node values
+- standalone node ``SET`` after ``MATCH``, with optional ``RETURN``
 - supported ``UNION`` / ``UNION ALL`` and ``CALL graphistry.*`` flows when executed
   directly through ``g.gfql("...")``
 
@@ -232,10 +233,13 @@ Support Matrix
    * - Standalone node ``CREATE``
      - Supported
      - Named or anonymous nodes, labels, scalar properties, optional ``RETURN``.
+   * - Node ``SET`` after ``MATCH``
+     - Supported
+     - Scalar property updates on existing nodes (literals, parameters, computed expressions), with optional ``RETURN``.
    * - Standalone relationship ``CREATE``
      - Supported
      - Directed one-hop relationships between nodes created or bound in the same ``CREATE`` clause, with a type and scalar properties.
-   * - ``MATCH ... CREATE``, ``DELETE``, ``SET``, ``REMOVE``, ``MERGE``
+   * - ``MATCH ... CREATE``, ``DELETE``, relationship ``SET``, ``REMOVE``, ``MERGE``
      - Not supported
      - These mutation clauses remain outside this creation subset.
    * - Multiple disconnected ``MATCH`` patterns and arbitrary joins
@@ -608,7 +612,7 @@ Not Supported Today
   ``MATCH ... WITH ... MATCH ... RETURN`` form.
 - ``RETURN *`` after unsupported re-entry shapes or when it would require
   unsupported multi-alias/path projection shaping.
-- ``MATCH ... CREATE``, ``DELETE``, ``SET``, ``REMOVE``, and ``MERGE``.
+- ``MATCH ... CREATE``, ``DELETE``, relationship ``SET``, ``REMOVE``, and ``MERGE``.
 - Generic database procedures outside ``CALL graphistry.*``.
 - The full Cypher expression/function surface.
 
@@ -663,6 +667,76 @@ may reuse one. Read/write clause combinations and other mutation operators
 remain unsupported. Explicit
 ``engine="polars-gpu"`` and remote mutation execution decline before dispatch;
 CPU Polars and native cuDF routes are available.
+
+Functional Node SET
+-------------------
+
+Standalone ``MATCH ... SET`` updates scalar properties on selected nodes and
+returns the updated graph. The caller's frames stay unchanged. Optional
+``RETURN`` provides row results bound to the same execution.
+
+.. code-block:: python
+
+   import graphistry
+   import pandas as pd
+
+   source = graphistry.nodes(
+       pd.DataFrame({"id": ["a", "b"], "name": ["Ada", "Bob"]}), "id"
+   )
+   updated = source.gfql(
+       "MATCH (n) WHERE n.id = 'a' SET n.name = 'Grace', n.age = 36 RETURN n.name AS name",
+       engine="pandas",
+       language="cypher",
+   )
+   assert updated._nodes["name"].tolist() == ["Grace"]
+   assert len(source._nodes) == 2
+
+SET requires one ``MATCH`` clause with a single node pattern and unique non-null
+node identities (``E105``, ``invalid_identity``, as for CREATE). Unsupported edge
+or relationship SET, ``SET n:Label``, ``SET n = {...}``, ``SET n += {...}``,
+combined SET+CREATE, OPTIONAL MATCH SET, reserved identity fields, and
+conflicting updates fail with structured errors before effects. Right-hand sides
+may be literals, parameters, or computed expressions such as ``n.num + 1``. The
+matched node may be read only through direct property access (``n.prop``); any
+other use of it, such as ``head([n])``, ``[n][0].a`` or ``n['a']``, is declined
+with ``E108`` (``whole_entity_read``), as are a list or map value (a list or map
+parameter is declined only when it is the whole value; scalar-valued uses such as
+``n.id IN $ids`` or ``size($tags)`` are allowed), aggregation, a name that is not
+bound, a comprehension or quantifier variable named like the matched node, an
+expression the compiler cannot analyze, and a NaN or infinite number in a
+parameter, including inside a list or map parameter. On native Polars, a value built from a map parameter such as ``coalesce($m.k, 0)`` raises the Polars engine's parity-or-error ``NotImplementedError`` before any effect (the list forms ``n.id IN $ids`` and ``size($tags)`` run); a list-valued or map-valued result (a list, a map, or ``properties()``) is declined with ``E108`` (``non_scalar_value``) before any effect on pandas and cuDF, while native Polars raises its parity-or-error ``NotImplementedError`` for the forms its row pipeline lacks and cuDF fails a list slice such as ``$v[0..2]`` earlier in the read pipeline (``E306``). A chained read through a nested map parameter (``$m.a.b``) is admitted by the static check, but the read path does not resolve it and declines it with a structured ``E204`` on every engine. pandas ``ArrowDtype`` columns (the nullable ``string`` dtype is supported), ``float16`` columns and Polars integer widths other than 8 to 64 bits are declined like any other unsupported dtype. On an edges-only graph the node table is materialized from
+the edges, as for reads. Each property may be assigned at most once per query (``E105``,
+``repeated_property``), and ``SET`` must follow the ``MATCH`` that binds its
+variable. Several ``SET`` clauses are allowed, but every right-hand side
+reads the graph as it was before the SET, so a right-hand side that reads a
+property assigned earlier in the same query (``SET n.a = 1 SET n.b = n.a``,
+``SET n.num = n.num + 1 SET n.num = n.num + 1``) is declined with ``E108``
+(``read_after_write``) instead of returning stale values.
+
+``SET`` applies to every matched node; a following ``RETURN`` with ``SKIP``,
+``LIMIT``, ``ORDER BY``, or aggregation only shapes the returned rows, which
+read the updated values. ``SET n.p = null`` removes the property from the
+matched nodes (the stored value becomes null), and does nothing for a property
+that is already absent.
+
+Assigned values keep their exact value and kind (integer, float, string,
+boolean). A new property, or one whose existing values are all null, takes the
+assigned kind; unmatched rows stay null. An existing property keeps its kind:
+integer values keep integer storage where they fit (a signed column widens to
+``int64`` when needed; an unsigned column never widens and raises ``E108`` with
+``integer_out_of_range`` for a negative or too-large value), and an integer may
+update a float column only when it is exactly representable (at most 2**53 in
+magnitude). Assigning another kind, such as an integer into a string column or
+a wide integer into a float column, fails with ``E108`` before any effect rather
+than casting. Only boolean, integer, float and string columns accept values; a
+column of any other dtype (category, decimal, datetime, timedelta, list, struct,
+...) accepts only ``null`` (which removes the value in the column's own dtype) and
+declines every other assignment with ``E108`` on every engine. On pandas a numpy integer or boolean column becomes the nullable
+``Int*``/``boolean`` dtype when a partial update leaves nulls, so no value goes
+through ``float64``. A query that matches no rows changes nothing on any engine.
+A NaN produced from the data collapses to null (it removes the property) on every
+engine, which deviates from openCypher where NaN is a value. The same rules apply
+on pandas, cuDF, and Polars.
 
 Functional Relationship Creation
 --------------------------------
