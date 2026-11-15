@@ -355,17 +355,18 @@ def _prepare_append_frames(nodes: DataFrameT, new_nodes: DataFrameT) -> tuple[Da
 
 
 def validate_create_node_reuse(creates: tuple[CreateClause, ...]) -> None:
-    """Reject decorated re-declaration of a bound CREATE node before any effects."""
+    """Reject re-declaring a bound CREATE node (standalone, or decorated as an endpoint) before any effects."""
     bound: set[str] = set()
     for clause in creates:
         for pattern in clause.patterns:
+            lone = isinstance(pattern, NodePattern)
             candidates: tuple[NodePattern, ...] = (
                 (pattern,) if isinstance(pattern, NodePattern)
                 else (pattern.source, pattern.destination)
             )
             for node in candidates:
                 if node.variable is not None and node.variable in bound and (
-                    node.labels or node.explicit_properties or node.properties
+                    lone or node.labels or node.explicit_properties or node.properties
                 ):
                     raise GFQLMutationError(
                         ErrorCode.E105, "CREATE node variable is already bound",
@@ -541,8 +542,8 @@ def execute_create_nodes(
     _validate_legacy_label_transition(creates, nodes)
     _validate_no_legacy_labels_column(nodes)
     node_count = 0
+    seen_nodes: set[str] = set()
     for clause in creates:
-        seen_nodes: set[str] = set()
         for pattern in clause.patterns:
             patterns = (pattern.source, pattern.destination) if isinstance(pattern, CreateRelationship) else (pattern,)
             for node_pattern in patterns:
@@ -730,12 +731,12 @@ def execute_create_nodes(
                 )
             edge_identity = edge_identities[len(edge_records)]
             assert edge_key is not None
+            first_identity = _node_record(pattern.source)
+            second_identity = _node_record(pattern.destination)
             if pattern.relationship.direction == "reverse":
-                source_identity = _node_record(pattern.destination)
-                destination_identity = _node_record(pattern.source)
+                source_identity, destination_identity = second_identity, first_identity
             else:
-                source_identity = _node_record(pattern.source)
-                destination_identity = _node_record(pattern.destination)
+                source_identity, destination_identity = first_identity, second_identity
             edge_row: dict[str, object] = {
                 source_key: source_identity,
                 destination_key: destination_identity,
@@ -818,14 +819,13 @@ def execute_create_nodes(
                 polars_new_nodes = polars_new_nodes.with_columns(
                     pl.col(label_column).fill_null(False).cast(pl.Boolean)
                 )
-            new_nodes = polars_new_nodes
+            result = base_graph.nodes(polars_new_nodes, node_key)
         else:
             for label_column in sorted(label_columns):
                 new_nodes = new_nodes.assign(
                     **{label_column: new_nodes[label_column].fillna(False).astype(bool)}
                 )
-        nodes = new_nodes
-        result = base_graph.nodes(nodes, node_key)
+            result = base_graph.nodes(new_nodes, node_key)
 
     if edge_records:
         assert edge_key is not None
