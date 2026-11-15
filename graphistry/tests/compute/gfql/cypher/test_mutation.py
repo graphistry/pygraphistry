@@ -1532,6 +1532,17 @@ def test_relationship_create_on_string_ids_with_integer_edges_is_a_structured_de
     assert (_records(source._nodes), _records(source._edges)) == before
 
 
+# D16-F1 on the edge frames: engine='pandas' relationship CREATE on a cuDF graph runs on the host.
+@cudf_only
+def test_pandas_engine_relationship_create_on_a_cudf_graph_runs_on_the_host():
+    import cudf
+    source = graphistry.nodes(cudf.DataFrame({"id": [1, 2]}), "id").edges(cudf.DataFrame({"s": [1], "d": [2]}), "s", "d")
+    result = source.gfql("CREATE (a)-[:R]->(b)", engine="pandas")
+    assert isinstance(result._nodes, pd.DataFrame) and isinstance(result._edges, pd.DataFrame)
+    assert len(result._nodes) == 4 and len(result._edges) == 2
+    assert isinstance(source._edges, cudf.DataFrame) and len(source._edges) == 1
+
+
 # the #2316 id contract, extended to relationship CREATE
 @pytest.mark.parametrize("engine", ENGINES)
 def test_relationship_create_ids_skip_a_dangling_edge_endpoint(engine):
