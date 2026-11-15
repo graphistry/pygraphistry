@@ -2688,6 +2688,9 @@ POLARS_NO_ROW_OP = {"range(1, 3)", "$v[0..2]", "head([[1, 2]])"}
     ("properties($m)", {"m": {"k": 7}}),
     ("coalesce(properties($m), 1)", {"m": {"k": 7}}),
     ("CASE WHEN n.id = 1 THEN properties($m) ELSE 1 END", {"m": {"k": 7}}),
+    ("head([properties($m)])", {"m": {"k": 7}}),
+    ("[properties($m)][0]", {"m": {"k": 7}}),
+    ("head([{k: 7}])", None),
 ])
 def test_set_list_or_map_valued_result_is_a_structured_decline(engine, expression, params) -> None:
     source = _list_graph(engine)
@@ -2723,6 +2726,8 @@ def _matrix_frame() -> Any:
         "c_decimal": [decimal.Decimal("1.5"), decimal.Decimal("2.5")],
         "c_list": [["a"], ["b"]],
         "c_struct": [{"k": 1}, {"k": 2}],
+        "typed_null_str": [None, "x"],
+        "typed_null_float": [float("nan"), 1.0],
     })
 
 
@@ -2754,7 +2759,25 @@ def _matrix_cells() -> list[tuple[str, str, str, Any, Any]]:
             (column, "same", same, None, E108), (column, "other", other, None, E108),
             (column, "null", "null", None, [None, remaining]), (column, "param", "$v", {"v": same_value}, E108),
         ]
+    # a typed null (null on every matched row but carrying a String/Float dtype) behaves exactly like a literal null
+    rows += [
+        (column, kind, f"n.{source}", None, expected)
+        for column, label, _, _, expected in list(rows) if label == "null"
+        for kind, source in (("typed-null-str", "typed_null_str"), ("typed-null-float", "typed_null_float"))
+    ]
     return rows
+
+
+def _dtype_family(frame: Any, column: str) -> str:
+    name = str(frame.schema[column] if hasattr(frame, "schema") else frame[column].dtype).lower()
+    for family, markers in (
+        ("timedelta", ("timedelta", "duration")), ("datetime", ("datetime",)), ("decimal", ("decimal",)),
+        ("category", ("categor",)), ("list", ("list",)), ("struct", ("struct",)), ("bool", ("bool",)),
+        ("float", ("float", "double")), ("integer", ("int",)), ("string", ("str", "object", "utf8", "string")),
+    ):
+        if any(marker in name for marker in markers):
+            return family
+    return name
 
 
 def _cells(frame: Any, column: str) -> list[Any]:
@@ -2801,6 +2824,7 @@ def test_set_dtype_matrix_is_identical_on_every_engine(engine, column, kind, exp
         return
     result = source.gfql(query, engine=engine, params=params)
     assert _cells(result._nodes, column) == expected
+    assert _dtype_family(result._nodes, column) == _dtype_family(source._nodes, column)
 
 
 @pytest.mark.parametrize("engine", ENGINES)
@@ -2816,8 +2840,31 @@ def test_set_value_read_from_a_non_scalar_dtype_column_is_declined(engine, colum
 @pytest.mark.parametrize("engine", ENGINES)
 def test_set_map_projection_is_a_structured_decline(engine) -> None:
     from graphistry.compute.exceptions import GFQLSyntaxError
-    with pytest.raises((GFQLValidationError, GFQLSyntaxError)):
+    with pytest.raises(GFQLSyntaxError) as exc:
         _graph(engine).gfql("MATCH (n) SET n.p = n {.id}", engine=engine)
+    assert exc.value.code == ErrorCode.E107
+
+
+@pytest.mark.skipif(importlib.util.find_spec("polars") is None, reason="polars is not installed")
+def test_set_into_a_polars_int128_column_is_a_structured_decline() -> None:
+    polars = pytest.importorskip("polars")
+    if not hasattr(polars, "Int128"):
+        pytest.skip("this polars has no Int128")
+    source = graphistry.nodes(polars.DataFrame({"id": [1, 2], "c": polars.Series([1, 2], dtype=polars.Int128)}), "id")
+    with _declined(ErrorCode.E108, field="c"):
+        source.gfql("MATCH (n) WHERE n.id = 1 SET n.c = 5", engine="polars")
+
+
+# pyarrow-backed pandas columns are declined uniformly (admitting some of them would retype the column)
+@pytest.mark.parametrize("dtype,values,literal", [
+    ("int64[pyarrow]", [1, 2], "5"), ("double[pyarrow]", [1.5, 2.5], "2.5"),
+    ("bool[pyarrow]", [False, True], "true"), ("string[pyarrow]", ["a", "b"], "'z'"),
+])
+def test_set_into_a_pyarrow_backed_pandas_column_is_declined_uniformly(dtype, values, literal) -> None:
+    pytest.importorskip("pyarrow")
+    source = graphistry.nodes(pd.DataFrame({"id": [1, 2], "c": pd.Series(values, dtype=dtype)}), "id")
+    with _declined(ErrorCode.E108, field="c"):
+        source.gfql(f"MATCH (n) WHERE n.id = 1 SET n.c = {literal}", engine="pandas")
 
 
 @pytest.mark.parametrize("engine", ENGINES)

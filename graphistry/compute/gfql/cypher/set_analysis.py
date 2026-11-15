@@ -13,7 +13,6 @@ from graphistry.compute.exceptions import ErrorCode, GFQLValidationError
 from graphistry.compute.gfql.cypher.ast import CypherParams, ExpressionText, SetProperty, SourceSpan
 from graphistry.compute.gfql.cypher.expression_text import cypher_literal_expr_text
 from graphistry.compute.gfql.expr_parser import (
-    CaseWhen,
     ExprNode,
     FunctionCall,
     Identifier,
@@ -22,6 +21,7 @@ from graphistry.compute.gfql.expr_parser import (
     MapLiteral,
     PropertyAccessExpr,
     QuantifierExpr,
+    SubscriptExpr,
     iter_expr_children,
 )
 
@@ -134,18 +134,24 @@ def alias_uses(
 
 
 _MAP_RETURNING_FUNCTIONS = frozenset({"properties"})
+_MAP_CONSUMING_FUNCTIONS = frozenset({"keys"})
 
 
-def _may_return_map(node: ExprNode) -> bool:
-    """Whether the value can be a map (the read path would render it as text), through CASE branches and coalesce."""
-    if isinstance(node, FunctionCall):
-        name = node.name.lower()
-        if name in _MAP_RETURNING_FUNCTIONS:
-            return True
-        return name in {"coalesce", "nullif"} and any(_may_return_map(arg) for arg in node.args)
-    if isinstance(node, CaseWhen):
-        return _may_return_map(node.when_true) or _may_return_map(node.when_false)
-    return False
+def _has_unconsumed_map(node: ExprNode, consumed: bool = False) -> bool:
+    """A map value (map literal or ``properties()``) that is not read by key/property or passed to ``keys()``.
+
+    The read path renders such a map as text, so it would be stored as a string; anywhere in the expression is declined.
+    """
+    is_map = isinstance(node, MapLiteral) or (isinstance(node, FunctionCall) and node.name.lower() in _MAP_RETURNING_FUNCTIONS)
+    if is_map and not consumed:
+        return True
+    if isinstance(node, PropertyAccessExpr):
+        return _has_unconsumed_map(node.value, True)
+    if isinstance(node, SubscriptExpr):
+        return _has_unconsumed_map(node.value, True) or _has_unconsumed_map(node.key)
+    if isinstance(node, FunctionCall) and node.name.lower() in _MAP_CONSUMING_FUNCTIONS:
+        return any(_has_unconsumed_map(arg, True) for arg in node.args)
+    return any(_has_unconsumed_map(child) for child in iter_expr_children(node))
 
 
 def analyze_set_assignment(
@@ -174,7 +180,7 @@ def analyze_set_assignment(
         expression = lowering._parse_row_expr(prepared, field="set", line=span.line, column=span.column)
     except GFQLValidationError as exc:
         raise _decline("GFQL SET cannot analyze this value expression", "unanalyzable_value", span) from exc
-    if isinstance(expression, (ListLiteral, ListComprehension, MapLiteral)) or _may_return_map(expression):
+    if isinstance(expression, (ListLiteral, ListComprehension, MapLiteral)) or _has_unconsumed_map(expression):
         raise _decline("GFQL SET supports ordinary scalar properties only", "non_scalar_value", span)
     if lowering._contains_aggregate_call(expression):
         raise _decline("GFQL SET values cannot use aggregation", "aggregate_value", span)

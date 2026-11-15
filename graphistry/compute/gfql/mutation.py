@@ -52,12 +52,18 @@ def _copy_frame(frame: DataFrameT) -> DataFrameT:
     return frame.copy()
 
 
+# pyarrow-backed pandas dtypes ("int64[pyarrow]", "double[pyarrow]", ...) are declined uniformly: assigning would retype them
 _FAMILY_BY_DTYPE_NAME = re.compile(
     r"^(?:(?P<bool>bool|boolean)"
-    r"|(?P<integer>[Uu]?[Ii]nt(?:8|16|32|64)(?:\[pyarrow\])?)"
-    r"|(?P<float>[Ff]loat(?:16|32|64)(?:\[pyarrow\])?)"
-    r"|(?P<string>string|str|string\[python\]|string\[pyarrow\]|large_string\[pyarrow\]))$"
+    r"|(?P<integer>[Uu]?[Ii]nt(?:8|16|32|64))"
+    r"|(?P<float>[Ff]loat(?:32|64))"
+    r"|(?P<string>string|str|string\[python\]))$"
 )
+
+
+def _polars_integer_widths() -> frozenset["PolarsDType"]:
+    import polars as pl
+    return frozenset({pl.Int8, pl.Int16, pl.Int32, pl.Int64, pl.UInt8, pl.UInt16, pl.UInt32, pl.UInt64})
 
 
 def _frame_family(frame: DataFrameT, column: str) -> str:
@@ -72,9 +78,9 @@ def _frame_family(frame: DataFrameT, column: str) -> str:
         polars_dtype = frame.schema[column]
         if polars_dtype == pl.Boolean:
             return "bool"
-        if polars_dtype.is_integer():
+        if polars_dtype in _polars_integer_widths():
             return "integer"
-        if polars_dtype.is_float():
+        if polars_dtype in {pl.Float32, pl.Float64}:
             return "float"
         if polars_dtype == pl.String:
             return "string"
@@ -551,6 +557,16 @@ def execute_set_properties(
                 update_value = pl.col(SET_VALUE)
                 if target_dtype is not None:
                     update_value = update_value.cast(target_dtype)
+                if target.null_only:
+                    update = values.select(pl.col(SET_IDENTITY), pl.lit(None).alias(new_value), pl.lit(True).alias(matched))
+                    frame = frame.join(update, left_on=key, right_on=SET_IDENTITY, how="left", maintain_order="left")
+                    frame = frame.with_columns(
+                        pl.when(pl.col(matched).fill_null(False))
+                        .then(pl.lit(None, dtype=frame.schema[property_name]))
+                        .otherwise(pl.col(property_name))
+                        .alias(property_name)
+                    ).drop([new_value, matched])
+                    continue  # a null-only update nulls in the column's own dtype, whatever dtype the null value carried
                 update = values.select(
                     pl.col(SET_IDENTITY),
                     update_value.alias(new_value),
