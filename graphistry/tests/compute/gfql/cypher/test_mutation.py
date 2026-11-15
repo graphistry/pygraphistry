@@ -2290,13 +2290,102 @@ def test_set_huge_integer_parameter_fails_structurally(value) -> None:
         compile_cypher_query(parse_cypher("MATCH (n) SET n.p = $v"), params={"v": value})
 
 
-@pytest.mark.parametrize("param", [[1, 2], (1, 2), {"a": 1}, [float("inf")], [float("nan")]])
-def test_set_declines_list_and_map_parameters_anywhere_in_the_value(param) -> None:
-    for text in ("$v", "$v[0]", "head($v)"):
+@pytest.mark.parametrize("param", [[1, 2], (1, 2), {"a": 1}])
+def test_set_declines_a_list_or_map_parameter_that_is_the_whole_value(param) -> None:
+    with pytest.raises(GFQLValidationError) as exc:
+        compile_cypher_query(parse_cypher("MATCH (n) SET n.p = $v"), params={"v": param})
+    assert exc.value.code == ErrorCode.E108
+    assert exc.value.context["value"] == "non_scalar_value"
+
+
+# Wave-6 W6-F1: scalar-valued uses of list/map parameters are admitted and computed; NaN/inf inside them are declined.
+@pytest.mark.parametrize("engine", ENGINES)
+def test_set_admits_scalar_valued_uses_of_list_and_map_parameters(engine) -> None:
+    source = graphistry.nodes(_foundation_frame(engine, {"id": [1, 2, 3]}), "id")
+    result = source.gfql(
+        "MATCH (n) SET n.member = n.id IN $ids, n.count = size($tags), n.k = coalesce($m.k, 0)",
+        engine=engine, params={"ids": [1, 3], "tags": ["a", "b", "c"], "m": {"k": 7}},
+    )
+    assert _set_values(result, "member") == {1: True, 2: False, 3: True}
+    assert _set_values(result, "count") == {1: 3, 2: 3, 3: 3}
+    assert _set_values(result, "k") == {1: 7, 2: 7, 3: 7}
+
+
+@pytest.mark.parametrize("text", ["$v", "n.id IN $v", "$v[0]", "size($v)"])
+@pytest.mark.parametrize("param,value", [
+    ([float("nan")], "nan_property"), ([float("inf")], "non_finite_parameter"),
+    ({"a": [float("-inf")]}, "non_finite_parameter"), ([1, [2, float("nan")]], "nan_property"),
+])
+def test_set_declines_non_finite_numbers_inside_list_and_map_parameters(text, param, value) -> None:
+    with pytest.raises(GFQLValidationError) as exc:
+        compile_cypher_query(parse_cypher(f"MATCH (n) SET n.p = {text}"), params={"v": param})
+    assert exc.value.code == ErrorCode.E108
+    assert exc.value.context["field"] == "set"
+    assert exc.value.context["value"] == value
+
+
+# Wave-6 W6-F2: cypher_to_gfql on a SET query gets a SET-appropriate structured error (CREATE keeps its own).
+def test_cypher_to_gfql_declines_set_and_create_with_their_own_fields() -> None:
+    with pytest.raises(GFQLValidationError) as exc:
+        cypher_to_gfql("MATCH (n) SET n.x = 1")
+    assert exc.value.code == ErrorCode.E108
+    assert exc.value.context["field"] == "set"
+    assert exc.value.context["value"] == "mutation_query"
+    with pytest.raises(GFQLValidationError) as exc:
+        cypher_to_gfql("CREATE (:A)")
+    assert exc.value.context["field"] == "create"
+
+
+# Wave-6 W6-F3: edges-only graphs (bound node key, custom key, RETURN after SET, edges unchanged).
+@pytest.mark.parametrize("engine", ENGINES)
+@pytest.mark.parametrize("node_key", ["id", "vid"])
+def test_set_on_an_edges_only_graph_with_a_bound_node_key(engine, node_key) -> None:
+    frame = _foundation_frame(engine, {"s": [1, 2], "d": [2, 3]})
+    source = graphistry.bind(source="s", destination="d", node=node_key).edges(frame)
+    before_edges = _records(source._edges)
+    result = source.gfql(
+        f"MATCH (n) WHERE n.{node_key} = 2 SET n.x = 5 RETURN n.x AS x", engine=engine,
+    )
+    assert _records(result._nodes) == [{"x": 5}]
+    graph = {row[node_key]: row["x"] for row in _records(result.gfql_graph._nodes)}
+    assert graph == {1: None, 2: 5, 3: None}
+    assert _records(result.gfql_graph._edges) == before_edges
+    assert source._nodes is None and _records(source._edges) == before_edges
+
+
+# Wave-6 W6-F4: executed (not compile-only) shadowing controls, nested binders, validation parity, non-shadow control.
+@pytest.mark.parametrize("engine", ENGINES)
+@pytest.mark.parametrize("expression", [
+    "any(n IN [1, 2] WHERE n > 1)",
+    "all(n IN [1, 2] WHERE n > 0)",
+    "none(n IN [1, 2] WHERE n > 5)",
+    "single(n IN [1, 2] WHERE n > 1)",
+    "[x IN [1] | [n IN [2] | n]][0][0]",
+])
+def test_set_declines_shadowing_through_execution_and_validation(engine, expression) -> None:
+    source = _label_n_graph(engine, [1])
+    before = _records(source._nodes)
+    query = f"MATCH (n:N) SET n.b = {expression}"
+    for entry in (lambda: source.gfql(query, engine=engine), lambda: source.gfql_validate(query)):
         with pytest.raises(GFQLValidationError) as exc:
-            compile_cypher_query(parse_cypher(f"MATCH (n) SET n.p = {text}"), params={"v": param})
-        assert exc.value.code == ErrorCode.E108
-        assert exc.value.context["value"] == "non_scalar_value"
+            entry()
+        assert exc.value.context["value"] == "shadowed_alias"
+    assert _records(source._nodes) == before
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_set_admits_a_comprehension_local_that_does_not_shadow_the_alias(engine) -> None:
+    source = _label_n_graph(engine, [1])
+    result = source.gfql("MATCH (n:N) SET n.b = [t IN [1, 2] | t + n.num][1]", engine=engine)
+    assert _post_graph_nums(result) == [1]
+    assert {row["id"]: row["b"] for row in _records(result._nodes)} == {1: 3}
+
+
+def test_set_huge_integer_parameter_error_is_a_structured_decline() -> None:
+    with pytest.raises(GFQLValidationError) as exc:
+        compile_cypher_query(parse_cypher("MATCH (n) SET n.p = $v"), params={"v": 2 ** 1030})
+    assert exc.value.code == ErrorCode.E108
+    assert exc.value.context["field"] == "set"
 
 
 # Wave-5 W5-F5: the unsupported SET forms and the dead-code guard.
