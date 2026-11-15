@@ -2901,6 +2901,10 @@ def test_set_admits_scalar_reads_through_nested_maps_and_lists(engine, expressio
         with pytest.raises(NotImplementedError, match="does not yet natively support cypher row op"):
             source.gfql(query, engine=engine, params=params)
         return
+    if engine == "cudf" and expression.startswith("head([r IN"):
+        import cudf
+        if int(cudf.__version__.split(".")[0]) < 26:
+            pytest.skip("cuDF < 26: head() over a list comprehension fails in the read pipeline at master too")
     assert [row["t"] for row in _records(source.gfql(query, engine=engine, params=params)._nodes)] == expected
 
 
