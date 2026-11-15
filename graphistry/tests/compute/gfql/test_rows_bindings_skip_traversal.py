@@ -349,3 +349,38 @@ def test_default_engine_twins_stay_per_frame_type(engine):
     assert type(actual._edges) is type(g._edges)
     assert_same_frame(actual._edges, expected._edges, engine)
     assert_same_frame(actual._nodes, expected._nodes, engine)
+
+
+def test_cached_twin_drops_attrs_and_keeps_category_order():
+    import pandas as pd
+
+    query = SHAPES["seeded_undirected_edge_alias"][0]
+    for tenant, categories in (("A", ["x", "y"]), ("B", ["y", "x"])):
+        g = graph("pandas")
+        edges = g._edges.assign(kind=pd.Categorical(["x", "y"] * 4, categories=categories))
+        edges.attrs = {"tenant": tenant}
+        g = g.edges(edges)
+        _assert_matches_traversal(g, query, "pandas", 3)
+        out = _run(g, query, "pandas")._edges
+        with routes_off([ROUTE]):
+            expected = _run(g, query, "pandas")._edges
+        assert list(out["kind"].cat.categories) == categories
+        assert out.attrs == expected.attrs
+
+
+@pytest.mark.parametrize("query_field", ["edge_query", "destination_node_query"])
+def test_query_strings_keep_the_traversal(query_field):
+    g = graph("pandas")
+    g = g.edges(g._edges.assign(mixed=[1, "a", 2, "b", 3, "c", 4, "d"]))
+    query = [n({"id": 99}, name="p"), e_forward(**{query_field: "mixed > 0" if query_field == "edge_query" else "id > 0"}),
+             n(name="q"), rows(), select([("q", "q.id")])]
+
+    def outcome():
+        try:
+            return "rows", len(_run(g, query, "pandas")._nodes)
+        except Exception as error:  # the outcome under test is the error class
+            return type(error), None
+
+    with routes_off([ROUTE]):
+        expected = outcome()
+    assert outcome() == expected

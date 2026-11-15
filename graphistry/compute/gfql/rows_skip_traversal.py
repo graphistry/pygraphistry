@@ -92,6 +92,8 @@ def may_skip_unread_middle_traversal(
         reason = "index policy may serve the traversal"
     elif any(isinstance(op, ASTEdge) and not op.is_simple_single_hop() for op in middle):
         reason = "multi-hop and hop-label output columns depend on the traversed data"
+    elif any(_has_query_string(op) for op in middle):
+        reason = "query strings evaluate only on traversed rows"
     else:
         reason = ""
     record_fast_path_decision(
@@ -99,6 +101,14 @@ def may_skip_unread_middle_traversal(
         reason=reason or "rows rebuilds bindings from the base graph",
     )
     return not reason
+
+
+def _has_query_string(op: ASTObject) -> bool:
+    if isinstance(op, ASTNode):
+        return op.query is not None
+    return isinstance(op, ASTEdge) and any(
+        query is not None for query in (op.edge_query, op.source_node_query, op.destination_node_query)
+    )
 
 
 def run_without_traversal(
@@ -142,7 +152,7 @@ def _zero_row_twin(
     """``g`` with the frames its canonical middle traversal would produce, at zero rows.
 
     The traversal runs once per input schema and plan shape on a zero-row copy of ``g``,
-    outside any caller's index trace, and the frames are reused for later queries.
+    outside any caller's index trace, and fresh copies of its frames serve later queries.
     """
     from graphistry.compute.gfql.index.api import drop_index, suspended_index_trace, with_index_policy
 
@@ -165,14 +175,33 @@ def _zero_row_twin(
             if len(_TWINS) > _TWINS_MAX:
                 _TWINS.popitem(last=False)
     twin = g.bind()
-    twin._nodes, twin._edges = (frame if is_polars_df(frame) else frame.copy(deep=False) for frame in frames)
+    twin._nodes, twin._edges = (_fresh(frame) for frame in frames)
     return twin
 
 
+def _fresh(frame: DataFrameT) -> DataFrameT:
+    """An unshared zero-row copy without the first graph's ``attrs``."""
+    if is_polars_df(frame):
+        return frame
+    copied = frame.copy(deep=True)
+    if hasattr(copied, "attrs"):
+        copied.attrs = {}
+    return copied
+
+
 def _frame_schema(df: DataFrameT) -> FrameSchema:
-    """Column labels and dtype objects; dtype equality covers categories and string storage."""
+    """Typed column labels and dtype objects, with category order for categoricals.
+
+    Label types keep ``1`` and ``True`` apart; unordered categoricals compare equal
+    across category orders, so the order is keyed explicitly.
+    """
     items = df.schema.items() if is_polars_df(df) else df.dtypes.items()
-    return tuple((column, dtype) for column, dtype in items)
+    return tuple(((type(column), column), (dtype, _category_order(dtype))) for column, dtype in items)
+
+
+def _category_order(dtype: object) -> Tuple[object, ...]:
+    categories = getattr(dtype, "categories", None)
+    return () if categories is None else tuple(categories.to_list() if hasattr(categories, "to_list") else categories)
 
 
 def _plan_shape(middle: List[ASTObject]) -> Tuple[object, ...]:
