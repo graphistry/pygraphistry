@@ -7,16 +7,13 @@ Overview of GFQL
    :width: 200px
    :align: center
 
-New to GFQL, the open source dataframe-native graph query language? This article overviews the gaps it fills, special features like GPU accelerations, and where to go next.
+GFQL runs Cypher queries directly on dataframes without a graph database. With
+``engine='polars'``, GFQL runs vectorized dataframe operations in Rust on CPU.
+Use ``engine='polars-gpu'`` for GPU acceleration.
 
-GFQL is the only open-source Cypher implementation that runs in-process on
-dataframes, with no database to install, load, or keep in sync. It brings the
-columnar, vectorized execution model that DuckDB and ClickHouse made standard
-for analytics to graph pattern matching. A query compiles to batched dataframe
-operations over Arrow-backed columns on pandas, Polars, or NVIDIA cuDF. The
-same query therefore runs on a laptop CPU or on a GPU, faster than the graph databases
-it was measured against (see :doc:`performance`), and without the hassle of standing up
-a database to get there.
+A query compiles to batched dataframe operations on pandas, Polars, or NVIDIA cuDF.
+This brings columnar, vectorized execution to graph pattern matching.
+See :doc:`performance` for benchmark comparisons.
 
 
 Why GFQL?
