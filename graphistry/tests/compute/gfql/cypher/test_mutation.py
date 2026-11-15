@@ -2866,6 +2866,19 @@ def test_set_value_read_from_a_non_scalar_dtype_column_is_declined(engine, colum
         source.gfql(f"MATCH (n) SET n.copy = n.{column}", engine=engine)
 
 
+# a map is fine only when read by key/property or passed to keys(); anywhere else the read path would render it as text
+@pytest.mark.parametrize("text,declined", [
+    ("properties(x).k", False), ("{a: 1}['a']", False), ("size(keys({a: 1}))", False), ("{a: 1}.a + 1", False),
+    ("1 + 2", False), ("properties(x)", True), ("head([{a: 1}])", True), ("{a: {b: 1}}.a", True),
+    ("coalesce(properties(x), 1)", True), ("CASE WHEN true THEN properties(x) ELSE 1 END", True),
+    ("keys({a: 1})[0]", False), ("[properties(x)][0]", True), ("{a: 1}[properties(x)]", True),
+])
+def test_unconsumed_map_detection(text, declined) -> None:
+    from graphistry.compute.gfql.cypher.set_analysis import _has_unconsumed_map
+    from graphistry.compute.gfql.expr_parser import parse_expr
+    assert _has_unconsumed_map(parse_expr(text)) is declined
+
+
 @pytest.mark.parametrize("engine", ENGINES)
 def test_set_map_projection_is_a_structured_decline(engine) -> None:
     from graphistry.compute.exceptions import GFQLSyntaxError
