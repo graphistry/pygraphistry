@@ -221,7 +221,9 @@ class _ChatDecisionProvider(HttpDecisionProvider):
     """Shared request shape and answer mapping for chat providers: one question per HTTP request.
 
     A reply that did not finish (cut off at ``max_answer_tokens`` or the context window, or a host error) is not an
-    answer, so the limit is at least 2.
+    answer, so the limit is at least 2. A reply cut off at the answer-token limit before a readable answer is an
+    ``answer_truncated`` error: raise ``max_answer_tokens``, or turn the model's reasoning off, since reasoning tokens
+    count against the limit on most hosts.
     """
 
     def __init__(self, api_key: str, model: str, *, base_url: Optional[str] = None, max_answer_tokens: int = 16,
@@ -264,6 +266,10 @@ class _ChatDecisionProvider(HttpDecisionProvider):
     def reply(self, payload: Mapping[str, object]) -> Reply:
         """The answer text, the generated tokens with their top logprobs (or None), and how the reply ended."""
 
+    @abstractmethod
+    def truncated(self, payload: Mapping[str, object]) -> bool:
+        """Whether the reply stopped at the answer-token limit."""
+
     def results(self, request: DecisionRequest, questions: Sequence[DecisionQuestion], payload: Mapping[str, object],
                 meta: ResponseMeta) -> List[DecisionResult]:
         question = questions[0]
@@ -275,7 +281,8 @@ class _ChatDecisionProvider(HttpDecisionProvider):
         answer = None if codes is None or unfinished else (
             reply_index(text, codes, question) if form == "text" else exact_code_index(text, codes))
         if codes is None or answer is None or answer >= len(labels):
-            return [self.invalid(request, question, meta)]
+            return [self.invalid(request, question, meta,
+                                 "answer_truncated" if self.truncated(payload) else "invalid_provider_result")]
         by_index, mass = label_distribution(answer_alternatives(tokens, codes, answer, text), codes, len(labels))
         if by_index is None:
             return [self.answered(request, question, meta, value=labels[answer], distribution=None, probability_kind="none",
@@ -478,6 +485,8 @@ class OpenAIChatProvider(_ChatDecisionProvider):
                 return strategy
         if self.probe_strategies[-1] == "text" and payload is not None and _plain_chat(payload):
             return "text"
+        if last_failure is None and payload is not None and self.truncated(payload):
+            raise RequestFailure("answer_truncated", 0, 0.0)
         if last_failure is not None:
             raise last_failure
         return None
@@ -539,6 +548,11 @@ class OpenAIChatProvider(_ChatDecisionProvider):
         if self.strategy_in_use not in ("logprobs", "text") and found.form != strategy_form(self.strategy_in_use):
             return Reply(None, None, found.refused, found.unfinished, found.form)
         return found
+
+    def truncated(self, payload: Mapping[str, object]) -> bool:
+        choices = payload.get("choices")
+        choice = choices[0] if isinstance(choices, list) and choices and isinstance(choices[0], dict) else {}
+        return choice.get("finish_reason") in ("length", "model_length")
 
     def strategy_reply(self, payload: Mapping[str, object], strategy: Strategy) -> Reply:
         choices = payload.get("choices")
@@ -692,6 +706,9 @@ class AnthropicMessagesProvider(_ChatDecisionProvider):
                           cached_input=token_count(usage.get("cache_read_input_tokens")),
                           cache_write=token_count(usage.get("cache_creation_input_tokens")),
                           output=token_count(usage.get("output_tokens")))
+
+    def truncated(self, payload: Mapping[str, object]) -> bool:
+        return payload.get("stop_reason") == "max_tokens"
 
     def reply(self, payload: Mapping[str, object]) -> Reply:
         content = payload.get("content")
