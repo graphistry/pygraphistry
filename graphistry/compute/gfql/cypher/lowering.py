@@ -9384,7 +9384,7 @@ def _prepare_set_param_text(
                 )
             if (
                 token is not None and isinstance(supplied, (int, float))
-                and not isinstance(supplied, bool) and supplied < 0
+                and not isinstance(supplied, bool) and math.copysign(1.0, supplied) < 0
             ):
                 out.append(f"({cypher_literal_expr_text(supplied)})")
                 idx = token.end()
@@ -9428,32 +9428,44 @@ def _analyze_set_value(
 
 def _set_alias_uses(
     expression: ExprNode, aliases: Mapping[str, object]
-) -> tuple[set[tuple[str, str]], bool]:
-    """Property reads of the SET aliases, and whether an alias appears anywhere but as a direct property access.
+) -> tuple[set[tuple[str, str]], bool, set[str]]:
+    """Property reads of the SET aliases, whether an alias is used other than as ``alias.property``, and unbound names.
 
-    The alias is allowed only as ``alias.property``; every other occurrence (inside a list, map, subscript,
-    comprehension or function call) is a whole-entity read that SET cannot evaluate faithfully.
+    Fails closed: the alias is allowed only as a direct property access, a name bound by an enclosing
+    comprehension or quantifier is local, and any other identifier is unbound and reported.
     """
     reads: set[tuple[str, str]] = set()
+    unbound: set[str] = set()
     whole_entity = False
 
-    def visit(node: ExprNode) -> None:
+    def visit(node: ExprNode, bound: frozenset[str]) -> None:
         nonlocal whole_entity
         if isinstance(node, PropertyAccessExpr) and isinstance(node.value, Identifier) and node.value.name in aliases:
             reads.add((node.value.name, node.property))
             return
         if isinstance(node, Identifier):
-            alias, dot, remainder = node.name.partition(".")
-            if dot and alias in aliases:
-                reads.add((alias, remainder.split(".")[0]))
+            root, dot, remainder = node.name.partition(".")
+            if root in bound:
+                return
+            if dot and root in aliases:
+                reads.add((root, remainder.split(".")[0]))
             elif node.name in aliases:
                 whole_entity = True
+            else:
+                unbound.add(node.name)
+            return
+        if isinstance(node, (ListComprehension, QuantifierExpr)):
+            visit(node.source, bound)
+            inner = bound | {node.var}
+            for child in (node.predicate, getattr(node, "projection", None)):
+                if child is not None:
+                    visit(child, inner)
             return
         for child in iter_expr_children(node):
-            visit(child)
+            visit(child, bound)
 
-    visit(expression)
-    return reads, whole_entity
+    visit(expression, frozenset())
+    return reads, whole_entity, unbound
 
 
 def compile_cypher_query(
@@ -9550,7 +9562,21 @@ def compile_cypher_query(
                         value="non_scalar_value",
                         span=assignment.span,
                     )
-                property_reads, whole_entity_read = _set_alias_uses(set_value_expr, alias_kinds)
+                if _contains_aggregate_call(set_value_expr):
+                    raise _unsupported_at_span(
+                        "GFQL SET values cannot use aggregation",
+                        field="set",
+                        value="aggregate_value",
+                        span=assignment.span,
+                    )
+                property_reads, whole_entity_read, unbound_names = _set_alias_uses(set_value_expr, alias_kinds)
+                if unbound_names:
+                    raise _unsupported_at_span(
+                        "GFQL SET values may use only the matched node's properties and locally bound names",
+                        field="set",
+                        value="unbound_variable",
+                        span=assignment.span,
+                    )
                 if whole_entity_read:
                     raise _unsupported_at_span(
                         "GFQL SET may read the matched entity only through direct property access (alias.property)",

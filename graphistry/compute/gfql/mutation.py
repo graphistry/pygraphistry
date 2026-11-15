@@ -101,6 +101,21 @@ def _assignment_value_family(frame: DataFrameT, column: str) -> str:
     return _frame_family(frame, column)
 
 
+def _require_unique_identity(frame: DataFrameT, key: str, entity: str) -> None:
+    """Reject null or repeated physical identities before any effect, like CREATE does."""
+    if is_polars_df(frame):
+        import polars as pl
+        assert isinstance(frame, pl.DataFrame)
+        invalid = bool(frame[key].is_null().any()) or frame[key].n_unique() != frame.height
+    else:
+        invalid = bool(frame[key].isna().any()) or bool(frame[key].duplicated().any())
+    if invalid:
+        raise GFQLMutationError(
+            ErrorCode.E105, f"SET requires unique non-null {entity} physical identities",
+            field=key, value="invalid_identity", language="cypher",
+        )
+
+
 SET_IDENTITY = "__gfql_set_identity__"
 SET_VALUE = "__gfql_set_value__"
 
@@ -470,6 +485,7 @@ def execute_set_properties(
                 f"SET cannot rekey physical identity column {key!r}",
                 field=key, value="physical_identity", language="cypher",
             )
+        _require_unique_identity(frame, key, alias_kind_map[alias])
     combined_updates: dict[str, dict[str, DataFrameT]] = {}
     for alias, source_properties in updates.items():
         if empty_match:
