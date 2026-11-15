@@ -2101,6 +2101,9 @@ Anthropic structured answers
 ``output_config.format``. ``strategy='tool'`` requests one tool named ``answer`` with the same
 schema. Both validate the returned code and return no distribution or probability. Metadata
 records ``answer_strategy`` and ``semantic_level``. ``strategy='text'`` remains the default.
+A model that writes prose before its answer code can run into the answer-token limit under ``text``
+(``answer_truncated``); ``json_schema`` constrains the reply to the code and avoids that, and the schema
+adds input tokens to every request.
 The selected strategy controls format/tool fields in ``extra_body``; other ``output_config``
 settings are retained. The cost estimate includes the selected schema or tool payload.
 
