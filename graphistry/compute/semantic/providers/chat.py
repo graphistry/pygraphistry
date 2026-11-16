@@ -35,7 +35,8 @@ Strategy = Literal["logprobs", "json_schema", "tool", "text", "auto", "json_mode
 ReplyForm = Literal["text", "json_schema", "tool", "function", "code"]
 AnthropicStrategy = Literal["text", "json_schema", "tool"]
 DEFAULT_PROBE_STRATEGIES: Tuple[Strategy, ...] = ("logprobs", "json_schema", "tool", "text")
-DEFAULT_ANSWER_TOKENS, DEFAULT_CALL_ANSWER_TOKENS = 16, 64  # a tool or function call spends tokens on its wrapper
+ANSWER_MARKER = re.compile(r"\banswer(?:\s+is\b|\s*:)\s*", re.IGNORECASE)
+DEFAULT_ANSWER_TOKENS = 256  # a guard against runaway replies, with room for a sentence or a call wrapper
 STRATEGIES: Tuple[str, ...] = get_args(Strategy)
 NOT_CAPABILITY_ERRORS = ("http_401", "http_403", "http_407", "http_408", "http_409", "http_429")
 PROBE_TTL_S = 3600.0
@@ -44,6 +45,7 @@ PROBE_REQUEST = DecisionRequest(
     questions=(DecisionQuestion(id="probe", kind="predicate", text="Is the evidence about the sky?"),))
 Admit = Callable[[object], bool]
 _SPECIAL_TOKEN = re.compile(r"<[^<>]+>|\[[^\[\]\s]+\]")
+_REASONING_BLOCK = re.compile(r"\s*<(reasoning|think|thinking)>.*?</\1>", re.DOTALL)
 _probed: Dict[Tuple[str, ...], Tuple[float, Strategy]] = {}
 _probe_locks: Dict[Tuple[str, ...], threading.Lock] = {}
 _probe_guard = threading.Lock()
@@ -105,26 +107,53 @@ def shown_labels(question: DecisionQuestion) -> List[str]:
 
 
 def reply_index(text: object, codes: str, question: DecisionQuestion) -> Optional[int]:
-    """The answer index of a reply: a code alone, or a code followed by its own label (``"A. yes"``) when that label
-    names no other option (case and a trailing dot are ignored); else None."""
-    index = code_index(text, codes)
+    """The answer index of a reply: a code alone, a code followed by its own label (``"A. yes"``), or a label alone
+    (``"yes"``). A reply that is otherwise not an answer is also read when its last line, after a blank line, is one
+    of those, or when it ends with a code after ``answer:`` or ``answer is``. Else None."""
+    index = _line_index(text, codes, question)
     if index is not None or not isinstance(text, str):
+        return index
+    head, gap, last = text.rstrip().rpartition("\n\n")
+    if gap and reply_index(head, codes, question) is None:
+        index = _line_index(last, codes, question)
+    marked = ANSWER_MARKER.split(text)
+    if index is None and len(marked) > 1 and reply_index("".join(marked[:-1]), codes, question) is None:
+        return _coded_index(marked[-1].strip().strip("*"), codes, question)
+    return index
+
+
+def _line_index(text: object, codes: str, question: DecisionQuestion) -> Optional[int]:
+    index = _coded_index(text, codes, question)
+    return label_index(text.strip(), question) if index is None and isinstance(text, str) else index
+
+
+def _coded_index(text: object, codes: str, question: DecisionQuestion) -> Optional[int]:
+    index = code_index(text, codes)
+    if not isinstance(text, str) or (index is not None and index < len(answer_labels(question))):
         return index
     stripped = text.strip()
     rest = stripped[1:].lstrip()
-    if not rest or rest[0] not in ".):":
+    index = code_index(stripped[:1], codes)
+    if rest and rest[0] in ".):-" and index is not None and index < len(answer_labels(question)):
+        return index if label_index(rest[1:], question) == index else None
+    return None
+
+
+def label_index(text: object, question: DecisionQuestion) -> Optional[int]:
+    """The answer index of text that is one answer label and names no other option (case and a trailing dot are
+    ignored; a predicate also takes ``y`` and ``n``), else None."""
+    if not isinstance(text, str):
         return None
-    index, shown = code_index(stripped[0], codes), shown_labels(question)
-    bare = ["yes", "no"] if question.kind == "predicate" else list(question.labels() or ())
-    if index is None or index >= len(shown):
-        return None
-    echoed = rest[1:].strip().lower()
+    shown, said = shown_labels(question), text.strip().lower()
+    short = question.kind == "predicate"
+    bare = ["yes", "no"] if short else list(question.labels() or ())
 
     def names(position: int) -> bool:
-        labels = (shown[position].lower(), bare[position].lower())
-        return echoed in labels or (echoed.endswith(".") and echoed[:-1].rstrip() in labels)
+        labels = (shown[position].lower(), bare[position].lower()) + (("yn"[position],) if short else ())
+        return said in labels or (said.endswith(".") and said[:-1].rstrip() in labels)
 
-    return index if [position for position in range(len(shown)) if names(position)] == [index] else None
+    found = [position for position in range(len(shown)) if names(position)]
+    return found[0] if len(found) == 1 else None
 
 
 def code_index(text: object, codes: str) -> Optional[int]:
@@ -160,16 +189,25 @@ def reply_tokens(tokens: object, text: object) -> Optional[List[Dict[str, object
     return None
 
 
-def answer_alternatives(tokens: object, codes: str, index: int, text: object) -> List[object]:
+def token_index(token: object, codes: str, question: Optional[DecisionQuestion]) -> Optional[int]:
+    """The answer index a token spells: its code, or with a question also its label."""
+    index = code_index(token, codes)
+    if question is None or (index is not None and index < len(answer_labels(question))):
+        return index
+    return label_index(_spelled(token), question)
+
+
+def answer_alternatives(tokens: object, codes: str, index: int, text: object,
+                        question: Optional[DecisionQuestion] = None) -> List[object]:
     """The answer token with its top alternatives: the first token of the tokens that spell the reply, when it spells
     the answer. A bare-code reply whose tokens do not spell it falls back to the last token spelling the answer; a
-    reply that echoes its label then has no alternatives."""
+    reply that echoes its label then has no alternatives. With a question, a token may spell the answer's label."""
     span = reply_tokens(tokens, text)
     if span is None and code_index(text, codes) is None:
         return []
     candidates = span[:1] if span is not None else list(reversed(tokens if isinstance(tokens, list) else []))
     for token in candidates:
-        if isinstance(token, dict) and code_index(token.get("token"), codes) == index:
+        if isinstance(token, dict) and token_index(token.get("token"), codes, question) == index:
             alternatives = token.get("top_logprobs")
             return (list(alternatives) if isinstance(alternatives, list) else []) + [token]
     return []
@@ -183,10 +221,11 @@ def _probability(entry: object) -> Optional[float]:
     return probability if probability > 0 else None
 
 
-def label_distribution(entries: Sequence[object], codes: str, labels: int) -> Tuple[Optional[Dict[int, float]], float]:
+def label_distribution(entries: Sequence[object], codes: str, labels: int,
+                       question: Optional[DecisionQuestion] = None) -> Tuple[Optional[Dict[int, float]], float]:
     """``(probability by answer index, observed label mass)`` from the answer token's alternatives.
 
-    Surface variants of a code are summed. With every label observed the distribution is normalized over them;
+    Surface variants of a code are summed; with a question, so are tokens that spell a label. With every label observed the distribution is normalized over them;
     otherwise each observed label is divided by the observed mass plus all the mass the host did not return, a
     lower bound that cannot overstate it. Fewer than two observed labels is not a measurement: no distribution.
     """
@@ -200,7 +239,7 @@ def label_distribution(entries: Sequence[object], codes: str, labels: int) -> Tu
             continue
         seen.add(token)
         returned += probability
-        index = code_index(token, codes)
+        index = token_index(token, codes, question)
         if index is not None and index < labels:
             mass[index] = mass.get(index, 0.0) + probability
     observed = sum(mass.values())
@@ -216,6 +255,7 @@ class Reply(NamedTuple):
     refused: bool
     unfinished: bool
     form: ReplyForm = "text"
+    ignored: bool = False
 
 
 class _ChatDecisionProvider(HttpDecisionProvider):
@@ -232,10 +272,10 @@ class _ChatDecisionProvider(HttpDecisionProvider):
                  extra_body: Optional[JSONObject] = None, extra_headers: Optional[Dict[str, str]] = None,
                  prices: Optional[TokenPrices] = None, concurrency_limit: int = 4, timeout_s: float = 60,
                  max_retries: int = 3, retry_backoff_s: float = 0.5, session: Optional[HttpPoster] = None,
-                 name: Optional[str] = None) -> None:
+                 name: Optional[str] = None, reply_retries: int = 2) -> None:
         super().__init__(api_key, model, base_url=base_url, prices=prices, concurrency_limit=concurrency_limit,
                          timeout_s=timeout_s, max_retries=max_retries, retry_backoff_s=retry_backoff_s,
-                         session=session, name=name)
+                         session=session, name=name, reply_retries=reply_retries)
         if max_answer_tokens is not None and (isinstance(max_answer_tokens, bool)
                                               or not isinstance(max_answer_tokens, int) or max_answer_tokens < 2):
             raise ValueError(f"max_answer_tokens must be an int >= 2, got {max_answer_tokens!r}")
@@ -243,10 +283,8 @@ class _ChatDecisionProvider(HttpDecisionProvider):
         self.extra_body = dict(extra_body or {})
         self.extra_headers = dict(extra_headers or {})
 
-    def answer_tokens(self, strategy: str) -> int:
-        if self.max_answer_tokens is not None:
-            return self.max_answer_tokens
-        return DEFAULT_CALL_ANSWER_TOKENS if strategy in ("tool", "function") else DEFAULT_ANSWER_TOKENS
+    def answer_tokens(self) -> int:
+        return DEFAULT_ANSWER_TOKENS if self.max_answer_tokens is None else self.max_answer_tokens
 
     def capabilities(self) -> ProviderCapabilities:
         return ProviderCapabilities(supports_native_probabilities=False, max_questions_per_request=1,
@@ -281,7 +319,7 @@ class _ChatDecisionProvider(HttpDecisionProvider):
     def results(self, request: DecisionRequest, questions: Sequence[DecisionQuestion], payload: Mapping[str, object],
                 meta: ResponseMeta) -> List[DecisionResult]:
         question = questions[0]
-        text, tokens, refused, unfinished, form = self.reply(payload)
+        text, tokens, refused, unfinished, form, ignored = self.reply(payload)
         if refused:
             return [self.answered(request, question, meta, value=None, distribution=None, probability_kind="none",
                                   reason="refusal")]
@@ -289,9 +327,10 @@ class _ChatDecisionProvider(HttpDecisionProvider):
         answer = None if codes is None or unfinished else (
             reply_index(text, codes, question) if form == "text" else exact_code_index(text, codes))
         if codes is None or answer is None or answer >= len(labels):
-            return [self.invalid(request, question, meta,
-                                 "answer_truncated" if self.truncated(payload) else "invalid_provider_result")]
-        by_index, mass = label_distribution(answer_alternatives(tokens, codes, answer, text), codes, len(labels))
+            return [self.invalid(request, question, meta, "answer_truncated" if self.truncated(payload) else (
+                "unsupported_strategy" if ignored and not unfinished else "invalid_provider_result"))]
+        spoken = question if form == "text" and code_index(text, codes) != answer and label_index(text, question) == answer else None
+        by_index, mass = label_distribution(answer_alternatives(tokens, codes, answer, text, spoken), codes, len(labels), spoken)
         if by_index is None:
             return [self.answered(request, question, meta, value=labels[answer], distribution=None, probability_kind="none",
                                   extra=self.answer_extra(form))]
@@ -314,9 +353,8 @@ class OpenAIChatProvider(_ChatDecisionProvider):
 
     ``top_logprobs`` is how many alternatives the API returns for the answer token (hosts cap it, some at 5; 0 asks
     for none, for hosts without logprobs). ``max_tokens_field`` names the answer-length limit (``"max_tokens"`` on
-    Mistral and Fireworks) and ``max_answer_tokens`` its value (at least 2; unset, it is 16, or 64 for the ``tool``
-    and ``function`` strategies, whose call wrapper spends tokens; leave room for models that emit a few tokens before
-    the code). ``extra_body`` and ``extra_headers`` add host fields, for example
+    Mistral and Fireworks) and ``max_answer_tokens`` its value (at least 2; unset, it is 256, which leaves
+    room for a sentence before the code or a call wrapper; lower it to bound output tokens). ``extra_body`` and ``extra_headers`` add host fields, for example
     ``{"reasoning_effort": "none"}``. ``extra_body`` cannot replace the fields the provider sets; ``extra_headers``
     are sent last, so they can replace a header such as the API version.
 
@@ -357,11 +395,11 @@ class OpenAIChatProvider(_ChatDecisionProvider):
                  extra_body: Optional[JSONObject] = None,
                  extra_headers: Optional[Dict[str, str]] = None, prices: Optional[TokenPrices] = None,
                  concurrency_limit: int = 4, timeout_s: float = 60, max_retries: int = 3, retry_backoff_s: float = 0.5,
-                 session: Optional[HttpPoster] = None, name: Optional[str] = None) -> None:
+                 session: Optional[HttpPoster] = None, name: Optional[str] = None, reply_retries: int = 2) -> None:
         super().__init__(api_key, model, base_url=base_url, max_answer_tokens=max_answer_tokens, extra_body=extra_body,
                          extra_headers=extra_headers, prices=prices, concurrency_limit=concurrency_limit,
                          timeout_s=timeout_s, max_retries=max_retries, retry_backoff_s=retry_backoff_s,
-                         session=session, name=name)
+                         session=session, name=name, reply_retries=reply_retries)
         if isinstance(top_logprobs, bool) or not isinstance(top_logprobs, int) or top_logprobs < 0:
             raise ValueError(f"top_logprobs must be an int >= 0, got {top_logprobs!r}")
         if strategy not in STRATEGIES:
@@ -479,7 +517,7 @@ class OpenAIChatProvider(_ChatDecisionProvider):
                     deadline_at=deadline_at, timeout_s=self.timeout_s, max_retries=self.max_retries,
                     backoff_s=self.retry_backoff_s, session=self._session)
             except RequestFailure as failure:
-                if strategy != "text" and failure.error_code.startswith("http_4") \
+                if strategy != "text" and failure.error_code.startswith(("http_4", "http_501")) \
                         and failure.error_code not in NOT_CAPABILITY_ERRORS:
                     last_failure = failure
                     continue
@@ -540,7 +578,7 @@ class OpenAIChatProvider(_ChatDecisionProvider):
         return {**extras, "model": self.model, "messages": [
                     {"role": "system", "content": system},
                     {"role": "user", "content": letter_prompt(request.evidence, question)}],
-                self.max_tokens_field: self.answer_tokens(strategy), **answer}
+                self.max_tokens_field: self.answer_tokens(), **answer}
 
     def usage(self, payload: Mapping[str, object]) -> Optional[TokenUsage]:
         usage = payload.get("usage")
@@ -555,7 +593,8 @@ class OpenAIChatProvider(_ChatDecisionProvider):
     def reply(self, payload: Mapping[str, object]) -> Reply:
         found = self.strategy_reply(payload, self.strategy_in_use)
         if self.strategy_in_use not in ("logprobs", "text") and found.form != strategy_form(self.strategy_in_use):
-            return Reply(None, None, found.refused, found.unfinished, found.form)
+            return Reply(None, None, found.refused, found.unfinished, found.form,
+                         found.form == "text" and _said(found.text))
         return found
 
     def truncated(self, payload: Mapping[str, object]) -> bool:
@@ -571,7 +610,7 @@ class OpenAIChatProvider(_ChatDecisionProvider):
         logprobs = choice.get("logprobs")
         refused = bool(message.get("refusal")) or choice.get("finish_reason") == "content_filter"
         unfinished = choice.get("finish_reason") in ("length", "model_length", "error")
-        content = message.get("content")
+        content = _without_reasoning(message.get("content"))
         function, calls = message.get("function_call"), message.get("tool_calls")
         foreign_function = function is not None and strategy != "function"
         foreign_tools = calls is not None and calls != [] and strategy != "tool"
@@ -584,11 +623,27 @@ class OpenAIChatProvider(_ChatDecisionProvider):
         if isinstance(calls, list) and calls:
             answers = {json.dumps(_tool_answer(call), default=str) for call in calls}
             return Reply(_tool_answer(calls[0]) if len(answers) == 1 else None, None, refused, unfinished, "tool")
-        content = message.get("content")
         if isinstance(content, str) and content.lstrip().startswith("{"):
             return Reply(_json_answer(content), None, refused, unfinished, "json_schema")
         tokens = logprobs.get("content") if isinstance(logprobs, dict) and strategy == "logprobs" else None
         return Reply(content, tokens, refused, unfinished)
+
+
+def _without_reasoning(content: object) -> object:
+    """Message text without a leading reasoning block, which some hosts put in front of the answer."""
+    block = _REASONING_BLOCK.match(content) if isinstance(content, str) else None
+    return content[block.end():] if block is not None and isinstance(content, str) else content
+
+
+def _said(text: object) -> bool:
+    """Whether a reply is plain text rather than JSON: an answer written out where a structured one was requested."""
+    if not isinstance(text, str) or text.strip() == "":
+        return False
+    try:
+        value = json.loads(text)
+    except ValueError:
+        return True
+    return isinstance(value, (int, float)) and not isinstance(value, bool)
 
 
 def exact_code_index(text: object, codes: str) -> Optional[int]:
@@ -661,11 +716,11 @@ class AnthropicMessagesProvider(_ChatDecisionProvider):
                  extra_body: Optional[JSONObject] = None, extra_headers: Optional[Dict[str, str]] = None,
                  prices: Optional[TokenPrices] = None, concurrency_limit: int = 4, timeout_s: float = 60,
                  max_retries: int = 3, retry_backoff_s: float = 0.5, session: Optional[HttpPoster] = None,
-                 name: Optional[str] = None) -> None:
+                 name: Optional[str] = None, reply_retries: int = 2) -> None:
         super().__init__(api_key, model, base_url=base_url, max_answer_tokens=max_answer_tokens, extra_body=extra_body,
                          extra_headers=extra_headers, prices=prices, concurrency_limit=concurrency_limit,
                          timeout_s=timeout_s, max_retries=max_retries, retry_backoff_s=retry_backoff_s,
-                         session=session, name=name)
+                         session=session, name=name, reply_retries=reply_retries)
         if strategy not in get_args(AnthropicStrategy):
             raise ValueError("strategy must be text, json_schema or tool")
         self.strategy = strategy
@@ -692,7 +747,7 @@ class AnthropicMessagesProvider(_ChatDecisionProvider):
                                       "input_schema": schema}],
                            "tool_choice": {"type": "tool", "name": "answer"}})
         system = SYSTEM_PROMPT + (JSON_INSTRUCTION if self.strategy == "json_schema" else "")
-        return {**extras, "model": self.model, "max_tokens": self.answer_tokens(self.strategy), "system": system,
+        return {**extras, "model": self.model, "max_tokens": self.answer_tokens(), "system": system,
                 "messages": [{"role": "user", "content": letter_prompt(request.evidence, question)}]}
 
     def prompt_texts(self, request: DecisionRequest, questions: Sequence[DecisionQuestion]) -> List[str]:
@@ -735,7 +790,8 @@ class AnthropicMessagesProvider(_ChatDecisionProvider):
         if self.strategy == "json_schema":
             text = "".join(part for part in texts if isinstance(part, str))
             value = _json_answer(text) if not tools and all(isinstance(part, str) for part in texts) else None
-            return Reply(value, None, refused, unfinished, "json_schema")
+            return Reply(value, None, refused, unfinished, "json_schema", not tools and _said(text))
         value = _answer_field(tools[0].get("input")) if len(tools) == 1 \
             and tools[0].get("type") == "tool_use" and tools[0].get("name") == "answer" else None
-        return Reply(value, None, refused, unfinished, "tool")
+        said = "".join(part for part in texts if isinstance(part, str))
+        return Reply(value, None, refused, unfinished, "tool", not tools and _said(said))

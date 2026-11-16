@@ -1,5 +1,6 @@
 import json
 import math
+import time
 from typing import Dict, List, Optional
 
 import requests
@@ -120,7 +121,7 @@ class TestOpenAIChat:
         assert p_result.probability_kind == "token_logprob" and p_result.extra["label_mass"] == pytest.approx(0.9)  # type: ignore[index]
         assert (p_result.model, p_result.cache_hit, p_result.cost_usd) == ("served-m", True, pytest.approx(80 / 1e6))
         body = session.posts[0]["json"]
-        assert body["max_completion_tokens"] == 16 and body["logprobs"] is True and body["top_logprobs"] == 5  # type: ignore[index]
+        assert body["max_completion_tokens"] == 256 and body["logprobs"] is True and body["top_logprobs"] == 5  # type: ignore[index]
         assert body["messages"][0]["role"] == "system" and "k-secret" not in str(body)  # type: ignore[index]
         assert session.posts[0]["headers"]["Authorization"] == "Bearer k-secret"  # type: ignore[index]
         assert session.posts[0]["url"] == "https://api.openai.com/v1/chat/completions" and len(session.posts) == 3
@@ -206,9 +207,8 @@ class TestOpenAIChat:
             openai(FakeSession([]), **options)
         assert openai(FakeSession([]), max_answer_tokens=2, top_logprobs=0).max_answer_tokens == 2
 
-    @pytest.mark.parametrize("strategy,limit", [("logprobs", 16), ("text", 16), ("json_schema", 16), ("tool", 64),
-                                                ("function", 64)])
-    def test_call_forms_get_room_for_their_wrapper(self, strategy: str, limit: int) -> None:
+    @pytest.mark.parametrize("strategy", ["logprobs", "text", "json_schema", "tool", "function"])
+    def test_every_strategy_gets_the_default_answer_limit_unless_set(self, strategy: str, limit: int = 256) -> None:
         req = request((PRED,))
         assert openai(FakeSession([])).strategy_body(req, PRED, strategy)["max_completion_tokens"] == limit
         assert openai(FakeSession([]), max_answer_tokens=8).strategy_body(req, PRED, strategy)["max_completion_tokens"] == 8
@@ -260,7 +260,7 @@ class TestOpenAIChat:
         assert post["headers"]["api-key"] == "k-secret" and post["headers"]["X-Project"] == "p"  # type: ignore[index]
         assert "Authorization" not in post["headers"]  # type: ignore[operator]
         body = post["json"]
-        assert body["max_tokens"] == 16 and body["reasoning_effort"] == "none" and "logprobs" not in body  # type: ignore[index,operator]
+        assert body["max_tokens"] == 256 and body["reasoning_effort"] == "none" and "logprobs" not in body  # type: ignore[index,operator]
 
     def test_through_the_kernel_one_request_per_row_and_question(self) -> None:
         session = FakeSession([chat_reply("A", top(A=0.8, B=0.2))])
@@ -331,7 +331,7 @@ class TestAnthropic:
                                              extra_body={"model": "other", "max_tokens": 999, "temperature": 0})
         checked(provider, request((PRED,)))
         body, headers = session.posts[0]["json"], session.posts[0]["headers"]
-        assert (body["model"], body["max_tokens"], body["temperature"]) == ("claude-x", 16, 0)  # type: ignore[index]
+        assert (body["model"], body["max_tokens"], body["temperature"]) == ("claude-x", 256, 0)  # type: ignore[index]
         assert headers["anthropic-version"] == "v2"  # type: ignore[index]
 
 
@@ -364,6 +364,77 @@ class TestFallbacks:
                                                            value: object) -> None:
         result = checked(openai(FakeSession([chat_reply(text)])), request((question,)))[0]
         assert (result.status, result.value) == ("ok", value)
+
+    @pytest.mark.parametrize("question,text,value", [
+        (PRED, "yes", True), (PRED, "No.", False), (PRED, " NO\n", False), (CHOICE, "Tech", "tech"), (SCORE, "high", "high"),
+        (SCORE, "low (lowest)", "low"), (PRED, "n", False), (PRED, "Y.", True), (PRED, "B. n", False)])
+    def test_a_label_alone_is_an_answer(self, question: DecisionQuestion, text: str, value: object) -> None:
+        result = checked(openai(FakeSession([chat_reply(text)])), request((question,)))[0]
+        assert (result.status, result.value) == ("ok", value)
+        claude = AnthropicMessagesProvider("k", "claude-x", session=FakeSession([anthropic_reply(text)]))
+        assert checked(claude, request((question,)))[0].value == value
+
+    @pytest.mark.parametrize("question,text", [
+        (PRED, "t"), (PRED, "A. n"), (CHOICE, "t"), (SCORE, "l"), (PRED, "yes it is"), (PRED, "yes\nbecause it is"), (PRED, "maybe"), (CHOICE, "yes"), (CHOICE, "tec"),
+        (DecisionQuestion(id="c", kind="choice", text="Which?", options=("yes", "Yes")), "Yes")])
+    def test_text_that_is_not_exactly_one_label_is_an_error(self, question: DecisionQuestion, text: str) -> None:
+        result = checked(openai(FakeSession([chat_reply(text)])), request((question,)))[0]
+        assert (result.status, result.error_code) == ("error", "invalid_provider_result")
+
+    def test_a_label_reply_takes_probabilities_from_label_and_code_tokens(self) -> None:
+        alternatives = top(no=0.5, yes=0.2, B=0.1, n=0.1, We=0.05)
+        for text in ("no", "n"):
+            spoken = token_reply(text, [{"token": text, "logprob": math.log(0.5), "top_logprobs": alternatives}])
+            result = checked(openai(FakeSession([spoken])), request((PRED,)))[0]
+            assert result.value is False and result.distribution == pytest.approx({"true": 0.2 / 0.9, "false": 0.7 / 0.9})
+        coded = checked(openai(FakeSession([chat_reply("B", top(B=0.6, A=0.2, yes=0.1))])), request((PRED,)))[0]
+        assert coded.distribution == pytest.approx({"true": 0.25, "false": 0.75})
+
+    @pytest.mark.parametrize("text", ["<reasoning>The box is fine, so A... no, B.</reasoning>B",
+                                      "<think>\nline one\nline two\n</think>\n\nB", " <thinking>x</thinking> B. no"])
+    def test_a_leading_reasoning_block_is_not_part_of_the_answer(self, text: str) -> None:
+        assert checked(openai(FakeSession([chat_reply(text)])), request((PRED,)))[0].value is False
+        session = FakeSession([chat_reply('<reasoning>x</reasoning>{"answer": "B"}')])
+        assert checked(openai(session, strategy="json_schema"), request((CHOICE,)))[0].value == "tech"
+
+    @pytest.mark.parametrize("text", ["The box is fine.\n\nB", "It arrived.\nNothing is wrong.\n\nB. no", "x\n\nno\n",
+                                      "x\n\n\n\nn.", "x\n\nB\n\n", "<think>x</think>Looks fine.\n\nB"])
+    def test_an_answer_on_the_last_line_after_a_blank_line_is_read(self, text: str) -> None:
+        result = checked(openai(FakeSession([chat_reply(text, top(B=0.6, A=0.3))])), request((PRED,)))[0]
+        assert (result.value, result.distribution, result.probability_kind) == (False, None, "none")
+        claude = AnthropicMessagesProvider("k", "claude-x", session=FakeSession([anthropic_reply(text)]))
+        assert checked(claude, request((PRED,)))[0].value is False
+
+    @pytest.mark.parametrize("text", ["Answer: B", "It names another host. The correct answer is B.", "B - no",
+                                      "Reasoning: x\n\nAnswer: B. no", "the answer is **B**", "ANSWER:B\n"])
+    def test_a_code_after_an_answer_marker_or_with_a_dash_is_read(self, text: str) -> None:
+        result = checked(openai(FakeSession([chat_reply(text, top(B=0.6, A=0.3))])), request((PRED,)))[0]
+        assert (result.value, result.distribution, result.probability_kind) == (False, None, "none")
+        claude = AnthropicMessagesProvider("k", "claude-x", session=FakeSession([anthropic_reply(text)]))
+        assert checked(claude, request((PRED,)))[0].value is False
+
+    @pytest.mark.parametrize("text", ["The answer is not B", "A\nAnswer: B", "Answer: A or B", "The answer is B, I think",
+                                      "Answer: C", "x\nB - yes", "The investigator's answer is no", "Answer: B\nA",
+                                      "B answers it", "Answer:", "B - yes"])
+    def test_other_text_around_an_answer_marker_is_an_error(self, text: str) -> None:
+        result = checked(openai(FakeSession([chat_reply(text)])), request((PRED,)))[0]
+        assert (result.status, result.error_code) == ("error", "invalid_provider_result")
+        claude = AnthropicMessagesProvider("k", "claude-x", session=FakeSession([anthropic_reply(text)]))
+        assert checked(claude, request((PRED,)))[0].error_code == "invalid_provider_result"
+
+    @pytest.mark.parametrize("text", ["A\n\nB", "yes\n\nB", "x\nB", "x\n\ny\nB", "x\n\nA. no", "x\n\nmaybe", "x\n\nB\n\ny",
+                                      "x\n\nB or A", "\n\n"])
+    def test_other_text_around_an_answer_line_is_an_error(self, text: str) -> None:
+        result = checked(openai(FakeSession([chat_reply(text)])), request((PRED,)))[0]
+        assert (result.status, result.error_code) == ("error", "invalid_provider_result")
+        claude = AnthropicMessagesProvider("k", "claude-x", session=FakeSession([anthropic_reply(text)]))
+        assert checked(claude, request((PRED,)))[0].error_code == "invalid_provider_result"
+
+    @pytest.mark.parametrize("text", ["B<reasoning>x</reasoning>", "<reasoning>never closed B", "<note>x</note>B",
+                                      "<reasoning>x</think>B", "<reasoning>x</reasoning>"])
+    def test_other_markup_around_an_answer_is_an_error(self, text: str) -> None:
+        result = checked(openai(FakeSession([chat_reply(text)])), request((PRED,)))[0]
+        assert (result.status, result.error_code) == ("error", "invalid_provider_result")
 
     @pytest.mark.parametrize("text", ["A. no", "A box arrived", "A. yes\nbecause it is", "A yes", "Z. yes", "A:", "C. yes"])
     def test_other_replies_with_more_than_a_code_are_errors(self, text: str) -> None:
@@ -445,6 +516,38 @@ class TestFallbacks:
         reply._body["choices"][0]["message"]["tool_calls"][0]["function"]["name"] = "other"  # type: ignore[index]
         assert checked(openai(FakeSession([reply]), strategy="tool"), request((CHOICE,)))[0].error_code == \
             "invalid_provider_result"
+
+    @pytest.mark.parametrize("strategy", ["tool", "function", "json_schema", "json_mode"])
+    def test_plain_text_where_a_structured_answer_was_requested_is_an_unsupported_strategy(self, strategy: str) -> None:
+        said = chat_reply("B")
+        said._body["choices"][0]["finish_reason"] = "stop"  # type: ignore[index]
+        session = FakeSession([said])
+        result = checked(openai(session, strategy=strategy), request((CHOICE,)))[0]
+        assert (result.error_code, result.value, len(session.posts)) == ("unsupported_strategy", None, 1)
+        grades = DecisionQuestion(id="g", kind="score", text="Grade?", levels=("D", "C", "B", "A"))
+        digit, quoted = chat_reply("3"), chat_reply('"3"')
+        assert checked(openai(FakeSession([digit]), strategy=strategy), request((grades,)))[0].error_code == "unsupported_strategy"
+        assert checked(openai(FakeSession([quoted]), strategy=strategy), request((grades,)))[0].error_code == \
+            "invalid_provider_result"
+
+    @pytest.mark.parametrize("strategy", ["tool", "function", "json_schema"])
+    @pytest.mark.parametrize("content,finish,code", [
+        (None, "stop", "invalid_provider_result"), ("  ", "stop", "invalid_provider_result"),
+        ('{"answer": "Z"}', "stop", "invalid_provider_result"), ("B", "length", "answer_truncated"),
+        ("B", "error", "invalid_provider_result")])
+    def test_other_unusable_structured_replies_keep_their_error(self, strategy: str, content: Optional[str], finish: str,
+                                                                code: str) -> None:
+        reply = chat_reply("x")
+        reply._body["choices"][0].update(message={"role": "assistant", "content": content}, finish_reason=finish)  # type: ignore[index]
+        assert checked(openai(FakeSession([reply]), strategy=strategy), request((CHOICE,)))[0].error_code == code
+
+    def test_an_unimplemented_strategy_is_not_resent_and_auto_moves_on(self) -> None:
+        refused = FakeSession([FakeResponse(501)])
+        result = checked(openai(refused, strategy="function", max_retries=3), request((CHOICE,)))[0]
+        assert (result.error_code, result.retry_count, len(refused.posts)) == ("http_501", 0, 1)
+        session = FakeSession([FakeResponse(501), FakeResponse(501), tool_reply('{"answer": "B"}'), tool_reply('{"answer": "B"}')])
+        assert checked(openai(session, strategy="auto", max_retries=3), request((CHOICE,)))[0].value == "tech"
+        assert len(session.posts) == 4 and "tools" in session.posts[-1]["json"]  # type: ignore[operator]
 
     def test_echo_probabilities_come_only_from_the_first_reply_token(self) -> None:
         plans = DecisionQuestion(id="c", kind="choice", text="Which plan?", options=("Plan A", "Plan B"))
@@ -556,7 +659,7 @@ class TestFallbacks:
             return reply
 
         session = FakeSession([calls('{"answer": "B"}', '{"answer": "C"}'), calls('{"answer": "B"}', '{"answer": "B"}')])
-        provider = openai(session, strategy="tool")
+        provider = openai(session, strategy="tool", reply_retries=0)
         assert checked(provider, request((CHOICE,)))[0].error_code == "invalid_provider_result"
         assert checked(provider, request((CHOICE,)))[0].value == "tech"
 
@@ -789,3 +892,90 @@ class TestProbeBudget:
                                                "levels": ["F", "D", "C", "B", "A", "A+", "A-", "B+", "B-", "C+", "C-"]}],
                           budget={"max_requests": 3})
         assert session.posts == [] and out["p__error_code"].tolist() == ["unsupported_question"] * 3
+
+
+def cut_off(text: str) -> FakeResponse:
+    reply = chat_reply(text)
+    reply._body["choices"][0]["finish_reason"] = "length"  # type: ignore[index]
+    return reply
+
+
+class TestUnreadRepliesAreSentAgain:
+
+    @pytest.mark.parametrize("first", [chat_reply("It looks fine to me"), chat_reply(""), cut_off("It looks")])
+    def test_an_unread_or_cut_off_reply_is_sent_once_more_and_both_are_billed(self, first: FakeResponse) -> None:
+        session = FakeSession([first, chat_reply("B"), chat_reply("A")])
+        result = checked(openai(session, strategy="text"), request((PRED,)))[0]
+        assert (result.value, result.retry_count, len(session.posts)) == (False, 1, 2)
+        assert result.cost_usd == pytest.approx(160 / 1e6)
+        assert session.posts[0]["json"] == session.posts[1]["json"]
+
+    def test_the_last_unread_reply_is_the_error(self) -> None:
+        session = FakeSession([chat_reply("hmm"), chat_reply("hmm"), cut_off("It looks"), chat_reply("B")])
+        result = checked(openai(session, strategy="text"), request((PRED,)))[0]
+        assert (result.error_code, result.retry_count, len(session.posts)) == ("answer_truncated", 2, 3)
+        assert result.cost_usd == pytest.approx(240 / 1e6)
+
+    def test_reply_retries_sets_how_often_and_zero_sends_once(self) -> None:
+        once = FakeSession([chat_reply("hmm"), chat_reply("B")])
+        result = checked(openai(once, strategy="text", reply_retries=0), request((PRED,)))[0]
+        assert (result.error_code, result.retry_count, len(once.posts)) == ("invalid_provider_result", 0, 1)
+        capped = FakeSession([chat_reply("hmm"), chat_reply("hmm"), chat_reply("B")])
+        result = checked(openai(capped, strategy="text", reply_retries=1), request((PRED,)))[0]
+        assert (result.error_code, result.retry_count, len(capped.posts)) == ("invalid_provider_result", 1, 2)
+        more = FakeSession([chat_reply("hmm"), chat_reply("hmm"), chat_reply("hmm"), chat_reply("B")])
+        result = checked(openai(more, strategy="text", reply_retries=3), request((PRED,)))[0]
+        assert (result.value, result.retry_count, len(more.posts)) == (False, 3, 4)
+
+    @pytest.mark.parametrize("value", [-1, 1.5, True, None])
+    def test_reply_retries_must_be_a_count(self, value: object) -> None:
+        with pytest.raises(ValueError, match="reply_retries"):
+            openai(FakeSession([]), reply_retries=value)
+        with pytest.raises(ValueError, match="reply_retries"):
+            AnthropicMessagesProvider("k", "claude-x", reply_retries=value)  # type: ignore[arg-type]
+
+    def test_an_answer_a_refusal_an_ignored_strategy_and_an_http_error_are_not_sent_again(self) -> None:
+        answered = FakeSession([chat_reply("B"), chat_reply("A")])
+        assert checked(openai(answered, strategy="text"), request((PRED,)))[0].retry_count == 0
+        refusal = chat_reply("x")
+        refusal._body["choices"][0]["message"] = {"role": "assistant", "content": None, "refusal": "no"}  # type: ignore[index]
+        refused = FakeSession([refusal, chat_reply("B")])
+        assert checked(openai(refused, strategy="text"), request((PRED,)))[0].status_reason == "refusal"
+        ignored = FakeSession([chat_reply("B"), chat_reply("B")])
+        assert checked(openai(ignored, strategy="tool"), request((PRED,)))[0].error_code == "unsupported_strategy"
+        failed = FakeSession([FakeResponse(400), chat_reply("B")])
+        assert checked(openai(failed, strategy="text"), request((PRED,)))[0].error_code == "http_400"
+        assert [len(s.posts) for s in (answered, refused, ignored, failed)] == [1, 1, 1, 1]
+
+    def test_a_failed_second_request_keeps_its_own_error_and_the_retry_count(self) -> None:
+        session = FakeSession([chat_reply("hmm"), FakeResponse(400)])
+        result = checked(openai(session, strategy="text"), request((PRED,)))[0]
+        assert (result.error_code, result.retry_count, len(session.posts)) == ("http_400", 1, 2)
+
+    def test_an_expired_deadline_stops_the_second_request(self) -> None:
+        session = FakeSession([chat_reply("hmm"), chat_reply("B")])
+        provider = openai(session, strategy="text")
+        results = provider.send([(request((PRED,)), PRED)], {}, lambda payload, meta: [
+            provider.invalid(request((PRED,)), PRED, meta)], time.monotonic() + 30)
+        assert len(session.posts) == 3 and results[0].retry_count == 2
+        late = FakeSession([chat_reply("hmm"), chat_reply("B")])
+        slow = openai(late, strategy="text")
+
+        def read(payload: object, meta: object) -> List[DecisionResult]:
+            time.sleep(0.02)
+            return [slow.invalid(request((PRED,)), PRED, meta)]  # type: ignore[arg-type]
+        kept = slow.send([(request((PRED,)), PRED)], {}, read, time.monotonic() + 0.01)
+        assert [r.error_code for r in kept] == ["invalid_provider_result"] and len(late.posts) == 1
+
+    def test_latency_is_the_sum_of_both_requests(self) -> None:
+        def slow_miss(body: object) -> FakeResponse:
+            time.sleep(0.03)
+            return chat_reply("hmm")
+        session = FakeSession([slow_miss, chat_reply("B")])
+        result = checked(openai(session, strategy="text"), request((PRED,)))[0]
+        assert result.value is False and result.latency_ms >= 30
+
+    def test_the_anthropic_provider_sends_again_too(self) -> None:
+        session = FakeSession([anthropic_reply("Let me think about it"), anthropic_reply("B")])
+        result = checked(AnthropicMessagesProvider("k", "claude-x", session=session), request((PRED,)))[0]  # type: ignore[arg-type]
+        assert (result.value, result.retry_count, len(session.posts)) == (False, 1, 2)
