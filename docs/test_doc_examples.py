@@ -34,7 +34,7 @@ from __future__ import annotations
 import os
 import re
 from pathlib import Path
-from typing import List, Literal, Optional, Tuple
+from typing import List, Literal, Optional, Tuple, cast
 
 import pytest
 
@@ -195,6 +195,16 @@ nodes['manager_id'] = ['m1', 'm1', 'm2', 'm2']
 edges['amount'] = [100.0, 250.0, 50.0, 500.0]
 edges['risk'] = [3, 7, 1, 9]
 edges['org_id'] = ['org1', 'org1', 'org2', 'org2']
+# Columns used by quick.rst examples
+nodes['level'] = [1, 2, 2, 3]
+nodes['risk_level'] = [2, 8, 5, 9]
+nodes['community'] = ['A', 'A', 'B', 'B']
+nodes['location'] = ['NYC', 'SF', 'NYC', 'NYC']
+nodes['tenure'] = [3, 1, 5, 4]
+nodes['region'] = ['EMEA', 'AMER', 'EMEA', 'APAC']
+nodes['flagged'] = [True, False, False, True]
+edges['interaction'] = ['message', 'call', 'message', 'message']
+edges['transaction_type'] = ['refund', 'sale', 'refund', 'refund']
 """
 
 # ---------------------------------------------------------------------------
@@ -203,6 +213,9 @@ edges['org_id'] = ['org1', 'org1', 'org2', 'org2']
 
 Marker = Literal["skip", "xfail", None]
 
+_RST_MARKER = re.compile(r"^[ \t]*\.\.\s+doc-test:\s*(skip|xfail)\s*$")
+_RST_CODE_BLOCK = re.compile(r"^([ \t]*)\.\.\s+code-block::\s+python\s*$")
+
 
 def _extract_code_blocks(path: Path) -> List[Tuple[int, str, Marker]]:
     """Extract code blocks with their doc-test marker (if any)."""
@@ -210,24 +223,41 @@ def _extract_code_blocks(path: Path) -> List[Tuple[int, str, Marker]]:
     blocks: List[Tuple[int, str, Marker]] = []
 
     if path.suffix == ".rst":
-        # Look for optional ``.. doc-test: <marker>`` comment before code-block
-        pattern = re.compile(
-            r"(?:^\.\.\s+doc-test:\s*(skip|xfail)\s*\n\s*\n)?"
-            r"^\.\.\s+code-block::\s+python\s*\n"
-            r"((?:\n|\s*\n|[ \t]+[^\n]*\n)*)",
-            re.MULTILINE,
-        )
-        for m in pattern.finditer(text):
-            marker = m.group(1)  # "skip", "xfail", or None
-            raw = m.group(2)
-            lines = raw.split("\n")
-            code_lines = [ln for ln in lines if ln.strip()]
-            if not code_lines:
+        # Line-based so blocks nested under bullets/directives (indented) are found too.
+        # An optional ``.. doc-test: <marker>`` comment, at any indent, applies to the next
+        # code-block when only blank lines separate them.
+        lines = text.split("\n")
+        pending: Marker = None
+        i = 0
+        while i < len(lines):
+            line = lines[i]
+            marker_m = _RST_MARKER.match(line)
+            if marker_m:
+                pending = cast(Marker, marker_m.group(1))
+                i += 1
                 continue
-            indent = min(len(ln) - len(ln.lstrip()) for ln in code_lines)
-            code = "\n".join(ln[indent:] for ln in lines).strip()
-            line_no = text[: m.start()].count("\n") + 1
-            blocks.append((line_no, code, marker))
+            block_m = _RST_CODE_BLOCK.match(line)
+            if not block_m:
+                if line.strip():
+                    pending = None
+                i += 1
+                continue
+            directive_indent = len(block_m.group(1))
+            j = i + 1
+            body: List[str] = []
+            while j < len(lines) and (
+                not lines[j].strip()
+                or len(lines[j]) - len(lines[j].lstrip()) > directive_indent
+            ):
+                body.append(lines[j])
+                j += 1
+            code_lines = [ln for ln in body if ln.strip()]
+            if code_lines:
+                indent = min(len(ln) - len(ln.lstrip()) for ln in code_lines)
+                code = "\n".join(ln[indent:] for ln in body).strip()
+                blocks.append((i + 1, code, pending))
+            pending = None
+            i = j
 
     elif path.suffix == ".md":
         # Look for optional <!-- doc-test: <marker> --> before ```python
@@ -237,7 +267,7 @@ def _extract_code_blocks(path: Path) -> List[Tuple[int, str, Marker]]:
             re.MULTILINE | re.DOTALL,
         )
         for m in pattern.finditer(text):
-            marker = m.group(1)
+            marker = cast(Marker, m.group(1))
             code = m.group(2).strip()
             line_no = text[: m.start()].count("\n") + 1
             blocks.append((line_no, code, marker))
@@ -332,3 +362,116 @@ def test_gfql_doc_examples(doc_path: Path) -> None:
             f"{len(real_failures)} code example(s) failed in {doc_path.name}:\n"
             + "\n".join(msg)
         )
+
+
+# ---------------------------------------------------------------------------
+# Quick reference: execute every runnable example on pandas and eager Polars
+# ---------------------------------------------------------------------------
+# The generic audit above only proves a block runs. A bare matcher such as
+# ``n({"age": gt(30)})`` merely builds an AST, so it can document a predicate
+# that execution rejects. For the quick reference we also execute each block's
+# resulting matcher or graph on a pandas-bound and a Polars-bound ``g`` and
+# require identical rows. Examples whose answer is spelled out in the prose
+# carry explicit expected rows below.
+
+QUICK_REFERENCE = GFQL_DOCS / "quick.rst"
+
+# Block code (exact, dedented) -> expected canonical (node ids, edge pairs) on the
+# shared fixture. Node ages a=30, b=25, c=40, d=35; active sources a, b, d.
+QUICK_EXPECTED = {
+    'from graphistry import n, gt\n\nn({"age": gt(30)})': (["c", "d"], []),
+    'from graphistry import e_forward, lt\n\ne_forward(\n'
+    '    source_node_match={"status": "active"},\n'
+    '    destination_node_match={"age": lt(30)}\n)': (["a", "b"], [("a", "b")]),
+    'from graphistry import n, between\n\nn({"age": between(25, 35)})': (["a", "b", "d"], []),
+}
+
+
+def _quick_run(code: str, ns: dict):
+    """Run ``code`` in ``ns``; return (matcher it ends with or None, graph it produces or None)."""
+    import ast as pyast
+    from graphistry.Plottable import Plottable
+    from graphistry.compute.ast import ASTObject
+
+    tree = pyast.parse(code)
+    last = tree.body[-1]
+    value = None
+    if isinstance(last, pyast.Expr):
+        exec(compile(pyast.Module(body=tree.body[:-1], type_ignores=[]), "quick", "exec"), ns)
+        value = eval(compile(pyast.Expression(body=last.value), "quick", "eval"), ns)
+    else:
+        exec(compile(tree, "quick", "exec"), ns)
+        if isinstance(last, pyast.Assign) and isinstance(last.targets[0], pyast.Name):
+            value = ns[last.targets[0].id]
+    matcher = value if isinstance(value, ASTObject) else None
+    if matcher is not None:
+        value = ns["g"].gfql([matcher])
+    return matcher, (value if isinstance(value, Plottable) else None)
+
+
+def _quick_rows(df, cols: Optional[List[str]] = None) -> List[tuple]:
+    """Order-insensitive rows of a pandas or Polars frame as plain Python values."""
+    if not hasattr(df, "iloc"):
+        df = df.to_pandas()
+    if cols is not None:
+        df = df[cols]
+    return sorted((tuple(r) for r in df.astype(object).itertuples(index=False)), key=repr)
+
+
+def _quick_canonical(res) -> Tuple[object, object]:
+    """Graph state: (node ids, edge pairs). Row state: (columns, repr of every row)."""
+    nodes, edges = res._nodes, res._edges
+    if "id" in nodes.columns and edges is not None and {"s", "d"} <= set(edges.columns):
+        return ([r[0] for r in _quick_rows(nodes, ["id"])], _quick_rows(edges, ["s", "d"]))
+    return (list(nodes.columns), [tuple(map(repr, r)) for r in _quick_rows(nodes)])
+
+
+@pytest.mark.skipif(not _POLARS_AVAILABLE, reason="polars not installed")
+def test_quick_reference_examples_pandas_polars_parity() -> None:
+    """Each runnable quick-reference example returns the same rows on pandas and eager Polars."""
+    import polars as pl
+
+    os.environ.setdefault("PYGRAPHISTRY_ROOT", str(Path(__file__).resolve().parent.parent))
+    outcomes: dict = {}
+    errors: List[str] = []
+    for engine in ("pandas", "polars"):
+        ns: dict = {}
+        exec(compile(SETUP_CODE, "setup", "exec"), ns)
+        if engine == "polars":
+            ns["g"] = ns["graphistry"].nodes(pl.from_pandas(ns["nodes"]), "id").edges(
+                pl.from_pandas(ns["edges"]), "s", "d"
+            )
+        for line_no, code, marker in _extract_code_blocks(QUICK_REFERENCE):
+            if marker is not None or _should_skip(code):
+                continue
+            g_before = ns["g"]
+            try:
+                matcher, res = _quick_run(code, ns)
+            except Exception as exc:  # report every failing block, not just the first
+                errors.append(f"quick.rst:{line_no} [{engine}] {type(exc).__name__}: {str(exc).splitlines()[0][:200]}")
+                continue
+            finally:
+                ns["g"] = g_before  # examples may rebind g; keep the engine fixture
+            if res is None:
+                continue
+            if engine == "polars" and matcher is not None and not isinstance(res._nodes, pl.DataFrame):
+                # auto may run Polars-unsupported features on pandas (documented in quick.rst and
+                # engines.rst); that is only acceptable when explicit engine='polars' refuses them.
+                # Full g.gfql(...) examples cannot be re-run with another engine; rows parity covers them.
+                try:
+                    ns["g"].gfql([matcher], engine="polars")
+                    errors.append(f"quick.rst:{line_no} [polars] auto returned pandas but engine='polars' runs")
+                except NotImplementedError:
+                    pass
+            outcomes.setdefault(code, {})[engine] = (line_no, _quick_canonical(res))
+
+    mismatches = [
+        f"quick.rst:{per['pandas'][0]}: pandas={per['pandas'][1]} polars={per.get('polars', (0, None))[1]}"
+        for per in outcomes.values()
+        if per.get("pandas", (0, None))[1] != per.get("polars", (0, None))[1]
+    ]
+    assert not errors and not mismatches, "\n".join(errors + mismatches)
+    for code, expected in QUICK_EXPECTED.items():
+        assert code in outcomes, f"expected quick.rst example not found or not executed:\n{code}"
+        assert outcomes[code]["pandas"][1] == expected, (outcomes[code]["pandas"], expected)
+    assert len(outcomes) >= 31, f"only {len(outcomes)} quick.rst examples executed on both engines"
