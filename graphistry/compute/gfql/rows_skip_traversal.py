@@ -277,7 +277,7 @@ def _replayable_errors() -> Tuple[Type[BaseException], ...]:
         return errors
     try:
         import pyarrow.lib
-        errors += (pyarrow.lib.ArrowInvalid,)
+        errors += (pyarrow.lib.ArrowException,)
     except ImportError:
         pass
     return errors + (pl.exceptions.PolarsError,)

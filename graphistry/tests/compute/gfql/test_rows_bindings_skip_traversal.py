@@ -115,11 +115,12 @@ def _consulted(g, query, engine, index_policy="off"):
 
 def _consulted_accepting_validation_errors(g, query, engine, index_policy="off"):
     from graphistry.compute.exceptions import GFQLValidationError
+    import pyarrow.lib
 
     with index_trace() as steps:
         try:
             g.gfql(query, engine=engine, index_policy=index_policy)
-        except GFQLValidationError:
+        except (GFQLValidationError, pyarrow.lib.ArrowException):
             pass
     return {bool(s["served"]) for s in steps if s.get("op") == "fast_path" and s.get("seam") == SEAM}
 
@@ -980,7 +981,7 @@ def test_a_string_scalar_on_a_mixed_object_column_is_served():
 
 @pytest.mark.route_engaged(ROUTE)
 @pytest.mark.parametrize("value,served", [
-    (5, True), (2 ** 70, True), (float("nan"), True), (gt(1), True), ("a", True), (True, True), (None, False),
+    (5, True), (2 ** 70, False), (float("nan"), True), (gt(1), True), ("a", True), (True, True), (None, False),
 ])
 def test_the_seed_op_accepts_everything_but_none(engine, value, served):
     """The rebuild evaluates the seed op on real frames; values the frame layer rejects replay instead of being cached."""
