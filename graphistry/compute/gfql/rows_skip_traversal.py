@@ -29,7 +29,6 @@ _FILTER_FIELDS = ("filter_dict", "edge_match", "source_node_match", "destination
 _TWINS: "OrderedDict[Tuple[object, ...], Tuple[DataFrameT, DataFrameT]]" = OrderedDict()
 _TWINS_MAX = 256
 _TWINS_LOCK = threading.Lock()
-_TWIN_ATTEMPT = threading.local()
 
 
 def _clear_twins() -> None:
@@ -244,17 +243,18 @@ def run_without_traversal(
     from graphistry.compute.gfql.index.api import record_fast_path_decision
 
     try:
+        twin = _zero_row_twin(g, middle, str(engine), traverse)
+        inserted = getattr(twin, "_gfql_rows_twin_inserted", None)
         # Warning capture is process-global, not thread-safe; the record/re-emit window contains only one fast-path attempt.
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always", append=True)
-            result = run_suffix(_zero_row_twin(g, middle, str(engine), traverse))
+            result = run_suffix(twin)
         for warning in caught:
             warnings.warn_explicit(
                 warning.message, warning.category, warning.filename, warning.lineno,
             )
         return result
     except _replayable_errors() as error:
-        inserted = getattr(_TWIN_ATTEMPT, "inserted", None)
         if inserted is not None:
             twin_key, twin_frames = inserted
             with _TWINS_LOCK:
@@ -304,7 +304,7 @@ def _zero_row_twin(
         frames = _TWINS.get(key)
         if frames is not None:
             _TWINS.move_to_end(key)
-    _TWIN_ATTEMPT.inserted = None
+    inserted = None
     if frames is None:
         empty = with_index_policy(drop_index(g.nodes(g._nodes[:0]).edges(g._edges[:0])), "off")
         with suspended_index_trace():
@@ -312,11 +312,12 @@ def _zero_row_twin(
         frames = (_independent(out._nodes), _independent(out._edges))
         with _TWINS_LOCK:
             _TWINS[key] = frames
-            _TWIN_ATTEMPT.inserted = (key, frames)
+            inserted = (key, frames)
             if len(_TWINS) > _TWINS_MAX:
                 _TWINS.popitem(last=False)
     twin = g.bind()
     twin._nodes, twin._edges = (_fresh(frame) for frame in frames)
+    twin._gfql_rows_twin_inserted = inserted
     return twin
 
 
