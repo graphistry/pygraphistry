@@ -10,7 +10,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
-- **GFQL native Polars `labels(n)` and constant-string `n['key']` projections**: `MATCH (n) RETURN labels(n)` and `n['name']`/`n[$key]` for declared node bindings run natively on `engine='polars'` instead of raising the Polars parity-or-error `NotImplementedError`. The subscript keys pandas currently reads as null (`type`, `labels`, `label__*`, `__*`, a non-numeric `id`) decline natively as a temporary parity measure until pandas reads `n['k']` like `n.k` (#2336). Declared-node and physical-identity checks keep scalar, Struct and relationship columns from being read as nodes, a non-string or non-constant subscript key stays declined, and the lowering context is reset after each call.
+- **GFQL native Polars `labels(n)` projection**: `MATCH (n) RETURN labels(n)` for a declared node binding runs natively on `engine='polars'` and `engine='polars-gpu'` instead of raising the Polars parity-or-error `NotImplementedError`, including in `WHERE`, `ORDER BY`, `WITH`, aggregates and `DISTINCT`. Relationship bindings, list-backed `labels`, non-boolean flags and non-string `type` stay declined; constant-string `n['key']` subscripts stay declined until the pandas subscript reader is fixed (#2336).
 
 ## [0.62.1] - 2026-11-12
 

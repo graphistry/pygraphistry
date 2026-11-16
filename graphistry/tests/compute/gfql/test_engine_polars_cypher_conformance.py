@@ -91,6 +91,10 @@ def _assert_parity(g, query):
 CORPUS = [
     # property projection
     "MATCH (n) RETURN n.val",
+    "MATCH (n) RETURN labels(n) AS labels",
+    "MATCH (n) WHERE size(labels(n)) > 0 RETURN n.name AS name",
+    "MATCH (n) RETURN DISTINCT labels(n) AS labels",
+    "MATCH (n) RETURN labels(n) AS labels, count(*) AS count",
     "MATCH (n) RETURN n.val, n.kind, n.score",
     "MATCH (n) RETURN n.val AS v, n.name AS nm",
     "MATCH (n) RETURN DISTINCT n.kind",

@@ -713,36 +713,12 @@ def _is_node_binding(alias: str, columns: Sequence[str]) -> bool:
     )
 
 
-def _subscript_key_diverges_from_pandas(key: str) -> bool:
-    """pandas reads ``n['k']`` through entity text, which omits internal columns, labels, ``type`` and a non-numeric ``id``."""
-    if key in {"labels", "type", _NODE_ID_TOKEN} or key.startswith(("label__", "__")):
-        return True
-    if key == "id":
-        dtype = _SCHEMA.get().get("id")  # the column literally named "id", as the pandas property
-        return dtype is None or not dtype.is_numeric()
-    return False
-
-
-def _constant_string_key(node: ExprNode) -> Optional[str]:
-    """Resolve only schema-independent string keys; row-varying keys still defer."""
-    from graphistry.compute.gfql.expr_parser import BinaryOp, Literal
-
-    if isinstance(node, Literal) and isinstance(node.value, str):
-        return node.value
-    if isinstance(node, BinaryOp) and node.op == "+":
-        left = _constant_string_key(node.left)
-        right = _constant_string_key(node.right)
-        if left is not None and right is not None:
-            return left + right
-    return None
-
-
 def lower_expr(node: ExprNode, columns: Sequence[str]) -> Optional[pl.Expr]:
     """Lower a parsed cypher ExprNode to a polars expression, or None to defer."""
     import polars as pl
     from graphistry.compute.gfql.expr_parser import (
         Identifier, Literal, BinaryOp, UnaryOp, IsNullOp, PropertyAccessExpr, FunctionCall, CaseWhen,
-        ListLiteral, SubscriptExpr,
+        ListLiteral,
     )
 
     if isinstance(node, Literal):
@@ -770,13 +746,6 @@ def lower_expr(node: ExprNode, columns: Sequence[str]) -> Optional[pl.Expr]:
             node_id = _NODE_ID.get()
             if node_id is not None and node_id in columns:
                 return pl.col(node_id)
-        return None
-    if isinstance(node, SubscriptExpr) and isinstance(node.value, Identifier):
-        if not _is_node_binding(node.value.name, columns):
-            return None
-        key = _constant_string_key(node.key)
-        if key is not None and not _subscript_key_diverges_from_pandas(key):
-            return lower_expr(PropertyAccessExpr(node.value, key), columns)
         return None
     if isinstance(node, PropertyAccessExpr):
         if isinstance(node.value, Identifier):
@@ -1324,6 +1293,10 @@ def _finish_binding_rows_polars(
 _LowerT = TypeVar("_LowerT")
 
 
+def _declared_node_aliases(g: Plottable) -> Tuple[str, ...]:
+    return tuple(g._gfql_rows_node_aliases or ())
+
+
 def _lower_with_schema(table: "pl.DataFrame", fn: Callable[[], _LowerT],
                        node_id: Optional[str] = None, node_aliases: Sequence[str] = ()) -> _LowerT:
     """Run a lowering callable with the table schema published to ``_SCHEMA`` (float-operand
@@ -1521,7 +1494,7 @@ def _project_polars(g: Plottable, items: Sequence[SelectItem], extend: bool) -> 
     """Shared body of ``select_polars`` / ``with_columns_polars``; None if any item isn't
     lowerable (honest NIE, no pandas bridge)."""
     table = _active_table(g)
-    node_aliases = tuple(g._gfql_rows_node_aliases or ())
+    node_aliases = _declared_node_aliases(g)
     exprs = _lower_with_schema(table, lambda: lower_select_items(items, list(table.columns)), node_id=g._node, node_aliases=node_aliases)
     if exprs is None:
         return None
@@ -1614,7 +1587,7 @@ def where_rows_polars(
     if expr is not None:
         if not isinstance(expr, str):
             return None
-        lowered = _lower_with_schema(table, lambda: lower_expr_str(expr, columns), node_id=g._node)
+        lowered = _lower_with_schema(table, lambda: lower_expr_str(expr, columns), node_id=g._node, node_aliases=_declared_node_aliases(g))
         if lowered is None:
             return None
         preds.append(lowered)
@@ -1670,7 +1643,9 @@ def order_by_polars(g: Plottable, keys: Sequence[OrderKey]) -> Optional[Plottabl
     """Native polars sort; None if any key isn't lowerable OR holds list-like values whose
     legacy ordering semantics a plain sort can't reproduce (see the sniff helper)."""
     table = _active_table(g)
-    lowered = _lower_with_schema(table, lambda: lower_order_by_keys(keys, list(table.columns)), node_id=g._node)
+    lowered = _lower_with_schema(
+        table, lambda: lower_order_by_keys(keys, list(table.columns)), node_id=g._node, node_aliases=_declared_node_aliases(g),
+    )
     if lowered is None:
         return None
     exprs, descending = lowered
@@ -1909,7 +1884,9 @@ def group_by_polars(
         expr = spec[2] if len(spec) == 3 else None
         if isinstance(expr, str) and expr not in cols and not (func.lower() == "count" and expr == "*"):
             source_expr = expr
-            operand = _lower_with_schema(table, lambda: lower_expr_str(source_expr, cols), node_id=g._node)
+            operand = _lower_with_schema(
+                table, lambda: lower_expr_str(source_expr, cols), node_id=g._node, node_aliases=_declared_node_aliases(g),
+            )
             if operand is None:
                 _group_by_decline()
                 return None
@@ -2024,7 +2001,9 @@ def select_extend_polars(g: Plottable, items: Sequence[SelectItem]) -> Optional[
     the bindings-path aggregate lowering (pre-aggregation group keys / agg args),
     so it is required for binding-row queries (#1709). None → NIE."""
     table = _active_table(g)
-    exprs = _lower_with_schema(table, lambda: lower_select_items(items, list(table.columns)), node_id=g._node)
+    exprs = _lower_with_schema(
+        table, lambda: lower_select_items(items, list(table.columns)), node_id=g._node, node_aliases=_declared_node_aliases(g),
+    )
     if exprs is None:
         return None
     out = table.with_columns(exprs)

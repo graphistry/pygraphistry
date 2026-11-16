@@ -52,7 +52,6 @@ def _assert_parity(query, *, order_sensitive=True):
     "query, expected",
     [
         ("MATCH (n) RETURN labels(n) AS value", ["['Foo']", "['Bar']"]),
-        ("MATCH (n) RETURN n['name'] AS value ORDER BY value", ["left", "right"]),
         ("MATCH (n:Missing) RETURN labels(n) AS value", []),
         ("OPTIONAL MATCH (n:Missing) RETURN labels(n) AS value", [None]),
     ],
@@ -101,6 +100,72 @@ def test_polars_labels_relationship_cannot_use_an_ordinary_id_property_as_node_i
     with pytest.raises(NotImplementedError):
         source.gfql([rows(table="edges", source="r"), select([("value", "labels(r)")])], engine="polars")
     assert source._nodes.equals(nodes) and source._edges.equals(edges)
+
+
+LABEL_QUERIES = [
+    "MATCH (n) RETURN labels(n) AS labels",
+    "MATCH (n) RETURN labels(n)",
+    "MATCH (n) WITH labels(n) AS labels RETURN labels",
+    "MATCH (n) RETURN DISTINCT labels(n) AS labels",
+    "MATCH (n) WHERE size(labels(n)) > 0 RETURN labels(n) AS labels",
+    "MATCH (n) RETURN collect(labels(n)) AS labels",
+    "MATCH (n) RETURN labels(n) AS labels, count(*) AS count",
+    "MATCH (a), (b) WHERE a.id = 1 AND b.id = 2 RETURN labels(a) AS a_labels, labels(b) AS b_labels",
+]
+
+
+@pytest.fixture(params=["pandas", "cudf", "polars", "polars-gpu"])
+def engine(request):
+    return request.param
+
+
+def _labels_frame(engine, kind):
+    import cudf
+    import polars as pl
+
+    if kind == "zero_labels":
+        pandas_frame = pd.DataFrame({"id": [1, 2, 3], "name": ["a", "b", "c"]})
+    elif kind == "null_flag_cell":
+        pandas_frame = pd.DataFrame({
+            "id": [1, 2, 3], "name": ["a", "b", "c"],
+            "label__Foo": pd.array([True, None, False], dtype="boolean"),
+        })
+    elif kind == "null_dtype":
+        pandas_frame = pd.DataFrame({
+            "id": [1, 2, 3], "name": ["a", "b", "c"],
+            "label__Foo": pd.Series([None, None, None], dtype="object"),
+        })
+    else:
+        pandas_frame = pd.DataFrame({
+            "id": [1, 2, 3], "name": ["a", "b", "c"],
+            "label__O'Brien": [True, False, True],
+        })
+    if engine == "cudf":
+        return cudf.from_pandas(pandas_frame)
+    if not engine.startswith("polars"):
+        return pandas_frame
+    polars_frame = pl.from_pandas(pandas_frame)
+    if kind == "null_dtype":
+        polars_frame = polars_frame.with_columns(
+            pl.Series("label__Foo", [None, None, None], dtype=pl.Null)
+        )
+    return polars_frame
+
+
+@pytest.mark.parametrize("kind", ["zero_labels", "null_flag_cell", "null_dtype", "quote_label"])
+def test_labels_projection_matches_pandas_in_every_lowering_chokepoint(engine, kind):
+    oracle = graphistry.nodes(_labels_frame("pandas", kind), "id")
+    actual_graph = graphistry.nodes(_labels_frame(engine, kind), "id")
+
+    def normalized(nodes):
+        frame = nodes.to_pandas() if hasattr(nodes, "to_pandas") else nodes
+        return frame.astype(str).sort_values(list(frame.columns)).reset_index(drop=True)
+
+    for query in LABEL_QUERIES:
+        expected = normalized(oracle.gfql(query, engine="pandas")._nodes)
+        actual = normalized(actual_graph.gfql(query, engine=engine)._nodes)
+        assert list(actual.columns) == list(expected.columns), query
+        pd.testing.assert_frame_equal(actual, expected, check_dtype=False, check_index_type=False)
 
 
 SUPPORTED = [
@@ -433,27 +498,6 @@ def test_native_node_label_rendering_declines_non_contract_dtypes():
     rendered = _native_node_labels_text_expr(view(string_type))
     assert rendered is not None
     assert string_type.select(rendered.alias("labels"))["labels"].to_list() == ["['Legacy']"]
-
-
-def test_polars_subscript_declines_non_string_constant_key():
-    import polars as pl
-
-    from graphistry.compute.gfql.expr_parser import Identifier, Literal, SubscriptExpr
-    from graphistry.compute.gfql.lazy.engine.polars import row_pipeline as rp
-
-    node = SubscriptExpr(Identifier("n"), Literal(1))
-    columns = ["id", "n", "n.id"]
-    node_aliases = rp._NODE_ALIASES.set({"n"})
-    node_id = rp._NODE_ID.set("id")
-    schema = rp._SCHEMA.set({"n": pl.Boolean})
-    try:
-        assert rp._constant_string_key(Literal(1)) is None
-        assert rp.lower_expr(node, columns) is None
-    finally:
-        rp._SCHEMA.reset(schema)
-        rp._NODE_ID.reset(node_id)
-        rp._NODE_ALIASES.reset(node_aliases)
-
 
 
 def test_polars_frame_op_limit_matches_slice():
@@ -1010,69 +1054,3 @@ def test_uniform_coalesce_preserves_nonprimitive_dtypes(dtype, values, size, mon
     assert result is not None
     assert_frame_equal(result._nodes, expected)
     assert result._nodes["value"].to_list() == values[:size]
-
-
-# Behavioral parity-or-decline for metadata and constant-string subscripts on declared node bindings.
-_META_FRAME = pd.DataFrame({
-    "id": ["a", "b"], "type": ["P", "Q"], "name": ["x", "y"],
-    "label__Foo": [True, False], "label__Bar": [True, True],
-})
-
-
-def _pandas_and_polars(frame, query, params=None):
-    """(pandas rows, polars rows or None when native Polars declines with its NotImplementedError)."""
-    oracle = _to_pandas(graphistry.nodes(frame, "id").gfql(query, params=params, engine="pandas")._nodes).reset_index(drop=True)
-    try:
-        native = graphistry.nodes(pl.from_pandas(frame), "id").gfql(query, params=params, engine="polars")._nodes
-    except NotImplementedError:
-        return oracle, None
-    assert "polars" in type(native).__module__
-    return oracle, _to_pandas(native).reset_index(drop=True)
-
-
-@pytest.mark.parametrize("query,params", [
-    ("MATCH (n) RETURN n['name'] AS v", None),
-    ("MATCH (n) RETURN n['nam' + 'e'] AS v", None),
-    ("MATCH (n) RETURN n[$idx] AS v", {"idx": "name"}),
-    ("MATCH (n) RETURN n['missing'] AS v", None),
-    ("MATCH (n) RETURN labels(n) AS v", None),
-])
-def test_native_polars_metadata_and_constant_subscripts_match_pandas(query, params):
-    oracle, native = _pandas_and_polars(_META_FRAME, query, params)
-    assert native is not None, f"{query!r} should run natively on a declared node binding"
-    pd.testing.assert_frame_equal(oracle, native, check_dtype=False)
-
-
-def test_native_polars_labels_ignores_an_all_null_string_labels_placeholder_column():
-    frame = _META_FRAME.assign(labels=pd.Series([None, None], dtype="object"))
-    oracle, native = _pandas_and_polars(frame, "MATCH (n) RETURN labels(n) AS v")
-    assert native is not None
-    pd.testing.assert_frame_equal(oracle, native, check_dtype=False)
-
-
-@pytest.mark.parametrize("key", ["type", "id", "labels", "label__Foo", "__hidden"])
-def test_native_polars_declines_subscript_keys_pandas_reads_as_null(key):
-    frame = _META_FRAME.assign(labels=["L1", "L2"], __hidden=[1, 2])
-    oracle, native = _pandas_and_polars(frame, f"MATCH (n) RETURN n['{key}'] AS v")
-    assert native is None, f"n[{key!r}] must decline natively until pandas reads it like n.{key}"
-    assert oracle["v"].isna().all()
-
-
-def test_native_polars_keeps_a_numeric_id_subscript_and_declines_a_non_constant_key():
-    numeric = _META_FRAME.assign(id=[1, 2])
-    oracle, native = _pandas_and_polars(numeric, "MATCH (n) RETURN n['id'] AS v")
-    assert native is not None
-    pd.testing.assert_frame_equal(oracle, native, check_dtype=False)
-    with pytest.raises(NotImplementedError):
-        graphistry.nodes(pl.from_pandas(_META_FRAME), "id").gfql("MATCH (n) RETURN n[1] AS v", engine="polars")
-
-
-@pytest.mark.parametrize("frame", [
-    _META_FRAME.assign(labels=[["Legacy"], ["Old"]]),
-    _META_FRAME.assign(label__Foo=["yes", "no"]),
-    _META_FRAME.assign(type=[1, 2]),
-])
-def test_native_polars_labels_declines_non_contract_label_sources(frame):
-    _, native = _pandas_and_polars(frame, "MATCH (n) RETURN labels(n) AS v")
-    assert native is None
-
