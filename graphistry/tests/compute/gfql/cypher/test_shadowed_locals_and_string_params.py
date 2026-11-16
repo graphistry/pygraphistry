@@ -28,7 +28,8 @@ ENGINES = [
 POLARS_ENGINES = ("polars", "polars-gpu")
 
 # native Polars' parity-or-error declines (a row operation it lacks, or a plan polars-gpu cannot run on the GPU): asserted, never skipped
-POLARS_ROW_OP = r"does not yet natively support cypher row op|not fully GPU-executable"
+POLARS_ROW_OP = r"does not yet natively support cypher row op"
+GPU_DECLINE = "not fully GPU-executable"
 
 
 def _graph(engine: str) -> Any:
@@ -65,7 +66,7 @@ def _gfql_rows(engine: str, graph: Any, query: str, params: Any = None) -> Optio
     try:
         return _rows(graph.gfql(query, engine=engine, params=params)._nodes)
     except NotImplementedError as exc:  # GFQLUnsupportedError is a NotImplementedError
-        if engine == "polars-gpu" and "GPU" in str(exc):
+        if engine == "polars-gpu" and GPU_DECLINE in str(exc):
             return None
         raise
 
@@ -91,7 +92,8 @@ def _check(
     """Rows of a read query equal ``expected``; with ``polars_declines`` native Polars must raise exactly that decline."""
     graph = _graph(engine)
     if engine in POLARS_ENGINES and polars_declines is not None:
-        with pytest.raises(NotImplementedError, match=polars_declines):
+        decline = GPU_DECLINE if engine == "polars-gpu" else polars_declines
+        with pytest.raises(NotImplementedError, match=decline):
             graph.gfql(query, engine=engine, params=params)
         return
     rows = _gfql_rows(engine, graph, query, params)
@@ -102,10 +104,11 @@ def _check(
     assert rows == expected
 
 
-def _declined(engine: str, query: str, value: str) -> None:
+def _declined(engine: str, query: str, value: str, graph: Any | None = None) -> None:
     with pytest.raises(GFQLValidationError) as exc:
-        _graph(engine).gfql(query, engine=engine)
+        (graph or _graph(engine)).gfql(query, engine=engine)
     assert exc.value.code == ErrorCode.E108
+    assert exc.value.context["field"].startswith("return")
     assert exc.value.context["value"] == value
 
 
@@ -238,11 +241,25 @@ def test_scalar_parameter_projected_next_to_a_whole_entity(engine, value) -> Non
 
 
 @pytest.mark.parametrize("engine", ENGINES)
+@pytest.mark.parametrize("value,expected_dtype", [
+    (5, {"pandas": "int64", "cudf": "int64", "polars": "int64", "polars-gpu": "int64"}),
+    (2.5, {"pandas": "float64", "cudf": "float64", "polars": "f64", "polars-gpu": "f64"}),
+    (True, {"pandas": "bool", "cudf": "bool", "polars": "bool", "polars-gpu": "bool"}),
+    ("x", {"pandas": "object", "cudf": "object", "polars": "str", "polars-gpu": "str"}),
+])
+def test_scalar_parameter_projection_keeps_its_dtype(engine, value, expected_dtype) -> None:
+    out = _graph(engine).gfql("MATCH (n) RETURN $v AS v", engine=engine, params={"v": value})
+    frame = out._nodes
+    dtype = str(frame.dtypes["v"]).lower() if hasattr(frame, "dtypes") else str(frame.schema["v"]).lower()
+    assert dtype == expected_dtype[engine]
+
+
+@pytest.mark.parametrize("engine", ENGINES)
 def test_integer_parameter_projected_next_to_a_whole_entity_is_usable_downstream(engine) -> None:
     _check(engine, "MATCH (n) WITH n, $v AS w RETURN w + 1 AS r", [{"r": 6}] * 2, {"v": 5})
 
 
-# R2-F1/F2/F3: a local lives only in an internal column, so it can never collide with a property column or an alias
+# A local lives only in an internal column, so it can never collide with a property column or an alias.
 @pytest.mark.parametrize("engine", ENGINES)
 def test_local_named_like_an_outer_property_does_not_change_keys_of_the_entity(engine) -> None:
     _check(
@@ -290,7 +307,15 @@ def test_nested_scopes_bind_the_innermost_local(engine) -> None:
     )
 
 
-# R2-F4: non-finite and edge floats and integers survive the whole-parameter projection next to an entity
+@pytest.mark.parametrize("engine", ENGINES)
+def test_whole_entity_local_reads_its_bound_value(engine) -> None:
+    _check(
+        engine, "MATCH (n) RETURN [x IN [n] | x.tags][0] AS v", [{"v": "a"}, {"v": "b"}],
+        polars_declines=POLARS_ROW_OP,
+    )
+
+
+# Non-finite and edge floats and integers survive the whole-parameter projection next to an entity.
 @pytest.mark.parametrize("engine", ENGINES)
 @pytest.mark.parametrize("value", [float("inf"), float("-inf"), -0.0, 2 ** 53 + 1])
 def test_whole_parameter_projected_next_to_an_entity_keeps_edge_numbers(engine, value) -> None:
@@ -322,7 +347,7 @@ def test_empty_and_non_ascii_string_parameters_are_literals(engine, value) -> No
     _check(engine, "MATCH (n) RETURN $v AS v", [{"v": value}] * 2, {"v": value})
 
 
-# R3-F1: every entity-recognizing branch defers to the scope-local column, so a shadowing local is never the outer node
+# Every entity-recognizing branch defers to the scope-local column, so a shadowing local is never the outer node.
 @pytest.mark.parametrize("engine", ENGINES)
 def test_subscript_of_a_shadowing_local_reads_the_local_not_the_outer_node(engine) -> None:
     _check(
@@ -408,6 +433,7 @@ def test_shadowing_local_in_a_multi_alias_path_is_a_structured_decline(engine) -
             "MATCH (a)-[r]->(b) RETURN [a IN [{tags: 'z'}] | a.tags][0] AS v, b.tags AS bt", engine=engine,
         )
     assert exc.value.code == ErrorCode.E108
+    assert exc.value.context["field"] == "return"
 
 
 # string and non-finite parameters in WHERE / ORDER BY
