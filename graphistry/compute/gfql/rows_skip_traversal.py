@@ -42,6 +42,7 @@ def _clear_twins() -> None:
 
 
 register_clearable_callable("_TWINS", _clear_twins)
+register_clearable_dict("_TWIN_TOKENS", _TWIN_TOKENS)
 
 
 def bindings_rows_call(middle: List[ASTObject], suffix: List[ASTObject]) -> Optional[ASTCall]:
