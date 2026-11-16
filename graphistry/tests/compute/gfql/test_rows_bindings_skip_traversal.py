@@ -339,7 +339,7 @@ def test_warnings_match_the_traversal_on_every_call(engine, shape):
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always")
             rows_out = len(_run(g, ABSENT_FILTERS[shape], engine)._nodes)
-        return rows_out, sorted((w.category.__name__, str(w.message)) for w in caught if w.category is UserWarning)
+        return rows_out, _warnings(caught)
 
     g = graph(engine)
     with routes_off([ROUTE]):
@@ -386,6 +386,11 @@ def _cells(frame):
     return repr(rows)
 
 
+def _warnings(caught):
+    """Every warning a caller's filter would see, every category, duplicates included."""
+    return sorted((w.category.__name__, str(w.message)) for w in caught)
+
+
 def _signature(frame):
     """Rows, column order, dtypes and (pandas/cuDF) index identity: everything a caller can observe of a frame."""
     index = None if hasattr(frame, "to_dicts") else (type(frame.index).__name__, frame.index.name)
@@ -404,7 +409,7 @@ def _outcome(g, query, engine, validate_schema=True):
             result = ("rows", _signature(out._nodes), _signature(out._edges))
         except Exception as error:  # the outcome under test is the error class, code and message
             result = (type(error).__name__, getattr(error, "code", None), str(error))
-    return result, sorted((w.category.__name__, str(w.message)) for w in caught if w.category is UserWarning)
+    return result, _warnings(caught)
 
 
 def _contains(pattern):
@@ -778,6 +783,7 @@ def test_non_default_indexes_decline_the_skip(index_kind):
     assert _consulted(g.edges(edges), SHAPES["seeded_undirected_edge_alias"][0], "pandas") == {False}
 
 
+@pytest.mark.route_engaged(ROUTE)
 def test_cached_twins_do_not_pin_the_callers_buffers(engine):
     import numpy as np
 
@@ -912,6 +918,78 @@ def test_same_type_scalars_on_a_later_op_never_change_the_outcome(engine, column
     assert actual == expected
 
 
+ODD_SCALARS = {
+    "numpy_int64": lambda: __import__("numpy").int64(5),
+    "numpy_float64": lambda: __import__("numpy").float64(1.5),
+    "numpy_float32": lambda: __import__("numpy").float32(1.5),
+    "numpy_bool": lambda: __import__("numpy").bool_(True),
+    "bool_on_int_column": lambda: True,
+    "int_on_bool_column": lambda: 1,
+}
+ODD_COLUMNS = {"numpy_int64": "int64", "numpy_float64": "float64", "numpy_float32": "float32", "numpy_bool": "bool",
+               "bool_on_int_column": "int64", "int_on_bool_column": "bool"}
+
+
+@pytest.mark.parametrize("name", sorted(ODD_SCALARS))
+def test_numpy_scalars_and_bool_int_mixups_match_the_traversal_and_decline(engine, name):
+    from graphistry.compute.gfql_unified import gfql_clear_caches
+
+    if engine == "polars-gpu":
+        pytest.skip("polars-gpu declines this column type in the canonical path too")
+    g = _dtype_graph(engine)
+    column = ODD_COLUMNS[name]
+    query = _later_filter_query("edge", column, ODD_SCALARS[name]())
+    gfql_clear_caches()
+    actual = [_outcome(g, query, engine) for _ in range(2)]
+    with routes_off([ROUTE]):
+        expected = [_outcome(g, query, engine) for _ in range(2)]
+    assert actual == expected
+
+
+@pytest.mark.route_engaged(ROUTE)
+@pytest.mark.parametrize("name", ["numpy_int64", "numpy_bool", "bool_on_int_column", "int_on_bool_column"])
+def test_numpy_scalars_and_bool_int_mixups_decline_the_skip(engine, name):
+    if engine == "polars-gpu":
+        pytest.skip("polars-gpu declines this column type in the canonical path too")
+    query = _later_filter_query("edge", ODD_COLUMNS[name], ODD_SCALARS[name]())
+    assert True not in _consulted(_dtype_graph(engine), query, engine)
+
+
+@pytest.mark.route_engaged(ROUTE)
+def test_a_string_scalar_on_a_mixed_object_column_is_served():
+    """The pandas object dtype is one key for all-string and mixed columns; the K1 matrix proves str equality identical on both."""
+    query = _later_filter_query("edge", "obj_mixed", "a")
+    assert _consulted(_dtype_graph("pandas"), query, "pandas") == {True}
+
+
+@pytest.mark.route_engaged(ROUTE)
+@pytest.mark.parametrize("value,served", [
+    (5, True), (2 ** 70, True), (float("nan"), True), (gt(1), True), ("a", True), (True, True), (None, False),
+])
+def test_the_seed_op_accepts_everything_but_none(engine, value, served):
+    """The rebuild evaluates the seed op on the real frames, so its value never reaches the twin; None warns per expression built."""
+    column = "name" if isinstance(value, str) else "score"
+    query = [n({column: value}, name="a"), e_undirected(name="r1"), n(name="m"), rows(), select([("aid", "a.id")])]
+    assert _consulted(graph(engine), query, engine) == ({True} if served else {False})
+
+
+def test_bypassing_the_allowlist_makes_known_pairs_diverge(monkeypatch):
+    """The allowlist is load-bearing: with it bypassed, an int on a bool column (a pair the matrix covers) changes the outcome."""
+    from graphistry.compute.gfql import rows_skip_traversal
+    from graphistry.compute.gfql_unified import gfql_clear_caches
+
+    monkeypatch.setattr(rows_skip_traversal, "_scalar_fits", lambda value, dtype: True)
+    g = _dtype_graph("pandas")
+    queries = [_later_filter_query("edge", "bool", value) for value in SCALAR_GROUPS["int"]]
+    gfql_clear_caches()
+    actual = [_outcome(g, query, "pandas") for query in queries * 2]
+    monkeypatch.undo()
+    with routes_off([ROUTE]):
+        expected = [_outcome(g, query, "pandas") for query in queries * 2]
+    assert actual != expected
+
+
+@pytest.mark.route_engaged(ROUTE)
 def test_a_raising_cold_build_leaves_no_cache_entry_and_the_next_call_is_served(engine):
     from graphistry.compute.gfql import rows_skip_traversal
     from graphistry.compute.gfql_unified import gfql_clear_caches
