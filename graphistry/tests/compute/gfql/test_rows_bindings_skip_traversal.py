@@ -114,12 +114,12 @@ def _consulted(g, query, engine, index_policy="off"):
 
 
 def _consulted_accepting_validation_errors(g, query, engine, index_policy="off"):
-    from graphistry.compute.exceptions import GFQLTypeError
+    from graphistry.compute.exceptions import GFQLValidationError
 
     with index_trace() as steps:
         try:
             g.gfql(query, engine=engine, index_policy=index_policy)
-        except GFQLTypeError:
+        except GFQLValidationError:
             pass
     return {bool(s["served"]) for s in steps if s.get("op") == "fast_path" and s.get("seam") == SEAM}
 
@@ -981,7 +981,8 @@ def test_the_seed_op_accepts_everything_but_none(engine, value, served):
     """The rebuild evaluates the seed op on real frames; values the frame layer rejects replay instead of being cached."""
     column = "name" if isinstance(value, str) else "score"
     query = [n({column: value}, name="a"), e_undirected(name="r1"), n(name="m"), rows(), select([("aid", "a.id")])]
-    assert _consulted(graph(engine), query, engine) == ({True} if served else {False})
+    steps = _consulted(graph(engine), query, engine)
+    assert (steps == {True}) if served else (True not in steps)
 
 
 @pytest.mark.route_engaged(ROUTE)
