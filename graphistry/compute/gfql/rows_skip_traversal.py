@@ -309,7 +309,7 @@ def _ambient_state() -> Tuple[object, ...]:
 def _independent(frame: DataFrameT) -> DataFrameT:
     """A zero-row frame that owns its buffers, so the cache never pins the caller's column memory."""
     if is_polars_df(frame):
-        return frame.clear()  # type: ignore[no-any-return,attr-defined]  # polars frames expose clear() on the polars-installed check
+        return frame.clear()  # type: ignore[return-value]  # a zero-row Polars frame keeps the schema and owns no buffers
     return frame.copy(deep=True)
 
 

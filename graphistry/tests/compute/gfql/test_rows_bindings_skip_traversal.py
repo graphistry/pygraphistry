@@ -519,7 +519,8 @@ def test_dtype_matrix_is_served_or_declined_without_a_replay(engine, dtype):
     g = _frame_for(engine, "val", pandas_values, polars_values)
     if _outcome(g, MATRIX_QUERY, engine)[0][0] != "rows":
         pytest.skip("the canonical path declines this column type")
-    declined = dtype in ("ordered_categorical", "unordered_categorical") or (engine == "polars" and dtype == "arrow_dictionary")
+    # a dictionary-encoded column is categorical on Polars and on cuDF versions that hold it
+    declined = dtype in ("ordered_categorical", "unordered_categorical") or (engine in ("polars", "cudf") and dtype == "arrow_dictionary")
     # served means served: a replay would also record a False decision
     assert _consulted(g, MATRIX_QUERY, engine) == ({False} if declined else {True})
 
