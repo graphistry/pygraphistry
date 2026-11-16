@@ -1067,11 +1067,13 @@ def test_a_failed_attempt_keeps_a_previously_cached_twin(engine, monkeypatch):
     gfql_clear_caches()
     _outcome(g, query, engine)
     before = dict(rows_skip_traversal._TWINS)
+    cached_frames = next(iter(before.values()))
 
     real = rows_skip_traversal._zero_row_twin
 
     def failing_after_reuse(*args, **kwargs):
         twin = real(*args, **kwargs)
+        assert twin._gfql_rows_twin_frames is cached_frames
         raise ValueError("failure after cache reuse")
 
     monkeypatch.setattr(rows_skip_traversal, "_zero_row_twin", failing_after_reuse)
@@ -1081,6 +1083,32 @@ def test_a_failed_attempt_keeps_a_previously_cached_twin(engine, monkeypatch):
         expected = _outcome(g, query, engine)
     assert actual == expected
     assert rows_skip_traversal._TWINS == before
+
+
+@pytest.mark.route_engaged(ROUTE)
+def test_a_raising_twin_builder_replays_and_leaves_no_cache_entry(engine):
+    """A builder failure is itself replayable; it must not escape as UnboundLocalError or poison the cache."""
+    from graphistry.compute.gfql import rows_skip_traversal
+    from graphistry.compute.gfql_unified import gfql_clear_caches
+
+    query = SHAPES["seeded_undirected_edge_alias"][0]
+    g = graph(engine)
+    gfql_clear_caches()
+
+    def raising(*args, **kwargs):
+        raise TypeError("twin builder failed")
+
+    original = rows_skip_traversal._zero_row_twin
+    rows_skip_traversal._zero_row_twin = raising
+    try:
+        assert _consulted(g, query, engine) == {False}
+    finally:
+        rows_skip_traversal._zero_row_twin = original
+    assert not rows_skip_traversal._TWINS
+    actual = _outcome(g, query, engine)
+    with routes_off([ROUTE]):
+        expected = _outcome(g, query, engine)
+    assert actual == expected
 
 
 @pytest.mark.parametrize("target", ["cpu", "gpu"])
