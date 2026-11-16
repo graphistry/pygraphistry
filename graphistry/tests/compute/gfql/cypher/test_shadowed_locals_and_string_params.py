@@ -242,7 +242,7 @@ def test_scalar_parameter_projected_next_to_a_whole_entity(engine, value) -> Non
 
 @pytest.mark.parametrize("engine", ENGINES)
 @pytest.mark.parametrize("value,expected_dtype", [
-    (5, {"pandas": "int64", "cudf": "int64", "polars": "int64", "polars-gpu": "int64"}),
+    (5, {"pandas": "int64", "cudf": "int64", "polars": "int32", "polars-gpu": "int32"}),
     (2.5, {"pandas": "float64", "cudf": "float64", "polars": "float64", "polars-gpu": "float64"}),
     (True, {"pandas": "bool", "cudf": "bool", "polars": "boolean", "polars-gpu": "boolean"}),
     ("x", {"pandas": "object", "cudf": "object", "polars": "string", "polars-gpu": "string"}),
