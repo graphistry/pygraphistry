@@ -29,6 +29,7 @@ _FILTER_FIELDS = ("filter_dict", "edge_match", "source_node_match", "destination
 _TWINS: "OrderedDict[Tuple[object, ...], Tuple[DataFrameT, DataFrameT]]" = OrderedDict()
 _TWINS_MAX = 256
 _TWINS_LOCK = threading.Lock()
+_TWIN_ATTEMPT = threading.local()
 
 
 def _clear_twins() -> None:
@@ -242,8 +243,6 @@ def run_without_traversal(
     """
     from graphistry.compute.gfql.index.api import record_fast_path_decision
 
-    with _TWINS_LOCK:
-        existing_twins = set(_TWINS)
     try:
         # Warning capture is process-global, not thread-safe; the record/re-emit window contains only one fast-path attempt.
         with warnings.catch_warnings(record=True) as caught:
@@ -255,9 +254,12 @@ def run_without_traversal(
             )
         return result
     except _replayable_errors() as error:
-        with _TWINS_LOCK:
-            for twin_key in set(_TWINS) - existing_twins:
-                _TWINS.pop(twin_key, None)
+        inserted = getattr(_TWIN_ATTEMPT, "inserted", None)
+        if inserted is not None:
+            twin_key, twin_frames = inserted
+            with _TWINS_LOCK:
+                if _TWINS.get(twin_key) is twin_frames:
+                    _TWINS.pop(twin_key)
         record_fast_path_decision(
             path="rows_bindings_skip_traversal", engine=engine, served=False,
             reason="replayed the traversal after an error in the skipped path", replayed_after=type(error).__name__,
@@ -302,6 +304,7 @@ def _zero_row_twin(
         frames = _TWINS.get(key)
         if frames is not None:
             _TWINS.move_to_end(key)
+    _TWIN_ATTEMPT.inserted = None
     if frames is None:
         empty = with_index_policy(drop_index(g.nodes(g._nodes[:0]).edges(g._edges[:0])), "off")
         with suspended_index_trace():
@@ -309,6 +312,7 @@ def _zero_row_twin(
         frames = (_independent(out._nodes), _independent(out._edges))
         with _TWINS_LOCK:
             _TWINS[key] = frames
+            _TWIN_ATTEMPT.inserted = (key, frames)
             if len(_TWINS) > _TWINS_MAX:
                 _TWINS.popitem(last=False)
     twin = g.bind()
