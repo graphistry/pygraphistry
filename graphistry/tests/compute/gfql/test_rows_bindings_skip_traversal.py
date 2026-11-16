@@ -1056,6 +1056,33 @@ def test_a_failed_fast_path_attempt_leaves_no_cache_entry_and_replays_the_canoni
     assert actual == expected
 
 
+@pytest.mark.route_engaged(ROUTE)
+def test_a_failed_attempt_keeps_a_previously_cached_twin(engine, monkeypatch):
+    """A failure after cache reuse removes only the current attempt's insertion, never the reused entry."""
+    from graphistry.compute.gfql import rows_skip_traversal
+    from graphistry.compute.gfql_unified import gfql_clear_caches
+
+    query = _later_filter_query("edge", "name", _contains("a"))
+    g = graph(engine)
+    gfql_clear_caches()
+    _outcome(g, query, engine)
+    before = dict(rows_skip_traversal._TWINS)
+
+    real = rows_skip_traversal._zero_row_twin
+
+    def failing_after_reuse(*args, **kwargs):
+        twin = real(*args, **kwargs)
+        raise ValueError("failure after cache reuse")
+
+    monkeypatch.setattr(rows_skip_traversal, "_zero_row_twin", failing_after_reuse)
+    actual = _outcome(g, query, engine)
+    monkeypatch.undo()
+    with routes_off([ROUTE]):
+        expected = _outcome(g, query, engine)
+    assert actual == expected
+    assert rows_skip_traversal._TWINS == before
+
+
 @pytest.mark.parametrize("target", ["cpu", "gpu"])
 def test_execution_targets_do_not_share_a_twin(engine, target):
     from graphistry.compute.gfql.lazy import ExecutionTarget, target_mode
