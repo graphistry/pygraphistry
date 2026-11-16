@@ -250,7 +250,6 @@ def run_without_traversal(
         for warning in caught:
             warnings.warn_explicit(
                 warning.message, warning.category, warning.filename, warning.lineno,
-                module=warning.module, registry=warning.registry,
             )
         return result
     except _replayable_errors() as error:
