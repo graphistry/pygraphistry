@@ -10,8 +10,10 @@ from __future__ import annotations
 
 import math
 import re
+import itertools
 import warnings
 import threading
+import uuid
 from collections import OrderedDict
 from typing import Callable, Dict, List, Optional, Tuple, Type
 
@@ -29,11 +31,14 @@ _FILTER_FIELDS = ("filter_dict", "edge_match", "source_node_match", "destination
 _TWINS: "OrderedDict[Tuple[object, ...], Tuple[DataFrameT, DataFrameT]]" = OrderedDict()
 _TWINS_MAX = 256
 _TWINS_LOCK = threading.Lock()
+_TWIN_TOKENS: Dict[Tuple[object, ...], str] = {}
+_ATTEMPT_SEQ = itertools.count()
 
 
 def _clear_twins() -> None:
     with _TWINS_LOCK:
         _TWINS.clear()
+        _TWIN_TOKENS.clear()
 
 
 register_clearable_callable("_TWINS", _clear_twins)
@@ -257,10 +262,11 @@ def run_without_traversal(
         return result
     except _replayable_errors() as error:
         if inserted is not None:
-            twin_key, twin_frames = inserted
+            twin_key, twin_frames, twin_token = inserted
             with _TWINS_LOCK:
-                if _TWINS.get(twin_key) is twin_frames:
+                if _TWINS.get(twin_key) is twin_frames and _TWIN_TOKENS.get(twin_key) == twin_token:
                     _TWINS.pop(twin_key)
+                    _TWIN_TOKENS.pop(twin_key)
         record_fast_path_decision(
             path="rows_bindings_skip_traversal", engine=engine, served=False,
             reason="replayed the traversal after an error in the skipped path", replayed_after=type(error).__name__,
@@ -313,11 +319,15 @@ def _zero_row_twin(
         frames = (_independent(out._nodes), _independent(out._edges))
         with _TWINS_LOCK:
             _TWINS[key] = frames
-            inserted = (key, frames)
+            attempt_token = uuid.uuid4().hex
+            _TWIN_TOKENS[key] = attempt_token
+            inserted = (key, frames, attempt_token)
             if len(_TWINS) > _TWINS_MAX:
-                _TWINS.popitem(last=False)
+                evicted_key, _ = _TWINS.popitem(last=False)
+                _TWIN_TOKENS.pop(evicted_key, None)
     twin = g.bind()
     twin._nodes, twin._edges = (_fresh(frame) for frame in frames)
+    twin._gfql_rows_twin_frames = frames  # type: ignore[attr-defined]  # per-attempt provenance on a private bound graph
     twin._gfql_rows_twin_inserted = inserted  # type: ignore[attr-defined]  # per-attempt provenance on a private bound graph
     return twin
 
