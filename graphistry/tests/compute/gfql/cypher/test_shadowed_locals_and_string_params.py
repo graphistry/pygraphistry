@@ -258,16 +258,17 @@ def test_scalar_parameter_projected_next_to_a_whole_entity(engine, value) -> Non
 def test_scalar_parameter_projection_keeps_its_dtype(engine, query, value, expected_kind) -> None:
     out = _graph(engine).gfql(query, engine=engine, params={"v": value})
     frame = out._nodes
+    column = "w" if "WITH" in query else "v"
     if hasattr(frame, "schema"):
         import polars as pl
 
-        dtype = frame.schema["v"]
+        dtype = frame.schema[column]
         actual_kind = ("integer" if dtype.is_integer() else "floating" if dtype.is_float()
                        else "boolean" if dtype == pl.Boolean else "string" if dtype == pl.String else dtype)
     else:
         from pandas.api.types import is_bool_dtype, is_float_dtype, is_integer_dtype, is_string_dtype
 
-        dtype = frame.dtypes["v"]
+        dtype = frame.dtypes[column]
         actual_kind = ("integer" if is_integer_dtype(dtype) else "floating" if is_float_dtype(dtype)
                        else "boolean" if is_bool_dtype(dtype) else "string" if is_string_dtype(dtype) else dtype)
     assert actual_kind == expected_kind
@@ -468,7 +469,7 @@ def test_shadowing_local_in_a_multi_alias_path_is_a_structured_decline(engine) -
         )
     assert exc.value.code == ErrorCode.E108
     assert exc.value.context["field"] == "return"
-    assert exc.value.context["value"] == "shadowed_alias"
+    assert exc.value.context["value"] == ["a", "b"]
 
 
 # string and non-finite parameters in WHERE / ORDER BY
