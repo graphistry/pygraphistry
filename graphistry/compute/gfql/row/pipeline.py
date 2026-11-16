@@ -1795,6 +1795,29 @@ class RowPipelineMixin:
             if fn == "labels" and len(node.args) == 1 and isinstance(node.args[0], Identifier):
                 alias_name = node.args[0].name
                 node_id = self._gfql_node_id_column()
+                alias_id_col = f"{alias_name}.{node_id}" if node_id else None
+                if alias_id_col is not None and alias_id_col in table_df.columns:
+                    prefix = f"{alias_name}."
+                    alias_cols = [
+                        col for col in table_df.columns
+                        if isinstance(col, str) and col.startswith(prefix)
+                    ]
+                    source_table_df = table_df[alias_cols].copy().rename(
+                        columns={col: col[len(prefix):] for col in alias_cols}
+                    )
+                    out = format_node_labels_text(
+                        source_table_df,
+                        alias_col=str(node_id),
+                        labels_are_list_like=(
+                            "labels" in source_table_df.columns
+                            and RowPipelineMixin._gfql_series_is_list_like(source_table_df["labels"])
+                        ),
+                    )
+                    null_source_col = alias_name if alias_name in table_df.columns else alias_id_col
+                    null_mask = self._gfql_null_mask(table_df, table_df[null_source_col])
+                    if hasattr(out, "where"):
+                        out = self._gfql_mask_fill(out, null_mask, None)
+                    return True, out
                 if (
                     "." not in alias_name
                     and alias_name in table_df.columns
