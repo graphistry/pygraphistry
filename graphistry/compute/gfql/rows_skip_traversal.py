@@ -317,7 +317,7 @@ def _zero_row_twin(
                 _TWINS.popitem(last=False)
     twin = g.bind()
     twin._nodes, twin._edges = (_fresh(frame) for frame in frames)
-    twin._gfql_rows_twin_inserted = inserted
+    twin._gfql_rows_twin_inserted = inserted  # type: ignore[attr-defined]  # per-attempt provenance on a private bound graph
     return twin
 
 
