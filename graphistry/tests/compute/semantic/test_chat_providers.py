@@ -168,11 +168,35 @@ class TestOpenAIChat:
         result = checked(openai(FakeSession([reply])), request((PRED,)))[0]
         assert result.value is True and result.distribution == pytest.approx({"true": 0.9 / 0.95, "false": 0.05 / 0.95})
 
-    @pytest.mark.parametrize("finish", ["length", "model_length", "error"])
-    def test_unfinished_replies_are_not_answers(self, finish: str) -> None:
+    @pytest.mark.parametrize("finish, code", [("length", "answer_truncated"), ("model_length", "answer_truncated"),
+                                              ("error", "invalid_provider_result")])
+    def test_unfinished_replies_are_not_answers(self, finish: str, code: str) -> None:
         cut = chat_reply("A", top(A=0.9, B=0.1))
         cut._body["choices"][0]["finish_reason"] = finish  # type: ignore[index]
-        assert checked(openai(FakeSession([cut])), request((PRED,)))[0].error_code == "invalid_provider_result"
+        assert checked(openai(FakeSession([cut])), request((PRED,)))[0].error_code == code
+
+    def test_a_finished_unreadable_reply_is_not_truncation(self) -> None:
+        assert checked(openai(FakeSession([chat_reply("maybe")])), request((PRED,)))[0].error_code \
+            == "invalid_provider_result"
+
+    def test_a_probe_that_only_sees_truncation_says_so(self) -> None:
+        cut = chat_reply(None)
+        cut._body["choices"][0]["finish_reason"] = "length"  # type: ignore[index]
+        session = FakeSession([cut])
+        result = checked(openai(session, strategy="auto"), request((PRED,)))[0]
+        assert result.error_code == "answer_truncated" and len(session.posts) == 4
+
+    def test_a_request_the_content_filter_rejects_is_a_refusal(self) -> None:
+        blocked = FakeResponse(400, {"error": {"code": "content_filter", "message": "filtered"}})
+        result = checked(openai(FakeSession([blocked])), request((PRED,)))[0]
+        assert (result.status, result.status_reason, result.value, result.cost_usd) == ("uncertain", "refusal", None, None)
+        assert result.extra["refusal_source"] == "request_content_filter"
+
+    @pytest.mark.parametrize("body", [{"error": {"code": "invalid_request"}}, {"error": "content_filter"}, None, []])
+    def test_other_bad_requests_stay_errors(self, body: object) -> None:
+        assert checked(openai(FakeSession([FakeResponse(400, body)])), request((PRED,)))[0].error_code == "http_400"
+        assert checked(openai(FakeSession([FakeResponse(400, text="<html>")])), request((PRED,)))[0].error_code \
+            == "http_400"
 
     @pytest.mark.parametrize("options", [dict(max_answer_tokens=1), dict(max_answer_tokens=True),
                                          dict(max_answer_tokens=2.5), dict(top_logprobs=-1), dict(top_logprobs=True),
@@ -181,6 +205,18 @@ class TestOpenAIChat:
         with pytest.raises(ValueError, match=next(iter(options))):
             openai(FakeSession([]), **options)
         assert openai(FakeSession([]), max_answer_tokens=2, top_logprobs=0).max_answer_tokens == 2
+
+    @pytest.mark.parametrize("strategy,limit", [("logprobs", 16), ("text", 16), ("json_schema", 16), ("tool", 64),
+                                                ("function", 64)])
+    def test_call_forms_get_room_for_their_wrapper(self, strategy: str, limit: int) -> None:
+        req = request((PRED,))
+        assert openai(FakeSession([])).strategy_body(req, PRED, strategy)["max_completion_tokens"] == limit
+        assert openai(FakeSession([]), max_answer_tokens=8).strategy_body(req, PRED, strategy)["max_completion_tokens"] == 8
+        if strategy in ("text", "json_schema", "tool"):
+            def sent(**options: object) -> object:
+                return AnthropicMessagesProvider("k", "claude-x", session=FakeSession([]), strategy=strategy,  # type: ignore[arg-type]
+                                                 **options).body(req, [PRED])["max_tokens"]  # type: ignore[arg-type]
+            assert (sent(), sent(max_answer_tokens=8)) == (limit, 8)
 
     def test_a_certain_code_counts_as_observed(self) -> None:
         sure = [{"token": "A", "logprob": 0.0}, {"token": "B", "logprob": math.log(0.01)}]
@@ -287,7 +323,7 @@ class TestAnthropic:
         read, cut_off = provider.decide_batch([request((PRED,)), request((PRED,), request_id="r1")], deadline_s=None,
                                               budget=None)
         assert (read.value, read.cost_usd) == (False, pytest.approx((60 + 4 + 40) / 1e6))
-        assert cut_off.error_code == "invalid_provider_result"
+        assert cut_off.error_code == ("answer_truncated" if stop == "max_tokens" else "invalid_provider_result")
 
     def test_extra_body_cannot_replace_fields_but_extra_headers_can(self) -> None:
         session = FakeSession([anthropic_reply("A")])
