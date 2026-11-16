@@ -910,18 +910,22 @@ class TestUnreadRepliesAreSentAgain:
         assert result.cost_usd == pytest.approx(160 / 1e6)
         assert session.posts[0]["json"] == session.posts[1]["json"]
 
-    def test_a_second_unread_reply_is_the_error(self) -> None:
-        session = FakeSession([chat_reply("hmm"), cut_off("It looks"), chat_reply("B")])
+    def test_the_last_unread_reply_is_the_error(self) -> None:
+        session = FakeSession([chat_reply("hmm"), chat_reply("hmm"), cut_off("It looks"), chat_reply("B")])
         result = checked(openai(session, strategy="text"), request((PRED,)))[0]
-        assert (result.error_code, result.retry_count, len(session.posts)) == ("answer_truncated", 1, 2)
+        assert (result.error_code, result.retry_count, len(session.posts)) == ("answer_truncated", 2, 3)
+        assert result.cost_usd == pytest.approx(240 / 1e6)
 
     def test_reply_retries_sets_how_often_and_zero_sends_once(self) -> None:
         once = FakeSession([chat_reply("hmm"), chat_reply("B")])
         result = checked(openai(once, strategy="text", reply_retries=0), request((PRED,)))[0]
         assert (result.error_code, result.retry_count, len(once.posts)) == ("invalid_provider_result", 0, 1)
-        twice = FakeSession([chat_reply("hmm"), chat_reply("hmm"), chat_reply("B")])
-        result = checked(openai(twice, strategy="text", reply_retries=2), request((PRED,)))[0]
-        assert (result.value, result.retry_count, len(twice.posts)) == (False, 2, 3)
+        capped = FakeSession([chat_reply("hmm"), chat_reply("hmm"), chat_reply("B")])
+        result = checked(openai(capped, strategy="text", reply_retries=1), request((PRED,)))[0]
+        assert (result.error_code, result.retry_count, len(capped.posts)) == ("invalid_provider_result", 1, 2)
+        more = FakeSession([chat_reply("hmm"), chat_reply("hmm"), chat_reply("hmm"), chat_reply("B")])
+        result = checked(openai(more, strategy="text", reply_retries=3), request((PRED,)))[0]
+        assert (result.value, result.retry_count, len(more.posts)) == (False, 3, 4)
 
     @pytest.mark.parametrize("value", [-1, 1.5, True, None])
     def test_reply_retries_must_be_a_count(self, value: object) -> None:
@@ -953,7 +957,7 @@ class TestUnreadRepliesAreSentAgain:
         provider = openai(session, strategy="text")
         results = provider.send([(request((PRED,)), PRED)], {}, lambda payload, meta: [
             provider.invalid(request((PRED,)), PRED, meta)], time.monotonic() + 30)
-        assert len(session.posts) == 2 and results[0].retry_count == 1
+        assert len(session.posts) == 3 and results[0].retry_count == 2
         late = FakeSession([chat_reply("hmm"), chat_reply("B")])
         slow = openai(late, strategy="text")
 

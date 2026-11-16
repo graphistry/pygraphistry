@@ -272,7 +272,7 @@ class _ChatDecisionProvider(HttpDecisionProvider):
                  extra_body: Optional[JSONObject] = None, extra_headers: Optional[Dict[str, str]] = None,
                  prices: Optional[TokenPrices] = None, concurrency_limit: int = 4, timeout_s: float = 60,
                  max_retries: int = 3, retry_backoff_s: float = 0.5, session: Optional[HttpPoster] = None,
-                 name: Optional[str] = None, reply_retries: int = 1) -> None:
+                 name: Optional[str] = None, reply_retries: int = 2) -> None:
         super().__init__(api_key, model, base_url=base_url, prices=prices, concurrency_limit=concurrency_limit,
                          timeout_s=timeout_s, max_retries=max_retries, retry_backoff_s=retry_backoff_s,
                          session=session, name=name, reply_retries=reply_retries)
@@ -395,7 +395,7 @@ class OpenAIChatProvider(_ChatDecisionProvider):
                  extra_body: Optional[JSONObject] = None,
                  extra_headers: Optional[Dict[str, str]] = None, prices: Optional[TokenPrices] = None,
                  concurrency_limit: int = 4, timeout_s: float = 60, max_retries: int = 3, retry_backoff_s: float = 0.5,
-                 session: Optional[HttpPoster] = None, name: Optional[str] = None, reply_retries: int = 1) -> None:
+                 session: Optional[HttpPoster] = None, name: Optional[str] = None, reply_retries: int = 2) -> None:
         super().__init__(api_key, model, base_url=base_url, max_answer_tokens=max_answer_tokens, extra_body=extra_body,
                          extra_headers=extra_headers, prices=prices, concurrency_limit=concurrency_limit,
                          timeout_s=timeout_s, max_retries=max_retries, retry_backoff_s=retry_backoff_s,
@@ -716,7 +716,7 @@ class AnthropicMessagesProvider(_ChatDecisionProvider):
                  extra_body: Optional[JSONObject] = None, extra_headers: Optional[Dict[str, str]] = None,
                  prices: Optional[TokenPrices] = None, concurrency_limit: int = 4, timeout_s: float = 60,
                  max_retries: int = 3, retry_backoff_s: float = 0.5, session: Optional[HttpPoster] = None,
-                 name: Optional[str] = None, reply_retries: int = 1) -> None:
+                 name: Optional[str] = None, reply_retries: int = 2) -> None:
         super().__init__(api_key, model, base_url=base_url, max_answer_tokens=max_answer_tokens, extra_body=extra_body,
                          extra_headers=extra_headers, prices=prices, concurrency_limit=concurrency_limit,
                          timeout_s=timeout_s, max_retries=max_retries, retry_backoff_s=retry_backoff_s,

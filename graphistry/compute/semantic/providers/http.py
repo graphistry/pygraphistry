@@ -3,7 +3,7 @@ import json
 import math
 import time
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Callable, Dict, List, Mapping, NamedTuple, Optional, Protocol, Sequence, Tuple, Union
 
 import requests
@@ -181,7 +181,7 @@ class HttpDecisionProvider(ABC):
     :param timeout_s: per-request timeout, capped by the remaining deadline
     :param max_retries: retries on 408, 409, 429, 5xx except 501, connection errors and timeouts; each attempt may be billed
     :param reply_retries: times a request is sent again when its reply holds no readable answer or is cut off at the
-        answer-token limit (default 1); each is billed and counted in ``retry_count``
+        answer-token limit (default 2); each is billed and counted in ``retry_count``
     :param retry_backoff_s: base delay between retries when the server sends no ``Retry-After``
     :param session: object with a ``requests``-style ``post``; default ``requests``
     :param name: provider name stamped on results; default the class's ``name``
@@ -194,7 +194,7 @@ class HttpDecisionProvider(ABC):
     def __init__(self, api_key: str, model: str, *, base_url: Optional[str] = None, prices: Optional[TokenPrices] = None,
                  concurrency_limit: int = 4, timeout_s: float = 60, max_retries: int = 3,
                  retry_backoff_s: float = 0.5, session: Optional[HttpPoster] = None, name: Optional[str] = None,
-                 reply_retries: int = 1) -> None:
+                 reply_retries: int = 2) -> None:
         if not (isinstance(api_key, str) and api_key):
             raise ValueError("api_key must be a non-empty string")
         if not (isinstance(model, str) and model):
@@ -305,9 +305,9 @@ class HttpDecisionProvider(ABC):
 
     def invalid(self, request: DecisionRequest, question: DecisionQuestion, meta: ResponseMeta,
                 error_code: str = "invalid_provider_result") -> DecisionResult:
-        return unanswered_result(request, question, provider=self.name, model=meta.model,
-                                 error_code=error_code, latency_ms=meta.latency_ms,
-                                 retry_count=meta.retries)
+        return replace(unanswered_result(request, question, provider=self.name, model=meta.model,
+                                         error_code=error_code, latency_ms=meta.latency_ms,
+                                         retry_count=meta.retries), cost_usd=meta.cost_usd)
 
     @abstractmethod
     def capabilities(self) -> ProviderCapabilities:
