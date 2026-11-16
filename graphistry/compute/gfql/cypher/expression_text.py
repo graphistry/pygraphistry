@@ -38,6 +38,8 @@ def cypher_literal_expr_text(value: Any) -> str:
     if isinstance(value, float):
         if value != value:
             return "null"
+        if value in (float("inf"), float("-inf")):
+            return "1e999" if value > 0 else "-1e999"  # repr() would be an identifier; the number token parses to +/-inf
         return repr(value)
     if isinstance(value, str):
         return render_cypher_string_literal(value)

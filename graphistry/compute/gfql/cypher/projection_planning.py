@@ -3,15 +3,26 @@
 # ruff: noqa: F821
 from __future__ import annotations
 
+import math
 from typing import Mapping, Tuple
 
 from graphistry.compute.ast import ASTNode, ASTObject
 from graphistry.compute.gfql.cypher import lowering as _lowering
 from graphistry.compute.gfql.cypher.ast import CypherQuery
+from graphistry.compute.gfql.cypher.expression_text import cypher_literal_expr_text
 from graphistry.compute.gfql.cypher.lowering import _ProjectionPlan
 from graphistry.compute.gfql.identifiers import render_cypher_identifier
 
 globals().update(vars(_lowering))
+
+
+def _scalar_source_text(value: object) -> str:
+    """Projected-source text of a resolved scalar parameter; negative zero is spelled so its sign survives evaluation."""
+    text = cypher_literal_expr_text(value)
+    if isinstance(value, float) and value == 0 and math.copysign(1.0, value) < 0:
+        return "(0.0 * -1.0)"
+    return f"({text})"
+
 
 def _split_qualified_name(expr: str, *, line: int, column: int) -> Tuple[str, Optional[str]]:
     parts = expr.split(".")
@@ -167,6 +178,7 @@ def _build_projection_plan(
     source_alias: Optional[str] = None
     all_source_aliases: Optional[Set[str]] = None
     whole_row_output_names: List[str] = []
+    nan_items: List[object] = []
     whole_row_sources: Dict[str, str] = {}
     projection_items: List[Tuple[str, Any]] = []
     projection_columns: List[ResultProjectionColumn] = []
@@ -360,16 +372,28 @@ def _build_projection_plan(
                 )
             )
         else:
+            is_nan = isinstance(runtime_expr, float) and runtime_expr != runtime_expr
+            if is_nan:
+                nan_items.append(item)
             if isinstance(runtime_expr, str):
                 output_to_expr_source[output_name] = runtime_expr
             projection_columns.append(
                 ResultProjectionColumn(
                     output_name=output_name,
                     kind="expr",
-                    source_name=runtime_expr if isinstance(runtime_expr, str) else item.expression.text,
+                    source_name=(
+                        runtime_expr if isinstance(runtime_expr, str)
+                        else item.expression.text if is_nan else _scalar_source_text(runtime_expr)
+                    ),
                 )
             )
 
+    if nan_items and (whole_row_output_names or clause.kind == "with"):
+        raise GFQLValidationError(
+            ErrorCode.E108, "GFQL cannot carry a NaN parameter through WITH or next to a whole entity",
+            field=f"{clause.kind}.items", value="nan_parameter", line=nan_items[0].span.line, column=nan_items[0].span.column,
+            suggestion="Pass null or a finite number, or return the parameter directly.", language="cypher",
+        )
     if source_alias is None:
         raise GFQLValidationError(
             ErrorCode.E108,

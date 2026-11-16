@@ -125,22 +125,24 @@ def _rewrite_collection_alias_entities(
             _rewrite_collection_alias_entities(node.when_false, alias_targets=alias_targets),
         )
     if isinstance(node, QuantifierExpr):
+        scoped = {name: target for name, target in alias_targets.items() if name != node.var}
         return QuantifierExpr(
             node.fn,
             node.var,
             _rewrite_collection_alias_entities(node.source, alias_targets=alias_targets),
-            _rewrite_collection_alias_entities(node.predicate, alias_targets=alias_targets),
+            _rewrite_collection_alias_entities(node.predicate, alias_targets=scoped),
         )
     if isinstance(node, ListComprehension):
+        scoped = {name: target for name, target in alias_targets.items() if name != node.var}
         return ListComprehension(
             node.var,
             _rewrite_collection_alias_entities(node.source, alias_targets=alias_targets),
             predicate=None
             if node.predicate is None
-            else _rewrite_collection_alias_entities(node.predicate, alias_targets=alias_targets),
+            else _rewrite_collection_alias_entities(node.predicate, alias_targets=scoped),
             projection=None
             if node.projection is None
-            else _rewrite_collection_alias_entities(node.projection, alias_targets=alias_targets),
+            else _rewrite_collection_alias_entities(node.projection, alias_targets=scoped),
         )
     if isinstance(node, ListLiteral):
         return ListLiteral(
