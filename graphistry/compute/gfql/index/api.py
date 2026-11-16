@@ -234,7 +234,7 @@ _COL_STATS_CODE: Dict[ColStatsOutcome, IndexDecisionCode] = {
 
 
 def record_fast_path_decision(
-    *, path: FastPathName, served: bool, reason: str, engine: TraceEngine
+    *, path: FastPathName, served: bool, reason: str, engine: TraceEngine, replayed_after: Optional[str] = None,
 ) -> None:
     """Record whether a named fast path SERVED or declined, for ``gfql_explain``.
 
@@ -262,6 +262,8 @@ def record_fast_path_decision(
         "decision_reason": reason,
         "decision_code": "index_selected" if served else "index_path_unavailable",
     }
+    if replayed_after is not None:
+        step["replayed_after"] = replayed_after  # the exception class that sent the query back to the canonical path
     _record(step)
 
 

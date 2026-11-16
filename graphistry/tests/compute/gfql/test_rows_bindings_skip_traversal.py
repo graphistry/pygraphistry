@@ -339,7 +339,7 @@ def test_warnings_match_the_traversal_on_every_call(engine, shape):
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always")
             rows_out = len(_run(g, ABSENT_FILTERS[shape], engine)._nodes)
-        return rows_out, sorted((w.category.__name__, str(w.message)) for w in caught if "GFQL" in str(w.message))
+        return rows_out, sorted((w.category.__name__, str(w.message)) for w in caught if w.category is UserWarning)
 
     g = graph(engine)
     with routes_off([ROUTE]):
@@ -386,16 +386,25 @@ def _cells(frame):
     return repr(rows)
 
 
+def _signature(frame):
+    """Rows, column order, dtypes and (pandas/cuDF) index identity: everything a caller can observe of a frame."""
+    index = None if hasattr(frame, "to_dicts") else (type(frame.index).__name__, frame.index.name)
+    columns = list(frame.columns)
+    dtypes = [str(dtype) for dtype in (frame.dtypes if hasattr(frame, "dtypes") else [])]
+    return _cells(frame), columns, dtypes, index
+
+
 def _outcome(g, query, engine, validate_schema=True):
     import warnings
 
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
         try:
-            result = ("rows", _cells(with_index_policy(g, "off").chain(query, engine=engine, validate_schema=validate_schema)._nodes))
+            out = with_index_policy(g, "off").chain(query, engine=engine, validate_schema=validate_schema)
+            result = ("rows", _signature(out._nodes), _signature(out._edges))
         except Exception as error:  # the outcome under test is the error class, code and message
             result = (type(error).__name__, getattr(error, "code", None), str(error))
-    return result, sorted((w.category.__name__, str(w.message)) for w in caught if "GFQL" in str(w.message))
+    return result, sorted((w.category.__name__, str(w.message)) for w in caught if w.category is UserWarning)
 
 
 def _contains(pattern):
@@ -576,8 +585,8 @@ def test_data_evaluation_errors_in_the_skipped_path_replay_the_traversal(monkeyp
     assert _consulted(g, query, "pandas") == {True, False}  # engaged, then replayed the traversal
     with index_trace() as steps:
         _run(g, query, "pandas")
-    reasons = [str(s.get("reason")) for s in steps if s.get("op") == "fast_path" and s.get("seam") == SEAM and not s.get("served")]
-    assert any(type(error).__name__ in reason for reason in reasons), reasons  # a replay is visible in the trace
+    replays = [s.get("replayed_after") for s in steps if s.get("op") == "fast_path" and s.get("seam") == SEAM]
+    assert type(error).__name__ in replays, steps  # a replay is a structured field of the route decision
     assert _outcome(g, query, "pandas") == expected
 
 
@@ -631,6 +640,320 @@ def test_aliases_that_collide_with_columns_match_the_traversal(engine, name):
 @pytest.mark.parametrize("name", sorted(COLLISION_QUERIES))
 def test_aliases_that_collide_with_columns_decline_the_skip(engine, name):
     assert True not in _consulted(_collision_graph(engine), COLLISION_QUERIES[name], engine)  # declined, or an earlier route answered
+
+
+STR_NODE, NUM_NODE, STR_EDGE, NUM_EDGE = "name", "score", "type", "since"
+# per pair: (column kind, first value, second value); both values share a type so they share a key
+FILTER_VALUE_PAIRS = {
+    "valid_then_invalid_regex": ("str", lambda: _contains("a"), lambda: _contains("(")),
+    "empty_then_nonempty_is_in": ("str", lambda: _is_in([]), lambda: _is_in(["a"])),
+    "in_range_then_overflowing_int": ("num", lambda: 5, lambda: 2 ** 70),
+    "number_then_nan": ("num", lambda: 1.5, lambda: float("nan")),
+    "value_then_none": ("str", lambda: "a", lambda: None),
+    "number_then_string_on_numeric": ("num", lambda: 1.5, lambda: "high"),
+    "present_then_absent_column": ("absent", lambda: 1, lambda: 2),
+    "predicate_then_predicate_on_numeric": ("num", lambda: gt(1), lambda: gt("x")),
+}
+FIVE_OPS = ("seed", "edge1", "mid", "edge2", "last")
+SEEDS = {"matches": {"id": 1}, "matches_nothing": {"id": 99}}
+
+
+def _filter_for(kind, position, make):
+    node = position in ("seed", "mid", "last")
+    column = {"str": STR_NODE if node else STR_EDGE, "num": NUM_NODE if node else NUM_EDGE, "absent": "nope_col"}[kind]
+    return {column: make()}
+
+
+def _five_op_query(position, make, kind, seed):
+    ops = {"seed": n(dict(SEEDS[seed]), name="a"), "edge1": e_undirected(name="r1"), "mid": n(name="m"),
+           "edge2": e_undirected(name="r2"), "last": n(name="z")}
+    if position == "seed":
+        ops["seed"] = n(_filter_for(kind, position, make), name="a")
+    elif position in ("edge1", "edge2"):
+        ops[position] = e_undirected(_filter_for(kind, position, make), name=ops[position]._name)
+    else:
+        ops[position] = n(_filter_for(kind, position, make), name=ops[position]._name)
+    return [ops[p] for p in FIVE_OPS] + [rows(), select([("aid", "a.id"), ("zid", "z.id")])]
+
+
+def _empty_graph(engine):
+    g = graph(engine)
+    return g.nodes(g._nodes[:0]).edges(g._edges[:0])
+
+
+@pytest.mark.parametrize("validate_schema", [True, False])
+@pytest.mark.parametrize("graph_kind", ["populated", "empty"])
+@pytest.mark.parametrize("seed", sorted(SEEDS))
+@pytest.mark.parametrize("order", ["forward", "reverse"])
+@pytest.mark.parametrize("position", FIVE_OPS)
+@pytest.mark.parametrize("pair", sorted(FILTER_VALUE_PAIRS))
+def test_a_filter_value_at_any_position_never_changes_the_outcome(engine, pair, position, order, seed, graph_kind, validate_schema):
+    from graphistry.compute.gfql_unified import gfql_clear_caches
+
+    kind, first, second = FILTER_VALUE_PAIRS[pair]
+    makers = [first, second] if order == "forward" else [second, first]
+    g = graph(engine) if graph_kind == "populated" else _empty_graph(engine)
+    queries = [_five_op_query(position, make, kind, seed) for make in makers]
+    gfql_clear_caches()
+    actual = [_outcome(g, query, engine, validate_schema) for query in queries * 2]  # cold, then warm
+    with routes_off([ROUTE]):
+        expected = [_outcome(g, query, engine, validate_schema) for query in queries * 2]
+    assert actual == expected
+
+
+@pytest.mark.parametrize("first", ["chain", "cypher"])
+def test_chain_and_cypher_forms_do_not_share_a_twin(engine, first):
+    from graphistry.compute.gfql_unified import gfql_clear_caches
+
+    g = _collision_graph(engine)
+    forms = {
+        "chain": [n(name="a"), e_forward(name="e"), n(name="b"), rows(), select([("b", "b.id")])],
+        "cypher": "MATCH (a)-[e]->(b) RETURN b.id AS b",
+    }
+    order = [first] + [name for name in forms if name != first]
+    gfql_clear_caches()
+    actual = [_outcome(g, forms[name], engine) if name == "chain" else _cypher_outcome(g, forms[name], engine) for name in order * 2]
+    with routes_off([ROUTE]):
+        expected = [_outcome(g, forms[name], engine) if name == "chain" else _cypher_outcome(g, forms[name], engine) for name in order * 2]
+    assert actual == expected
+
+
+def _cypher_outcome(g, query, engine):
+    out = with_index_policy(g, "off").gfql(query, engine=engine)
+    return "rows", _signature(out._nodes), _signature(out._edges)
+
+
+@pytest.mark.parametrize("strict", ["warn", "strict", "quiet"])
+def test_strictness_levels_do_not_share_a_twin(engine, strict):
+    from graphistry.compute.gfql_unified import gfql_clear_caches
+
+    g = graph(engine)
+    query = [n({"id": 99}, name="a"), e_forward({"type": "LOC"}), n(name="z"), rows(), select([("zid", "z.id")])]
+
+    def run(level):
+        try:
+            return "rows", _signature(with_index_policy(g, "off").chain(query, engine=engine, strict=level)._nodes)
+        except Exception as error:  # the outcome under test is the error class and message
+            return type(error).__name__, str(error)
+
+    gfql_clear_caches()
+    actual = [run("warn"), run(strict), run("warn"), run(strict)]
+    with routes_off([ROUTE]):
+        expected = [run("warn"), run(strict), run("warn"), run(strict)]
+    assert actual == expected
+
+
+@pytest.mark.parametrize("index_kind", ["range", "named_range", "string", "shuffled_int", "duplicate"])
+def test_frame_indexes_match_the_traversal(index_kind):
+    import pandas as pd
+
+    g = graph("pandas")
+    edges, nodes = g._edges.copy(), g._nodes.copy()
+    if index_kind == "named_range":
+        edges.index = pd.RangeIndex(len(edges), name="eid")
+    elif index_kind == "string":
+        edges.index = [f"e{i}" for i in range(len(edges))]
+    elif index_kind == "shuffled_int":
+        edges.index = list(reversed(range(len(edges))))
+    elif index_kind == "duplicate":
+        edges.index = [0] * len(edges)
+    g = g.nodes(nodes).edges(edges)
+    query = SHAPES["seeded_undirected_edge_alias"][0]
+    with routes_off([ROUTE]):
+        expected = _outcome(g, query, "pandas")
+    for _ in range(2):
+        assert _outcome(g, query, "pandas") == expected
+
+
+@pytest.mark.route_engaged(ROUTE)
+@pytest.mark.parametrize("index_kind", ["named_range", "string", "shuffled_int"])
+def test_non_default_indexes_decline_the_skip(index_kind):
+    import pandas as pd
+
+    g = graph("pandas")
+    edges = g._edges.copy()
+    edges.index = {"named_range": pd.RangeIndex(len(edges), name="eid"), "string": [f"e{i}" for i in range(len(edges))],
+                   "shuffled_int": list(reversed(range(len(edges))))}[index_kind]
+    assert _consulted(g.edges(edges), SHAPES["seeded_undirected_edge_alias"][0], "pandas") == {False}
+
+
+def test_cached_twins_do_not_pin_the_callers_buffers(engine):
+    import numpy as np
+
+    from graphistry.compute.gfql import rows_skip_traversal
+    from graphistry.compute.gfql_unified import gfql_clear_caches
+
+    gfql_clear_caches()
+    g = graph(engine)
+    _run(g, SHAPES["seeded_undirected_edge_alias"][0], engine)
+    assert rows_skip_traversal._TWINS
+    inputs = [g._nodes, g._edges]
+    for frames in rows_skip_traversal._TWINS.values():
+        for frame in frames:
+            assert len(frame) == 0
+            if engine == "pandas":
+                for column in frame.columns:
+                    cached = frame[column].values
+                    assert not any(
+                        column in source.columns and np.may_share_memory(cached, source[column].values) for source in inputs
+                    )  # the cached zero-row column owns its memory
+
+
+def test_a_served_polars_query_leaves_the_cached_twin_unchanged():
+    pytest.importorskip("polars")
+    from graphistry.compute.gfql import rows_skip_traversal
+    from graphistry.compute.gfql_unified import gfql_clear_caches
+
+    gfql_clear_caches()
+    g = graph("polars")
+    query = SHAPES["seeded_undirected_edge_alias"][0]
+    _run(g, query, "polars")
+    before = [(frame.columns, frame.dtypes) for frames in rows_skip_traversal._TWINS.values() for frame in frames]
+    for _ in range(3):
+        _run(g, query, "polars")
+    after = [(frame.columns, frame.dtypes) for frames in rows_skip_traversal._TWINS.values() for frame in frames]
+    assert before == after
+
+
+def _dtype_columns(engine, count):
+    """One column per dtype kind (pandas builders; Polars gets native equivalents), `count` rows each."""
+    import numpy as np
+    import pandas as pd
+
+    mixed = ([1, "a", None, 2.5, True] * count)[:count]
+    pandas_columns = {
+        "int8": pd.Series(np.arange(count) % 100, dtype="int8"),
+        "int32": pd.Series(np.arange(count), dtype="int32"),
+        "int64": pd.Series(np.arange(count), dtype="int64"),
+        "uint64": pd.Series(np.arange(count), dtype="uint64"),
+        "float32": pd.Series(np.arange(count) / 2, dtype="float32"),
+        "float64": pd.Series(np.arange(count) / 2, dtype="float64"),
+        "bool": pd.Series([True, False] * count).iloc[:count].reset_index(drop=True),
+        "string": pd.Series(list("abcdefghij" * count)[:count]),
+        "dt_naive": pd.Series(pd.date_range("2020-01-01", periods=count)),
+        "dt_tz": pd.Series(pd.date_range("2020-01-01", periods=count, tz="America/New_York")),
+        "obj_mixed": pd.Series(mixed, dtype="object"),
+        "all_null": pd.Series([np.nan] * count, dtype="float64"),
+        "list": pd.Series([[1, 2]] * count),
+        "struct": pd.Series([{"a": 1}] * count),
+    }
+    if not engine.startswith("polars"):
+        return pandas_columns
+    import polars as pl
+
+    return {
+        "int8": pl.Series("int8", (np.arange(count) % 100).tolist(), dtype=pl.Int8),
+        "int32": pl.Series("int32", np.arange(count).tolist(), dtype=pl.Int32),
+        "int64": pl.Series("int64", np.arange(count).tolist(), dtype=pl.Int64),
+        "uint64": pl.Series("uint64", np.arange(count).tolist(), dtype=pl.UInt64),
+        "float32": pl.Series("float32", (np.arange(count) / 2).tolist(), dtype=pl.Float32),
+        "float64": pl.Series("float64", (np.arange(count) / 2).tolist(), dtype=pl.Float64),
+        "bool": pl.Series("bool", ([True, False] * count)[:count], dtype=pl.Boolean),
+        "string": pl.Series("string", list("abcdefghij" * count)[:count], dtype=pl.String),
+        "dt_naive": pl.from_pandas(pandas_columns["dt_naive"]).alias("dt_naive"),
+        "dt_tz": pl.from_pandas(pandas_columns["dt_tz"]).alias("dt_tz"),
+        "obj_mixed": pl.Series("obj_mixed", [str(value) for value in mixed], dtype=pl.String),
+        "all_null": pl.Series("all_null", [None] * count, dtype=pl.Float64),
+        "list": pl.Series("list", [[1, 2]] * count),
+        "struct": pl.Series("struct", [{"a": 1}] * count),
+    }
+
+
+CUDF_UNHOLDABLE = ["obj_mixed", "list", "struct"]  # cuDF cannot hold mixed-type or nested object columns built from pandas
+
+
+def _dtype_graph(engine):
+    g = graph(engine)
+    node_columns, edge_columns = _dtype_columns(engine, len(g._nodes)), _dtype_columns(engine, len(g._edges))
+    if engine.startswith("polars"):
+        return g.nodes(g._nodes.with_columns(**node_columns)).edges(g._edges.with_columns(**edge_columns))
+    if engine == "cudf":
+        import cudf
+        keep = {name: series for name, series in node_columns.items() if name not in CUDF_UNHOLDABLE}
+        keep_edges = {name: series for name, series in edge_columns.items() if name not in CUDF_UNHOLDABLE}
+        return g.nodes(cudf.from_pandas(g._nodes.to_pandas().assign(**keep))).edges(
+            cudf.from_pandas(g._edges.to_pandas().assign(**keep_edges)))
+    return g.nodes(g._nodes.assign(**node_columns)).edges(g._edges.assign(**edge_columns))
+
+
+SCALAR_GROUPS = {
+    "int": [5, 2 ** 70, -(2 ** 70), 1, 0, 2 ** 63, 300],
+    "float": [1.5, float("nan"), float("inf"), -float("inf")],
+    "str": ["a", "", "2020-01-01", "not a date", "x" * 1_000_000],
+    "bool": [True, False],
+}
+
+
+def _later_filter_query(position, column, value):
+    seed = n({"id": 99}, name="a")
+    if position == "edge":
+        return [seed, e_undirected({column: value}, name="r1"), n(name="m"), rows(), select([("aid", "a.id"), ("mid", "m.id")])]
+    return [seed, e_undirected(name="r1"), n({column: value}, name="m"), rows(), select([("aid", "a.id"), ("mid", "m.id")])]
+
+
+@pytest.mark.parametrize("position", ["edge", "node"])
+@pytest.mark.parametrize("group", sorted(SCALAR_GROUPS))
+@pytest.mark.parametrize("column", ["int8", "int32", "int64", "uint64", "float32", "float64", "bool", "string", "dt_naive",
+                                    "dt_tz", "obj_mixed", "all_null", "list", "struct"])
+def test_same_type_scalars_on_a_later_op_never_change_the_outcome(engine, column, group, position):
+    from graphistry.compute.gfql_unified import gfql_clear_caches
+
+    if engine == "polars-gpu" and column in ("list", "struct", "obj_mixed", "dt_tz"):
+        pytest.skip("polars-gpu declines this column type in the canonical path too")
+    if engine == "cudf" and column in CUDF_UNHOLDABLE:
+        pytest.skip("cuDF cannot hold this column")
+    g = _dtype_graph(engine)
+    queries = [_later_filter_query(position, column, value) for value in SCALAR_GROUPS[group]]
+    gfql_clear_caches()
+    actual = [_outcome(g, query, engine) for query in queries * 2]  # cold, then warm
+    with routes_off([ROUTE]):
+        expected = [_outcome(g, query, engine) for query in queries * 2]
+    assert actual == expected
+
+
+def test_a_raising_cold_build_leaves_no_cache_entry_and_the_next_call_is_served(engine):
+    from graphistry.compute.gfql import rows_skip_traversal
+    from graphistry.compute.gfql_unified import gfql_clear_caches
+
+    gfql_clear_caches()
+    g = graph(engine)
+    seed = {"id": 4, **PERSON}
+    query = [n(seed, name="p"), e_undirected({"type": "KNOWS"}, name="r"), n(PERSON, name="f"), rows(), select([("fid", "f.id")])]
+    original = rows_skip_traversal._zero_row_twin
+
+    def raising(*args, **kwargs):
+        raise TypeError("cold build failed")
+
+    rows_skip_traversal._zero_row_twin = raising
+    try:
+        _run(g, query, engine)
+    finally:
+        rows_skip_traversal._zero_row_twin = original
+    assert not rows_skip_traversal._TWINS
+    assert _consulted(g, query, engine) == {True}
+    with routes_off([ROUTE]):
+        expected = _outcome(g, query, engine)
+    assert _outcome(g, query, engine) == expected
+
+
+@pytest.mark.parametrize("target", ["cpu", "gpu"])
+def test_execution_targets_do_not_share_a_twin(engine, target):
+    from graphistry.compute.gfql.lazy import ExecutionTarget, target_mode
+    from graphistry.compute.gfql_unified import gfql_clear_caches
+
+    mode = ExecutionTarget.GPU if target == "gpu" else ExecutionTarget.CPU
+    g = graph(engine)
+    query = SHAPES["seeded_undirected_edge_alias"][0]
+
+    def run(selected):
+        with target_mode(selected):
+            return _outcome(g, query, engine)
+
+    gfql_clear_caches()
+    actual = [run(ExecutionTarget.CPU), run(mode), run(ExecutionTarget.CPU), run(mode)]
+    with routes_off([ROUTE]):
+        expected = [run(ExecutionTarget.CPU), run(mode), run(ExecutionTarget.CPU), run(mode)]
+    assert actual == expected
 
 
 def test_column_named_schema_keys_on_dtypes():

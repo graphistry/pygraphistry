@@ -8,9 +8,11 @@ stay exactly as they were.
 """
 from __future__ import annotations
 
+import math
+import re
 import threading
 from collections import OrderedDict
-from typing import Callable, List, Optional, Tuple, Type
+from typing import Callable, Dict, List, Optional, Tuple, Type
 
 from graphistry.Engine import is_polars_df
 from graphistry.Plottable import Plottable
@@ -82,8 +84,10 @@ def may_skip_unread_middle_traversal(
     multi-hop or hop-labelled edge makes the traversal's output dtypes depend on the data,
     which a zero-row twin cannot reproduce, when a frame carries ``attrs``, which some
     pandas versions propagate through the traversal, when an alias is named like a frame
-    column (the traversal then keeps restore columns a zero-row run does not produce), and when
-    a frame has a categorical column or an unhashable dtype, which the twin key cannot capture exactly.
+    column (the traversal then keeps restore columns a zero-row run does not produce), when a
+    frame has a categorical column or an unhashable dtype, which the twin key cannot capture exactly,
+    when a pandas/cuDF frame has a non-default index, and when a filter after the seed could raise or
+    warn by value or column on real data, which a zero-row run and an empty-seed rebuild would not see.
     """
     from graphistry.compute.gfql.index.api import index_policy_may_serve, record_fast_path_decision
 
@@ -105,8 +109,10 @@ def may_skip_unread_middle_traversal(
         reason = "categorical columns would need their categories in the twin key"
     elif _frame_schema(g._nodes) is None or _frame_schema(g._edges) is None:
         reason = "a column dtype is not hashable, so the twin cannot be keyed exactly"
+    elif _has_custom_index(g._nodes) or _has_custom_index(g._edges):
+        reason = "a non-default frame index would need to be part of the twin key"
     else:
-        reason = ""
+        reason = _unsafe_later_filter(g, middle)
     record_fast_path_decision(
         path="rows_bindings_skip_traversal", engine=engine, served=not reason,
         reason=reason or "rows rebuilds bindings from the base graph",
@@ -128,6 +134,79 @@ def _column_names(frame: DataFrameT) -> List[str]:
 def _alias_collides_with_column(middle: List[ASTObject], nodes: DataFrameT, edges: DataFrameT) -> bool:
     aliases = {op._name for op in middle if isinstance(op, (ASTNode, ASTEdge)) and isinstance(op._name, str)}
     return bool(aliases) and not aliases.isdisjoint(_column_names(nodes) + _column_names(edges))
+
+
+def _has_custom_index(frame: DataFrameT) -> bool:
+    """A pandas/cuDF index that is not an unnamed ``RangeIndex``; Polars frames have none."""
+    if is_polars_df(frame):
+        return False
+    index = frame.index
+    return type(index).__name__ != "RangeIndex" or index.name is not None
+
+
+def _op_filters(op: ASTObject) -> List[Tuple[Optional[Dict[str, object]], str]]:
+    """The filter dicts of an op with the frame ("nodes" or "edges") each one reads."""
+    if isinstance(op, ASTNode):
+        return [(op.filter_dict, "nodes")]
+    if isinstance(op, ASTEdge):
+        return [(op.edge_match, "edges"), (op.source_node_match, "nodes"), (op.destination_node_match, "nodes")]
+    return []
+
+
+def _column_dtype_names(frame: DataFrameT) -> Dict[str, str]:
+    items = frame.schema.items() if is_polars_df(frame) else frame.dtypes.items()
+    return {str(column): str(dtype).lower() for column, dtype in items}
+
+
+def _int_bounds(dtype: str) -> Tuple[int, int]:
+    match = re.search(r"(\d+)", dtype)
+    bits = int(match.group(1)) if match else 64
+    return (0, 2 ** bits - 1) if dtype.startswith("u") else (-(2 ** (bits - 1)), 2 ** (bits - 1) - 1)
+
+
+def _scalar_fits(value: object, dtype: str) -> bool:
+    """Whether comparing ``value`` to a column of ``dtype`` has an outcome fixed by the scalar's type and the dtype.
+
+    Allowlist of (scalar type, dtype kind): a string on a string column, a bool on a bool column, an
+    int inside the dtype's range on an integer column, a finite float on a float column. Everything
+    else (overflow, nan/inf, None, a type the column cannot hold) can raise or warn by value.
+    """
+    if isinstance(value, bool):
+        return "bool" in dtype
+    if isinstance(value, str):
+        return dtype in ("object", "str", "utf8") or "string" in dtype
+    if isinstance(value, int):
+        if dtype.startswith(("int", "uint")):
+            low, high = _int_bounds(dtype)
+            return low <= value <= high
+        return False
+    if isinstance(value, float):
+        return dtype.startswith("float") and math.isfinite(value)
+    return False
+
+
+def _unsafe_later_filter(g: Plottable, middle: List[ASTObject]) -> str:
+    """Why a filter may raise or warn by value or column on real data, or "" when none can.
+
+    A ``None`` value declines on every op (Polars warns per expression built, so a cached twin changes
+    the warning count). The rebuild always evaluates the seed op on the real frames but returns early
+    on an empty seed, and the twin evaluates later ops on zero rows only, so a later filter is safe
+    only when it names an existing column and its (scalar type, dtype kind) pair is allowlisted.
+    """
+    assert g._nodes is not None and g._edges is not None
+    dtypes = {"nodes": _column_dtype_names(g._nodes), "edges": _column_dtype_names(g._edges)}
+    for index, op in enumerate(middle):
+        for filters, frame in _op_filters(op):
+            for column, value in (filters or {}).items():
+                if value is None:
+                    return "a None filter value warns per expression built on some engines"
+                if index == 0:
+                    continue
+                if column not in dtypes[frame]:
+                    return "a filter after the seed names a column the frame does not have"
+                if not _scalar_fits(value, dtypes[frame][column]):
+                    return "a filter after the seed is not an allowlisted (scalar type, dtype kind) pair, so it can raise or warn by value"
+    return ""
 
 
 _CATEGORICAL_DTYPE_NAMES = frozenset({"CategoricalDtype", "Categorical", "Enum"})
@@ -167,7 +246,7 @@ def run_without_traversal(
     except _replayable_errors() as error:
         record_fast_path_decision(
             path="rows_bindings_skip_traversal", engine=engine, served=False,
-            reason=f"replayed the traversal after {type(error).__name__}",
+            reason="replayed the traversal after an error in the skipped path", replayed_after=type(error).__name__,
         )
         return None
 
@@ -197,7 +276,7 @@ def _zero_row_twin(
 
     assert g._nodes is not None and g._edges is not None
     key = (
-        engine_key, type(g._nodes), type(g._edges), _frame_schema(g._nodes), _frame_schema(g._edges),
+        engine_key, _ambient_state(), type(g._nodes), type(g._edges), _frame_schema(g._nodes), _frame_schema(g._edges),
         g._node, g._source, g._destination, g._edge, _plan_shape(middle),
     )
     with _TWINS_LOCK:
@@ -208,7 +287,7 @@ def _zero_row_twin(
         empty = with_index_policy(drop_index(g.nodes(g._nodes[:0]).edges(g._edges[:0])), "off")
         with suspended_index_trace():
             out = traverse(empty)
-        frames = (out._nodes, out._edges)
+        frames = (_independent(out._nodes), _independent(out._edges))
         with _TWINS_LOCK:
             _TWINS[key] = frames
             if len(_TWINS) > _TWINS_MAX:
@@ -218,10 +297,26 @@ def _zero_row_twin(
     return twin
 
 
-def _fresh(frame: DataFrameT) -> DataFrameT:
-    """An unshared zero-row copy without any ``attrs`` (the skip is declined for graphs that carry them)."""
+def _ambient_state() -> Tuple[object, ...]:
+    """Context the traversal reads besides the graph and the plan: restore columns, strictness, target."""
+    from graphistry.compute.gfql.identifiers import shadow_restore_wanted
+    from graphistry.compute.gfql.lazy import active_target
+    from graphistry.compute.gfql.strictness import current_strict_level
+
+    return (shadow_restore_wanted(), current_strict_level(), active_target())
+
+
+def _independent(frame: DataFrameT) -> DataFrameT:
+    """A zero-row frame that owns its buffers, so the cache never pins the caller's column memory."""
     if is_polars_df(frame):
-        return frame  # type: ignore[return-value]
+        return frame.clear()  # type: ignore[no-any-return,attr-defined]  # polars frames expose clear() on the polars-installed check
+    return frame.copy(deep=True)
+
+
+def _fresh(frame: DataFrameT) -> DataFrameT:
+    """A zero-row copy for one query: pandas/cuDF frames are deep copies, immutable Polars frames are shared."""
+    if is_polars_df(frame):
+        return frame  # type: ignore[return-value]  # a Polars frame is immutable, so the cached one is safe to share
     copied = frame.copy(deep=True)
     if hasattr(copied, "attrs"):
         copied.attrs = {}
