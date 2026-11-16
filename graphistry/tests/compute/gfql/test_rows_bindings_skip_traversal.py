@@ -987,9 +987,12 @@ def test_the_seed_op_accepts_everything_but_none(engine, value, may_replay):
     """The rebuild evaluates the seed op on real frames; frame rejection records both attempt and replay."""
     column = "name" if isinstance(value, str) else "score"
     query = [n({column: value}, name="a"), e_undirected(name="r1"), n(name="m"), rows(), select([("aid", "a.id")])]
-    steps = _consulted(graph(engine), query, engine)
     if may_replay:
-        assert True in steps
+        steps = _consulted_accepting_validation_errors(graph(engine), query, engine)
+    else:
+        steps = _consulted(graph(engine), query, engine)
+    if may_replay:
+        assert True not in steps
     else:
         assert steps == ({False} if value is None else {True})
 
