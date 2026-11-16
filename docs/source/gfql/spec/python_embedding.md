@@ -193,7 +193,7 @@ Results can be further processed using standard pandas operations:
 
 <!-- doc-test: skip -->
 ```python
-# Using boolean columns from named operations
+# A marker exists only when the matcher used name="people"
 people_nodes = result._nodes[result._nodes["people"]]
 
 # Using pandas query
@@ -491,7 +491,7 @@ result = g.gfql([
     n({"active": True}, name="active_users"),  # Filter first
     e_forward({"recent": True})
 ])
-# Only access what you need
+# The matcher name= above created this marker (a Let binding name would not)
 active_users = result._nodes[result._nodes["active_users"]]
 
 # Avoid: Loading everything then filtering
@@ -516,12 +516,14 @@ GFQL supports directed acyclic graph (DAG) patterns using Let bindings, which al
 
 ### Let Bindings
 
-<!-- doc-test: skip -->
+Binding names select subgraphs with `output=`; only matcher `name=` values create
+boolean marker columns.
+
 ```python
 from graphistry import let, ref, n, e_forward, ge
 
 # Define DAG patterns with named bindings
-result = g.gfql(let({
+stages = let({
     'persons': n({'type': 'person'}),
     'adults': ref('persons', [n({'age': ge(18)})]),
     'connections': [
@@ -529,12 +531,12 @@ result = g.gfql(let({
         e_forward({'type': 'knows'}),
         n({'type': 'person', 'age': ge(18)})
     ]
-}))
+})
 
 # Access individual binding results
-persons_df = result._nodes[result._nodes['persons']]
-adults_df = result._nodes[result._nodes['adults']]
-connection_edges = result._edges[result._edges['connections']]
+persons_df = g.gfql(stages, output='persons')._nodes
+adults_df = g.gfql(stages, output='adults')._nodes
+connection_edges = g.gfql(stages, output='connections')._edges
 ```
 
 ### Ref (Reference to Named Bindings)
