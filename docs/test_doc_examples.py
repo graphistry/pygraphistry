@@ -475,3 +475,53 @@ def test_quick_reference_examples_pandas_polars_parity() -> None:
         assert code in outcomes, f"expected quick.rst example not found or not executed:\n{code}"
         assert outcomes[code]["pandas"][1] == expected, (outcomes[code]["pandas"], expected)
     assert len(outcomes) >= 31, f"only {len(outcomes)} quick.rst examples executed on both engines"
+
+
+@pytest.mark.parametrize("engine", ["pandas", "polars"])
+@pytest.mark.parametrize(
+    "doc_name, result_name",
+    [
+        ("overview.rst", "adults"),
+        ("about.rst", "people"),
+        ("spec/python_embedding.md", "persons_df"),
+        ("spec/language.md", "people"),
+    ],
+)
+def test_let_binding_output_examples(doc_name: str, result_name: str, engine: str) -> None:
+    """Execute actual binding-selection examples, including their positive graph oracles."""
+    import pandas as pd
+
+    if engine == "polars":
+        pl = pytest.importorskip("polars")
+
+    ns: dict = {}
+    exec(compile(SETUP_CODE, "setup", "exec"), ns)
+    blocks = _extract_code_blocks(GFQL_DOCS / doc_name)
+    if doc_name == "about.rst":
+        exec(compile(blocks[0][1], doc_name, "exec"), ns)
+    if engine == "polars":
+        g = ns["g"]
+        ns["g"] = g.nodes(pl.from_pandas(g._nodes), g._node).edges(
+            pl.from_pandas(g._edges), g._source, g._destination
+        )
+    selected = [(line, code, marker) for line, code, marker in blocks if "stages = let({" in code]
+    assert len(selected) == 1, f"{doc_name}: expected one runnable binding-selection example"
+    line, code, marker = selected[0]
+    assert marker is None and not _should_skip(code), f"{doc_name}:{line}: example must execute"
+    exec(compile(code, f"{doc_name}:{line}", "exec"), ns)
+    expected_frame = pl.DataFrame if engine == "polars" else pd.DataFrame
+    g = ns["g"]
+    frames = [ns[result_name]]
+    expected_ids = ["a", "b"] if doc_name == "about.rst" else ["a", "b", "d"]
+    assert _quick_rows(ns[result_name], [g._node]) == [(node_id,) for node_id in expected_ids]
+    if doc_name in {"overview.rst", "spec/python_embedding.md"}:
+        edge_name = "connections" if doc_name == "overview.rst" else "connection_edges"
+        frames.append(ns[edge_name])
+        assert _quick_rows(ns[edge_name], [g._source, g._destination]) == [("a", "b")]
+    if doc_name == "spec/python_embedding.md":
+        frames.append(ns["adults_df"])
+        assert _quick_rows(ns["adults_df"], [g._node]) == [("a",), ("b",), ("d",)]
+    if doc_name in {"about.rst", "spec/language.md"}:
+        frames.append(ns["first_person"])
+        assert _quick_rows(ns["first_person"], [g._node]) == [("a",)]
+    assert all(isinstance(frame, expected_frame) for frame in frames)
