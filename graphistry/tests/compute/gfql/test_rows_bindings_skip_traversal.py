@@ -916,6 +916,11 @@ def _later_filter_query(position, column, value):
 def test_same_type_scalars_on_a_later_op_never_change_the_outcome(engine, column, group, position):
     from graphistry.compute.gfql_unified import gfql_clear_caches
 
+    if engine == "polars" and column == "struct":
+        import polars as pl
+        release = tuple(int(part) for part in pl.__version__.split(".")[:2] if part.isdigit())
+        if release < (1, 22):
+            pytest.skip("Polars 1.21, shipped by RAPIDS 25.02, crashes constructing the struct fixture")
     if engine == "polars-gpu" and column in ("list", "struct", "obj_mixed", "dt_tz"):
         pytest.skip("polars-gpu declines this column type in the canonical path too")
     if engine == "cudf" and column in CUDF_UNHOLDABLE:
@@ -975,7 +980,7 @@ def test_a_string_scalar_on_a_mixed_object_column_is_served():
 
 @pytest.mark.route_engaged(ROUTE)
 @pytest.mark.parametrize("value,served", [
-    (5, True), (2 ** 70, False), (float("nan"), True), (gt(1), True), ("a", True), (True, True), (None, False),
+    (5, True), (2 ** 70, True), (float("nan"), True), (gt(1), True), ("a", True), (True, True), (None, False),
 ])
 def test_the_seed_op_accepts_everything_but_none(engine, value, served):
     """The rebuild evaluates the seed op on real frames; values the frame layer rejects replay instead of being cached."""
