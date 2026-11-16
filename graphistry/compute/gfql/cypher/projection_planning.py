@@ -18,9 +18,10 @@ globals().update(vars(_lowering))
 
 def _scalar_source_text(value: object) -> str:
     """Projected-source text of a resolved scalar parameter; negative zero is spelled so its sign survives evaluation."""
+    text = cypher_literal_expr_text(value)
     if isinstance(value, float) and value == 0 and math.copysign(1.0, value) < 0:
-        return "(0.0 * -1.0)"
-    return cypher_literal_expr_text(value)
+        return f"({text})"
+    return f"({text})"
 
 
 def _split_qualified_name(expr: str, *, line: int, column: int) -> Tuple[str, Optional[str]]:

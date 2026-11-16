@@ -64,12 +64,10 @@ def _rows(frame: Any) -> List[dict[str, Any]]:
 
 
 def _gfql_rows(engine: str, graph: Any, query: str, params: Any = None) -> Optional[List[dict[str, Any]]]:
-    """Rows, or None when polars-gpu declines with its named GPU decline (older cudf-polars cannot run some plans on the GPU)."""
+    """Rows; positive cases must either execute or fail, never silently vanish."""
     try:
         return _rows(graph.gfql(query, engine=engine, params=params)._nodes)
-    except NotImplementedError as exc:  # GFQLUnsupportedError is a NotImplementedError
-        if engine == "polars-gpu" and GPU_DECLINE in str(exc):
-            return None
+    except NotImplementedError:
         raise
 
 
@@ -90,17 +88,16 @@ def _check(
     params: Any = None,
     polars_declines: Optional[str] = None,
     ordered: bool = True,
+    graph: Any | None = None,
 ) -> None:
     """Rows of a read query equal ``expected``; with ``polars_declines`` native Polars must raise exactly that decline."""
-    graph = _graph(engine)
+    graph = graph or _graph(engine)
     if engine in POLARS_ENGINES and polars_declines is not None:
         decline = f"{GPU_DECLINE}|{polars_declines}" if engine == "polars-gpu" else polars_declines
         with pytest.raises(NotImplementedError, match=decline):
             graph.gfql(query, engine=engine, params=params)
         return
     rows = _gfql_rows(engine, graph, query, params)
-    if rows is None:
-        return
     if not ordered:
         rows, expected = sorted(rows, key=repr), sorted(expected, key=repr)
     assert rows == expected
@@ -254,11 +251,12 @@ def test_scalar_parameter_projected_next_to_a_whole_entity(engine, value) -> Non
 
 
 @pytest.mark.parametrize("engine", ENGINES)
+@pytest.mark.parametrize("query", ["MATCH (n) RETURN $v AS v", "MATCH (n) WITH n, $v AS w RETURN w"])
 @pytest.mark.parametrize("value,expected_kind", [
     (5, "integer"), (2.5, "floating"), (True, "boolean"), ("x", "string"),
 ])
-def test_scalar_parameter_projection_keeps_its_dtype(engine, value, expected_kind) -> None:
-    out = _graph(engine).gfql("MATCH (n) RETURN $v AS v", engine=engine, params={"v": value})
+def test_scalar_parameter_projection_keeps_its_dtype(engine, query, value, expected_kind) -> None:
+    out = _graph(engine).gfql(query, engine=engine, params={"v": value})
     frame = out._nodes
     if hasattr(frame, "schema"):
         import polars as pl
@@ -273,6 +271,20 @@ def test_scalar_parameter_projection_keeps_its_dtype(engine, value, expected_kin
         actual_kind = ("integer" if is_integer_dtype(dtype) else "floating" if is_float_dtype(dtype)
                        else "boolean" if is_bool_dtype(dtype) else "string" if is_string_dtype(dtype) else dtype)
     assert actual_kind == expected_kind
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+@pytest.mark.parametrize("name,value", [("5", 5), ("true", True), ("null", None)])
+def test_scalar_parameter_does_not_read_a_like_named_column(engine, name, value) -> None:
+    frame = pd.DataFrame({"id": [1, 2], name: ["p", "q"]})
+    if engine == "cudf":
+        import cudf
+        frame = cudf.from_pandas(frame)
+    elif engine in POLARS_ENGINES:
+        frame = pytest.importorskip("polars").from_pandas(frame)
+    _check(
+        engine, "MATCH (n) WITH n, $v AS w RETURN w", [{"w": value}] * 2, {"v": value}, graph=graphistry.nodes(frame, "id"),
+    )
 
 
 @pytest.mark.parametrize("engine", ENGINES)
@@ -456,6 +468,7 @@ def test_shadowing_local_in_a_multi_alias_path_is_a_structured_decline(engine) -
         )
     assert exc.value.code == ErrorCode.E108
     assert exc.value.context["field"] == "return"
+    assert exc.value.context["value"] == "shadowed_alias"
 
 
 # string and non-finite parameters in WHERE / ORDER BY
