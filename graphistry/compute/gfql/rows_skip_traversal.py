@@ -242,6 +242,7 @@ def run_without_traversal(
     """
     from graphistry.compute.gfql.index.api import record_fast_path_decision
 
+    inserted = None
     try:
         twin = _zero_row_twin(g, middle, str(engine), traverse)
         inserted = getattr(twin, "_gfql_rows_twin_inserted", None)
