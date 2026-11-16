@@ -243,9 +243,9 @@ def test_scalar_parameter_projected_next_to_a_whole_entity(engine, value) -> Non
 @pytest.mark.parametrize("engine", ENGINES)
 @pytest.mark.parametrize("value,expected_dtype", [
     (5, {"pandas": "int64", "cudf": "int64", "polars": "int64", "polars-gpu": "int64"}),
-    (2.5, {"pandas": "float64", "cudf": "float64", "polars": "f64", "polars-gpu": "f64"}),
-    (True, {"pandas": "bool", "cudf": "bool", "polars": "bool", "polars-gpu": "bool"}),
-    ("x", {"pandas": "object", "cudf": "object", "polars": "str", "polars-gpu": "str"}),
+    (2.5, {"pandas": "float64", "cudf": "float64", "polars": "float64", "polars-gpu": "float64"}),
+    (True, {"pandas": "bool", "cudf": "bool", "polars": "boolean", "polars-gpu": "boolean"}),
+    ("x", {"pandas": "object", "cudf": "object", "polars": "string", "polars-gpu": "string"}),
 ])
 def test_scalar_parameter_projection_keeps_its_dtype(engine, value, expected_dtype) -> None:
     out = _graph(engine).gfql("MATCH (n) RETURN $v AS v", engine=engine, params={"v": value})
