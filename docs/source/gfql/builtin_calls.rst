@@ -1988,7 +1988,7 @@ unambiguous codes is an ``unsupported_question`` error and is not sent. A reply 
 ``strategy='text'`` sends no logprobs fields; ``strategy='auto'`` probes the host once per endpoint, model and
 settings (each probe request counts against the run's budget), keeps the first strategy that works for an hour, and
 ``graphistry.compute.semantic.forget_probes()`` drops kept results. A reply cut off at ``max_answer_tokens`` (default
-16, or 64 for the ``tool`` and ``function`` strategies) before a readable answer is an ``answer_truncated`` error; reasoning models need a higher limit or reasoning turned
+256; output tokens are not part of the cost estimate, so lower it to bound them) before a readable answer is an ``answer_truncated`` error; reasoning models need a higher limit or reasoning turned
 off through ``extra_body``. A request the host's content filter rejects (HTTP 400, error code ``content_filter``) is
 ``uncertain`` with reason ``refusal``, the same as a filtered reply. Servers with the
 OpenAI Decisions API and smaller limits set ``max_questions_per_request``, ``max_choice_options`` and ``max_levels``
@@ -2101,11 +2101,9 @@ Anthropic structured answers
 ``output_config.format``. ``strategy='tool'`` requests one tool named ``answer`` with the same
 schema. Both validate the returned code and return no distribution or probability. Metadata
 records ``answer_strategy`` and ``semantic_level``. ``strategy='text'`` remains the default.
-These models often write a sentence before the answer code, so the default ``max_answer_tokens`` under
-``text`` is 256 (16 for ``json_schema``, 64 for ``tool``), and such a reply is read when it ends with the code
-on its own line after a blank line. Output tokens are not part of the cost estimate, so lower the limit to
-bound them; a reply cut off at the limit is ``answer_truncated``. ``json_schema`` constrains the reply to the
-code instead, and the schema adds input tokens to every request.
+These models often write a sentence before the answer code under ``text``. Such a reply is read when it ends
+with the code on its own line after a blank line; one cut off at ``max_answer_tokens`` is ``answer_truncated``.
+``json_schema`` constrains the reply to the code instead, and the schema adds input tokens to every request.
 The selected strategy controls format/tool fields in ``extra_body``; other ``output_config``
 settings are retained. The cost estimate includes the selected schema or tool payload.
 

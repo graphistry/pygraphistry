@@ -120,7 +120,7 @@ class TestOpenAIChat:
         assert p_result.probability_kind == "token_logprob" and p_result.extra["label_mass"] == pytest.approx(0.9)  # type: ignore[index]
         assert (p_result.model, p_result.cache_hit, p_result.cost_usd) == ("served-m", True, pytest.approx(80 / 1e6))
         body = session.posts[0]["json"]
-        assert body["max_completion_tokens"] == 16 and body["logprobs"] is True and body["top_logprobs"] == 5  # type: ignore[index]
+        assert body["max_completion_tokens"] == 256 and body["logprobs"] is True and body["top_logprobs"] == 5  # type: ignore[index]
         assert body["messages"][0]["role"] == "system" and "k-secret" not in str(body)  # type: ignore[index]
         assert session.posts[0]["headers"]["Authorization"] == "Bearer k-secret"  # type: ignore[index]
         assert session.posts[0]["url"] == "https://api.openai.com/v1/chat/completions" and len(session.posts) == 3
@@ -206,9 +206,8 @@ class TestOpenAIChat:
             openai(FakeSession([]), **options)
         assert openai(FakeSession([]), max_answer_tokens=2, top_logprobs=0).max_answer_tokens == 2
 
-    @pytest.mark.parametrize("strategy,limit", [("logprobs", 16), ("text", 16), ("json_schema", 16), ("tool", 64),
-                                                ("function", 64)])
-    def test_call_forms_get_room_for_their_wrapper(self, strategy: str, limit: int) -> None:
+    @pytest.mark.parametrize("strategy", ["logprobs", "text", "json_schema", "tool", "function"])
+    def test_every_strategy_gets_the_default_answer_limit_unless_set(self, strategy: str, limit: int = 256) -> None:
         req = request((PRED,))
         assert openai(FakeSession([])).strategy_body(req, PRED, strategy)["max_completion_tokens"] == limit
         assert openai(FakeSession([]), max_answer_tokens=8).strategy_body(req, PRED, strategy)["max_completion_tokens"] == 8
@@ -216,7 +215,7 @@ class TestOpenAIChat:
             def sent(**options: object) -> object:
                 return AnthropicMessagesProvider("k", "claude-x", session=FakeSession([]), strategy=strategy,  # type: ignore[arg-type]
                                                  **options).body(req, [PRED])["max_tokens"]  # type: ignore[arg-type]
-            assert (sent(), sent(max_answer_tokens=8)) == (256 if strategy == "text" else limit, 8)
+            assert (sent(), sent(max_answer_tokens=8)) == (limit, 8)
 
     def test_a_certain_code_counts_as_observed(self) -> None:
         sure = [{"token": "A", "logprob": 0.0}, {"token": "B", "logprob": math.log(0.01)}]
@@ -260,7 +259,7 @@ class TestOpenAIChat:
         assert post["headers"]["api-key"] == "k-secret" and post["headers"]["X-Project"] == "p"  # type: ignore[index]
         assert "Authorization" not in post["headers"]  # type: ignore[operator]
         body = post["json"]
-        assert body["max_tokens"] == 16 and body["reasoning_effort"] == "none" and "logprobs" not in body  # type: ignore[index,operator]
+        assert body["max_tokens"] == 256 and body["reasoning_effort"] == "none" and "logprobs" not in body  # type: ignore[index,operator]
 
     def test_through_the_kernel_one_request_per_row_and_question(self) -> None:
         session = FakeSession([chat_reply("A", top(A=0.8, B=0.2))])

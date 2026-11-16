@@ -35,7 +35,7 @@ Strategy = Literal["logprobs", "json_schema", "tool", "text", "auto", "json_mode
 ReplyForm = Literal["text", "json_schema", "tool", "function", "code"]
 AnthropicStrategy = Literal["text", "json_schema", "tool"]
 DEFAULT_PROBE_STRATEGIES: Tuple[Strategy, ...] = ("logprobs", "json_schema", "tool", "text")
-DEFAULT_ANSWER_TOKENS, DEFAULT_CALL_ANSWER_TOKENS = 16, 64  # a tool or function call spends tokens on its wrapper
+DEFAULT_ANSWER_TOKENS = 256  # a guard against runaway replies, with room for a sentence or a call wrapper
 STRATEGIES: Tuple[str, ...] = get_args(Strategy)
 NOT_CAPABILITY_ERRORS = ("http_401", "http_403", "http_407", "http_408", "http_409", "http_429")
 PROBE_TTL_S = 3600.0
@@ -256,8 +256,6 @@ class _ChatDecisionProvider(HttpDecisionProvider):
     count against the limit on most hosts.
     """
 
-    default_text_answer_tokens = DEFAULT_ANSWER_TOKENS
-
     def __init__(self, api_key: str, model: str, *, base_url: Optional[str] = None,
                  max_answer_tokens: Optional[int] = None,
                  extra_body: Optional[JSONObject] = None, extra_headers: Optional[Dict[str, str]] = None,
@@ -274,12 +272,8 @@ class _ChatDecisionProvider(HttpDecisionProvider):
         self.extra_body = dict(extra_body or {})
         self.extra_headers = dict(extra_headers or {})
 
-    def answer_tokens(self, strategy: str) -> int:
-        if self.max_answer_tokens is not None:
-            return self.max_answer_tokens
-        if strategy == "text":
-            return self.default_text_answer_tokens
-        return DEFAULT_CALL_ANSWER_TOKENS if strategy in ("tool", "function") else DEFAULT_ANSWER_TOKENS
+    def answer_tokens(self) -> int:
+        return DEFAULT_ANSWER_TOKENS if self.max_answer_tokens is None else self.max_answer_tokens
 
     def capabilities(self) -> ProviderCapabilities:
         return ProviderCapabilities(supports_native_probabilities=False, max_questions_per_request=1,
@@ -348,9 +342,8 @@ class OpenAIChatProvider(_ChatDecisionProvider):
 
     ``top_logprobs`` is how many alternatives the API returns for the answer token (hosts cap it, some at 5; 0 asks
     for none, for hosts without logprobs). ``max_tokens_field`` names the answer-length limit (``"max_tokens"`` on
-    Mistral and Fireworks) and ``max_answer_tokens`` its value (at least 2; unset, it is 16, or 64 for the ``tool``
-    and ``function`` strategies, whose call wrapper spends tokens; leave room for models that emit a few tokens before
-    the code). ``extra_body`` and ``extra_headers`` add host fields, for example
+    Mistral and Fireworks) and ``max_answer_tokens`` its value (at least 2; unset, it is 256, which leaves
+    room for a sentence before the code or a call wrapper; lower it to bound output tokens). ``extra_body`` and ``extra_headers`` add host fields, for example
     ``{"reasoning_effort": "none"}``. ``extra_body`` cannot replace the fields the provider sets; ``extra_headers``
     are sent last, so they can replace a header such as the API version.
 
@@ -574,7 +567,7 @@ class OpenAIChatProvider(_ChatDecisionProvider):
         return {**extras, "model": self.model, "messages": [
                     {"role": "system", "content": system},
                     {"role": "user", "content": letter_prompt(request.evidence, question)}],
-                self.max_tokens_field: self.answer_tokens(strategy), **answer}
+                self.max_tokens_field: self.answer_tokens(), **answer}
 
     def usage(self, payload: Mapping[str, object]) -> Optional[TokenUsage]:
         usage = payload.get("usage")
@@ -698,8 +691,7 @@ class AnthropicMessagesProvider(_ChatDecisionProvider):
     ``strategy="text"`` preserves plain code replies. ``json_schema`` sends ``output_config.format``;
     ``tool`` requests a named answer tool. Both validate the answer-code schema and record their semantic level.
     Forced tools depend on the model/settings; failures retain their HTTP code, with no strategy resend.
-    ``max_answer_tokens`` (at least 2; unset, it is 256 for ``text``, 16 for ``json_schema`` and 64 for ``tool``),
-    ``extra_body`` and ``extra_headers`` work as on :class:`OpenAIChatProvider`.
+    ``max_answer_tokens`` (at least 2), ``extra_body`` and ``extra_headers`` work as on :class:`OpenAIChatProvider`.
     The selected strategy controls output-format and tool fields. Other ``output_config`` fields are retained.
     """
 
@@ -707,7 +699,6 @@ class AnthropicMessagesProvider(_ChatDecisionProvider):
     default_base_url = "https://api.anthropic.com/v1"
     path = "/messages"
     api_version = "2023-06-01"
-    default_text_answer_tokens = 256  # these models often write a sentence before the code
 
     def __init__(self, api_key: str, model: str, *, strategy: AnthropicStrategy = "text",
                  base_url: Optional[str] = None, max_answer_tokens: Optional[int] = None,
@@ -745,7 +736,7 @@ class AnthropicMessagesProvider(_ChatDecisionProvider):
                                       "input_schema": schema}],
                            "tool_choice": {"type": "tool", "name": "answer"}})
         system = SYSTEM_PROMPT + (JSON_INSTRUCTION if self.strategy == "json_schema" else "")
-        return {**extras, "model": self.model, "max_tokens": self.answer_tokens(self.strategy), "system": system,
+        return {**extras, "model": self.model, "max_tokens": self.answer_tokens(), "system": system,
                 "messages": [{"role": "user", "content": letter_prompt(request.evidence, question)}]}
 
     def prompt_texts(self, request: DecisionRequest, questions: Sequence[DecisionQuestion]) -> List[str]:
