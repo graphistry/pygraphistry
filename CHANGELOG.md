@@ -8,6 +8,12 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [Development]
 <!-- Do Not Erase This Section - Used for tracking unreleased changes -->
 
+### Docs
+
+- **GFQL Let binding examples** (#2171): select named subgraphs with `output=` instead of nonexistent binding-marker columns; runnable examples assert nonempty results on pandas and Polars inputs while preserving matcher `name=` markers and service/GPU skips.
+
+- **GFQL quick reference examples run** (#2169): node and edge matcher examples use declarative predicates (`gt`, `lt`, `between`) instead of callables that validation rejects; `let()` examples select bindings with `output=`; remote references are shown as `let()` bindings; the engine section notes which features `auto` runs on pandas for Polars input. The docs example audit now finds code blocks nested under bullets, and every runnable quick-reference example executes on pandas and Polars-bound inputs with matching RETURN rows or graph node/edge identities.
+
 ### Fixed
 
 - **GFQL Cypher string parameters** (#2324): a whole-expression string parameter in `RETURN`/`WITH` (for example `RETURN $v AS v`) is now a string literal in every engine. It previously failed with `unsupported token in row expression`, or, when the string equalled a column name, silently returned that column. A scalar (integer, finite or infinite float, boolean, null) parameter projected next to a whole entity (`WITH n, $v AS w RETURN w`) is likewise resolved instead of failing with `parser validation failed`; a NaN parameter there is declined with a structured `E108` (`nan_parameter`).
