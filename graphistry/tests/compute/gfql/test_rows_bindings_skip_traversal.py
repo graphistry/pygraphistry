@@ -917,8 +917,6 @@ def _later_filter_query(position, column, value):
 def test_same_type_scalars_on_a_later_op_never_change_the_outcome(engine, column, group, position):
     from graphistry.compute.gfql_unified import gfql_clear_caches
 
-    if engine == "polars" and column == "struct":
-        pytest.skip("some Polars workers panic while constructing this struct fixture; the other engines cover the dtype kind")
     if engine == "polars-gpu" and column in ("list", "struct", "obj_mixed", "dt_tz"):
         pytest.skip("polars-gpu declines this column type in the canonical path too")
     if engine == "cudf" and column in CUDF_UNHOLDABLE:
