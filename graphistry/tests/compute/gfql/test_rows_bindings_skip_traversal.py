@@ -30,6 +30,18 @@ def engine(request):
     return request.param
 
 
+@pytest.fixture(autouse=True, params=["default", "general-path"])
+def route_context(request):
+    """Run every test twice: with the default routes, and with every other fast route off so the skip is the one reached."""
+    if request.param == "default":
+        yield
+        return
+    from graphistry.tests.compute.gfql.routes.switch import ROUTES
+
+    with routes_off([route for route in ROUTES if route != ROUTE]):
+        yield
+
+
 def graph(engine):
     cons = df_cons(Engine(engine))
     nodes = cons({
@@ -577,6 +589,38 @@ def test_unhashable_dtype_has_no_key():
 
     frame = types.SimpleNamespace(dtypes=types.SimpleNamespace(items=lambda: [("c", Unhashable())]))
     assert rows_skip_traversal._frame_schema(frame) is None
+
+
+COLLISION_QUERIES = {
+    "cypher_edge_alias_named_like_an_edge_column": "MATCH (a)-[e]->(b) RETURN b LIMIT 5",
+    "cypher_node_alias_named_like_a_node_column": "MATCH (name)-[r]->(f) RETURN f.id AS fid ORDER BY fid",
+    "chain_edge_alias_named_like_an_edge_column": [
+        n(name="a"), e_forward(name="e"), n(name="b"), rows(), select([("b", "b.id")])],
+}
+
+
+def _collision_graph(engine):
+    g = graph(engine)
+    marker = [False, True, False, True, False, True, False, True]
+    edges = g._edges.with_columns(e=__import__("polars").Series(marker)) if engine.startswith("polars") else g._edges.assign(e=marker)
+    return g.edges(edges)
+
+
+@pytest.mark.parametrize("name", sorted(COLLISION_QUERIES))
+def test_aliases_that_collide_with_columns_match_the_traversal(engine, name):
+    g = _collision_graph(engine)
+    query = COLLISION_QUERIES[name]
+    with routes_off([ROUTE]):
+        expected = _run(g, query, engine)
+    actual = _run(g, query, engine)
+    assert_same_frame(actual._nodes, expected._nodes, engine)
+    assert_same_frame(actual._edges, expected._edges, engine)
+
+
+@pytest.mark.route_engaged(ROUTE)
+@pytest.mark.parametrize("name", sorted(COLLISION_QUERIES))
+def test_aliases_that_collide_with_columns_decline_the_skip(engine, name):
+    assert True not in _consulted(_collision_graph(engine), COLLISION_QUERIES[name], engine)  # declined, or an earlier route answered
 
 
 def test_column_named_schema_keys_on_dtypes():

@@ -81,8 +81,9 @@ def may_skip_unread_middle_traversal(
     the index policy may serve the traversal (its index decisions stay observable), when a
     multi-hop or hop-labelled edge makes the traversal's output dtypes depend on the data,
     which a zero-row twin cannot reproduce, when a frame carries ``attrs``, which some
-    pandas versions propagate through the traversal, and when a frame has a categorical
-    column or an unhashable dtype, which the twin key cannot capture exactly.
+    pandas versions propagate through the traversal, when an alias is named like a frame
+    column (the traversal then keeps restore columns a zero-row run does not produce), and when
+    a frame has a categorical column or an unhashable dtype, which the twin key cannot capture exactly.
     """
     from graphistry.compute.gfql.index.api import index_policy_may_serve, record_fast_path_decision
 
@@ -98,6 +99,8 @@ def may_skip_unread_middle_traversal(
         reason = "query strings evaluate only on traversed rows"
     elif _carries_attrs(g._nodes) or _carries_attrs(g._edges):
         reason = "frame attrs may propagate through the traversal, depending on the pandas version"
+    elif _alias_collides_with_column(middle, g._nodes, g._edges):
+        reason = "an alias is named like a frame column, so the traversal's marker and restore columns depend on the data"
     elif _has_categorical(g._nodes) or _has_categorical(g._edges):
         reason = "categorical columns would need their categories in the twin key"
     elif _frame_schema(g._nodes) is None or _frame_schema(g._edges) is None:
@@ -113,6 +116,18 @@ def may_skip_unread_middle_traversal(
 
 def _carries_attrs(frame: DataFrameT) -> bool:
     return bool(getattr(frame, "attrs", None))
+
+
+def _column_names(frame: DataFrameT) -> List[str]:
+    if is_polars_df(frame):
+        schema = frame.collect_schema() if hasattr(frame, "collect_schema") else frame.schema
+        return list(schema.names()) if hasattr(schema, "names") else list(schema)
+    return list(frame.columns)
+
+
+def _alias_collides_with_column(middle: List[ASTObject], nodes: DataFrameT, edges: DataFrameT) -> bool:
+    aliases = {op._name for op in middle if isinstance(op, (ASTNode, ASTEdge)) and isinstance(op._name, str)}
+    return bool(aliases) and not aliases.isdisjoint(_column_names(nodes) + _column_names(edges))
 
 
 _CATEGORICAL_DTYPE_NAMES = frozenset({"CategoricalDtype", "Categorical", "Enum"})
