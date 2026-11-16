@@ -20,7 +20,7 @@ from typing import Callable, Dict, List, Optional, Tuple, Type
 from graphistry.Engine import is_polars_df
 from graphistry.Plottable import Plottable
 from graphistry.compute.ast import ASTCall, ASTEdge, ASTNode, ASTObject, serialize_binding_ops
-from graphistry.compute.gfql.cache_registry import register_clearable_callable
+from graphistry.compute.gfql.cache_registry import register_clearable_callable, register_clearable_dict
 from graphistry.compute.gfql.index.types import TraceEngine
 from graphistry.compute.typing import DataFrameT
 from graphistry.utils.json import JSONVal
