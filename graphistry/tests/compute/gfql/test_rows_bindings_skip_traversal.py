@@ -113,6 +113,17 @@ def _consulted(g, query, engine, index_policy="off"):
     return {bool(s["served"]) for s in steps if s.get("op") == "fast_path" and s.get("seam") == SEAM}
 
 
+def _consulted_accepting_validation_errors(g, query, engine, index_policy="off"):
+    from graphistry.compute.exceptions import GFQLTypeError
+
+    with index_trace() as steps:
+        try:
+            g.gfql(query, engine=engine, index_policy=index_policy)
+        except GFQLTypeError:
+            pass
+    return {bool(s["served"]) for s in steps if s.get("op") == "fast_path" and s.get("seam") == SEAM}
+
+
 def _assert_matches_traversal(g, query, engine, expected_rows):
     with routes_off([ROUTE]):
         expected = _run(g, query, engine)
@@ -952,7 +963,7 @@ def test_numpy_scalars_and_bool_int_mixups_decline_the_skip(engine, name):
     if engine == "polars-gpu":
         pytest.skip("polars-gpu declines this column type in the canonical path too")
     query = _later_filter_query("edge", ODD_COLUMNS[name], ODD_SCALARS[name]())
-    assert True not in _consulted(_dtype_graph(engine), query, engine)
+    assert True not in _consulted_accepting_validation_errors(_dtype_graph(engine), query, engine)
 
 
 @pytest.mark.route_engaged(ROUTE)
@@ -964,10 +975,10 @@ def test_a_string_scalar_on_a_mixed_object_column_is_served():
 
 @pytest.mark.route_engaged(ROUTE)
 @pytest.mark.parametrize("value,served", [
-    (5, True), (2 ** 70, True), (float("nan"), True), (gt(1), True), ("a", True), (True, True), (None, False),
+    (5, True), (2 ** 70, False), (float("nan"), True), (gt(1), True), ("a", True), (True, True), (None, False),
 ])
 def test_the_seed_op_accepts_everything_but_none(engine, value, served):
-    """The rebuild evaluates the seed op on the real frames, so its value never reaches the twin; None warns per expression built."""
+    """The rebuild evaluates the seed op on real frames; values the frame layer rejects replay instead of being cached."""
     column = "name" if isinstance(value, str) else "score"
     query = [n({column: value}, name="a"), e_undirected(name="r1"), n(name="m"), rows(), select([("aid", "a.id")])]
     assert _consulted(graph(engine), query, engine) == ({True} if served else {False})

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import math
 import re
+import warnings
 import threading
 from collections import OrderedDict
 from typing import Callable, Dict, List, Optional, Tuple, Type
@@ -242,7 +243,15 @@ def run_without_traversal(
     from graphistry.compute.gfql.index.api import record_fast_path_decision
 
     try:
-        return run_suffix(_zero_row_twin(g, middle, str(engine), traverse))
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always", append=True)
+            result = run_suffix(_zero_row_twin(g, middle, str(engine), traverse))
+        for warning in caught:
+            warnings.warn_explicit(
+                warning.message, warning.category, warning.filename, warning.lineno,
+                module=warning.module, registry=warning.registry,
+            )
+        return result
     except _replayable_errors() as error:
         record_fast_path_decision(
             path="rows_bindings_skip_traversal", engine=engine, served=False,
@@ -261,6 +270,11 @@ def _replayable_errors() -> Tuple[Type[BaseException], ...]:
         import polars as pl
     except ImportError:
         return errors
+    try:
+        import pyarrow.lib
+        errors += (pyarrow.lib.ArrowInvalid,)
+    except ImportError:
+        pass
     return errors + (pl.exceptions.PolarsError,)
 
 
