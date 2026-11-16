@@ -256,6 +256,8 @@ class _ChatDecisionProvider(HttpDecisionProvider):
     count against the limit on most hosts.
     """
 
+    default_text_answer_tokens = DEFAULT_ANSWER_TOKENS
+
     def __init__(self, api_key: str, model: str, *, base_url: Optional[str] = None,
                  max_answer_tokens: Optional[int] = None,
                  extra_body: Optional[JSONObject] = None, extra_headers: Optional[Dict[str, str]] = None,
@@ -275,6 +277,8 @@ class _ChatDecisionProvider(HttpDecisionProvider):
     def answer_tokens(self, strategy: str) -> int:
         if self.max_answer_tokens is not None:
             return self.max_answer_tokens
+        if strategy == "text":
+            return self.default_text_answer_tokens
         return DEFAULT_CALL_ANSWER_TOKENS if strategy in ("tool", "function") else DEFAULT_ANSWER_TOKENS
 
     def capabilities(self) -> ProviderCapabilities:
@@ -694,7 +698,8 @@ class AnthropicMessagesProvider(_ChatDecisionProvider):
     ``strategy="text"`` preserves plain code replies. ``json_schema`` sends ``output_config.format``;
     ``tool`` requests a named answer tool. Both validate the answer-code schema and record their semantic level.
     Forced tools depend on the model/settings; failures retain their HTTP code, with no strategy resend.
-    ``max_answer_tokens`` (at least 2), ``extra_body`` and ``extra_headers`` work as on :class:`OpenAIChatProvider`.
+    ``max_answer_tokens`` (at least 2; unset, it is 256 for ``text``, 16 for ``json_schema`` and 64 for ``tool``),
+    ``extra_body`` and ``extra_headers`` work as on :class:`OpenAIChatProvider`.
     The selected strategy controls output-format and tool fields. Other ``output_config`` fields are retained.
     """
 
@@ -702,6 +707,7 @@ class AnthropicMessagesProvider(_ChatDecisionProvider):
     default_base_url = "https://api.anthropic.com/v1"
     path = "/messages"
     api_version = "2023-06-01"
+    default_text_answer_tokens = 256  # these models often write a sentence before the code
 
     def __init__(self, api_key: str, model: str, *, strategy: AnthropicStrategy = "text",
                  base_url: Optional[str] = None, max_answer_tokens: Optional[int] = None,

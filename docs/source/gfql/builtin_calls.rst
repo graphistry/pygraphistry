@@ -2101,10 +2101,11 @@ Anthropic structured answers
 ``output_config.format``. ``strategy='tool'`` requests one tool named ``answer`` with the same
 schema. Both validate the returned code and return no distribution or probability. Metadata
 records ``answer_strategy`` and ``semantic_level``. ``strategy='text'`` remains the default.
-A model that writes prose before its answer code can run into the answer-token limit under ``text``
-(``answer_truncated``). A larger ``max_answer_tokens`` lets such a reply finish, and it is read when it ends
-with the code on its own line after a blank line. ``json_schema`` constrains the reply to the code instead,
-and the schema adds input tokens to every request.
+These models often write a sentence before the answer code, so the default ``max_answer_tokens`` under
+``text`` is 256 (16 for ``json_schema``, 64 for ``tool``), and such a reply is read when it ends with the code
+on its own line after a blank line. Output tokens are not part of the cost estimate, so lower the limit to
+bound them; a reply cut off at the limit is ``answer_truncated``. ``json_schema`` constrains the reply to the
+code instead, and the schema adds input tokens to every request.
 The selected strategy controls format/tool fields in ``extra_body``; other ``output_config``
 settings are retained. The cost estimate includes the selected schema or tool payload.
 

@@ -216,7 +216,7 @@ class TestOpenAIChat:
             def sent(**options: object) -> object:
                 return AnthropicMessagesProvider("k", "claude-x", session=FakeSession([]), strategy=strategy,  # type: ignore[arg-type]
                                                  **options).body(req, [PRED])["max_tokens"]  # type: ignore[arg-type]
-            assert (sent(), sent(max_answer_tokens=8)) == (limit, 8)
+            assert (sent(), sent(max_answer_tokens=8)) == (256 if strategy == "text" else limit, 8)
 
     def test_a_certain_code_counts_as_observed(self) -> None:
         sure = [{"token": "A", "logprob": 0.0}, {"token": "B", "logprob": math.log(0.01)}]
@@ -331,7 +331,7 @@ class TestAnthropic:
                                              extra_body={"model": "other", "max_tokens": 999, "temperature": 0})
         checked(provider, request((PRED,)))
         body, headers = session.posts[0]["json"], session.posts[0]["headers"]
-        assert (body["model"], body["max_tokens"], body["temperature"]) == ("claude-x", 16, 0)  # type: ignore[index]
+        assert (body["model"], body["max_tokens"], body["temperature"]) == ("claude-x", 256, 0)  # type: ignore[index]
         assert headers["anthropic-version"] == "v2"  # type: ignore[index]
 
 
