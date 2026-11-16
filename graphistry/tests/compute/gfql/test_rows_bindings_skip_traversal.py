@@ -984,17 +984,17 @@ def test_a_string_scalar_on_a_mixed_object_column_is_served():
     (5, False), (2 ** 70, True), (float("nan"), False), (gt(1), False), ("a", False), (True, False), (None, False),
 ])
 def test_the_seed_op_accepts_everything_but_none(engine, value, may_replay):
-    """The rebuild evaluates the seed op on real frames; frame rejection records both attempt and replay."""
+    """The seed runs on real frames; overflow engines differ, so require exact outcome parity."""
     column = "name" if isinstance(value, str) else "score"
     query = [n({column: value}, name="a"), e_undirected(name="r1"), n(name="m"), rows(), select([("aid", "a.id")])]
     if may_replay:
-        steps = _consulted_accepting_validation_errors(graph(engine), query, engine)
-    else:
-        steps = _consulted(graph(engine), query, engine)
-    if may_replay:
-        assert True not in steps
-    else:
-        assert steps == ({False} if value is None else {True})
+        actual = _outcome(graph(engine), query, engine)
+        with routes_off([ROUTE]):
+            expected = _outcome(graph(engine), query, engine)
+        assert actual == expected
+        return
+    steps = _consulted(graph(engine), query, engine)
+    assert steps == ({False} if value is None else {True})
 
 
 @pytest.mark.route_engaged(ROUTE)
