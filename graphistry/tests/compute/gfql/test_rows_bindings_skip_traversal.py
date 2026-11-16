@@ -980,15 +980,15 @@ def test_a_string_scalar_on_a_mixed_object_column_is_served():
 
 
 @pytest.mark.route_engaged(ROUTE)
-@pytest.mark.parametrize("value,served", [
-    (5, True), (2 ** 70, False), (float("nan"), True), (gt(1), True), ("a", True), (True, True), (None, False),
+@pytest.mark.parametrize("value,expected_steps", [
+    (5, {True}), (2 ** 70, {True, False}), (float("nan"), {True}), (gt(1), {True}), ("a", {True}),
+    (True, {True}), (None, {False}),
 ])
-def test_the_seed_op_accepts_everything_but_none(engine, value, served):
-    """The rebuild evaluates the seed op on real frames; values the frame layer rejects replay instead of being cached."""
+def test_the_seed_op_accepts_everything_but_none(engine, value, expected_steps):
+    """The rebuild evaluates the seed op on real frames; frame rejection records both attempt and replay."""
     column = "name" if isinstance(value, str) else "score"
     query = [n({column: value}, name="a"), e_undirected(name="r1"), n(name="m"), rows(), select([("aid", "a.id")])]
-    steps = _consulted(graph(engine), query, engine)
-    assert (steps == {True}) if served else (True not in steps)
+    assert _consulted(graph(engine), query, engine) == expected_steps
 
 
 @pytest.mark.route_engaged(ROUTE)
