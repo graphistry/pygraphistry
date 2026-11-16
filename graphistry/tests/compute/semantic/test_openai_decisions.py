@@ -116,6 +116,18 @@ class TestMapping:
         results = decide(provider(FakeSession([reply(*answers)])), request((PRED, second)))
         assert {r.error_code for r in results} == {"invalid_provider_result"}
 
+    def test_an_unread_reply_is_sent_once_more_and_a_partly_read_one_is_not(self) -> None:
+        good = {"type": "predicate", "name": "p", "probability": 0.7}
+        session = FakeSession([reply({"type": "choice", "name": "p", "choice": "tech"}), reply(good)])
+        result = decide(provider(session), request((PRED,)))[0]
+        assert (result.value, result.retry_count, len(session.posts)) == (True, 1, 2)
+        assert result.cost_usd == pytest.approx(2 * decide(provider(FakeSession([reply(good)])), request((PRED,)))[0].cost_usd)
+        once = FakeSession([reply({"type": "choice", "name": "p", "choice": "tech"}), reply(good)])
+        assert decide(provider(once, reply_retries=0), request((PRED,)))[0].error_code == "invalid_provider_result"
+        partly = FakeSession([reply(good, {"type": "choice", "name": "c", "choice": "nowhere"})])
+        results = decide(provider(partly), request((PRED, CHOICE)))
+        assert [r.error_code for r in results] == [None, "invalid_provider_result"] and len(once.posts) == len(partly.posts) == 1
+
     def test_401_questions_split_into_two_requests(self) -> None:
         questions = tuple(DecisionQuestion(id=f"q{i}", kind="predicate", text="t") for i in range(401))
         session = FakeSession([answers_for])

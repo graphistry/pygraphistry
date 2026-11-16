@@ -129,10 +129,10 @@ class OpenAIDecisionsProvider(HttpDecisionProvider):
     def __init__(self, api_key: str, model: str, *, base_url: Optional[str] = None, prices: Optional[TokenPrices] = None,
                  max_questions_per_request: int = MAX_QUESTIONS_PER_REQUEST, max_choice_options: int = 255,
                  max_levels: int = 10, rows_per_request: int = 1, concurrency_limit: int = 4, timeout_s: float = 60, max_retries: int = 3,
-                 retry_backoff_s: float = 0.5, session: Optional[HttpPoster] = None, name: Optional[str] = None) -> None:
+                 retry_backoff_s: float = 0.5, session: Optional[HttpPoster] = None, name: Optional[str] = None, reply_retries: int = 1) -> None:
         super().__init__(api_key, model, base_url=base_url, prices=prices, concurrency_limit=concurrency_limit,
                          timeout_s=timeout_s, max_retries=max_retries, retry_backoff_s=retry_backoff_s,
-                         session=session, name=name)
+                         session=session, name=name, reply_retries=reply_retries)
         for setting, value, least in (("max_questions_per_request", max_questions_per_request, 1),
                                       ("max_choice_options", max_choice_options, 2), ("max_levels", max_levels, 2),
                                       ("rows_per_request", rows_per_request, 1)):

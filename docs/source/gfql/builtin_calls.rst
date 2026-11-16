@@ -2021,6 +2021,13 @@ includes logprobs. Metadata records ``answer_strategy`` and, for the new strateg
 The semantic level describes the selected mechanism; it does not prove that a host enforced a constraint.
 Constraint and logprob fields in ``extra_body`` cannot override the selected strategy.
 
+The OpenAI-compatible, decisions-endpoint and Anthropic providers send a request once more when its reply holds
+no readable answer or is cut off (``reply_retries=1``; ``0`` turns this off). The second reply is the result.
+Both requests are billed: ``cost_usd`` and ``latency_ms`` are their sums and ``retry_count`` counts the extra
+request. Like transport retries, it is not part of the cost estimate or ``budget.max_requests``. A refusal, an
+``unsupported_strategy`` reply and an HTTP error are not sent again. The LangChain provider never resends; add
+retries to the chat model you pass in.
+
 Choose a known mechanism directly to avoid probes. For explicit fallback discovery, configure an
 ordered profile. For example::
 

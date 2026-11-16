@@ -272,10 +272,10 @@ class _ChatDecisionProvider(HttpDecisionProvider):
                  extra_body: Optional[JSONObject] = None, extra_headers: Optional[Dict[str, str]] = None,
                  prices: Optional[TokenPrices] = None, concurrency_limit: int = 4, timeout_s: float = 60,
                  max_retries: int = 3, retry_backoff_s: float = 0.5, session: Optional[HttpPoster] = None,
-                 name: Optional[str] = None) -> None:
+                 name: Optional[str] = None, reply_retries: int = 1) -> None:
         super().__init__(api_key, model, base_url=base_url, prices=prices, concurrency_limit=concurrency_limit,
                          timeout_s=timeout_s, max_retries=max_retries, retry_backoff_s=retry_backoff_s,
-                         session=session, name=name)
+                         session=session, name=name, reply_retries=reply_retries)
         if max_answer_tokens is not None and (isinstance(max_answer_tokens, bool)
                                               or not isinstance(max_answer_tokens, int) or max_answer_tokens < 2):
             raise ValueError(f"max_answer_tokens must be an int >= 2, got {max_answer_tokens!r}")
@@ -395,11 +395,11 @@ class OpenAIChatProvider(_ChatDecisionProvider):
                  extra_body: Optional[JSONObject] = None,
                  extra_headers: Optional[Dict[str, str]] = None, prices: Optional[TokenPrices] = None,
                  concurrency_limit: int = 4, timeout_s: float = 60, max_retries: int = 3, retry_backoff_s: float = 0.5,
-                 session: Optional[HttpPoster] = None, name: Optional[str] = None) -> None:
+                 session: Optional[HttpPoster] = None, name: Optional[str] = None, reply_retries: int = 1) -> None:
         super().__init__(api_key, model, base_url=base_url, max_answer_tokens=max_answer_tokens, extra_body=extra_body,
                          extra_headers=extra_headers, prices=prices, concurrency_limit=concurrency_limit,
                          timeout_s=timeout_s, max_retries=max_retries, retry_backoff_s=retry_backoff_s,
-                         session=session, name=name)
+                         session=session, name=name, reply_retries=reply_retries)
         if isinstance(top_logprobs, bool) or not isinstance(top_logprobs, int) or top_logprobs < 0:
             raise ValueError(f"top_logprobs must be an int >= 0, got {top_logprobs!r}")
         if strategy not in STRATEGIES:
@@ -716,11 +716,11 @@ class AnthropicMessagesProvider(_ChatDecisionProvider):
                  extra_body: Optional[JSONObject] = None, extra_headers: Optional[Dict[str, str]] = None,
                  prices: Optional[TokenPrices] = None, concurrency_limit: int = 4, timeout_s: float = 60,
                  max_retries: int = 3, retry_backoff_s: float = 0.5, session: Optional[HttpPoster] = None,
-                 name: Optional[str] = None) -> None:
+                 name: Optional[str] = None, reply_retries: int = 1) -> None:
         super().__init__(api_key, model, base_url=base_url, max_answer_tokens=max_answer_tokens, extra_body=extra_body,
                          extra_headers=extra_headers, prices=prices, concurrency_limit=concurrency_limit,
                          timeout_s=timeout_s, max_retries=max_retries, retry_backoff_s=retry_backoff_s,
-                         session=session, name=name)
+                         session=session, name=name, reply_retries=reply_retries)
         if strategy not in get_args(AnthropicStrategy):
             raise ValueError("strategy must be text, json_schema or tool")
         self.strategy = strategy

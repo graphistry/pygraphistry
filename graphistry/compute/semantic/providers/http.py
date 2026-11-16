@@ -161,6 +161,9 @@ class ResponseMeta(NamedTuple):
     cached_tokens: Optional[int]
 
 
+RESENT_REPLY_ERRORS = ("invalid_provider_result", "answer_truncated")
+
+
 class HttpDecisionProvider(ABC):
     """Base for decision providers that answer over HTTP; subclasses build bodies and map responses.
 
@@ -177,6 +180,8 @@ class HttpDecisionProvider(ABC):
     :param concurrency_limit: concurrent requests one operator run may send
     :param timeout_s: per-request timeout, capped by the remaining deadline
     :param max_retries: retries on 408, 409, 429, 5xx except 501, connection errors and timeouts; each attempt may be billed
+    :param reply_retries: times a request is sent again when its reply holds no readable answer or is cut off at the
+        answer-token limit (default 1); each is billed and counted in ``retry_count``
     :param retry_backoff_s: base delay between retries when the server sends no ``Retry-After``
     :param session: object with a ``requests``-style ``post``; default ``requests``
     :param name: provider name stamped on results; default the class's ``name``
@@ -188,7 +193,8 @@ class HttpDecisionProvider(ABC):
 
     def __init__(self, api_key: str, model: str, *, base_url: Optional[str] = None, prices: Optional[TokenPrices] = None,
                  concurrency_limit: int = 4, timeout_s: float = 60, max_retries: int = 3,
-                 retry_backoff_s: float = 0.5, session: Optional[HttpPoster] = None, name: Optional[str] = None) -> None:
+                 retry_backoff_s: float = 0.5, session: Optional[HttpPoster] = None, name: Optional[str] = None,
+                 reply_retries: int = 1) -> None:
         if not (isinstance(api_key, str) and api_key):
             raise ValueError("api_key must be a non-empty string")
         if not (isinstance(model, str) and model):
@@ -204,6 +210,9 @@ class HttpDecisionProvider(ABC):
             raise ValueError(f"retry_backoff_s must be a finite number >= 0, got {retry_backoff_s!r}")
         if not (isinstance(max_retries, int) and not isinstance(max_retries, bool) and max_retries >= 0):
             raise ValueError(f"max_retries must be an int >= 0, got {max_retries!r}")
+        if not (isinstance(reply_retries, int) and not isinstance(reply_retries, bool) and reply_retries >= 0):
+            raise ValueError(f"reply_retries must be an int >= 0, got {reply_retries!r}")
+        self.reply_retries = reply_retries
         self._api_key = api_key
         self.model = model
         self.base_url = (base_url or self.default_base_url).rstrip("/")
@@ -243,31 +252,38 @@ class HttpDecisionProvider(ABC):
              read: Callable[[JSONObject, ResponseMeta], List[DecisionResult]],
              deadline_at: Optional[float]) -> List[DecisionResult]:
         """POST one body answering ``pairs`` (row, question); ``read`` maps the payload, with the cost split evenly
-        over the pairs. A transport failure errors every pair."""
-        try:
-            payload, retries, latency_ms = post_json(
-                f"{self.base_url}{self.path}", body, self.headers(),
-                deadline_at=deadline_at, timeout_s=self.timeout_s, max_retries=self.max_retries,
-                backoff_s=self.retry_backoff_s, session=self._session)
-        except RequestFailure as failure:
-            if failure.error_code == "content_filter":
-                blocked = ResponseMeta(model=self.model, latency_ms=failure.latency_ms, retries=failure.retry_count,
-                                       cost_usd=None, cached_tokens=None)
-                return [self.answered(request, question, blocked, value=None, distribution=None,
-                                      probability_kind="none", reason="refusal",
-                                      extra={"refusal_source": "request_content_filter"})
-                        for request, question in pairs]
-            return [unanswered_result(request, question, provider=self.name, model=self.model,
-                                      error_code=failure.error_code, latency_ms=failure.latency_ms,
-                                      retry_count=failure.retry_count) for request, question in pairs]
-        usage = self.usage(payload)
-        cost = self.prices.cost_usd(usage)
-        model = payload.get("model")
-        meta = ResponseMeta(model=model if isinstance(model, str) else self.model,
-                            latency_ms=latency_ms, retries=retries,
-                            cost_usd=None if cost is None else cost / len(pairs),
-                            cached_tokens=None if usage is None else usage.cached_input)
-        return read(payload, meta)
+        over the pairs. A transport failure errors every pair. A reply in which every pair is unread or cut off is
+        sent again up to ``reply_retries`` times, with costs and latencies summed."""
+        asks, resent, spent, waited = 0, 0, 0.0, 0.0
+        while True:
+            try:
+                payload, retries, latency_ms = post_json(
+                    f"{self.base_url}{self.path}", body, self.headers(),
+                    deadline_at=deadline_at, timeout_s=self.timeout_s, max_retries=self.max_retries,
+                    backoff_s=self.retry_backoff_s, session=self._session)
+            except RequestFailure as failure:
+                if failure.error_code == "content_filter":
+                    blocked = ResponseMeta(model=self.model, latency_ms=failure.latency_ms + waited,
+                                           retries=failure.retry_count + resent, cost_usd=None, cached_tokens=None)
+                    return [self.answered(request, question, blocked, value=None, distribution=None,
+                                          probability_kind="none", reason="refusal",
+                                          extra={"refusal_source": "request_content_filter"})
+                            for request, question in pairs]
+                return [unanswered_result(request, question, provider=self.name, model=self.model,
+                                          error_code=failure.error_code, latency_ms=failure.latency_ms + waited,
+                                          retry_count=failure.retry_count + resent) for request, question in pairs]
+            usage = self.usage(payload)
+            cost = self.prices.cost_usd(usage)
+            model = payload.get("model")
+            meta = ResponseMeta(model=model if isinstance(model, str) else self.model,
+                                latency_ms=latency_ms + waited, retries=retries + resent,
+                                cost_usd=None if cost is None else (cost + spent) / len(pairs),
+                                cached_tokens=None if usage is None else usage.cached_input)
+            results = read(payload, meta)
+            unread = bool(results) and all(result.error_code in RESENT_REPLY_ERRORS for result in results)
+            if not unread or asks >= self.reply_retries or (deadline_at is not None and time.monotonic() >= deadline_at):
+                return results
+            asks, resent, spent, waited = asks + 1, resent + 1 + retries, spent + (cost or 0.0), waited + latency_ms
 
     def answered(self, request: DecisionRequest, question: DecisionQuestion, meta: ResponseMeta, *,
                  value: Union[bool, str, None], distribution: Optional[Dict[str, float]], probability_kind: ProbabilityKind,

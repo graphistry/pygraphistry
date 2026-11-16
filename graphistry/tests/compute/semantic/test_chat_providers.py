@@ -1,5 +1,6 @@
 import json
 import math
+import time
 from typing import Dict, List, Optional
 
 import requests
@@ -658,7 +659,7 @@ class TestFallbacks:
             return reply
 
         session = FakeSession([calls('{"answer": "B"}', '{"answer": "C"}'), calls('{"answer": "B"}', '{"answer": "B"}')])
-        provider = openai(session, strategy="tool")
+        provider = openai(session, strategy="tool", reply_retries=0)
         assert checked(provider, request((CHOICE,)))[0].error_code == "invalid_provider_result"
         assert checked(provider, request((CHOICE,)))[0].value == "tech"
 
@@ -891,3 +892,86 @@ class TestProbeBudget:
                                                "levels": ["F", "D", "C", "B", "A", "A+", "A-", "B+", "B-", "C+", "C-"]}],
                           budget={"max_requests": 3})
         assert session.posts == [] and out["p__error_code"].tolist() == ["unsupported_question"] * 3
+
+
+def cut_off(text: str) -> FakeResponse:
+    reply = chat_reply(text)
+    reply._body["choices"][0]["finish_reason"] = "length"  # type: ignore[index]
+    return reply
+
+
+class TestUnreadRepliesAreSentAgain:
+
+    @pytest.mark.parametrize("first", [chat_reply("It looks fine to me"), chat_reply(""), cut_off("It looks")])
+    def test_an_unread_or_cut_off_reply_is_sent_once_more_and_both_are_billed(self, first: FakeResponse) -> None:
+        session = FakeSession([first, chat_reply("B"), chat_reply("A")])
+        result = checked(openai(session, strategy="text"), request((PRED,)))[0]
+        assert (result.value, result.retry_count, len(session.posts)) == (False, 1, 2)
+        assert result.cost_usd == pytest.approx(160 / 1e6)
+        assert session.posts[0]["json"] == session.posts[1]["json"]
+
+    def test_a_second_unread_reply_is_the_error(self) -> None:
+        session = FakeSession([chat_reply("hmm"), cut_off("It looks"), chat_reply("B")])
+        result = checked(openai(session, strategy="text"), request((PRED,)))[0]
+        assert (result.error_code, result.retry_count, len(session.posts)) == ("answer_truncated", 1, 2)
+
+    def test_reply_retries_sets_how_often_and_zero_sends_once(self) -> None:
+        once = FakeSession([chat_reply("hmm"), chat_reply("B")])
+        result = checked(openai(once, strategy="text", reply_retries=0), request((PRED,)))[0]
+        assert (result.error_code, result.retry_count, len(once.posts)) == ("invalid_provider_result", 0, 1)
+        twice = FakeSession([chat_reply("hmm"), chat_reply("hmm"), chat_reply("B")])
+        result = checked(openai(twice, strategy="text", reply_retries=2), request((PRED,)))[0]
+        assert (result.value, result.retry_count, len(twice.posts)) == (False, 2, 3)
+
+    @pytest.mark.parametrize("value", [-1, 1.5, True, None])
+    def test_reply_retries_must_be_a_count(self, value: object) -> None:
+        with pytest.raises(ValueError, match="reply_retries"):
+            openai(FakeSession([]), reply_retries=value)
+        with pytest.raises(ValueError, match="reply_retries"):
+            AnthropicMessagesProvider("k", "claude-x", reply_retries=value)  # type: ignore[arg-type]
+
+    def test_an_answer_a_refusal_an_ignored_strategy_and_an_http_error_are_not_sent_again(self) -> None:
+        answered = FakeSession([chat_reply("B"), chat_reply("A")])
+        assert checked(openai(answered, strategy="text"), request((PRED,)))[0].retry_count == 0
+        refusal = chat_reply("x")
+        refusal._body["choices"][0]["message"] = {"role": "assistant", "content": None, "refusal": "no"}  # type: ignore[index]
+        refused = FakeSession([refusal, chat_reply("B")])
+        assert checked(openai(refused, strategy="text"), request((PRED,)))[0].status_reason == "refusal"
+        ignored = FakeSession([chat_reply("B"), chat_reply("B")])
+        assert checked(openai(ignored, strategy="tool"), request((PRED,)))[0].error_code == "unsupported_strategy"
+        failed = FakeSession([FakeResponse(400), chat_reply("B")])
+        assert checked(openai(failed, strategy="text"), request((PRED,)))[0].error_code == "http_400"
+        assert [len(s.posts) for s in (answered, refused, ignored, failed)] == [1, 1, 1, 1]
+
+    def test_a_failed_second_request_keeps_its_own_error_and_the_retry_count(self) -> None:
+        session = FakeSession([chat_reply("hmm"), FakeResponse(400)])
+        result = checked(openai(session, strategy="text"), request((PRED,)))[0]
+        assert (result.error_code, result.retry_count, len(session.posts)) == ("http_400", 1, 2)
+
+    def test_an_expired_deadline_stops_the_second_request(self) -> None:
+        session = FakeSession([chat_reply("hmm"), chat_reply("B")])
+        provider = openai(session, strategy="text")
+        results = provider.send([(request((PRED,)), PRED)], {}, lambda payload, meta: [
+            provider.invalid(request((PRED,)), PRED, meta)], time.monotonic() + 30)
+        assert len(session.posts) == 2 and results[0].retry_count == 1
+        late = FakeSession([chat_reply("hmm"), chat_reply("B")])
+        slow = openai(late, strategy="text")
+
+        def read(payload: object, meta: object) -> List[DecisionResult]:
+            time.sleep(0.02)
+            return [slow.invalid(request((PRED,)), PRED, meta)]  # type: ignore[arg-type]
+        kept = slow.send([(request((PRED,)), PRED)], {}, read, time.monotonic() + 0.01)
+        assert [r.error_code for r in kept] == ["invalid_provider_result"] and len(late.posts) == 1
+
+    def test_latency_is_the_sum_of_both_requests(self) -> None:
+        def slow_miss(body: object) -> FakeResponse:
+            time.sleep(0.03)
+            return chat_reply("hmm")
+        session = FakeSession([slow_miss, chat_reply("B")])
+        result = checked(openai(session, strategy="text"), request((PRED,)))[0]
+        assert result.value is False and result.latency_ms >= 30
+
+    def test_the_anthropic_provider_sends_again_too(self) -> None:
+        session = FakeSession([anthropic_reply("Let me think about it"), anthropic_reply("B")])
+        result = checked(AnthropicMessagesProvider("k", "claude-x", session=session), request((PRED,)))[0]  # type: ignore[arg-type]
+        assert (result.value, result.retry_count, len(session.posts)) == (False, 1, 2)
