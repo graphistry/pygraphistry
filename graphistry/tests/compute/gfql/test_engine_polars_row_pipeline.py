@@ -159,11 +159,16 @@ def test_labels_projection_matches_pandas_in_every_lowering_chokepoint(engine, k
 
     def normalized(nodes):
         frame = nodes.to_pandas() if hasattr(nodes, "to_pandas") else nodes
+        def scalar(value):
+            if hasattr(value, "tolist"):
+                value = value.tolist()
+            if isinstance(value, (list, tuple)):
+                return repr([scalar(item) for item in value])
+            return value if isinstance(value, str) else repr(value)
+
         normalized = frame.copy()
         for column in normalized.columns:
-            normalized[column] = normalized[column].map(
-                lambda value: value if isinstance(value, str) else repr(value)
-            )
+            normalized[column] = normalized[column].map(scalar)
         return normalized.sort_values(list(normalized.columns)).reset_index(drop=True)
 
     for query in LABEL_QUERIES:
