@@ -34,6 +34,7 @@ from .filter_by_dict import (
 
 if TYPE_CHECKING:
     from graphistry.compute.semantic.contract import Budget, DecisionProvider, DecisionQuestion, GenerationProvider
+    from graphistry.compute.semantic.rules import ProbabilityRequirement
     from graphistry.compute.gfql.index.types import IndexKind
     from graphistry.compute.gfql.index.registry import PartitionValue
     from graphistry.compute.gfql.index.explain import GfqlExplainReport
@@ -413,6 +414,7 @@ class ComputeMixin(Plottable):
         budget: "Union[Budget, Dict[str, object], None]" = None,
         max_rows: Optional[int] = None,
         min_p: Optional[float] = None,
+        require_probabilities: "ProbabilityRequirement" = False,
         column_max_chars: Optional[int] = None,
         overwrite: bool = False,
     ) -> Plottable:
@@ -435,7 +437,8 @@ class ComputeMixin(Plottable):
                 df, questions=questions, provider=provider, task_id=task_id, evidence_cols=evidence_cols,
                 template=template, id_col=rows_id, task_version=task_version, batch_size=batch_size,
                 max_concurrency=max_concurrency, deadline_s=deadline_s, budget=budget, max_rows=max_rows,
-                min_p=min_p, column_max_chars=column_max_chars, overwrite=overwrite,
+                min_p=min_p, require_probabilities=require_probabilities, column_max_chars=column_max_chars,
+                overwrite=overwrite,
             )
 
         return _apply_to_graph_table(self, kind, id_col, run, "sem_decide")
