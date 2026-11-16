@@ -243,6 +243,7 @@ def run_without_traversal(
     from graphistry.compute.gfql.index.api import record_fast_path_decision
 
     try:
+        # Warning capture is process-global, not thread-safe; the record/re-emit window contains only one fast-path attempt.
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always", append=True)
             result = run_suffix(_zero_row_twin(g, middle, str(engine), traverse))

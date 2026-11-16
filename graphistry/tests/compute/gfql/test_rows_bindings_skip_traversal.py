@@ -984,6 +984,7 @@ def test_the_seed_op_accepts_everything_but_none(engine, value, served):
     assert _consulted(graph(engine), query, engine) == ({True} if served else {False})
 
 
+@pytest.mark.route_engaged(ROUTE)
 def test_bypassing_the_allowlist_makes_known_pairs_diverge(monkeypatch):
     """The allowlist is load-bearing: with it bypassed, an int on a bool column (a pair the matrix covers) changes the outcome."""
     from graphistry.compute.gfql import rows_skip_traversal
