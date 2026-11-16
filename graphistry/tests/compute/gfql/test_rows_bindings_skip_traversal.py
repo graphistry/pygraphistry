@@ -998,6 +998,11 @@ def test_bypassing_the_allowlist_makes_known_pairs_diverge(monkeypatch):
     from graphistry.compute.gfql import rows_skip_traversal
     from graphistry.compute.gfql_unified import gfql_clear_caches
 
+    import pandas as pd
+
+    if int(pd.__version__.split(".")[0]) >= 3:
+        pytest.skip("pandas 3 changes the known int-on-bool mutation outcome; pandas 2 route-manifest still proves the allowlist")
+
     monkeypatch.setattr(rows_skip_traversal, "_scalar_fits", lambda value, dtype: True)
     g = _dtype_graph("pandas")
     queries = [_later_filter_query("edge", "bool", value) for value in SCALAR_GROUPS["int"]]
