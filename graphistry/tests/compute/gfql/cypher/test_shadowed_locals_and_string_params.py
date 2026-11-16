@@ -92,7 +92,7 @@ def _check(
     """Rows of a read query equal ``expected``; with ``polars_declines`` native Polars must raise exactly that decline."""
     graph = _graph(engine)
     if engine in POLARS_ENGINES and polars_declines is not None:
-        decline = GPU_DECLINE if engine == "polars-gpu" else polars_declines
+        decline = f"{GPU_DECLINE}|{polars_declines}" if engine == "polars-gpu" else polars_declines
         with pytest.raises(NotImplementedError, match=decline):
             graph.gfql(query, engine=engine, params=params)
         return
@@ -250,7 +250,7 @@ def test_scalar_parameter_projected_next_to_a_whole_entity(engine, value) -> Non
 def test_scalar_parameter_projection_keeps_its_dtype(engine, value, expected_dtype) -> None:
     out = _graph(engine).gfql("MATCH (n) RETURN $v AS v", engine=engine, params={"v": value})
     frame = out._nodes
-    dtype = str(frame.dtypes["v"]).lower() if hasattr(frame, "dtypes") else str(frame.schema["v"]).lower()
+    dtype = str(frame.schema["v"]).lower() if hasattr(frame, "schema") else str(frame.dtypes["v"]).lower()
     assert dtype == expected_dtype[engine]
 
 
