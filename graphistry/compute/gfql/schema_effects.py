@@ -145,6 +145,17 @@ def _property_type_for_algorithm(algorithm: Optional[str], *, table: Literal["no
     return _STRING
 
 
+def _semantic_call_effect(function: str, params: Mapping[str, object]) -> Optional[SchemaEffect]:
+    from graphistry.compute.semantic.gfql_support import typed_output_columns
+    columns = typed_output_columns(function, params)
+    if columns is None:
+        return None
+    properties = {name: ScalarType(kind) for name, kind in columns.items()}
+    if params.get("kind", "nodes") == "edges":
+        return SchemaEffect(adds_edge_properties=properties, confidence="declared")
+    return SchemaEffect(adds_node_properties=properties, confidence="declared")
+
+
 def schema_effect_for_call(function: str, params: Mapping[str, Any]) -> Optional[SchemaEffect]:
     """Return an internal effect for a successful safelisted ``call(...)``."""
     if function == "get_degrees":
@@ -185,6 +196,8 @@ def schema_effect_for_call(function: str, params: Mapping[str, Any]) -> Optional
         if algorithm == "hits":
             properties["authorities"] = _FLOAT64
         return SchemaEffect(adds_node_properties=properties, confidence="declared")
+    if function in ("sem_decide", "sem_map"):
+        return _semantic_call_effect(function, params)
     if function == "compute_igraph":
         algorithm = params.get("alg")
         if not isinstance(algorithm, str):

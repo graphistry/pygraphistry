@@ -9,6 +9,7 @@ Subpackages
 
    graphistry.compute.gfql
    graphistry.compute.predicates
+   graphistry.compute.semantic
 
 Submodules
 ----------

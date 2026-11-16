@@ -1828,6 +1828,132 @@ Map node attributes to icons.
 
 **Schema Effects:** Adds icon encoding column.
 
+Semantic Table Operators
+------------------------
+
+``sem_decide`` and ``sem_map`` ask a model provider about every row of the node (or edge) table and append
+typed result columns. Every input row is kept, in order and with its index; provider failures become per-row
+``error`` results instead of exceptions. Providers are bound per execution with
+``graphistry.compute.semantic.bind_providers``; a GFQL ``call()`` names the provider by alias, so queries stay
+JSON-serializable. These calls run locally only: ``gfql_remote()`` refuses them before any network request.
+
+.. code-block:: python
+
+    from graphistry import call
+    from graphistry.compute.semantic import bind_providers, CallableDecisionProvider
+
+    provider = CallableDecisionProvider(lambda evidence, q: "inc" in str(evidence).lower())
+    with bind_providers({"rules": provider}):
+        g2 = g.gfql([call("sem_decide", {
+            "questions": [{"id": "is_company", "kind": "predicate", "text": "Is this a company?"}],
+            "provider": "rules", "task_id": "companies", "evidence_cols": ["name"],
+        })])
+
+sem_decide
+~~~~~~~~~~
+
+Answer typed questions per row: ``predicate`` (yes/no), ``choice`` (one of ``options``) or ``score`` (one of
+``levels``, ordered lowest to highest).
+
+**Parameters:**
+
+.. list-table::
+   :header-rows: 1
+   :widths: 20 15 15 50
+
+   * - Parameter
+     - Type
+     - Required
+     - Description
+   * - questions
+     - list[dict]
+     - Yes
+     - ``{id, kind, text, options?, levels?}``; ids name the output columns and must be unique
+   * - provider
+     - string
+     - Yes
+     - Alias bound with ``bind_providers`` (the Python method also accepts a provider object)
+   * - task_id
+     - string
+     - Yes
+     - Caller label for the task
+   * - evidence_cols
+     - list[string]
+     - One of these
+     - Columns sent as a ``{column: value}`` mapping
+   * - template
+     - string
+     - One of these
+     - Text with bare ``{column}`` placeholders, substituted verbatim (for example ``<untrusted>{text}</untrusted>``)
+   * - kind
+     - string
+     - No
+     - ``'nodes'`` (default) or ``'edges'``
+   * - id_col
+     - string
+     - No
+     - Row id column; default the node/edge id binding, else the index when its labels are unique (also after ``str()``, and non-empty), else row positions
+   * - task_version
+     - string
+     - No
+     - Version label included in each result's input hash (default ``'1'``)
+   * - batch_size, max_concurrency
+     - integer
+     - No
+     - Rows per provider call, at most the provider's ``max_rows_per_request`` (default: that limit, else 32), and concurrent calls
+   * - deadline_s
+     - number
+     - No
+     - Seconds for the whole call; unfinished rows become ``skipped``
+   * - budget
+     - dict
+     - No
+     - ``{max_requests?}``: the number of provider calls
+   * - max_rows
+     - integer
+     - No
+     - Rows at positions >= ``max_rows`` are ``skipped``, never dropped
+   * - min_p
+     - number
+     - No
+     - ``ok`` answers whose probability ``q__p`` is below this (or undefined) become ``uncertain``
+   * - column_max_chars
+     - integer
+     - No
+     - Truncate each string evidence value
+   * - overwrite
+     - boolean
+     - No
+     - Replace existing output columns instead of raising
+
+**Output columns** per question ``q``: ``q`` (answer: nullable boolean for predicates, string otherwise),
+``q__status`` (``ok``, ``uncertain``, ``error``, ``skipped``), ``q__p`` (the probability the answer distribution gives
+the answer; missing when undefined, so test it with ``isna()``), ``q__dist`` (JSON distribution or null),
+``q__probability_kind`` (``native_decision``, ``token_logprob``, ``verbalized`` or ``none``), ``q__error_code`` and
+``q__meta`` (JSON with model, provider, task version, input hash, latency, cost, cache hit, retry count, provider
+confidence, status reason and extra metadata). Unparseable answers are errors, never default values; distributions are
+never fabricated. A row whose evidence columns are all null is ``skipped`` with status reason ``null_evidence``; no call
+is made for it.
+
+**Engines:** pandas and cuDF run natively; polars frames run through the off-engine call bridge, so GFQL results
+stay polars. Called directly as ``g.sem_decide(...)`` on a polars-bound graph, the result tables are pandas. Under
+``engine='auto'`` (including the polars GPU route for cuDF graphs), a query that already called a provider and
+then reaches a step that engine cannot run raises ``GFQLCallExecutionError`` instead of re-running the whole
+query on another engine; rerun with ``engine='pandas'`` (or ``'cudf'``).
+
+sem_map
+~~~~~~~
+
+Generate one text value per row. Takes ``instruction`` (string, required), ``out_col`` (string, required) and
+``max_output_tokens`` (optional; passed to the provider as its bound on each value), plus every other ``sem_decide``
+parameter except ``questions`` and ``min_p`` (``batch_size`` falls back to 16 rather than 32). Adds ``out_col``,
+``{out_col}__status``, ``{out_col}__error_code`` and ``{out_col}__meta`` (no ``confidence`` in the metadata). Engines,
+limits, provider-fault handling, remote refusal and the ``engine='auto'`` rule are the same as for ``sem_decide``.
+
+**Providers:** ``CallableDecisionProvider`` and ``CallableGenerationProvider`` wrap Python functions. Any object
+implementing the ``DecisionProvider`` or ``GenerationProvider`` protocol in ``graphistry.compute.semantic`` can be
+bound.
+
 Utility Methods
 ---------------
 
