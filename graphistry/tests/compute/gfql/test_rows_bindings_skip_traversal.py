@@ -1062,7 +1062,7 @@ def test_a_failed_attempt_keeps_a_previously_cached_twin(engine, monkeypatch):
     from graphistry.compute.gfql import rows_skip_traversal
     from graphistry.compute.gfql_unified import gfql_clear_caches
 
-    query = _later_filter_query("edge", "name", _contains("a"))
+    query = SHAPES["seeded_undirected_edge_alias"][0]
     g = graph(engine)
     gfql_clear_caches()
     _outcome(g, query, engine)
@@ -1101,7 +1101,8 @@ def test_a_raising_twin_builder_replays_and_leaves_no_cache_entry(engine):
     original = rows_skip_traversal._zero_row_twin
     rows_skip_traversal._zero_row_twin = raising
     try:
-        assert _consulted(g, query, engine) == {False}
+        steps = _consulted(g, query, engine)
+        assert steps == {True, False}
     finally:
         rows_skip_traversal._zero_row_twin = original
     assert not rows_skip_traversal._TWINS
