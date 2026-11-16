@@ -1027,6 +1027,22 @@ def test_a_raising_cold_build_leaves_no_cache_entry_and_the_next_call_is_served(
     assert _outcome(g, query, engine) == expected
 
 
+@pytest.mark.route_engaged(ROUTE)
+def test_a_failed_fast_path_attempt_leaves_no_cache_entry_and_replays_the_canonical_error(engine):
+    """A value-dependent later-op failure is not cached; replay restores the exact canonical outcome."""
+    from graphistry.compute.gfql import rows_skip_traversal
+    from graphistry.compute.gfql_unified import gfql_clear_caches
+
+    query = _later_filter_query("edge", "name", _contains("("))
+    g = graph(engine)
+    gfql_clear_caches()
+    assert not rows_skip_traversal._TWINS
+    actual = _outcome(g, query, engine)
+    assert not rows_skip_traversal._TWINS
+    expected = _outcome(g, query, engine)
+    assert actual == expected
+
+
 @pytest.mark.parametrize("target", ["cpu", "gpu"])
 def test_execution_targets_do_not_share_a_twin(engine, target):
     from graphistry.compute.gfql.lazy import ExecutionTarget, target_mode

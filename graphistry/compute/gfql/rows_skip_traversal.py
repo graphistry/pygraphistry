@@ -242,6 +242,8 @@ def run_without_traversal(
     """
     from graphistry.compute.gfql.index.api import record_fast_path_decision
 
+    with _TWINS_LOCK:
+        existing_twins = set(_TWINS)
     try:
         # Warning capture is process-global, not thread-safe; the record/re-emit window contains only one fast-path attempt.
         with warnings.catch_warnings(record=True) as caught:
@@ -253,6 +255,9 @@ def run_without_traversal(
             )
         return result
     except _replayable_errors() as error:
+        with _TWINS_LOCK:
+            for twin_key in set(_TWINS) - existing_twins:
+                _TWINS.pop(twin_key, None)
         record_fast_path_decision(
             path="rows_bindings_skip_traversal", engine=engine, served=False,
             reason="replayed the traversal after an error in the skipped path", replayed_after=type(error).__name__,
