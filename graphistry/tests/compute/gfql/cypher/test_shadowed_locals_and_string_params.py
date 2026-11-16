@@ -10,7 +10,9 @@ import pandas as pd
 import pytest
 
 import graphistry
-from graphistry.compute.exceptions import ErrorCode, GFQLCallExecutionError, GFQLTypeError, GFQLValidationError
+from graphistry.compute.exceptions import (
+    ErrorCode, GFQLCallExecutionError, GFQLTypeError, GFQLUnsupportedError, GFQLValidationError,
+)
 
 
 ENGINES = [
@@ -222,6 +224,17 @@ def test_string_parameter_in_a_predicate_and_in_an_expression(engine) -> None:
 @pytest.mark.parametrize("value", ["x", "tags", "it's \"q\" \\ \n x"])
 def test_string_parameter_in_collect_and_as_a_grouping_key_and_in_unwind(engine, value) -> None:
     params = {"v": value}
+    if engine == "polars-gpu":
+        import cudf
+        if int(cudf.__version__.split(".")[0]) < 26:
+            for query in ("MATCH (n) RETURN collect($v) AS v", "MATCH (n) RETURN $v AS k, count(*) AS c"):
+                with pytest.raises(GFQLUnsupportedError) as exc:
+                    _graph(engine).gfql(query, engine=engine, params=params)
+                assert exc.value.code == ErrorCode.E110
+                assert exc.value.context["field"] == "function"
+                assert exc.value.context["value"] == "group_by"
+            _check(engine, "UNWIND [$v] AS u RETURN u", [{"u": value}], params)
+            return
     _check(engine, "MATCH (n) RETURN collect($v) AS v", [{"v": [value, value]}], params)
     _check(engine, "MATCH (n) RETURN $v AS k, count(*) AS c", [{"k": value, "c": 2}], params)
     _check(engine, "UNWIND [$v] AS u RETURN u", [{"u": value}], params)
@@ -358,7 +371,8 @@ def test_subscript_of_a_shadowing_local_reads_the_local_not_the_outer_node(engin
 def _expect(engine, graph, query, params=None, *, rows=None, error=None, polars_native=False):
     """One outcome per engine: rows, or ``error=(exception type, ErrorCode or None)``; Polars declines unless ``polars_native``."""
     if engine in POLARS_ENGINES and not polars_native:
-        with pytest.raises(NotImplementedError, match=POLARS_ROW_OP):
+        decline = f"{GPU_DECLINE}|{POLARS_ROW_OP}" if engine == "polars-gpu" else POLARS_ROW_OP
+        with pytest.raises(NotImplementedError, match=decline):
             graph.gfql(query, engine=engine, params=params)
         return
     if error is not None:
