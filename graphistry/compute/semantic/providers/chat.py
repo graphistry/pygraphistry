@@ -35,6 +35,7 @@ Strategy = Literal["logprobs", "json_schema", "tool", "text", "auto", "json_mode
 ReplyForm = Literal["text", "json_schema", "tool", "function", "code"]
 AnthropicStrategy = Literal["text", "json_schema", "tool"]
 DEFAULT_PROBE_STRATEGIES: Tuple[Strategy, ...] = ("logprobs", "json_schema", "tool", "text")
+ANSWER_MARKER = re.compile(r"\banswer(?:\s+is\b|\s*:)\s*", re.IGNORECASE)
 DEFAULT_ANSWER_TOKENS = 256  # a guard against runaway replies, with room for a sentence or a call wrapper
 STRATEGIES: Tuple[str, ...] = get_args(Strategy)
 NOT_CAPABILITY_ERRORS = ("http_401", "http_403", "http_407", "http_408", "http_409", "http_429")
@@ -107,25 +108,35 @@ def shown_labels(question: DecisionQuestion) -> List[str]:
 
 def reply_index(text: object, codes: str, question: DecisionQuestion) -> Optional[int]:
     """The answer index of a reply: a code alone, a code followed by its own label (``"A. yes"``), or a label alone
-    (``"yes"``); or one of those as the last line, after a blank line, of a reply that is otherwise not an answer;
-    else None."""
+    (``"yes"``). A reply that is otherwise not an answer is also read when its last line, after a blank line, is one
+    of those, or when it ends with a code after ``answer:`` or ``answer is``. Else None."""
     index = _line_index(text, codes, question)
-    head, gap, last = text.rstrip().rpartition("\n\n") if isinstance(text, str) else ("", "", "")
-    if index is None and gap and reply_index(head, codes, question) is None:
-        return _line_index(last, codes, question)
+    if index is not None or not isinstance(text, str):
+        return index
+    head, gap, last = text.rstrip().rpartition("\n\n")
+    if gap and reply_index(head, codes, question) is None:
+        index = _line_index(last, codes, question)
+    marked = ANSWER_MARKER.split(text)
+    if index is None and len(marked) > 1 and reply_index("".join(marked[:-1]), codes, question) is None:
+        return _coded_index(marked[-1].strip().strip("*"), codes, question)
     return index
 
 
 def _line_index(text: object, codes: str, question: DecisionQuestion) -> Optional[int]:
+    index = _coded_index(text, codes, question)
+    return label_index(text.strip(), question) if index is None and isinstance(text, str) else index
+
+
+def _coded_index(text: object, codes: str, question: DecisionQuestion) -> Optional[int]:
     index = code_index(text, codes)
     if not isinstance(text, str) or (index is not None and index < len(answer_labels(question))):
         return index
     stripped = text.strip()
     rest = stripped[1:].lstrip()
     index = code_index(stripped[:1], codes)
-    if rest and rest[0] in ".):" and index is not None and index < len(answer_labels(question)):
+    if rest and rest[0] in ".):-" and index is not None and index < len(answer_labels(question)):
         return index if label_index(rest[1:], question) == index else None
-    return label_index(stripped, question)
+    return None
 
 
 def label_index(text: object, question: DecisionQuestion) -> Optional[int]:
