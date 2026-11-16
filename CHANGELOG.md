@@ -8,6 +8,12 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [Development]
 <!-- Do Not Erase This Section - Used for tracking unreleased changes -->
 
+### Docs
+
+- **GFQL Let binding examples** (#2171): select named subgraphs with `output=` instead of nonexistent binding-marker columns; runnable examples assert nonempty results on pandas and Polars inputs while preserving matcher `name=` markers and service/GPU skips.
+
+- **GFQL quick reference examples run** (#2169): node and edge matcher examples use declarative predicates (`gt`, `lt`, `between`) instead of callables that validation rejects; `let()` examples select bindings with `output=`; remote references are shown as `let()` bindings; the engine section notes which features `auto` runs on pandas for Polars input. The docs example audit now finds code blocks nested under bullets, and every runnable quick-reference example executes on pandas and Polars-bound inputs with matching RETURN rows or graph node/edge identities.
+
 ### Performance
 
 - **GFQL row queries over several named nodes and edges**: a chain such as `[n(name='a'), e(), n(name='b'), rows(), ...]`, or a Cypher `MATCH ... RETURN` that returns more than one variable, no longer runs the graph traversal before it builds its rows. The rows still come from the input graph, so results and errors do not change. Applies to pandas, cuDF, Polars and Polars GPU. These queries still run the traversal: on pandas and cuDF, queries with a policy or a leading `call()`; on every engine, an unnamed pattern, `rows(source=...)` or `rows(table='edges')`, variable-length or hop-labelled edges, query strings, graphs with categorical (or Polars Enum) columns, pandas frames that carry `attrs`, and queries whose index policy can use an index (`auto`, `force`, or `use` with a built index). `gfql_explain` reports the decision as `rows_bindings_skip_traversal` (#2326).
