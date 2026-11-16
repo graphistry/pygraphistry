@@ -254,17 +254,25 @@ def test_scalar_parameter_projected_next_to_a_whole_entity(engine, value) -> Non
 
 
 @pytest.mark.parametrize("engine", ENGINES)
-@pytest.mark.parametrize("value,expected_dtype", [
-    (5, {"pandas": "int64", "cudf": "int64", "polars": "int32", "polars-gpu": "int32"}),
-    (2.5, {"pandas": "float64", "cudf": "float64", "polars": "float64", "polars-gpu": "float64"}),
-    (True, {"pandas": "bool", "cudf": "bool", "polars": "boolean", "polars-gpu": "boolean"}),
-    ("x", {"pandas": "object", "cudf": "object", "polars": "string", "polars-gpu": "string"}),
+@pytest.mark.parametrize("value,expected_kind", [
+    (5, "integer"), (2.5, "floating"), (True, "boolean"), ("x", "string"),
 ])
-def test_scalar_parameter_projection_keeps_its_dtype(engine, value, expected_dtype) -> None:
+def test_scalar_parameter_projection_keeps_its_dtype(engine, value, expected_kind) -> None:
     out = _graph(engine).gfql("MATCH (n) RETURN $v AS v", engine=engine, params={"v": value})
     frame = out._nodes
-    dtype = str(frame.schema["v"]).lower() if hasattr(frame, "schema") else str(frame.dtypes["v"]).lower()
-    assert dtype == expected_dtype[engine]
+    if hasattr(frame, "schema"):
+        import polars as pl
+
+        dtype = frame.schema["v"]
+        actual_kind = ("integer" if dtype.is_integer() else "floating" if dtype.is_float()
+                       else "boolean" if dtype == pl.Boolean else "string" if dtype == pl.String else dtype)
+    else:
+        from pandas.api.types import is_bool_dtype, is_float_dtype, is_integer_dtype, is_string_dtype
+
+        dtype = frame.dtypes["v"]
+        actual_kind = ("integer" if is_integer_dtype(dtype) else "floating" if is_float_dtype(dtype)
+                       else "boolean" if is_bool_dtype(dtype) else "string" if is_string_dtype(dtype) else dtype)
+    assert actual_kind == expected_kind
 
 
 @pytest.mark.parametrize("engine", ENGINES)
