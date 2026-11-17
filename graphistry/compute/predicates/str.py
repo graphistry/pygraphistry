@@ -272,8 +272,8 @@ class NeverMatch(ASTPredicate):
 
 class AlwaysNull(ASTPredicate):
     def __call__(self, s: SeriesT) -> SeriesT:
-        import polars as pl
         if 'polars' in s.__module__:
+            import polars as pl
             return pl.Series([None] * len(s), dtype=pl.Boolean)
         is_cudf = hasattr(s, '__module__') and 'cudf' in s.__module__
         if is_cudf:  # pragma: no cover - cuDF-only; validated on GPU hosts
