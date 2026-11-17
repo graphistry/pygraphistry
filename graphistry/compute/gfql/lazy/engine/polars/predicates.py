@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING, Any, Callable, Dict, List, Mapping, Optional, 
 
 from graphistry.compute.predicates.ASTPredicate import ASTPredicate
 from graphistry.compute.predicates.is_in import IsIn
-from graphistry.compute.predicates.str import Contains, Endswith, Fullmatch, Match, Startswith
+from graphistry.compute.predicates.str import AlwaysNull, Contains, Endswith, Fullmatch, Match, Startswith
 from graphistry.compute.filter_by_dict import resolve_filter_column_or_absent
 from graphistry.compute.gfql.strictness import absent_column_matches
 from .dtypes import is_numeric as _dtype_numeric, is_stringlike as _dtype_stringlike
@@ -720,18 +720,14 @@ def filter_expr_by_dict_polars(df: "Union[pl.DataFrame, pl.LazyFrame]", filter_d
             # raise an OPAQUE `InvalidOperationError` ("expected String type, got: cat") at collect
             # on a Categorical/Enum/numeric column. Raise the SAME clean, typed error so all three
             # engines agree (categorical is treated as non-string here, exactly as filter_by_dict).
+            if isinstance(resolved_val, AlwaysNull):
+                exprs.append(pl.lit(None, dtype=pl.Boolean))
+                continue
             if isinstance(resolved_val, (Contains, Startswith, Endswith, Match)):
                 _col_dtype = _dtype_of(resolved_col)
                 if _col_dtype is not None and _col_dtype != pl.String:
-                    from graphistry.compute.exceptions import ErrorCode, GFQLSchemaError
-                    raise GFQLSchemaError(
-                        ErrorCode.E302,
-                        f'Type mismatch: string predicate used on non-string column "{resolved_col}"',
-                        field=col,
-                        value=f"{resolved_val.__class__.__name__}(...)",
-                        column_type=str(_col_dtype),
-                        suggestion='Use numeric predicates like gt() or lt() for numeric columns',
-                    )
+                    exprs.append(pl.lit(None, dtype=pl.Boolean))
+                    continue
             resolved_dtype = _dtype_of(resolved_col)
             if isinstance(resolved_val, IsIn) and _dtype_is_temporal(resolved_dtype):
                 expr = _temporal_membership_expr(
