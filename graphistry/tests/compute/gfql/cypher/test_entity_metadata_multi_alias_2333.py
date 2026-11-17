@@ -63,3 +63,20 @@ def test_keys_and_properties_of_node_alias_ignore_other_bindings(engine):
         {"k": ["tags", "shared"], "p": "{tags: 'left', shared: 'n-left'}"},
         {"k": ["tags", "shared"], "p": "{tags: 'right', shared: 'n-right'}"},
     ]
+
+
+def test_keys_and_properties_of_relationship_alias_ignore_other_bindings(engine):
+    nodes, edges = _engine_frame(engine)
+    graph = graphistry.nodes(nodes, "id").edges(edges, "s", "d")
+
+    query = "MATCH (n)-[r:KNOWS]->(m) RETURN DISTINCT keys(r) AS k, properties(r) AS p"
+    if engine in {"polars", "polars-gpu"}:
+        with pytest.raises((NotImplementedError, GFQLUnsupportedError)):
+            graph.gfql(query, engine=engine)
+        return
+
+    rows = _records(graph.gfql(query, engine=engine)._nodes)
+    assert rows == [
+        {"k": ["weight", "shared"], "p": "{weight: 5, shared: 'e-left'}"},
+        {"k": ["weight", "shared"], "p": "{weight: 7, shared: 'e-right'}"},
+    ]

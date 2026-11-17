@@ -16,7 +16,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
-- **GFQL multi-alias entity metadata**: `keys(n)` and `properties(n)` over Cartesian or connected multi-alias binding rows now use the selected node's own properties instead of internal binding columns. Engines that do not yet support the expression keep their structured unsupported-query decline.
+- **GFQL multi-alias entity metadata**: `keys(n)`/`properties(n)` and `keys(r)`/`properties(r)` over multi-alias binding rows now use the selected entity's own properties instead of internal binding columns. Engines that do not yet support the expression keep their structured unsupported-query decline.
 - **GFQL nullable entity keys on cuDF** (#2312): `keys(n)` now returns empty lists for rows with no non-null properties alongside populated rows. Native empty key lists use the string child type expected by the grouped result, and key lists remain aligned with their original entities after the native grouping join.
 - **GFQL Cypher empty property maps**: an explicit node `{}` no longer replaces labels, so `MATCH (n:Foo {})` still selects `Foo` nodes. An explicit relationship `{}` no longer replaces relationship types with an empty tuple, so `MATCH ()-[r:R {}]->()` matches only typed `R` relationships on every supported engine, while untyped `n {}` and `r {}` controls remain untyped (#2318).
 
