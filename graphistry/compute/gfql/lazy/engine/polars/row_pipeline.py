@@ -737,7 +737,6 @@ def lower_expr(node: ExprNode, columns: Sequence[str]) -> Optional[pl.Expr]:
         else:
             return None
         return lower_expr(PropertyAccessExpr(node.value, key), columns)
-        return None
     if isinstance(node, Identifier):
         if node.name in columns:
             return pl.col(node.name)
