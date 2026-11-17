@@ -232,16 +232,19 @@ def _native_node_entity_text_expr(
     from .dtypes import is_int
     schema = rows_df.schema
     excluded = set(str(c) for c in (exclude or ()))
-    bare_boolean_alias_marker = (
+    alias_collision_marker = (
         alias in cols
         and view.columns.get(alias, alias) == alias
         and view.presence_source != alias
+    )
+    bare_boolean_alias_marker = (
+        alias in cols
         and schema[alias] == pl.Boolean
     )
     include_id = "id" in cols and is_int(schema["id"])
     prop_cols = [
         str(c) for c in cols
-        if not (str(c) == alias and bare_boolean_alias_marker)
+        if not (str(c) == alias and (alias_collision_marker or bare_boolean_alias_marker))
         if str(c) != view.node_id_column
         if not (
             str(c) == alias
