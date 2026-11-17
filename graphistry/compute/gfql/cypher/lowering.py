@@ -61,7 +61,9 @@ from graphistry.compute.predicates.ASTPredicate import ASTPredicate
 from graphistry.compute.predicates.comparison import eq, ge, gt, isna, le, lt, ne, notna
 from graphistry.compute.predicates.is_in import is_in
 from graphistry.compute.predicates.logical import all_of
-from graphistry.compute.predicates.str import contains as str_contains, endswith, fullmatch, never_match, startswith
+from graphistry.compute.predicates.str import (
+    always_null, contains as str_contains, endswith, fullmatch, never_match, startswith,
+)
 from graphistry.compute.gfql.cypher.parser import _mask_quoted_backticked_and_commented_for_scan
 from graphistry.compute.gfql.cypher.aggregate_bindings import (
     aggregate_runtime_spec as _aggregate_runtime_spec,
@@ -3867,11 +3869,17 @@ def _predicate_value(op: str, value: Any) -> Any:
     if op == "is_not_null":
         return notna()
     if op == "contains":
-        return never_match() if value is None else str_contains(str(value), regex=False, na=False)
+        if not isinstance(value, str):
+            return always_null()
+        return str_contains(value, regex=False, na=False)
     if op == "starts_with":
-        return never_match() if value is None else startswith(str(value), na=False)
+        if not isinstance(value, str):
+            return always_null()
+        return startswith(value, na=False)
     if op == "ends_with":
-        return never_match() if value is None else endswith(str(value), na=False)
+        if not isinstance(value, str):
+            return always_null()
+        return endswith(value, na=False)
     if op == "regex":
         # openCypher/neo4j `=~`: Java-regex, full-string/anchored match → fullmatch.
         # Inline flags in the pattern (e.g. `(?i)`) are honored by the regex engine.

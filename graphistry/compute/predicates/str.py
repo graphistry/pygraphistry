@@ -270,8 +270,24 @@ class NeverMatch(ASTPredicate):
         return null_mask & ~null_mask
 
 
+class AlwaysNull(ASTPredicate):
+    def __call__(self, s: SeriesT) -> SeriesT:
+        if 'polars' in s.__module__:
+            import polars as pl
+            return pl.Series([None] * len(s), dtype=pl.Boolean)
+        is_cudf = hasattr(s, '__module__') and 'cudf' in s.__module__
+        if is_cudf:  # pragma: no cover - cuDF-only; validated on GPU hosts
+            import cudf
+            return cudf.Series([None] * len(s), dtype='bool')
+        return pd.Series([pd.NA] * len(s), index=getattr(s, 'index', None), dtype='boolean')
+
+
 def never_match() -> NeverMatch:
     return NeverMatch()
+
+
+def always_null() -> AlwaysNull:
+    return AlwaysNull()
 
 
 class _BoundaryStringPredicate(ASTPredicate):

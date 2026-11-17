@@ -3024,6 +3024,8 @@ class RowPipelineMixin:
             left_null = self._gfql_null_mask(table_df, left_series)
             right_null = self._gfql_null_mask(table_df, right)
             any_null = left_null | right_null
+            if not pd.api.types.is_string_dtype(left_series.dtype) or not isinstance(right, str):
+                return None
             left_txt = left_series.astype(str)
             needle = str(right)
 
@@ -3046,6 +3048,13 @@ class RowPipelineMixin:
             return out
 
         if is_null_scalar(left) or is_null_scalar(right):
+            return None
+        if hasattr(left, "astype"):
+            if not pd.api.types.is_string_dtype(left.dtype):
+                return None
+        elif not isinstance(left, str):
+            return None
+        if not isinstance(right, str):
             return None
         left_txt = str(left)
         right_txt = str(right)

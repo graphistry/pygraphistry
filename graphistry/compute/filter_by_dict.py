@@ -300,16 +300,7 @@ def _prepare_filter_dict(
                     suggestion='Use string predicates like contains() or startswith() for string columns'
                 )
 
-            # Check string predicates on non-string columns
-            if isinstance(resolved_val, (Contains, Startswith, Endswith, Match)) and not _is_string_dtype_safe(col_dtype):
-                raise GFQLSchemaError(
-                    ErrorCode.E302,
-                    f'Type mismatch: string predicate used on non-string column "{resolved_col}"',
-                    field=col,
-                    value=f"{resolved_val.__class__.__name__}(...)",
-                    column_type=str(col_dtype),
-                    suggestion='Use numeric predicates like gt() or lt() for numeric columns'
-                )
+            # openCypher string predicates over non-string values are unknown.
 
             predicates[col] = (resolved_col, resolved_val)
 

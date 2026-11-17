@@ -757,6 +757,22 @@ def lower_expr(node: ExprNode, columns: Sequence[str]) -> Optional[pl.Expr]:
                 return pl.lit(None)
         return None
     if isinstance(node, BinaryOp):
+        if node.op in {"contains", "starts_with", "ends_with"}:
+            left = lower_expr(node.left, columns)
+            right = lower_expr(node.right, columns)
+            if left is None or right is None:
+                return None
+            left_dtype = _expr_output_dtype(left)
+            right_dtype = _expr_output_dtype(right)
+            if left_dtype not in (pl.String, pl.Null) or right_dtype not in (pl.String, pl.Null):
+                return pl.lit(None, dtype=pl.Boolean)
+            if left_dtype == pl.Null or right_dtype == pl.Null:
+                return pl.lit(None, dtype=pl.Boolean)
+            if node.op == "contains":
+                return left.str.contains(right, literal=True)
+            if node.op == "starts_with":
+                return left.str.starts_with(right)
+            return left.str.ends_with(right)
         if node.op == "in" and isinstance(node.right, ListLiteral):
             # x IN [literals] on the row-expression surface (distinct from the WHERE/IsIn
             # predicate path); 3-valued, parity-checked. Non-literal/non-list RHS falls

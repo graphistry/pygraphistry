@@ -13,7 +13,7 @@ if TYPE_CHECKING:
 from graphistry.compute.exceptions import ErrorCode, GFQLSchemaError, GFQLValidationError
 from graphistry.compute.predicates.ASTPredicate import ASTPredicate
 from graphistry.compute.predicates.numeric import NumericASTPredicate, Between
-from graphistry.compute.predicates.str import Contains, Startswith, Endswith, Match, Fullmatch
+from graphistry.compute.predicates.str import AlwaysNull, Contains, Startswith, Endswith, Match, Fullmatch
 
 _ROW_TABLE_SCHEMA_CALLS = {"select", "with_", "return_", "unwind", "group_by"}
 
@@ -317,7 +317,11 @@ def _validate_filter_dict(
                     else:
                         raise error
 
-                if isinstance(resolved_val, (Contains, Startswith, Endswith, Match, Fullmatch)) and not _is_string_dtype_safe(col_dtype):
+                if isinstance(resolved_val, AlwaysNull):
+                    continue
+                if isinstance(resolved_val, (Contains, Startswith, Endswith)) and not _is_string_dtype_safe(col_dtype):
+                    continue
+                if isinstance(resolved_val, (Match, Fullmatch)) and not _is_string_dtype_safe(col_dtype):
                     error = GFQLSchemaError(
                         ErrorCode.E302,
                         f'Type mismatch: string predicate used on non-string {context} column "{resolved_col}"',
