@@ -3014,7 +3014,6 @@ class RowPipelineMixin:
         op_name: str,
         expr: str,
     ) -> Any:
-        print("PRED START", op_name, repr(left), repr(right))
         if hasattr(left, "astype") or hasattr(right, "astype"):
             left_series = left if hasattr(left, "astype") else self._gfql_broadcast_scalar(table_df, left)
             if hasattr(right, "astype"):
