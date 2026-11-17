@@ -8,6 +8,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [Development]
 <!-- Do Not Erase This Section - Used for tracking unreleased changes -->
 
+### Added
+
+- **GFQL native Polars `labels(n)` projection**: `MATCH (n) RETURN labels(n)` for a declared node binding runs natively on `engine='polars'` and `engine='polars-gpu'` instead of raising the Polars parity-or-error `NotImplementedError`, including in `WHERE`, `ORDER BY`, `WITH`, aggregates and `DISTINCT`. Relationship bindings, list-backed `labels`, non-boolean flags and non-string `type` stay declined; constant-string `n['key']` subscripts stay declined until the pandas subscript reader is fixed (#2336).
+
 ### Docs
 
 - **GFQL Let binding examples** (#2171): select named subgraphs with `output=` instead of nonexistent binding-marker columns; runnable examples assert nonempty results on pandas and Polars inputs while preserving matcher `name=` markers and service/GPU skips.
