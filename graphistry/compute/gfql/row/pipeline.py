@@ -501,11 +501,11 @@ class RowPipelineMixin:
     def _gfql_edge_id_column(self) -> Optional[str]:
         edge_id = self._edge
         if edge_id is not None:
-            return cast(str, edge_id)
+            return edge_id
         base_graph = self._gfql_base_graph()
         if base_graph is None:
             return None
-        return cast(Optional[str], base_graph._edge)
+        return base_graph._edge
 
     def _gfql_base_graph(self, *, fallback_to_self: bool = False) -> Any:
         base_graph = self._gfql_rows_base_graph
