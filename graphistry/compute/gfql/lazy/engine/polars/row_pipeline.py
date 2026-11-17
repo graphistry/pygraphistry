@@ -1297,6 +1297,14 @@ def _declared_node_aliases(g: Plottable) -> Tuple[str, ...]:
     return tuple(g._gfql_rows_node_aliases or ())
 
 
+def _active_node_id(g: Plottable) -> Optional[str]:
+    """Use the binding base's ID identity after a row table detaches from graph nodes."""
+    if g._node is not None:
+        return g._node
+    base_graph = g._gfql_rows_base_graph
+    return None if base_graph is None else base_graph._node
+
+
 def _lower_with_schema(table: "pl.DataFrame", fn: Callable[[], _LowerT],
                        node_id: Optional[str] = None, node_aliases: Sequence[str] = ()) -> _LowerT:
     """Run a lowering callable with the table schema published to ``_SCHEMA`` (float-operand
@@ -1495,7 +1503,7 @@ def _project_polars(g: Plottable, items: Sequence[SelectItem], extend: bool) -> 
     lowerable (honest NIE, no pandas bridge)."""
     table = _active_table(g)
     node_aliases = _declared_node_aliases(g)
-    exprs = _lower_with_schema(table, lambda: lower_select_items(items, list(table.columns)), node_id=g._node, node_aliases=node_aliases)
+    exprs = _lower_with_schema(table, lambda: lower_select_items(items, list(table.columns)), node_id=_active_node_id(g), node_aliases=node_aliases)
     if exprs is None:
         return None
     out = None if extend else _lower_with_schema(
@@ -1587,7 +1595,7 @@ def where_rows_polars(
     if expr is not None:
         if not isinstance(expr, str):
             return None
-        lowered = _lower_with_schema(table, lambda: lower_expr_str(expr, columns), node_id=g._node, node_aliases=_declared_node_aliases(g))
+        lowered = _lower_with_schema(table, lambda: lower_expr_str(expr, columns), node_id=_active_node_id(g), node_aliases=_declared_node_aliases(g))
         if lowered is None:
             return None
         preds.append(lowered)
@@ -1644,7 +1652,7 @@ def order_by_polars(g: Plottable, keys: Sequence[OrderKey]) -> Optional[Plottabl
     legacy ordering semantics a plain sort can't reproduce (see the sniff helper)."""
     table = _active_table(g)
     lowered = _lower_with_schema(
-        table, lambda: lower_order_by_keys(keys, list(table.columns)), node_id=g._node, node_aliases=_declared_node_aliases(g),
+        table, lambda: lower_order_by_keys(keys, list(table.columns)), node_id=_active_node_id(g), node_aliases=_declared_node_aliases(g),
     )
     if lowered is None:
         return None
@@ -1885,7 +1893,7 @@ def group_by_polars(
         if isinstance(expr, str) and expr not in cols and not (func.lower() == "count" and expr == "*"):
             source_expr = expr
             operand = _lower_with_schema(
-                table, lambda: lower_expr_str(source_expr, cols), node_id=g._node, node_aliases=_declared_node_aliases(g),
+                table, lambda: lower_expr_str(source_expr, cols), node_id=_active_node_id(g), node_aliases=_declared_node_aliases(g),
             )
             if operand is None:
                 _group_by_decline()
@@ -2002,7 +2010,7 @@ def select_extend_polars(g: Plottable, items: Sequence[SelectItem]) -> Optional[
     so it is required for binding-row queries (#1709). None → NIE."""
     table = _active_table(g)
     exprs = _lower_with_schema(
-        table, lambda: lower_select_items(items, list(table.columns)), node_id=g._node, node_aliases=_declared_node_aliases(g),
+        table, lambda: lower_select_items(items, list(table.columns)), node_id=_active_node_id(g), node_aliases=_declared_node_aliases(g),
     )
     if exprs is None:
         return None
@@ -2106,7 +2114,13 @@ def _cartesian_node_bindings_polars(
         out_df = _lazy_collect(state)
     except pl.exceptions.SchemaError:  # pragma: no cover - defensive: cross-join schema clash declines
         return None
-    return _rewrap(g, out_df)
+    out = _rewrap(g, out_df)
+    out._gfql_rows_node_aliases = {
+        op._name
+        for op in ops
+        if isinstance(op, ASTNode) and isinstance(op._name, str)
+    }
+    return out
 
 
 def binding_rows_polars(

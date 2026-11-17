@@ -3,6 +3,8 @@ boundary-call dispatch (chain_polars splits traversal from trailing call() ops),
 ops (rows/limit/skip/distinct/drop_cols), host-bridged projection. Supported queries return an
 identical polars-typed table; not-yet-ported ops raise NotImplementedError, never silently
 diverge. See plans/gfql-polars-engine."""
+import os
+
 import pandas as pd
 import pytest
 
@@ -116,11 +118,18 @@ LABEL_QUERIES = [
 
 @pytest.fixture(params=["pandas", "cudf", "polars", "polars-gpu"])
 def engine(request):
+    if request.param == "cudf":
+        pytest.importorskip("cudf")
+        if os.environ.get("TEST_CUDF") != "1":
+            pytest.skip("cudf tests need TEST_CUDF=1")
+    elif request.param == "polars-gpu":
+        pytest.importorskip("cudf_polars")
+        if os.environ.get("TEST_POLARS_GPU") != "1":
+            pytest.skip("requires actual polars-gpu")
     return request.param
 
 
 def _labels_frame(engine, kind):
-    import cudf
     import polars as pl
 
     if kind == "zero_labels":
@@ -141,6 +150,8 @@ def _labels_frame(engine, kind):
             "label__O'Brien": [True, False, True],
         })
     if engine == "cudf":
+        import cudf
+
         return cudf.from_pandas(pandas_frame)
     if not engine.startswith("polars"):
         return pandas_frame

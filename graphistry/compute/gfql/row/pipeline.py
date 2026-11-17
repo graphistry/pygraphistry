@@ -1795,7 +1795,9 @@ class RowPipelineMixin:
             if fn == "labels" and len(node.args) == 1 and isinstance(node.args[0], Identifier):
                 alias_name = node.args[0].name
                 node_id = self._gfql_node_id_column()
-                alias_id_col = f"{alias_name}.{node_id}" if node_id else None
+                if node_id is None:
+                    return False, None
+                alias_id_col = f"{alias_name}.{node_id}"
                 if alias_id_col is not None and alias_id_col in table_df.columns:
                     prefix = f"{alias_name}."
                     alias_cols = [
