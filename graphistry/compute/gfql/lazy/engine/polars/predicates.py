@@ -363,7 +363,11 @@ def predicate_to_expr(col: str, pred: ASTPredicate, dtype: "Optional[pl.DataType
     Datetime column before lowering a DateValue comparison (else decline)."""
     import polars as pl
 
-    c = pl.col(col)
+    # Categorical-of-string supports string accessors only after decategorization.
+    if dtype in (pl.Categorical, pl.Enum):
+        c = pl.col(col).cast(pl.String)
+    else:
+        c = pl.col(col)
     name = type(pred).__name__
 
     op = getattr(pred, "op", None)
@@ -725,7 +729,7 @@ def filter_expr_by_dict_polars(df: "Union[pl.DataFrame, pl.LazyFrame]", filter_d
                 continue
             if isinstance(resolved_val, (Contains, Startswith, Endswith, Match)):
                 _col_dtype = _dtype_of(resolved_col)
-                if _col_dtype is not None and _col_dtype != pl.String:
+                if _col_dtype is not None and _col_dtype not in (pl.String, pl.Categorical, pl.Enum):
                     exprs.append(pl.lit(None, dtype=pl.Boolean))
                     continue
             resolved_dtype = _dtype_of(resolved_col)

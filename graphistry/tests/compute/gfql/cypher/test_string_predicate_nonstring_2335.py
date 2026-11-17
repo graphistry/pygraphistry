@@ -35,6 +35,8 @@ def engine(request):
         pytest.importorskip("cudf_polars")
         if os.environ.get("TEST_POLARS_GPU") != "1":
             pytest.skip("requires actual polars-gpu")
+    elif request.param == "polars":
+        pytest.importorskip("polars")
     return request.param
 
 

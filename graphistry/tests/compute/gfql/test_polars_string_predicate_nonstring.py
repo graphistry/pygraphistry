@@ -1,7 +1,7 @@
-"""Regression: a string predicate on a non-String polars column must raise the SAME clean
-GFQLSchemaError that pandas/cuDF raise — not an opaque polars `InvalidOperationError`
-("expected String type, got: cat"). Categorical/Enum are treated as non-string here, exactly
-as `filter_by_dict` does on pandas/cuDF, so the three engines stay consistent.
+"""Regression: a string predicate on a non-String column preserves Cypher unknown.
+
+Categorical and numeric columns must not be stringified or raise a type error; every row
+is excluded from WHERE because its predicate result is null.
 """
 import pandas as pd
 import pytest
@@ -21,7 +21,9 @@ try:
 except Exception:  # pragma: no cover
     _HAS_CUDF = False
 
-_ENGINES = ["pandas"] + (["polars"] if _HAS_POLARS else []) + (["cudf"] if _HAS_CUDF else [])
+_ENGINES = ["pandas"] + (["polars"] if _HAS_POLARS else []) + (
+    ["cudf"] if _HAS_CUDF and __import__("os").environ.get("TEST_CUDF") == "1" else []
+)
 
 _N = pd.DataFrame({
     "id": [0, 1, 2, 3, 4],
@@ -37,13 +39,25 @@ def _g():
 
 @pytest.mark.parametrize("engine", _ENGINES)
 @pytest.mark.parametrize("query", [
-    "MATCH (m) WHERE m.cat STARTS WITH 'A' RETURN m.id AS id",       # categorical
-    "MATCH (m) WHERE m.cat CONTAINS 'm' RETURN m.id AS id",          # categorical
     "MATCH (m) WHERE m.age CONTAINS '2' RETURN m.id AS id",          # numeric
 ])
-def test_string_predicate_on_nonstring_column_raises_schema_error_all_engines(engine, query):
-    with pytest.raises(GFQLSchemaError):
-        _g().gfql(query, engine=engine)._nodes
+def test_string_predicate_on_nonstring_column_returns_unknown_all_engines(engine, query):
+    nodes = _g().gfql(query, engine=engine)._nodes
+    if hasattr(nodes, "to_pandas"):
+        nodes = nodes.to_pandas()
+    assert nodes.empty
+
+
+@pytest.mark.parametrize("engine", _ENGINES)
+@pytest.mark.parametrize("query,expected", [
+    ("MATCH (m) WHERE m.cat STARTS WITH 'A' RETURN m.id AS id", [0, 2, 4]),
+    ("MATCH (m) WHERE m.cat CONTAINS 'm' RETURN m.id AS id", [2]),
+])
+def test_string_valued_categorical_predicates_still_match(engine, query, expected):
+    nodes = _g().gfql(query, engine=engine)._nodes
+    if hasattr(nodes, "to_pandas"):
+        nodes = nodes.to_pandas()
+    assert nodes["id"].tolist() == expected
 
 
 @pytest.mark.parametrize("engine", _ENGINES)
