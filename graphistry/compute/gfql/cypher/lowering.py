@@ -511,6 +511,9 @@ class _BoundLoweringContext:
 _CYPHER_PARAM_RE = re.compile(r"^\$([A-Za-z_][A-Za-z0-9_]*)$")
 _CYPHER_PARAM_TOKEN_RE = re.compile(r"\$([A-Za-z_][A-Za-z0-9_]*)")
 _CYPHER_ENTITY_KEYS_RE = re.compile(r"\bkeys\s*\(\s*([A-Za-z_][A-Za-z0-9_]*)\s*\)")
+_CYPHER_ENTITY_METADATA_RE = re.compile(
+    r"\b(?:keys|properties)\s*\(\s*([A-Za-z_][A-Za-z0-9_]*)\s*\)"
+)
 _CYPHER_LABEL_PREDICATE_RE = re.compile(
     r"^\(\s*(?P<alias>[A-Za-z_][A-Za-z0-9_]*)((?::[A-Za-z_][A-Za-z0-9_]*)+)\s*\)$"
 )
@@ -3473,6 +3476,23 @@ def _binding_row_aliases_for_match(
     return set(alias_targets.keys())
 
 
+def _binding_row_aliases_for_entity_metadata(
+    clause: Optional[ReturnClause],
+    *,
+    alias_targets: Mapping[str, ASTObject],
+) -> Set[str]:
+    """Metadata needs the multiplicity-preserving binding view whenever an
+    entity alias shares a projection with others; otherwise merged columns leak
+    into the selected entity or the planner rejects the rewritten helper."""
+    if clause is None or len(alias_targets) <= 1:
+        return set()
+    for item in clause.items:
+        match = _CYPHER_ENTITY_METADATA_RE.search(item.expression.text)
+        if match is not None and match.group(1) in alias_targets:
+            return set(alias_targets.keys())
+    return set()
+
+
 def _binding_row_aliases_for_multi_alias_whole_row_node_projection(
     query: CypherQuery,
     *,
@@ -4431,6 +4451,12 @@ def _lower_projection_chain(
     alias_targets = _alias_target(lowered.query)
     binding_row_aliases = _binding_row_aliases_for_match(query.match, alias_targets=alias_targets)
     binding_row_aliases.update(
+        _binding_row_aliases_for_entity_metadata(
+            query.return_,
+            alias_targets=alias_targets,
+        )
+    )
+    binding_row_aliases.update(
         _binding_row_aliases_for_row_where(
             lowered.row_where,
             alias_targets=alias_targets,
@@ -4550,6 +4576,12 @@ def _build_initial_row_scope(
     merged_match = _merged_match_clause(query)
     relationship_count = _match_relationship_count(merged_match) if merged_match is not None else 0
     binding_row_aliases = _binding_row_aliases_for_match(query.match, alias_targets=alias_targets)
+    binding_row_aliases.update(
+        _binding_row_aliases_for_entity_metadata(
+            stage_clause,
+            alias_targets=alias_targets,
+        )
+    )
     stage_aggregate_specs = _collect_aggregate_specs_for_clause(
         stage_clause,
         params=params,
@@ -7046,6 +7078,12 @@ def _lower_general_row_projection(
         non_aggregate_items.append(item)
 
     binding_row_aliases = _binding_row_aliases_for_match(query.match, alias_targets=alias_targets)
+    binding_row_aliases.update(
+        _binding_row_aliases_for_entity_metadata(
+            query.return_,
+            alias_targets=alias_targets,
+        )
+    )
     forced_binding_row_aliases = False
     requires_bindings = _requires_aggregate_bindings(
         aggregate_specs=aggregate_specs,
@@ -9558,6 +9596,12 @@ def compile_cypher_query(
 
     if query.with_stages:
         binding_row_aliases = _binding_row_aliases_for_match(query.match, alias_targets=alias_targets)
+        binding_row_aliases.update(
+            _binding_row_aliases_for_entity_metadata(
+                query.return_,
+                alias_targets=alias_targets,
+            )
+        )
         binding_row_aliases = _apply_bound_scope_membership(
             binding_row_aliases,
             alias_targets=alias_targets,
@@ -9644,6 +9688,12 @@ def compile_cypher_query(
 
     if merged_match is not None and not query.unwinds:
         binding_row_aliases = _binding_row_aliases_for_match(query.match, alias_targets=alias_targets)
+        binding_row_aliases.update(
+            _binding_row_aliases_for_entity_metadata(
+                query.return_,
+                alias_targets=alias_targets,
+            )
+        )
         if not binding_row_aliases:
             binding_row_aliases.update(
                 _binding_row_aliases_for_multi_alias_whole_row_node_projection(

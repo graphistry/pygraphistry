@@ -498,6 +498,15 @@ class RowPipelineMixin:
             return None
         return cast(Optional[str], base_graph._node)
 
+    def _gfql_edge_id_column(self) -> Optional[str]:
+        edge_id = self._edge
+        if edge_id is not None:
+            return edge_id
+        base_graph = self._gfql_base_graph()
+        if base_graph is None:
+            return None
+        return base_graph._edge
+
     def _gfql_base_graph(self, *, fallback_to_self: bool = False) -> Any:
         base_graph = self._gfql_rows_base_graph
         if base_graph is None:
@@ -1646,7 +1655,11 @@ class RowPipelineMixin:
                 source_alias_name = alias_names[0]
                 source_alias = source_alias_name
                 source_table_df = table_df
-                entity_id = (self._node if fn == "__node_keys__" else self._edge)
+                entity_id = (
+                    self._gfql_node_id_column()
+                    if fn == "__node_keys__"
+                    else self._gfql_edge_id_column()
+                )
                 prefixed_id_col = f"{source_alias_name}.{entity_id}" if entity_id else None
                 if prefixed_id_col is not None and prefixed_id_col in table_df.columns:
                     prefix = f"{source_alias_name}."
@@ -1722,7 +1735,7 @@ class RowPipelineMixin:
                 if len(node.args) != 1 or not isinstance(node.args[0], Identifier):
                     return False, None
                 alias_name = node.args[0].name
-                node_id = self._node
+                node_id = self._gfql_node_id_column()
                 if node_id is None:
                     return False, None
                 alias_id_col = f"{alias_name}.{node_id}"
@@ -1757,7 +1770,11 @@ class RowPipelineMixin:
                 source_table_df = table_df
                 # On bindings-row tables, prefer alias.{id} even when a same-name
                 # marker column exists for the alias.
-                entity_id = (self._node if fn == "__node_entity__" else self._edge)
+                entity_id = (
+                    self._gfql_node_id_column()
+                    if fn == "__node_entity__"
+                    else self._gfql_edge_id_column()
+                )
                 id_col = f"{source_alias_name}.{entity_id}" if entity_id else None
                 if id_col is not None and id_col in table_df.columns:
                     prefix = f"{source_alias_name}."
@@ -1922,6 +1939,17 @@ class RowPipelineMixin:
                 inner = values[0]
                 if is_null_scalar(inner):
                     return True, None
+                if isinstance(inner, pd.Series) and not RowPipelineMixin._gfql_series_is_entity_text_like(inner):
+                    arg = node.args[0]
+                    if isinstance(arg, Identifier):
+                        for entity_fn in ("__node_entity__", "__edge_entity__"):
+                            ok, entity = self._gfql_eval_expr_ast_values(
+                                table_df,
+                                FunctionCall(entity_fn, (arg,)),
+                            )
+                            if ok and entity is not None:
+                                inner = entity
+                                break
                 if isinstance(inner, Mapping):
                     return True, RowPipelineMixin._gfql_format_cypher_map_scalar(inner)
                 return True, self._gfql_eval_entity_graph_fn(table_df, inner, "properties", "ast properties()")
