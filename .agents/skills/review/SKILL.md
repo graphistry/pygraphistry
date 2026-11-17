@@ -59,6 +59,7 @@ gh pr list --base <headRefName>
 
 3. If stacked, explicitly mark out-of-scope upstream/downstream work in `plan.md`.
 4. Set diff range reference: `origin/<base>...HEAD`.
+5. Resolve the branch role from `DEVELOP.md`: `master` reviews release/hotfix scope; `develop` reviews next-release scope; release/maintenance fixes must state their forwarding path.
 
 ## Phase 1: Research Criteria Before Findings
 
