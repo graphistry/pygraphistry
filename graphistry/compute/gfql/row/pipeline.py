@@ -498,6 +498,15 @@ class RowPipelineMixin:
             return None
         return cast(Optional[str], base_graph._node)
 
+    def _gfql_edge_id_column(self) -> Optional[str]:
+        edge_id = self._edge
+        if edge_id is not None:
+            return edge_id
+        base_graph = self._gfql_base_graph()
+        if base_graph is None:
+            return None
+        return base_graph._edge
+
     def _gfql_base_graph(self, *, fallback_to_self: bool = False) -> Any:
         base_graph = self._gfql_rows_base_graph
         if base_graph is None:
@@ -2479,6 +2488,19 @@ class RowPipelineMixin:
                 if (
                     isinstance(node.value, Identifier)
                     and node.value.name in table_df.columns
+                    and key_value in table_df.columns
+                    and key_value != node.value.name
+                ):
+                    return True, table_df[key_value]
+                if isinstance(node.value, Identifier):
+                    ok, value = self._gfql_binding_row_property_subscript(
+                        table_df, node.value.name, key_value
+                    )
+                    if ok:
+                        return True, value
+                if (
+                    isinstance(node.value, Identifier)
+                    and node.value.name in table_df.columns
                     and RowPipelineMixin._gfql_series_bool_like(table_df[node.value.name])
                     and RowPipelineMixin._gfql_table_has_graph_shape(table_df)
                 ):
@@ -2801,6 +2823,37 @@ class RowPipelineMixin:
         raise ValueError(
             f"unsupported row expression: property access requires a graph element alias, entity value, or map in {expr!r}"
         )
+
+    def _gfql_binding_row_property_subscript(
+        self, table_df: DataFrameT, alias_name: str, key_value: str
+    ) -> Tuple[bool, Optional[SeriesT]]:
+        """Resolve constant-string subscripts against one binding-row alias view."""
+        node_id = self._gfql_node_id_column()
+        edge_id = self._gfql_edge_id_column()
+        if node_id is not None and f"{alias_name}.{node_id}" in table_df.columns:
+            entity_id = node_id
+        elif edge_id is not None and f"{alias_name}.{edge_id}" in table_df.columns:
+            entity_id = edge_id
+        else:
+            return False, None
+
+        prefix = f"{alias_name}."
+        alias_columns = [
+            column for column in table_df.columns
+            if isinstance(column, str) and column.startswith(prefix)
+        ]
+        source = table_df[alias_columns].copy().rename(
+            columns={column: column[len(prefix):] for column in alias_columns}
+        )
+        if key_value in source.columns:
+            out = source[key_value]
+        else:
+            self._gfql_report_absent_property(f"{alias_name}.{key_value}")
+            out = self._gfql_broadcast_scalar(source, None)
+        null_mask = self._gfql_null_mask(source, source[entity_id])
+        if hasattr(out, "where"):
+            out = self._gfql_mask_fill(out, null_mask, None)
+        return True, out
 
     @staticmethod
     def _gfql_series_holds_no_typed_cell(series: SeriesT) -> bool:
