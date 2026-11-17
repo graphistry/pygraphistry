@@ -324,12 +324,121 @@ with `TEST_CUDF=1 pytest ...` on a RAPIDS-equipped box.
 
 ## Publish: Merge, Tag, & Upload
 
+## Release and Hotfix Branch Flow
+
+Use two long-lived branches: `master` is the stable release/hotfix line, and
+`develop` is the next-release integration line. This keeps an urgent patch from
+waiting for unfinished work while avoiding the overhead of a full Git-flow model.
+
+### Branch roles
+
+| Branch | Role | PR target |
+|---|---|---|
+| `master` | Released code, release tags, urgent hotfixes | Hotfix PR only |
+| `develop` | Next-release integration | Ordinary feature and stacked PRs |
+| `release/X.Y` (optional) | Short-lived stabilization only when the next release must overlap new development | Fixes forward to `master`, `develop`, and the active `release/X.Y` |
+| `maint/X.Y` (only for an old supported line) | Maintenance fixes for an older release | Fix, then forward to newer lines |
+
+### Routine flow
+
+1. Base ordinary work on `origin/develop`:
+
+	```sh
+	git switch -c feature/topic origin/develop
+	```
+
+2. Base a fix to released behavior on `origin/master` and target `master`:
+
+	```sh
+	git switch -c hotfix/topic origin/master
+	```
+
+3. While an optional `release/X.Y` is active, also forward every `master`
+   hotfix into that release branch. Resolve conflicts and run the release
+   branch's tests on the combined snapshot before closure:
+
+	```sh
+	git switch release/X.Y
+	git pull --ff-only origin release/X.Y
+	git merge --no-ff origin/master
+	git push origin refs/heads/release/X.Y
+	```
+
+4. Forward the same tested `master` hotfix into `develop` before the next promotion:
+
+	```sh
+	git switch develop
+	git pull --ff-only origin develop
+	git merge --no-ff origin/master
+	git push origin refs/heads/develop
+	```
+
+5. Promote by a fast-forward of `master` to the tested `develop` snapshot, then tag
+   `master`:
+
+	```sh
+	PROMOTE_SHA=<tested-develop-sha>
+	git fetch origin master develop
+	test "$(git rev-parse origin/develop)" = "$PROMOTE_SHA"
+	git merge-base --is-ancestor origin/master "$PROMOTE_SHA"
+	git switch master
+	git pull --ff-only origin master
+	git merge --ff-only "$PROMOTE_SHA"
+	git push origin refs/heads/master
+	git tag X.Y.Z
+	git push origin refs/tags/X.Y.Z
+	```
+
+Use a merge commit for hotfix forwarding (`--no-ff`) so the fix ancestry remains
+explicit. Use `--ff-only` promotion so `master` is always an ancestor of
+`develop`; do not squash a promotion or force-reset either branch. Create
+`release/X.Y` only when stabilization must overlap continued integration; when it
+closes, confirm it contains every forwarded `master` hotfix, run its tests, merge
+the release into `master`, tag there, and forward `master` into `develop`.
+
+Final-version publication under this flow is tags-only by maintainer policy. The
+existing workflow's manual `release` mode remains a separately approved recovery
+mechanism, not the routine promotion path.
+
+### Cutover prerequisite
+
+Do not copy the migration commands while `master` contains unreleased work.
+First release and tag that master state as the stable baseline, verify that
+`CHANGELOG.md` has no remaining `[Development]` section above that release, and
+record the selected baseline tag and its disposition. Until that baseline exists,
+keep using the current release process for urgent fixes; do not create `develop`
+from unreleased master or claim that hotfixes based on it are isolated. Preserve
+existing history—no reset is required.
+
+### Migration checklist
+
+- After the cutover prerequisite is met, create `develop` from the recorded
+  stable release baseline on `master`; do not rewrite master.
+- Keep `master` as the default and publish-ref line initially.
+- Add branch protection and required checks for `develop`; enable branch-push CI
+  and CodeQL push/PR analysis for both lines before routing ordinary PRs there.
+- Inventory open PRs: hotfixes target `master`; ordinary feature/stacked PRs move
+  to `develop` in dependency order. Do not retarget a stacked PR until its parent
+  lands on `develop`.
+- Keep the existing `pypi-release` approval gate and tag-ancestry check. RC
+  evidence may use a synthetic TestPyPI run, but final versions publish only from
+  immutable tags on `master`.
+- After cutover, verify GitHub Releases, Read the Docs `stable`/`latest`, and
+  tag-specific activation; record any repository-settings change separately for
+  maintainer approval.
+
+The detailed tag, evidence, approval, and PyPI checks below remain the source of
+truth for publishing mechanics.
+
 1. Update CHANGELOG.md in your PR branch
 	- Convert `## [Development]` section to `## [X.Y.Z - YYYY-MM-DD]`
 	- Document all changes following [Keep a Changelog](https://keepachangelog.com/) format
 	- Commit and push to PR branch
 
-1. Merge the PR to master (via GitHub UI or `gh pr merge`)
+1. Publish the tested source: fast-forward `master` to the approved `develop`
+   promotion SHA for a normal release, or merge an approved hotfix PR that
+   targets `master`. Do not tag either branch before its required checks and
+   release evidence are green.
 
 1. Switch to master and pull the merged changes
 	```sh
@@ -353,6 +462,11 @@ with `TEST_CUDF=1 pytest ...` on a RAPIDS-equipped box.
 	  - `evidence`: build + SBOM + provenance + evidence artifacts only (no publish)
 	  - `test`: includes TestPyPI publish, skips PyPI (uses synthetic runner-local version `0.0.dev<run_id>` to avoid local-version upload rejection)
 	  - `release`: TestPyPI + PyPI publish (restricted to `master`, with `pypi-release` approval)
+	- Under the new branch flow, use tag-triggered publication for final versions;
+	  reserve manual `release` mode for an exceptional, separately approved
+	  recovery. Maintenance-line publication requires an explicit publisher and
+	  ancestry design before use because the current guard requires tag ancestry
+	  from `master`.
 	- Do not rerun publish for a version that is already on PyPI (duplicate-file uploads are rejected)
 	- Verify version appears on PyPI: `curl -s https://pypi.org/pypi/graphistry/json | jq -r '.info.version'`
 	- Verify release evidence artifacts from the workflow run:
