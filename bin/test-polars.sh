@@ -66,6 +66,7 @@ POLARS_TEST_FILES=(
     graphistry/tests/compute/gfql/cypher/test_issue_2261_grouped_identity.py
     # quoted map keys/MATCH aliases are engine-parametrized; pandas runs in core,
     # polars params only run in this lane
+    graphistry/tests/compute/gfql/test_properties_comprehension_map_2339.py
     graphistry/tests/compute/gfql/cypher/test_backtick_identifiers.py
     graphistry/tests/compute/gfql/test_conformance_ledger.py
     graphistry/tests/compute/gfql/test_polars_nan_clean.py

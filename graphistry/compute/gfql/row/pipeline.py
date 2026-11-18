@@ -2700,6 +2700,12 @@ class RowPipelineMixin:
         fn: str,
         expr: str,
     ) -> Any:
+        if (
+            fn == "properties"
+            and hasattr(value, "astype")
+            and RowPipelineMixin._gfql_series_is_mapping_like(value)
+        ):
+            return value.copy()
         if hasattr(value, "astype"):
             null_mask = self._gfql_null_mask(table_df, value)
             if RowPipelineMixin._gfql_series_is_entity_text_like(value):
