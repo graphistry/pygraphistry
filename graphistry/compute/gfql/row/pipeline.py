@@ -1591,6 +1591,24 @@ class RowPipelineMixin:
                 if left is None or right is None:
                     return True, None
                 return True, left * right
+            if op == "^":
+                if left is None or right is None:
+                    return True, None
+                if (hasattr(left, "astype") and RowPipelineMixin._gfql_series_bool_like(left)) or (
+                    hasattr(right, "astype") and RowPipelineMixin._gfql_series_bool_like(right)
+                ):
+                    return False, None
+                if isinstance(left, bool) or isinstance(right, bool):
+                    return False, None
+                left_kind = RowPipelineMixin._gfql_cypher_numeric_kind(left)
+                right_kind = RowPipelineMixin._gfql_cypher_numeric_kind(right)
+                if left_kind is None or right_kind is None:
+                    return False, None
+                if hasattr(left, "astype"):
+                    return True, left.astype(float) ** right.astype(float)
+                if hasattr(right, "astype"):
+                    return True, self._gfql_broadcast_scalar(table_df, float(left)) ** right.astype(float)
+                return True, float(left) ** float(right)
             if op == "/":
                 if left is None or right is None:
                     return True, None
