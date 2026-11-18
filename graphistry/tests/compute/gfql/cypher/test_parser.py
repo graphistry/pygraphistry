@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from typing import cast
 
 import pytest
@@ -581,6 +582,14 @@ def test_parse_numeric_literal_forms(query: str, expr_text: str) -> None:
     parsed = _parse_query(query)
 
     assert parsed.return_.items[0].expression.text == expr_text
+
+
+def test_parse_negative_zero_pattern_property_keeps_sign() -> None:
+    parsed = _parse_query("MATCH (n {v:-0.0}) RETURN n")
+    node = parsed.match.pattern[0]
+
+    assert node.properties[0].value == -0.0
+    assert math.copysign(1.0, node.properties[0].value) == -1.0
 
 
 def test_parse_with_where_pipeline() -> None:
