@@ -7,7 +7,28 @@ import graphistry
 from graphistry.compute.exceptions import GFQLUnsupportedError
 
 
-@pytest.fixture(params=["pandas", "cudf", "polars", "polars-gpu"])
+try:
+    import cudf  # noqa: F401
+    _HAS_CUDF = True
+except Exception:  # pragma: no cover
+    _HAS_CUDF = False
+
+try:
+    import polars  # noqa: F401
+    _HAS_POLARS = True
+except Exception:  # pragma: no cover
+    _HAS_POLARS = False
+
+_ENGINES = ["pandas"]
+if _HAS_CUDF and os.environ.get("TEST_CUDF") == "1":
+    _ENGINES.append("cudf")
+if _HAS_POLARS:
+    _ENGINES.append("polars")
+if _HAS_CUDF and os.environ.get("TEST_POLARS_GPU") == "1":
+    _ENGINES.append("polars-gpu")
+
+
+@pytest.fixture(params=_ENGINES)
 def engine(request):
     if request.param == "cudf":
         pytest.importorskip("cudf")
