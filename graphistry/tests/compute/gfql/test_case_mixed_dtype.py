@@ -10,6 +10,7 @@ import pytest
 
 import graphistry
 from graphistry.compute.exceptions import ErrorCode, GFQLUnsupportedError
+from graphistry.compute.gfql.row.pipeline import RowPipelineMixin
 
 try:
     import cudf  # noqa: F401
@@ -52,6 +53,20 @@ def _graph(engine):
 
         nodes, edges = pl.from_pandas(nodes), pl.from_pandas(edges)
     return graphistry.nodes(nodes, "id").edges(edges, "s", "d").bind(edge="eid")
+
+
+def test_case_branch_family_classifier_pins_null_scalar_and_object_paths():
+    classify = RowPipelineMixin._gfql_case_branch_value_kind
+
+    assert classify(1) == "number"
+    assert classify(True) == "bool"
+    assert classify("x") == "str"
+    assert classify(None) is None
+    assert classify(pd.Series([None, None], dtype="object")) is None
+    assert classify(pd.Series([True, False])) == "bool"
+    assert classify(pd.Series([1, 2.5])) == "number"
+    assert classify(pd.Series(["x", None], dtype="object")) == "str"
+    assert classify(pd.Series([True, 1], dtype="object")) == "mixed"
 
 
 @pytest.mark.parametrize("engine", _ENGINES)

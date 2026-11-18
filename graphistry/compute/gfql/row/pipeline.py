@@ -3028,8 +3028,6 @@ class RowPipelineMixin:
                 return "bool"
             if pd.api.types.is_numeric_dtype(dtype):
                 return "number"
-            if pd.api.types.is_string_dtype(dtype):
-                return "str"
             if pd.api.types.is_object_dtype(dtype) and isinstance(series, pd.Series):
                 sample = series.dropna().head(128)
                 values = RowPipelineMixin._gfql_series_to_pylist(sample)
@@ -3042,6 +3040,8 @@ class RowPipelineMixin:
                 if all(isinstance(value, str) for value in values):
                     return "str"
                 return "mixed"
+            if pd.api.types.is_string_dtype(dtype):
+                return "str"
             return str(dtype)
         except (TypeError, ValueError):
             return None
