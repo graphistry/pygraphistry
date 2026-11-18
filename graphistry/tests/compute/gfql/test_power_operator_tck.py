@@ -4,6 +4,7 @@ import pandas as pd
 import pytest
 
 import graphistry
+from graphistry.compute.exceptions import GFQLValidationError
 
 
 try:
@@ -37,7 +38,7 @@ def engine(request):
 
 
 def _graph(engine):
-    nodes = pd.DataFrame({"id": [0]})
+    nodes = pd.DataFrame({"id": [0], "base": [2.0], "exp": [3.0], "nullable": [None], "flag": [True]})
     edges = pd.DataFrame({"s": [0], "d": [1], "eid": [0]})
     if engine in {"polars", "polars-gpu"}:
         import polars as pl
@@ -67,3 +68,19 @@ def test_power_precedence_matches_tck(engine, query, expected):
         row = row.to_pandas()
     values = row.iloc[0].tolist()
     assert values == expected
+
+
+def test_power_series_scalar_null_and_bool_paths(engine):
+    graph = _graph(engine)
+    if engine == "polars":
+        with pytest.raises((NotImplementedError, GFQLValidationError)):
+            graph.gfql("MATCH (n) RETURN n.flag ^ n.exp AS v", engine=engine)
+        return
+
+    result = graph.gfql("MATCH (n) RETURN n.base ^ n.exp AS a, 2 ^ n.exp AS b, n.base ^ 2 AS c, n.nullable ^ n.exp AS d", engine=engine)._nodes
+    if hasattr(result, "to_pandas"):
+        result = result.to_pandas()
+    assert result.iloc[0].tolist() == [8.0, 8.0, 4.0, None]
+
+    with pytest.raises((GFQLValidationError, NotImplementedError)):
+        graph.gfql("MATCH (n) RETURN n.flag ^ n.exp", engine=engine)

@@ -1605,7 +1605,12 @@ class RowPipelineMixin:
                 if left_kind is None or right_kind is None:
                     return False, None
                 if hasattr(left, "astype"):
-                    return True, left.astype(float) ** right.astype(float)
+                    right_series = (
+                        right
+                        if hasattr(right, "astype")
+                        else self._gfql_broadcast_scalar(table_df, right)
+                    )
+                    return True, left.astype(float) ** right_series.astype(float)
                 if hasattr(right, "astype"):
                     return True, self._gfql_broadcast_scalar(table_df, float(left)) ** right.astype(float)
                 return True, float(left) ** float(right)
