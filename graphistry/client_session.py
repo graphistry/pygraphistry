@@ -135,6 +135,9 @@ class ClientSession:
         """Record org_name as switched-to under this token."""
         if not token:
             return
+        # The server keeps ONE active org per token: switching token T to org_name un-verifies every other org previously recorded under T.
+        for other_org in [o for o, (t, _exp) in self._verified_org_tokens.items() if t == token and o != org_name]:
+            del self._verified_org_tokens[other_org]
         self._verified_org_tokens[org_name] = (token, _jwt_exp(token))
 
     def get_verified_token(self, org_name: str) -> Optional[str]:

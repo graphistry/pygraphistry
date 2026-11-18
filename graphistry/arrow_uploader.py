@@ -235,9 +235,6 @@ class ArrowUploader:
             return
 
         self._client_session.mark_org_verified(token, org_name)
-        from .pygraphistry import PyGraphistry
-        if PyGraphistry.session is self._client_session:
-            PyGraphistry.session.mark_org_verified(token, org_name)
 
 
     def login(self, username, password, org_name=None):
@@ -434,8 +431,9 @@ class ArrowUploader:
             json_response = out.json()
             self.token = None
             if 'status' not in json_response:
-                # Unrecognized body (proxy error page, DRF detail, ...): retryable, not fatal.
-                raise SsoPendingException(out.text)
+                # Unrecognized body (proxy error page, DRF detail, 403 with SSO signup off, ...): NOT "pending".
+                # ValueError feeds the poll loop's consecutive-error limit, so it is logged instead of retried silently.
+                raise ValueError("SSO token endpoint returned an unrecognized response (no 'status'): {}".format(out.text))
 
             if json_response['status'] != 'OK':
                 # Normal "not ready yet" answer while the browser login is in flight.
@@ -475,7 +473,7 @@ class ArrowUploader:
                 self.org_name = slug
                 self._switch_org(slug, token_value)
             elif self.org_name:
-                # Layer 2: caller-supplied, server silent -- preserve caller intent; membership validates lazily on later requests.
+                # Layer 2: caller-supplied, server silent -- preserve caller intent and request the switch ourselves (best-effort; marks only on success).
                 logger.warning(
                     "SSO did not bind active_organization but caller requested "
                     "org_name=%s; preserving caller value. Subsequent requests "
@@ -483,6 +481,7 @@ class ArrowUploader:
                     "unintended.",
                     self.org_name
                 )
+                self._switch_org(self.org_name, token_value)
             else:
                 # Layer 3: caller didn't ask, server didn't bind -- try the server-confirmed personal-org fallback (see _personal_org_from_api).
                 fallback = self._personal_org_from_api(token_value)

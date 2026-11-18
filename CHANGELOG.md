@@ -16,6 +16,11 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- **SSO login and org switching**: fixes for site-wide / org-scoped SSO (reserved `SITE` org, org switching after login).
+  - Blocking `sso_login()` polling works again (regression since 0.45.10): a not-ready token is retried until `sso_timeout`, while an unrecognized poll response (proxy error page, DRF `{"detail": ...}`) now fails after the consecutive-error limit and is logged instead of retrying silently.
+  - A `SITE` active organization from older Hubs is treated as unbound: the requested org (or the server-confirmed personal org, looked up via the new `/api/v2/my/organizations/` endpoint) is used instead.
+  - **Behavior change**: `switch_org()` now detects the `/switch/` IdP challenge (`status: OK` plus `data['idp']`, returned for a plain member of an org with its own IdP) and raises `OrgSwitchIdpChallenge` instead of silently "succeeding" while the server stays on the previous org. Non-2xx switch failures raise `OrgSwitchError` and keep the server's message (e.g. "not a member").
+  - The org-verified cache holds one org per token, and `sso_login()` no longer marks an org verified unless `/switch/` succeeded; the requested-org-name bookkeeping is cleared when a login ends. Repeated switches such as `a`, `b`, `a` therefore always reach the server, and a challenged or skipped switch is retried instead of memoized.
 - **GFQL nullable entity keys on cuDF** (#2312): `keys(n)` now returns empty lists for rows with no non-null properties alongside populated rows. Native empty key lists use the string child type expected by the grouped result, and key lists remain aligned with their original entities after the native grouping join.
 - **GFQL Cypher empty property maps**: an explicit node `{}` no longer replaces labels, so `MATCH (n:Foo {})` still selects `Foo` nodes. An explicit relationship `{}` no longer replaces relationship types with an empty tuple, so `MATCH ()-[r:R {}]->()` matches only typed `R` relationships on every supported engine, while untyped `n {}` and `r {}` controls remain untyped (#2318).
 

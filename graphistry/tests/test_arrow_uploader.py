@@ -489,14 +489,16 @@ class TestArrowUploader_Comms(unittest.TestCase):
         assert 'State is invalid' in str(cm.exception)
 
     @mock.patch('requests.get')
-    def test_sso_get_token_status_less_body_raises_pending(self, mock_get):
-        # Proxy/DRF error body with no 'status' key: also retryable.
+    def test_sso_get_token_status_less_body_raises_value_error(self, mock_get):
+        # Proxy/DRF error body with no 'status' key is not "pending": it must reach the poll loop's
+        # consecutive-error limit (ValueError) instead of retrying silently for the whole timeout.
         mock_get.return_value = self._mock_response(json_data={'detail': 'Not found.'})
 
         au = ArrowUploader()
 
-        with self.assertRaises(SsoPendingException):
+        with self.assertRaises(ValueError) as cm:
             au.sso_get_token(state='ignored')
+        assert not isinstance(cm.exception, SsoPendingException)
 
     @mock.patch('requests.get')
     def test_sso_get_token_missing_active_organization_no_caller_org(self, mock_get):
@@ -536,7 +538,7 @@ class TestArrowUploader_Comms(unittest.TestCase):
     @mock.patch('requests.get')
     def test_sso_get_token_missing_active_organization_preserves_caller_org(self, mock_get):
         # Layer 2: server silent + caller passed org_name. Caller-supplied
-        # value is preserved; _switch_org is not called (server didn't bind
+        # value is preserved; _switch_org IS called (best-effort; server didn't bind
         # us — caller value is just intent, validated lazily by next request).
         # Logged at WARNING because the asymmetric "caller asked, server
         # didn't bind" outcome is operationally interesting.
@@ -559,7 +561,7 @@ class TestArrowUploader_Comms(unittest.TestCase):
 
         assert au.token == '123'
         assert au.org_name == "caller-org"
-        mock_switch.assert_not_called()
+        mock_switch.assert_called_once_with('caller-org', '123')  # Layer 2 now requests the switch itself
         assert any(
             record.levelname == 'WARNING' and 'caller-org' in record.getMessage()
             for record in log_ctx.records
@@ -588,7 +590,7 @@ class TestArrowUploader_Comms(unittest.TestCase):
 
         assert au.token == '123'
         assert au.org_name == "caller-org"
-        mock_switch.assert_not_called()
+        mock_switch.assert_called_once_with('caller-org', '123')  # Layer 2 now requests the switch itself
 
     @mock.patch('requests.get')
     def test_sso_get_token_empty_slug_active_organization_falls_back(self, mock_get):
@@ -615,7 +617,7 @@ class TestArrowUploader_Comms(unittest.TestCase):
 
         assert au.token == '123'
         assert au.org_name == "caller-org"
-        mock_switch.assert_not_called()
+        mock_switch.assert_called_once_with('caller-org', '123')  # Layer 2 now requests the switch itself
 
     @mock.patch('requests.get')
     def test_sso_get_token_non_dict_active_organization_falls_back(self, mock_get):
@@ -642,7 +644,7 @@ class TestArrowUploader_Comms(unittest.TestCase):
 
         assert au.token == '123'
         assert au.org_name == "caller-org"
-        mock_switch.assert_not_called()
+        mock_switch.assert_called_once_with('caller-org', '123')  # Layer 2 now requests the switch itself
 
     @mock.patch('requests.get')
     def test_sso_get_token_layer1_caller_server_mismatch_raises(self, mock_get):
@@ -839,7 +841,7 @@ class TestArrowUploader_Comms(unittest.TestCase):
 
         assert au.token == fake_jwt
         assert au.org_name == 'caller-acme'  # NOT 'jwt-derived'
-        mock_switch.assert_not_called()
+        mock_switch.assert_called_once_with('caller-acme', fake_jwt)  # Layer 2 now requests the switch itself
 
 
 class TestPersonalOrgFromApi(unittest.TestCase):

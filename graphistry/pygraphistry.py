@@ -241,13 +241,17 @@ class GraphistryClient(AuthManagerProtocol):
         # self.session.org_name (the still-previous org until this switch
         # is confirmed) -- see _sso_get_token().
         self.session.sso_requested_org_name = org_name
-        arrow_uploader = ArrowUploader(
-            client_session=self.session,
-            server_base_path=self.protocol()
-            + "://"
-            + self.server(),
-            certificate_validation=self.certificate_validation(),
-        ).sso_login(org_name, idp_name)
+        try:
+            arrow_uploader = ArrowUploader(
+                client_session=self.session,
+                server_base_path=self.protocol()
+                + "://"
+                + self.server(),
+                certificate_validation=self.certificate_validation(),
+            ).sso_login(org_name, idp_name)
+        except BaseException:
+            self.session.sso_requested_org_name = None
+            raise
         try:
             # print(f"@sso_login - arrow_uploader.token: {arrow_uploader.token}")
             token = arrow_uploader.token
@@ -256,9 +260,8 @@ class GraphistryClient(AuthManagerProtocol):
             self.api_token(token)
             self.session._is_authenticated = True
             resolved_org = org_name or self.session.org_name
-            if resolved_org:
-                # Record verification now: a token just SSO-minted for resolved_org must never re-challenge on the switch_org_request() below.
-                self.session.mark_org_verified(token, resolved_org)
+            # No mark_org_verified here: only a confirmed /switch/ may record verification (a direct token was never switched).
+            self.session.sso_requested_org_name = None  # direct token: no pending SSO flow left
             self._maybe_switch_org(resolved_org)
             arrow_uploader.token = None  # type: ignore[assignment]
             return token
@@ -271,8 +274,14 @@ class GraphistryClient(AuthManagerProtocol):
             auth_url = arrow_uploader.sso_auth_url
 
             if auth_url:
-                self._handle_auth_url(auth_url, sso_timeout, sso_opt_into_type)
+                try:
+                    self._handle_auth_url(auth_url, sso_timeout, sso_opt_into_type)
+                finally:
+                    if sso_timeout is not None:
+                        # Blocking flow is over (token, timeout or error); non-blocking keeps it for sso_get_token().
+                        self.session.sso_requested_org_name = None
                 return auth_url
+            self.session.sso_requested_org_name = None
             raise e
 
     def _handle_auth_url(self, auth_url: str, sso_timeout: Optional[int], sso_opt_into_type: Optional[Literal["display", "browser"]]) -> Optional[str]:
@@ -364,12 +373,8 @@ class GraphistryClient(AuthManagerProtocol):
                 self.session.org_name = org_name
                 # finish, set back to None
                 self.session.sso_state = None
-                self.session.sso_requested_org_name = None
                 print("Successfully logged in")
-                current_token = self.api_token()
-                if org_name and current_token:
-                    # Same reasoning as the direct-token branch above: don't re-challenge a token just minted for org_name via SSO.
-                    self.session.mark_org_verified(current_token, org_name)
+                # Verification is recorded only by a confirmed /switch/ (ArrowUploader._switch_org or switch_org()), never assumed here.
                 self._maybe_switch_org(org_name)
                 return self.api_token()
             else:
@@ -381,7 +386,15 @@ class GraphistryClient(AuthManagerProtocol):
 
     def sso_get_token(self) -> Optional[str]:
         """ Get authentication token in SSO non-blocking mode"""
-        token, org_name = self._sso_get_token()
+        try:
+            token, org_name = self._sso_get_token()
+        except SsoPendingException:
+            raise  # login still in flight: keep the requested org for the next poll
+        except BaseException:
+            self.session.sso_requested_org_name = None
+            raise
+        if token:
+            self.session.sso_requested_org_name = None
         # set org_name to sso org
         self.session.org_name = org_name
         self._maybe_switch_org(org_name)

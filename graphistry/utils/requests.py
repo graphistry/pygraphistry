@@ -73,16 +73,19 @@ def switch_org_request(base_url: str, org_name: str, token: str, verify: bool) -
     )
     log_requests_error(response)
 
-    if not (200 <= response.status_code < 300):
-        raise OrgSwitchError(org_name, response.status_code)
-
+    # Parse the body first so a non-2xx answer keeps the server's own explanation (e.g. 403 "not a member").
     try:
         body = response.json()
     except Exception:
         body = {}
+    if not isinstance(body, dict):
+        body = {}
+
+    if not (200 <= response.status_code < 300):
+        raise OrgSwitchError(org_name, response.status_code, detail=body.get('message') or '')
 
     if body.get('status') != 'OK':
-        raise OrgSwitchError(org_name, response.status_code, detail=body.get('message', ''))
+        raise OrgSwitchError(org_name, response.status_code, detail=body.get('message') or '')
 
     data = body.get('data', {})
     if isinstance(data, dict) and data.get('idp'):
