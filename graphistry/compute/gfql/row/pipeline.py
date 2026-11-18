@@ -1613,7 +1613,8 @@ class RowPipelineMixin:
                     return True, left.astype(float) ** right_series.astype(float)
                 if hasattr(right, "astype"):
                     return True, self._gfql_broadcast_scalar(table_df, float(left)) ** right.astype(float)
-                return True, float(left) ** float(right)
+                scalar_power = pd.Series([float(left)], dtype="float64") ** float(right)
+                return True, float(scalar_power.iloc[0])
             if op == "/":
                 if left is None or right is None:
                     return True, None

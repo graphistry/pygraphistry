@@ -84,3 +84,15 @@ def test_power_series_scalar_null_and_bool_paths(engine):
 
     with pytest.raises((GFQLValidationError, NotImplementedError)):
         graph.gfql("MATCH (n) RETURN n.flag ^ n.exp", engine=engine)
+
+
+@pytest.mark.parametrize("engine", ["pandas", "polars"])
+def test_power_scalar_float_edges_match_series(engine):
+    result = _graph(engine).gfql(
+        "RETURN 0.0 ^ -1.0 AS zero, (-2.0) ^ 0.5 AS negative",
+        engine=engine,
+    )._nodes
+    if hasattr(result, "to_pandas"):
+        result = result.to_pandas()
+    assert result.iloc[0]["zero"] == float("inf")
+    assert pd.isna(result.iloc[0]["negative"])
