@@ -17,12 +17,18 @@ try:
 except Exception:  # pragma: no cover
     _HAS_CUDF = False
 
+try:
+    import polars  # noqa: F401
+    _HAS_POLARS = True
+except Exception:  # pragma: no cover
+    _HAS_POLARS = False
+
 _HAS_CUDF_POLARS = _HAS_CUDF
 _ENGINES = ["pandas"] + (
     ["cudf"] if _HAS_CUDF and os.environ.get("TEST_CUDF") == "1" else []
 )
 FOUR_ENGINES = _ENGINES + [
-    "polars",
+    *(["polars"] if _HAS_POLARS else []),
     *(
         ["polars-gpu"]
         if _HAS_CUDF_POLARS and os.environ.get("TEST_POLARS_GPU") == "1"
