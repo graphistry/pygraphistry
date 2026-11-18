@@ -21,6 +21,7 @@ python -m pytest --version
 # `graphistry/tests/compute/gfql/test_polars_lane_completeness.py` parses this array and
 # fails if any module-level polars-gated test file is absent from it (or listed but gone).
 POLARS_TEST_FILES=(
+    graphistry/tests/compute/gfql/cypher/test_cross_alias_where_correctness.py
     graphistry/tests/compute/gfql/index/test_sorted_csr_build_ownership.py
     # #2268 S1: engine-native empty-row helper test is engine-parametrized; its Polars
     # eager/lazy/GPU params only run in this lane because importorskip is dynamic
@@ -57,6 +58,8 @@ POLARS_TEST_FILES=(
     graphistry/tests/compute/gfql/cypher/test_order_by_null_placement.py
     graphistry/tests/compute/gfql/cypher/test_null_equality_conjunction.py
     graphistry/tests/compute/gfql/cypher/test_missing_relationship_property_2262.py
+    # #2318 empty-map patterns are engine-parametrized; polars params only run here
+    graphistry/tests/compute/gfql/cypher/test_issue_2318_empty_map_relationship.py
     graphistry/tests/compute/gfql/cypher/test_issue_2258_entity_identity_membership.py
     # grouped whole-entity identity is engine-parametrized; pandas runs in core,
     # while Polars only has this explicit lane
@@ -236,6 +239,8 @@ POLARS_TEST_FILES=(
     # these dispatch helpers are only measured when this lane covers graphistry (see cov widen below)
     graphistry/tests/test_engine_frame_helpers.py
     graphistry/tests/test_public_apis_do_not_mutate_inputs.py
+    # callable filter rejection: the polars params only run here
+    graphistry/tests/compute/test_callable_filter_rejection.py
     # indexed bindings relationship uniqueness: the polars params only run here
     graphistry/tests/compute/gfql/index/test_indexed_bindings_relationship_uniqueness.py
     # relationship-row aggregates vs a path oracle: the polars params only run here

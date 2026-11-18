@@ -8,7 +8,8 @@
    :width: 200px
    :align: center
 
-Welcome to **GFQL (GraphFrame Query Language)**, the first **dataframe-native graph query language**. GFQL brings graph queries to data science workflows without an external graph database. It works with the **PyData**, **Apache Arrow**, and **GPU** ecosystems, so large graphs run in-process on CPU or GPU.
+**GFQL (GraphFrame Query Language)** queries the dataframes in your Python workflow
+without an external graph database. With ``engine='polars'``, GFQL runs vectorized dataframe operations in Rust on CPU. Use ``engine='polars-gpu'`` for GPU acceleration.
 
 In this guide, we'll explore the basics of GFQL in just 10 minutes. You'll learn how to:
 
@@ -81,8 +82,8 @@ GFQL is part of the open-source ``graphistry`` library. Install it using pip:
 
     pip install graphistry
 
-GFQL runs on ``pandas`` (installed with ``graphistry``), ``polars``, or ``cudf``. Install the
-one you want to query with; :doc:`engines` explains which to pick for CPU or GPU.
+The base installation includes pandas. See :doc:`engines` to install Polars or
+choose a GPU engine.
 
 Two Syntax Styles
 ------------------
@@ -511,13 +512,29 @@ Use PyGraphistry's visualization capabilities to explore your graph.
 
 GFQL's Let bindings enable you to sequence complex graph programs as directed acyclic graphs (DAGs). This allows you to build sophisticated analysis pipelines with named operations that reference each other:
 
-**Example: Multi-stage fraud analysis**
+A Let binding name selects a result with ``output=``; it does not add a boolean
+column. This node-only example uses the sample graph above:
+
+.. code-block:: python
+
+    from graphistry import let, ref, n
+
+    stages = let({
+        'people': n({'type': 'person'}),
+        'first_person': ref('people', [n({'id': 'a'})])
+    })
+    people = g.gfql(stages, output='people')._nodes
+    first_person = g.gfql(stages, output='first_person')._nodes
+    assert sorted(people['id']) == ['a', 'b']
+    assert sorted(first_person['id']) == ['a']
+
+**Example: Multi-stage fraud analysis (requires cuGraph and matching data)**
 
 ::
 
     from graphistry import let, ref, call, n, e_forward, e, gt
 
-    result = g.gfql(let({
+    fraud_analysis = let({
         # Stage 1: Find suspicious accounts
         'suspicious_accounts': n({'risk_score': gt(80), 'created_recent': True}),
 
@@ -540,11 +557,11 @@ GFQL's Let bindings enable you to sequence complex graph programs as directed ac
             n(),
             call('compute_cugraph', {'alg': 'louvain'})
         ])
-    }))
+    })
 
-    # Access results from each stage
-    suspicious = result._nodes[result._nodes['suspicious_accounts']]
-    clusters = result._nodes[result._nodes['high_risk_clusters']]
+    # Select the graph returned by each execution
+    suspicious = g.gfql(fraud_analysis, output='suspicious_accounts')._nodes
+    clusters = g.gfql(fraud_analysis, output='high_risk_clusters')._nodes
     # suspicious: nodes flagged in stage 1
     # clusters['community']: community assignments from stage 4
 
