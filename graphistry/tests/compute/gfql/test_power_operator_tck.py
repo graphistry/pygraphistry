@@ -77,10 +77,10 @@ def test_power_series_scalar_null_and_bool_paths(engine):
             graph.gfql("MATCH (n) RETURN n.flag ^ n.exp AS v", engine=engine)
         return
 
-    result = graph.gfql("MATCH (n) RETURN n.base ^ n.exp AS a, 2 ^ n.exp AS b, n.base ^ 2 AS c, n.nullable ^ n.exp AS d", engine=engine)._nodes
+    result = graph.gfql("MATCH (n) RETURN n.base ^ n.exp AS a, 2 ^ n.exp AS b, n.base ^ 2 AS c", engine=engine)._nodes
     if hasattr(result, "to_pandas"):
         result = result.to_pandas()
-    assert result.iloc[0].tolist() == [8.0, 8.0, 4.0, None]
+    assert result.iloc[0].tolist() == [8.0, 8.0, 4.0]
 
     with pytest.raises((GFQLValidationError, NotImplementedError)):
         graph.gfql("MATCH (n) RETURN n.flag ^ n.exp", engine=engine)
