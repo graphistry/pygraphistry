@@ -23,7 +23,12 @@ from graphistry.Engine import (
     s_to_numeric,
     safe_map_series,
 )
-from graphistry.compute.exceptions import ErrorCode, GFQLTypeError, GFQLValidationError
+from graphistry.compute.exceptions import (
+    ErrorCode,
+    GFQLTypeError,
+    GFQLUnsupportedError,
+    GFQLValidationError,
+)
 from graphistry.compute.dataframe_utils import (
     concat_frames,
     domain_diff,
@@ -2256,6 +2261,22 @@ class RowPipelineMixin:
             cond_mask = self._gfql_bool_mask(table_df, cond_value)
             cond_null = self._gfql_null_mask(table_df, cond_value)
             cond_true = cond_mask & ~cond_null
+            true_kind = self._gfql_case_branch_value_kind(true_value)
+            false_kind = self._gfql_case_branch_value_kind(false_value)
+            is_pandas = resolve_engine(EngineAbstract.AUTO, table_df) == Engine.PANDAS
+            if (
+                not is_pandas
+                and true_kind is not None
+                and false_kind is not None
+                and true_kind != false_kind
+            ):
+                raise GFQLUnsupportedError(
+                    ErrorCode.E110,
+                    "CASE branches return incompatible Cypher value types",
+                    field="expression",
+                    value=sorted([true_kind, false_kind]),
+                    suggestion="Use an explicit cast so both branches have the same value type.",
+                )
             try:
                 return True, true_value.where(cond_true, false_value)
             except TypeError:  # pragma: no cover - cuDF-only (.where mixed-dtype); no cuDF lane in the coverage gate (validated on dgx)
@@ -2987,6 +3008,43 @@ class RowPipelineMixin:
         sample = series.dropna().head(128)
         values = RowPipelineMixin._gfql_series_to_pylist(sample)
         return len(values) > 0 and all(RowPipelineMixin._gfql_scalar_numeric_non_bool(v) for v in values)
+
+    @staticmethod
+    def _gfql_case_branch_value_kind(series: Any) -> Optional[str]:
+        """Classify CASE branch values by Cypher family; all-null/unknown is not a family."""
+        if not hasattr(series, "astype"):
+            if isinstance(series, bool):
+                return "bool"
+            if RowPipelineMixin._gfql_scalar_numeric_non_bool(series):
+                return "number"
+            return "str" if isinstance(series, str) else None
+        try:
+            null_mask = series.isna()
+            non_null = ~null_mask
+            if not hasattr(non_null, "any") or not bool(non_null.any()):
+                return None
+            dtype = series.dtype
+            if pd.api.types.is_bool_dtype(dtype):
+                return "bool"
+            if pd.api.types.is_numeric_dtype(dtype):
+                return "number"
+            if pd.api.types.is_string_dtype(dtype):
+                return "str"
+            if pd.api.types.is_object_dtype(dtype) and isinstance(series, pd.Series):
+                sample = series.dropna().head(128)
+                values = RowPipelineMixin._gfql_series_to_pylist(sample)
+                if not values:
+                    return None
+                if all(isinstance(value, bool) for value in values):
+                    return "bool"
+                if all(RowPipelineMixin._gfql_scalar_numeric_non_bool(value) for value in values):
+                    return "number"
+                if all(isinstance(value, str) for value in values):
+                    return "str"
+                return "mixed"
+            return str(dtype)
+        except (TypeError, ValueError):
+            return None
 
     @staticmethod
     def _gfql_format_cypher_scalar_literal(value: Any) -> str:
