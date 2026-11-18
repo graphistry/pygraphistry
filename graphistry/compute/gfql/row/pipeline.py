@@ -1430,7 +1430,7 @@ class RowPipelineMixin:
             if node.op == "+":
                 return True, operand
             if node.op == "-":
-                return True, 0 - operand
+                return True, -operand
             if node.op == "not":
                 bool_out = self._gfql_eval_boolean_op(table_df, operand, _GFQL_MISSING_BOOL_OPERAND, "not")
                 if bool_out is None:
