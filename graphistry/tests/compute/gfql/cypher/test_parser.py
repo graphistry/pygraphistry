@@ -23,6 +23,7 @@ from graphistry.compute.gfql.cypher import (
 )
 from graphistry.compute.gfql.cypher._boolean_expr_text import boolean_expr_to_text
 from graphistry.compute.gfql.cypher.ast import BooleanExpr, GraphBinding, GraphConstructor, UseClause
+from graphistry.compute.gfql.cypher.parser import _parse_number_token
 
 
 def _parse_query(query: str) -> CypherQuery:
@@ -584,12 +585,14 @@ def test_parse_numeric_literal_forms(query: str, expr_text: str) -> None:
     assert parsed.return_.items[0].expression.text == expr_text
 
 
-def test_parse_negative_zero_pattern_property_keeps_sign() -> None:
-    parsed = _parse_query("MATCH (n {v:-0.0}) RETURN n")
-    node = parsed.match.pattern[0]
+@pytest.mark.parametrize(
+    ("token", "expected_sign"),
+    [("-0.0", -1.0), ("+0.0", 1.0), ("0.0", 1.0), ("-2.0", -1.0), ("+2.0", 1.0)],
+)
+def test_parse_number_token_keeps_float_sign(token: str, expected_sign: float) -> None:
+    value = _parse_number_token(token)
 
-    assert node.properties[0].value == -0.0
-    assert math.copysign(1.0, node.properties[0].value) == -1.0
+    assert math.copysign(1.0, value) == expected_sign
 
 
 def test_parse_with_where_pipeline() -> None:
