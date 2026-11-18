@@ -3010,7 +3010,7 @@ class RowPipelineMixin:
         return len(values) > 0 and all(RowPipelineMixin._gfql_scalar_numeric_non_bool(v) for v in values)
 
     @staticmethod
-    def _gfql_case_branch_value_kind(series: Any) -> Optional[str]:
+    def _gfql_case_branch_value_kind(series: SeriesT) -> Optional[str]:
         """Classify CASE branch values by Cypher family; all-null/unknown is not a family."""
         if not hasattr(series, "astype"):
             if isinstance(series, bool):
