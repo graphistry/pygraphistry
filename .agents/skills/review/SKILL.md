@@ -49,8 +49,18 @@ per PR, cumulatively across sessions, agents, and head commits.
 | Subagents per wave / per PR | 3 / 6 | Every spawn, including adversarial passes and retries. Review subagents never spawn subagents. |
 | Tokens per wave / per PR | 400k / 1M | Input plus output of the reviewer and its subagents. Use harness-reported usage. When usage is not reported, charge 150k per subagent and 100k per inline wave. |
 
-Diffs under roughly 400 changed lines are reviewed inline with no subagents. Where the harness
-offers model tiers, run review subagents on a cheaper tier than the orchestrating agent.
+Diffs under roughly 400 changed lines get their finding passes inline, with no fan-out by dimension
+or file. The adversarial pass is the exception at any size: it needs a context that has not seen the
+reviewer's reasoning, so run it as one clean-context subagent per wave, given only the diff, the
+base, and the claims to disprove. That subagent is mandatory, and may not be skipped to save budget,
+when the diff touches a security surface: auth, credentials or secrets, input parsing or query
+construction, deserialization, file or network access, subprocess or dynamic execution, dependency
+or CI/publish configuration. It also checks for security issues the inline pass did not raise. It
+counts against the subagent and token limits like any other spawn; if the remaining budget cannot
+cover it, apply the stop rule instead of reviewing without it.
+
+Where the harness offers model tiers, run finding subagents on a cheaper tier than the orchestrating
+agent. Keep the security adversarial subagent on the stronger tier.
 
 ### Stop rule
 
@@ -414,7 +424,8 @@ column.
 
 ### Adversarial pass (required)
 
-For each finding, attempt disproof and write verdict:
+Run this in a clean context per the [Review Budget](#review-budget-hard-limits), not as a continuation of the
+pass that produced the findings. For each finding, attempt disproof and write verdict:
 - `CONFIRMED`
 - `DOWNGRADED`
 - `REJECTED`
