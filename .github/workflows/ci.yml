@@ -8,6 +8,7 @@ on:
   push:
     branches:
       - master
+      - develop
   pull_request:
 
   #Enable UI-driven branch testing
@@ -26,10 +27,22 @@ permissions:
   contents: read
 
 concurrency:
-  # Cancel stale same-branch PR/manual runs. Branch push CI is master-only;
-  # branch validation happens via pull_request or workflow_dispatch.
-  group: ${{ github.workflow }}-${{ github.event.pull_request.head.repo.full_name || github.repository }}-${{ github.head_ref || github.ref_name }}
-  cancel-in-progress: ${{ github.ref != 'refs/heads/master' }}
+  # Keep each develop push independent. PR/manual runs (including PRs whose
+  # head branch is develop) still use the branch-based group and may cancel
+  # stale runs; master push behavior is unchanged.
+  group: >-
+    ${{
+    github.event_name == 'push' && github.ref == 'refs/heads/develop'
+    && format('{0}-develop-push-{1}', github.workflow, github.sha)
+    || format('{0}-{1}-{2}', github.workflow,
+       github.event.pull_request.head.repo.full_name || github.repository,
+       github.head_ref || github.ref_name)
+    }}
+  cancel-in-progress: >-
+    ${{
+    (github.event_name != 'push' || (github.ref != 'refs/heads/develop' && github.ref != 'refs/heads/master'))
+    && github.ref != 'refs/heads/master'
+    }}
 
 env:
   # 6-day dependency cooldown: refuse packages uploaded less than 6 days ago
