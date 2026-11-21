@@ -322,8 +322,6 @@ with `TEST_CUDF=1 pytest ...` on a RAPIDS-equipped box.
 * use the `logging` module per-file
 
 
-## Publish: Merge, Tag, & Upload
-
 ## Release and Hotfix Branch Flow
 
 Use two long-lived branches: `master` is the stable release/hotfix line, and
@@ -338,6 +336,20 @@ waiting for unfinished work while avoiding the overhead of a full Git-flow model
 | `develop` | Next-release integration | Ordinary feature and stacked PRs |
 | `release/X.Y` (optional) | Short-lived stabilization only when the next release must overlap new development | Fixes forward to `master`, `develop`, and the active `release/X.Y` |
 | `maint/X.Y` (only for an old supported line) | Maintenance fixes for an older release | Fix, then forward to newer lines |
+
+### Push and protection path
+
+- A maintainer merges ordinary feature PRs into `develop` with a merge commit
+  after branch protection passes.
+- A maintainer merges hotfix PRs into `master` with a merge commit after branch
+  protection passes.
+- Forwarded hotfixes into an active `release/X.Y` and into `develop` go through
+  a PR that a maintainer merges with a merge commit; do not use squash or
+  rebase merges.
+- The maintainer performs the final promotion by fast-forwarding local `master`
+  to the tested `develop` SHA and pushing it, because a GitHub UI merge cannot
+  fast-forward. The repository-settings mechanism that permits this push is
+  selected and recorded during cutover.
 
 ### Routine flow
 
@@ -364,13 +376,14 @@ waiting for unfinished work while avoiding the overhead of a full Git-flow model
 	git push origin refs/heads/release/X.Y
 	```
 
-4. Forward the same tested `master` hotfix into `develop` before the next promotion:
+4. Forward the same tested `master` hotfix into `develop` before the next
+   promotion by pushing a tested forwarding branch and opening a PR that targets
+   `develop`:
 
 	```sh
-	git switch develop
-	git pull --ff-only origin develop
+	git switch -c hotfix/forward-develop origin/master
 	git merge --no-ff origin/master
-	git push origin refs/heads/develop
+	git push origin refs/heads/hotfix/forward-develop
 	```
 
 5. Promote by a fast-forward of `master` to the tested `develop` snapshot, then tag
@@ -404,7 +417,7 @@ mechanism, not the routine promotion path.
 
 Do not copy the migration commands while `master` contains unreleased work.
 First release and tag that master state as the stable baseline, verify that
-`CHANGELOG.md` has no remaining `[Development]` section above that release, and
+the `CHANGELOG.md` `[Development]` section has no entries above that release, and
 record the selected baseline tag and its disposition. Until that baseline exists,
 keep using the current release process for urgent fixes; do not create `develop`
 from unreleased master or claim that hotfixes based on it are isolated. Preserve
@@ -417,6 +430,8 @@ existing history—no reset is required.
 - Keep `master` as the default and publish-ref line initially.
 - Add branch protection and required checks for `develop`; enable branch-push CI
   and CodeQL push/PR analysis for both lines before routing ordinary PRs there.
+- Decide and record the repository-settings mechanism that permits the
+  maintainer's fast-forward push of `master` before cutover.
 - Inventory open PRs: hotfixes target `master`; ordinary feature/stacked PRs move
   to `develop` in dependency order. Do not retarget a stacked PR until its parent
   lands on `develop`.
@@ -429,6 +444,8 @@ existing history—no reset is required.
 
 The detailed tag, evidence, approval, and PyPI checks below remain the source of
 truth for publishing mechanics.
+
+## Publish: Merge, Tag, & Upload
 
 1. Update CHANGELOG.md in your PR branch
 	- Convert `## [Development]` section to `## [X.Y.Z - YYYY-MM-DD]`
