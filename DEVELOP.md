@@ -350,8 +350,14 @@ waiting for unfinished work while avoiding the overhead of a full Git-flow model
   `master` or `develop` themselves.
 - The maintainer performs the final promotion by fast-forwarding local `master`
   to the tested `develop` SHA and pushing it, because a GitHub UI merge cannot
-  fast-forward. The repository-settings mechanism that permits this push is
-  selected and recorded during cutover.
+  fast-forward. The recorded promotion mechanism is an admin fast-forward push of
+  `master`: a repository admin pushes the tested SHA directly, bypassing the
+  pull-request requirement, and no other actor can.
+- `ci-required` (a job in `.github/workflows/ci.yml`) is the required status
+  check on both `develop` and `master`. It runs on every event, needs every other
+  job in that workflow, fails if any of them failed or was cancelled, and passes
+  when each succeeded or was skipped. A new job in `ci.yml` must be added to its
+  `needs` list in the same PR, otherwise the required check does not cover it.
 
 ### Routine flow
 
@@ -432,10 +438,14 @@ existing history—no reset is required.
 - After the cutover prerequisite is met, create `develop` from the recorded
   stable release baseline on `master`; do not rewrite master.
 - Keep `master` as the default and publish-ref line initially.
-- Add branch protection and required checks for `develop`; enable branch-push CI
-  and CodeQL push/PR analysis for both lines before routing ordinary PRs there.
-- Decide and record the repository-settings mechanism that permits the
-  maintainer's fast-forward push of `master` before cutover.
+- Add branch protection for `develop` and `master` with `ci-required` as the
+  required check on both; enable branch-push CI and CodeQL push/PR analysis for
+  both lines before routing ordinary PRs there. Require `ci-required` only after
+  the PR that adds it has merged to `develop` (and, for `master`, after the next
+  promotion carries it there).
+- The mechanism that permits the maintainer's fast-forward push of `master` is an
+  admin fast-forward push (see "Push and protection path"); keep admin bypass on
+  `master` for that purpose only.
 - Version tags (`X.Y.Z`) are protected by tag rulesets, and the `pypi-release`
   environment deploys only from `master` and version tags. After any pattern
   change, verify that the ruleset's "Applies to" list includes the latest
