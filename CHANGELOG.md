@@ -10,6 +10,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Docs
 
+- **Development branch flow**: documents long-lived `master` and `develop` roles, maintainer-controlled merge-commit forwarding, maintainer fast-forward promotion, and the repository-settings decision required before cutover.
+
 - **AI skills / review budget**: the `review` skill now caps review waves, subagent parallelism, and token spend per PR, with a persisted ledger and a stop-and-escalate rule; only an explicit human override raises a limit. The planner, worker, and test-amplification skills reference the same caps.
 
 - **GFQL Let binding examples** (#2171): select named subgraphs with `output=` instead of nonexistent binding-marker columns; runnable examples assert nonempty results on pandas and Polars inputs while preserving matcher `name=` markers and service/GPU skips.
