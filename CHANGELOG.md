@@ -8,6 +8,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [Development]
 <!-- Do Not Erase This Section - Used for tracking unreleased changes -->
 
+### Added
+
+- **GFQL bounded Parquet hop** — opt in to finite seeded forward CPU traversal with native Polars scans, bounded identity state and late property materialization.
+
 ### Docs
 
 - **GFQL Let binding examples** (#2171): select named subgraphs with `output=` instead of nonexistent binding-marker columns; runnable examples assert nonempty results on pandas and Polars inputs while preserving matcher `name=` markers and service/GPU skips.
