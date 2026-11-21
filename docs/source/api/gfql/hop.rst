@@ -50,13 +50,16 @@ missing endpoints do not participate. Self-loops and parallel edges with
 distinct identities are preserved, along with properties of the final
 subgraph. Outputs are eager Polars frames.
 
-Use immutable local Parquet data and ordinary Polars scans for both inputs,
-including multi-file or Hive scans. Supplying the limits is the caller's
-assertion that these preconditions hold. GFQL checks schemas and encountered
-identity conflicts. Polars does not expose source provenance as a stable API,
-so GFQL does not inspect arbitrary lazy plans or verify the entire snapshot.
-Rows may be read repeatedly for frontier expansion, endpoint validation and
-property retrieval. Clustering by endpoint or identity can help native pruning.
+Bind direct local ``polars.scan_parquet()`` inputs. Multi-file and Hive scans
+require consistent schemas and globally unique identities within each table.
+Keep the files and directory membership fixed across schema resolution,
+frontier expansion and property retrieval. Arbitrary lazy plans, including
+joins, sorts, Python UDFs and remote scans, are outside the supported contract.
+Supplying the limits asserts these preconditions. GFQL checks binding schemas
+and encountered identity conflicts. A LazyFrame does not provide a stable
+public way to verify scan provenance or snapshot consistency. Missing or
+unreadable files can fail when Polars opens them. A same-ID file replacement
+can go undetected. Clustering by endpoint or identity can help native pruning.
 
 The opt-in route requires Polars 1.29 or newer. It raises
 ``NotImplementedError`` for unsupported query shapes and index modes. Calls
@@ -64,11 +67,27 @@ without ``parquet_limits`` use ordinary GFQL. This lets callers choose the
 ordinary route when the full graph fits in memory. An explicitly opted-in
 query never retries eagerly after a decline.
 
-The hop limits cap collected candidate rows, cumulative visited identities
-and final result size. The byte check follows property materialization. A
-``ParquetHopLimitError`` means no result was returned. An optional
-``threading.Event`` provides cooperative cancellation with
-``concurrent.futures.CancelledError``. Timeout and cancellation are observed
-between Polars operations. Process RSS, Polars decoder buffers and the duration
-of an individual scan are outside these limits. Use process isolation for hard
-resource enforcement.
+Resource checks
+~~~~~~~~~~~~~~~
+
+- ``max_hops`` limits the requested hop count. ``max_nodes`` limits raw seed
+  rows, node lookup matches and the retained node set. Duplicate seeds count
+  toward the raw seed limit.
+- ``max_edges`` limits candidate rows per hop before destination validation
+  and retained edge identities across hops. A dense hop can be declined even
+  if endpoint validation would leave a small result.
+- Filtered scans use a one-row overflow probe. These limits describe row
+  counts for the collected frames. Polars may read or buffer more rows while
+  evaluating the plan.
+- ``max_result_bytes`` caps the sum of Polars' estimated sizes for the two
+  output frames. Each check follows property collection, so a wide value can
+  allocate more memory than this limit before the check. The estimate covers
+  frame data and does not bound process RSS or scan buffers.
+- ``timeout_seconds`` and an optional ``threading.Event`` are cooperative.
+  They are checked before scanning, between schema reads and collections,
+  and before returning the graph. They cannot interrupt a running Polars
+  operation. Use external process isolation for hard enforcement.
+
+Resource declines raise ``ParquetHopLimitError``. Cancellation raises
+``concurrent.futures.CancelledError``. A decline or reader failure returns
+no partial graph and leaves the input bindings intact.

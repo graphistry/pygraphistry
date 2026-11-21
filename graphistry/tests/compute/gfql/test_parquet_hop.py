@@ -49,7 +49,7 @@ def _scan_graph(tmp_path: Path, nodes: "pl.DataFrame", edges: "pl.DataFrame", hi
             part = edge_path / f"bucket={offset // 4}"
             part.mkdir(parents=True)
             edges.slice(offset, 4).write_parquet(part / "part.parquet", row_group_size=2)
-        edge_scan = pl.scan_parquet(str(edge_path / "**" / "*.parquet"), hive_partitioning=True).drop("bucket")
+        edge_scan = pl.scan_parquet(str(edge_path / "**" / "*.parquet"), hive_partitioning=True)
     else:
         edges.write_parquet(edge_path, row_group_size=2)
         edge_scan = pl.scan_parquet(edge_path)
@@ -66,7 +66,10 @@ def test_parquet_hop_matches_public_polars(
     nodes, edges = frames
     lazy_graph = _scan_graph(tmp_path, nodes, edges, hive=True)
     starts = pl.DataFrame({"id": seeds}, schema={"id": pl.Int64})
-    expected = _graph(nodes, edges).hop(starts, hops=hops, engine="polars")
+    # Include the Hive key in the eager reference's complete output schema.
+    hive_dtype = lazy_graph._edges.collect_schema()["bucket"]
+    eager_edges = edges.with_columns(pl.Series("bucket", [i // 4 for i in range(edges.height)], dtype=hive_dtype))
+    expected = _graph(nodes, eager_edges).hop(starts, hops=hops, engine="polars")
     result = lazy_graph.hop(starts, hops=hops, parquet_limits=ParquetHopLimits())
     assert_frame_equal(result._nodes.sort("id"), expected._nodes.sort("id"))
     assert_frame_equal(result._edges.sort("eid"), expected._edges.sort("eid"))
@@ -230,7 +233,7 @@ def test_scan_failure_surfaces_without_a_partial_result(tmp_path: Path, frames: 
 
 @pytest.mark.parametrize("options", [
     {"max_nodes": 0}, {"max_edges": -1}, {"max_hops": True}, {"max_result_bytes": 0},
-    {"timeout_seconds": 0.0}, {"timeout_seconds": float("inf")},
+    {"timeout_seconds": 0.0}, {"timeout_seconds": float("inf")}, {"timeout_seconds": True},
 ])
 def test_invalid_limits(options: dict[str, int | float]) -> None:
     with pytest.raises(ValueError, match="positive"):
@@ -255,3 +258,102 @@ def test_exact_limits_succeed(tmp_path: Path, frames: tuple["pl.DataFrame", "pl.
     graph = _scan_graph(tmp_path, nodes, edges)
     result = graph.hop(nodes.head(1), parquet_limits=ParquetHopLimits(max_nodes=2, max_edges=3, max_hops=1))
     assert result._nodes.height == 2 and result._edges.height == 3
+
+
+@pytest.mark.parametrize("property_table", ["nodes", "edges"])
+def test_result_byte_limit_after_wide_property_collection(tmp_path: Path, property_table: str) -> None:
+    from polars.testing import assert_frame_equal
+
+    nodes = pl.DataFrame({"id": [1, 2], "label": [None, "x"]})
+    edges = pl.DataFrame({"eid": [100], "src": [1], "dst": [2]})
+    payload = "wide" * (256 * 1024)
+    if property_table == "nodes":
+        nodes = nodes.with_columns(pl.Series("payload", [payload, None]))
+    else:
+        edges = edges.with_columns(pl.lit(payload).alias("payload"))
+    starts = nodes.head(1).select("id")
+    graph = _scan_graph(tmp_path, nodes, edges)
+    with pytest.raises(ParquetHopLimitError, match=f"max_result_bytes in {property_table[:-1]} rehydration"):
+        graph.hop(starts, parquet_limits=ParquetHopLimits(max_result_bytes=1024))
+
+    expected = _graph(nodes, edges).hop(starts, engine="polars")
+    exact_bytes = expected._nodes.estimated_size() + expected._edges.estimated_size()
+    actual = graph.hop(starts, parquet_limits=ParquetHopLimits(max_result_bytes=exact_bytes))
+    assert_frame_equal(actual._nodes.sort("id"), expected._nodes.sort("id"))
+    assert_frame_equal(actual._edges, expected._edges)
+
+
+def test_high_degree_missing_endpoints_still_count_toward_candidate_limit(tmp_path: Path) -> None:
+    from polars.testing import assert_frame_equal
+
+    nodes = pl.DataFrame({"id": [0, 1]})
+    size = 4096
+    edges = pl.DataFrame({"eid": range(size), "src": [0] * size, "dst": range(1, size + 1)})
+    graph = _scan_graph(tmp_path, nodes, edges)
+    starts = nodes.head(1)
+    with pytest.raises(ParquetHopLimitError, match="max_edges in frontier scan"):
+        graph.hop(starts, parquet_limits=ParquetHopLimits(max_edges=size - 1, max_nodes=2))
+    expected = _graph(nodes, edges).hop(starts, engine="polars")
+    actual = graph.hop(starts, parquet_limits=ParquetHopLimits(max_edges=size, max_nodes=2))
+    assert_frame_equal(actual._nodes.sort("id"), expected._nodes.sort("id"))
+    assert_frame_equal(actual._edges, expected._edges)
+
+
+def test_seed_limit_counts_rows_before_deduplication(tmp_path: Path, frames: tuple["pl.DataFrame", "pl.DataFrame"]) -> None:
+    graph = _scan_graph(tmp_path, *frames)
+    starts = pl.DataFrame({"id": [0, 0, 0]})
+    with pytest.raises(ParquetHopLimitError, match="seeds exceeded max_nodes"):
+        graph.hop(starts, parquet_limits=ParquetHopLimits(max_nodes=2))
+
+
+@pytest.mark.parametrize("limit", ["max_nodes", "max_edges"])
+def test_row_limit_reserves_probe_slot(
+    tmp_path: Path, frames: tuple["pl.DataFrame", "pl.DataFrame"], limit: str,
+) -> None:
+    graph = _scan_graph(tmp_path, *frames)
+    max_slice = (1 << 32) - 1 if pl.get_index_type() == pl.UInt32 else (1 << 63) - 1
+    with pytest.raises(ValueError, match="max_nodes and max_edges"):
+        graph.hop(frames[0].head(1), parquet_limits=ParquetHopLimits(**{limit: max_slice}))
+
+
+def test_schema_timeout_stops_before_second_schema_read(
+    tmp_path: Path, frames: tuple["pl.DataFrame", "pl.DataFrame"], monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    graph = _scan_graph(tmp_path, *frames)
+    original_schema = pl.LazyFrame.collect_schema
+    schema_reads = []
+
+    def schema(frame: "pl.LazyFrame") -> "pl.Schema":
+        schema_reads.append(frame)
+        return original_schema(frame)
+
+    monkeypatch.setattr(pl.LazyFrame, "collect_schema", schema)
+    times = iter([0., 0., 1.])
+    monkeypatch.setattr(hop_parquet, "monotonic", lambda: next(times))
+    with pytest.raises(ParquetHopLimitError, match="timeout_seconds"):
+        graph.hop(frames[0].head(1), parquet_limits=ParquetHopLimits(timeout_seconds=0.5))
+    assert len(schema_reads) == 1 and schema_reads[0] is graph._nodes
+
+
+def test_rehydration_rejects_a_missing_selected_identity(
+    tmp_path: Path, frames: tuple["pl.DataFrame", "pl.DataFrame"], monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    nodes, edges = frames
+    graph = _scan_graph(tmp_path, nodes, edges)
+    changed_edges = tmp_path / "replacement.parquet"
+    edges.filter(pl.col("eid") != 0).write_parquet(changed_edges)
+    original_rehydrate = hop_parquet._rehydrate
+
+    def rehydrate(
+        source: "pl.LazyFrame", schema: "pl.Schema", key: str, ids: "pl.Series",
+        limits: ParquetHopLimits, deadline: float,
+    ) -> "pl.DataFrame":
+        # Reopen the new snapshot so stale reader metadata cannot mask the identity check.
+        if key == "eid":
+            source = pl.scan_parquet(changed_edges)
+        return original_rehydrate(source, schema, key, ids, limits, deadline)
+
+    monkeypatch.setattr(hop_parquet, "_rehydrate", rehydrate)
+    with pytest.raises(ValueError, match="stable, unique identities"):
+        graph.hop(nodes.head(1), parquet_limits=ParquetHopLimits())
+    assert isinstance(graph._nodes, pl.LazyFrame) and isinstance(graph._edges, pl.LazyFrame)

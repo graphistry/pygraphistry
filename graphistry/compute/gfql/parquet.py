@@ -12,13 +12,18 @@ class ParquetHopLimitError(RuntimeError):
 
 @dataclass(frozen=True)
 class ParquetHopLimits:
-    """Resource limits for a finite CPU hop over immutable local Parquet scans.
+    """Cooperative limits for a finite CPU hop over immutable local Parquet scans.
 
-    The node limit also caps the number of input seeds. The edge limit caps both
-    cumulative output edges and the number of candidate edges collected per hop.
-    The byte limit is checked on materialized output frames. Timeout and cancellation
-    are checked between Polars operations. These limits do not cap process RSS or
-    interrupt a running Polars scan.
+    max_nodes counts input seed rows before deduplication, node matches per lookup
+    and retained node identities. max_edges counts candidates per hop before
+    destination validation and retained edge identities. A scan may return one
+    additional row to detect overflow. max_result_bytes caps the sum of Polars'
+    estimated sizes for the materialized output frames. It is checked after each
+    property collection. Timeout and cancellation are checked at operation
+    boundaries. These limits do not cap process RSS or interrupt a running scan.
+
+    Pass direct local Parquet scans with consistent schemas and immutable files
+    throughout the call. GFQL accepts LazyFrames and does not verify provenance.
     """
 
     max_nodes: int = 100_000
@@ -35,5 +40,6 @@ class ParquetHopLimits:
         ):
             if type(limit) is not int or limit < 1:
                 raise ValueError(f"{name} must be a positive integer")
-        if not isfinite(self.timeout_seconds) or self.timeout_seconds <= 0:
+        if (isinstance(self.timeout_seconds, bool) or not isfinite(self.timeout_seconds)
+                or self.timeout_seconds <= 0):
             raise ValueError("timeout_seconds must be positive and finite")

@@ -28,8 +28,10 @@ stored row groups intact.
 
 All timed methods share the same files and seeds in each run. The eager control
 calls public `.hop()` without opt-in. The bounded route calls public `.hop()`
-with `ParquetHopLimits`. The native Polars control uses the same membership and
-range predicates, with an independent traversal loop and no row guard. The
+with `ParquetHopLimits`. The native control builds equivalent membership and
+range expressions with public Polars APIs and uses an independent traversal
+loop. It omits the feature's row guards and uses the same endpoint checks,
+NaN-to-null property normalization and complete output requirements. The
 resident-index comparison separately measures eager input load and forward
 index construction. Its query timing starts after both. To compare source and
 clustered layouts, run the same query twice with the same source files and
@@ -43,7 +45,9 @@ and warmup in that worker. Index and input setup I/O appear in those phase
 records. Query time includes property rehydration. The bounded and native
 routes report separate rehydration time. Full sorted output-frame digests are
 computed outside the timed phase. Different digests fail the run. Failed
-attempts remain in the JSONL, with completed sample counts in the summary.
+attempts remain in the JSONL. When both lazy routes are requested, the
+benchmark requires every bounded and native attempt to complete. Eager and
+resident-index allocation failures remain visible in the attempt records.
 
 The runner defaults to four Polars threads. For an existing large graph, use
 `--address-space-mib` to add a Linux virtual-address cap to the query workers.

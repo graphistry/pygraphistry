@@ -51,7 +51,9 @@ def _lookup_nodes(
     nodes: "pl.LazyFrame", key: str, ids: "pl.Series", limits: ParquetHopLimits, deadline: float,
 ) -> "pl.Series":
     lookup = nodes.filter(_scan_membership(key, ids)).select(key)
-    found = _bounded_scan(lookup, min(len(ids), limits.max_nodes), "max_nodes in node lookup", limits, deadline)[key]
+    found = _bounded_scan(
+        lookup, min(len(ids), limits.max_nodes), "max_nodes or duplicate identities in node lookup", limits, deadline,
+    )[key]
     if found.n_unique() != len(found):
         raise ValueError("Parquet hop requires unique node identities")
     return found
@@ -148,7 +150,15 @@ def hop_parquet(
     if node is None or src is None or dst is None or edge is None or len({src, dst, edge}) != 3:
         raise ValueError("Parquet hop requires node, source, destination and distinct edge bindings")
 
-    node_schema, edge_schema = nodes.collect_schema(), edges.collect_schema()
+    # Reserve one row for the overflow probe in the Polars slice.
+    max_slice = (1 << 32) - 1 if pl.get_index_type() == pl.UInt32 else (1 << 63) - 1
+    if max(limits.max_nodes, limits.max_edges) >= max_slice:
+        raise ValueError(f"Parquet hop max_nodes and max_edges must be below {max_slice}")
+
+    node_schema = nodes.collect_schema()
+    _check_running(limits, deadline)
+    edge_schema = edges.collect_schema()
+    _check_running(limits, deadline)
     _validate_keys(node_schema, edge_schema, seeds.schema, node, src, dst, edge)
     node_ids, edge_ids = _visit(
         nodes, edges, (node, src, dst, edge), edge_schema[edge], seeds[node].drop_nulls().unique(), hops, limits, deadline,
@@ -161,4 +171,6 @@ def hop_parquet(
     if edge_bytes + out_nodes.estimated_size() > limits.max_result_bytes:
         raise ParquetHopLimitError("Parquet hop exceeded max_result_bytes in node rehydration")
     _check_running(limits, deadline)
-    return g.nodes(out_nodes, node).edges(out_edges, src, dst, edge=edge)
+    result = g.nodes(out_nodes, node).edges(out_edges, src, dst, edge=edge)
+    _check_running(limits, deadline)
+    return result

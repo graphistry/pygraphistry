@@ -21,8 +21,6 @@ from graphistry.Plottable import Plottable
 from graphistry.compute.gfql.index import gfql_index_edges
 import polars as pl
 
-from graphistry.compute.gfql.lazy.engine.polars import hop_parquet
-from graphistry.compute.gfql.lazy.engine.polars.membership import is_in_ids
 from graphistry.compute.gfql.parquet import ParquetHopLimits
 
 
@@ -98,13 +96,35 @@ def digest(nodes: pl.DataFrame, edges: pl.DataFrame) -> str:
     return h.hexdigest()
 
 
-def native(nodes: pl.LazyFrame, edges: pl.LazyFrame, starts: pl.Series, hops: int) -> tuple[pl.DataFrame, pl.DataFrame, float]:
-    """Independent native Polars scans, using a Python set for small benchmark frontiers."""
-    def lookup(ids: set[int]) -> set[int]:
-        ids_series = pl.Series("id", sorted(ids), dtype=starts.dtype)
-        return set(nodes.filter(hop_parquet._scan_membership("id", ids_series)).select("id").collect(engine="streaming")["id"])
+def _native_selection(key: str, ids: pl.Series) -> pl.Expr:
+    column = pl.col(key)
+    return column.is_between(
+        pl.lit(ids.min(), dtype=ids.dtype), pl.lit(ids.max(), dtype=ids.dtype),
+    ) & column.is_in(ids.implode())
 
-    frontier = lookup(set(starts))
+
+def _native_properties(scan: pl.LazyFrame, schema: pl.Schema, key: str, ids: pl.Series) -> pl.DataFrame:
+    if ids.is_empty():
+        return pl.DataFrame(schema=schema)
+    return (
+        scan.filter(_native_selection(key, ids))
+        .with_columns(pl.selectors.float().fill_nan(None))
+        .collect(engine="streaming")
+    )
+
+
+def native(nodes: pl.LazyFrame, edges: pl.LazyFrame, starts: pl.Series, hops: int) -> tuple[pl.DataFrame, pl.DataFrame, float]:
+    """Public Polars scan reference with Python sets for traversal state."""
+    node_schema, edge_schema = nodes.collect_schema(), edges.collect_schema()
+
+    def lookup(ids: set[int]) -> set[int]:
+        if not ids:
+            return set()
+        keys = pl.Series("id", sorted(ids), dtype=starts.dtype)
+        matched = nodes.filter(_native_selection("id", keys)).select("id").collect(engine="streaming")
+        return set(matched["id"])
+
+    frontier = lookup(set(starts.drop_nulls()))
     visited: set[int] = set()
     visited_edges: list[int] = []
     for _ in range(hops):
@@ -112,11 +132,12 @@ def native(nodes: pl.LazyFrame, edges: pl.LazyFrame, starts: pl.Series, hops: in
             break
         src_ids = pl.Series("src", sorted(frontier), dtype=starts.dtype)
         pairs = (
-            edges.filter(hop_parquet._scan_membership("src", src_ids) & pl.col("dst").is_not_null())
+            edges.filter(_native_selection("src", src_ids) & pl.col("dst").is_not_null())
             .select("src", "dst", "edge_id").collect(engine="streaming")
         )
         destinations = lookup(set(pairs["dst"]))
-        matches = pairs.filter(is_in_ids(pl.col("dst"), pl.Series("dst", sorted(destinations), dtype=starts.dtype)))
+        valid_dst = pl.Series("dst", sorted(destinations), dtype=starts.dtype)
+        matches = pairs.filter(pl.col("dst").is_in(valid_dst.implode()))
         visited.update(matches["src"])
         frontier = destinations - visited
         visited.update(destinations)
@@ -124,10 +145,40 @@ def native(nodes: pl.LazyFrame, edges: pl.LazyFrame, starts: pl.Series, hops: in
 
     start = perf_counter()
     node_ids = pl.Series("id", sorted(visited), dtype=starts.dtype)
-    edge_ids = pl.Series("edge_id", visited_edges, dtype=edges.collect_schema()["edge_id"])
-    out_nodes = nodes.filter(hop_parquet._scan_membership("id", node_ids)).collect(engine="streaming")
-    out_edges = edges.filter(hop_parquet._scan_membership("edge_id", edge_ids)).collect(engine="streaming")
+    edge_ids = pl.Series("edge_id", visited_edges, dtype=edge_schema["edge_id"])
+    out_edges = _native_properties(edges, edge_schema, "edge_id", edge_ids)
+    out_nodes = _native_properties(nodes, node_schema, "id", node_ids)
     return out_nodes, out_edges, perf_counter() - start
+
+
+def _bounded_query(
+    graph: Plottable, seeds: pl.DataFrame, args: argparse.Namespace,
+) -> Callable[[], tuple[pl.DataFrame, pl.DataFrame, float]]:
+    from graphistry.compute.gfql.lazy.engine.polars import hop_parquet
+
+    rehydrate_fn = hop_parquet._rehydrate
+    rehydrate_seconds = 0.
+
+    def timed_rehydrate(
+        source: pl.LazyFrame, schema: pl.Schema, key: str, ids: pl.Series,
+        limits: ParquetHopLimits, deadline: float,
+    ) -> pl.DataFrame:
+        nonlocal rehydrate_seconds
+        start = perf_counter()
+        result = rehydrate_fn(source, schema, key, ids, limits, deadline)
+        rehydrate_seconds += perf_counter() - start
+        return result
+
+    def run() -> tuple[pl.DataFrame, pl.DataFrame, float]:
+        nonlocal rehydrate_seconds
+        rehydrate_seconds = 0.
+        with patch.object(hop_parquet, "_rehydrate", timed_rehydrate):
+            out = graph.hop(seeds, hops=args.hops, engine="polars", parquet_limits=ParquetHopLimits(
+                timeout_seconds=args.timeout, max_edges=args.max_edges, max_nodes=args.max_nodes,
+            ))
+        return out._nodes, out._edges, rehydrate_seconds
+
+    return run
 
 
 def worker(args: argparse.Namespace) -> None:
@@ -158,37 +209,19 @@ def worker(args: argparse.Namespace) -> None:
         ))
         g, index_build = measure(lambda: gfql_index_edges(graph, direction="forward", engine="polars"))
 
-    rehydrate_seconds: float | None = None
-    rehydrate_fn = hop_parquet._rehydrate
+    bounded = _bounded_query(g, seed_frame, args) if route == "bounded" else None
 
-    def timed_rehydrate(
-        source: pl.LazyFrame, schema: pl.Schema, key: str, ids: pl.Series,
-        limits: ParquetHopLimits, deadline: float,
-    ) -> pl.DataFrame:
-        nonlocal rehydrate_seconds
-        start = perf_counter()
-        result = rehydrate_fn(source, schema, key, ids, limits, deadline)
-        rehydrate_seconds = (rehydrate_seconds or 0.) + perf_counter() - start
-        return result
-
-    def run() -> tuple[pl.DataFrame, pl.DataFrame]:
-        nonlocal rehydrate_seconds
-        rehydrate_seconds = None
+    def run() -> tuple[pl.DataFrame, pl.DataFrame, float | None]:
         if route == "native":
-            out_nodes, out_edges, rehydrate_seconds = native(nodes, edges, starts, args.hops)
-            return out_nodes, out_edges
-        if route == "bounded":
-            with patch.object(hop_parquet, "_rehydrate", timed_rehydrate):
-                out = g.hop(seed_frame, hops=args.hops, engine="polars", parquet_limits=ParquetHopLimits(
-                    timeout_seconds=args.timeout, max_edges=args.max_edges, max_nodes=args.max_nodes,
-                ))
-        else:
-            out = g.hop(seed_frame, hops=args.hops, engine="polars")
-        return out._nodes, out._edges
+            return native(nodes, edges, starts, args.hops)
+        if bounded is not None:
+            return bounded()
+        out = g.hop(seed_frame, hops=args.hops, engine="polars")
+        return out._nodes, out._edges, None
 
     if cache == "warm":
         run()
-    (out_nodes, out_edges), query = measure(run)
+    (out_nodes, out_edges, rehydrate_seconds), query = measure(run)
     print(json.dumps({
         "kind": "query", "method": route, "cache": cache, "setup": setup, "index_build": index_build,
         "eager_load": eager_load, "seed_setup": seed_setup, "cold_advice": cold_advice,
@@ -268,6 +301,10 @@ def main() -> None:
     completed = [row for row in rows if "digest" in row]
     if len({row["digest"] for row in completed}) != 1:
         raise SystemExit("Completed results disagree or no query completed")
+    if {"bounded", "native"}.issubset(args.routes) and any(
+        "error" in row and row["method"] in {"bounded", "native"} for row in rows
+    ):
+        raise SystemExit("Incomplete comparison: every bounded and native attempt must complete")
     for cache in ("cold-advised", "warm"):
         for route in args.routes:
             matched = [r for r in completed if r["method"] == route and r["cache"] == cache]
