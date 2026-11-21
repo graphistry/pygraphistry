@@ -806,7 +806,9 @@ class AnthropicMessagesProvider(_ChatDecisionProvider):
         refused = payload.get("stop_reason") == "refusal"
         unfinished = payload.get("stop_reason") in ("max_tokens", "model_context_window_exceeded", "pause_turn")
         if self.strategy == "text":
-            return Reply(texts[0] if texts else None, None, refused, unfinished)
+            whole = "".join(part for part in texts if isinstance(part, str)) \
+                if texts and all(isinstance(part, str) for part in texts) else None
+            return Reply(_without_reasoning(whole), None, refused, unfinished)
         valid_blocks = isinstance(content, list) and all(
             isinstance(block, dict) and isinstance(block.get("type"), str) for block in content)
         if not valid_blocks:

@@ -397,6 +397,20 @@ class TestFallbacks:
         session = FakeSession([chat_reply('<reasoning>x</reasoning>{"answer": "B"}')])
         assert checked(openai(session, strategy="json_schema"), request((CHOICE,)))[0].value == "tech"
 
+    @pytest.mark.parametrize("text", ["<reasoning>The box is fine, so A... no, B.</reasoning>B",
+                                      "<think>\nline one\nline two\n</think>\n\nB", " <thinking>x</thinking> B. no"])
+    def test_anthropic_text_replies_ignore_a_leading_reasoning_block(self, text: str) -> None:
+        claude = AnthropicMessagesProvider("k", "claude-x", session=FakeSession([anthropic_reply(text)]))
+        assert checked(claude, request((PRED,)))[0].value is False
+
+    @pytest.mark.parametrize("parts", [["<think>x</think>", "B"], ["Looks fine.\n\n", "B"], ["B", ""]])
+    def test_anthropic_text_replies_read_every_text_block(self, parts: List[str]) -> None:
+        reply = FakeResponse(200, {"model": "claude-x", "stop_reason": "end_turn",
+                                   "content": [{"type": "thinking", "thinking": "A?"}] + [
+                                       {"type": "text", "text": part} for part in parts]})
+        claude = AnthropicMessagesProvider("k", "claude-x", session=FakeSession([reply]))
+        assert checked(claude, request((PRED,)))[0].value is False
+
     @pytest.mark.parametrize("text", ["The box is fine.\n\nB", "It arrived.\nNothing is wrong.\n\nB. no", "x\n\nno\n",
                                       "x\n\n\n\nn.", "x\n\nB\n\n", "<think>x</think>Looks fine.\n\nB"])
     def test_an_answer_on_the_last_line_after_a_blank_line_is_read(self, text: str) -> None:
