@@ -133,6 +133,15 @@ def test_signed_zero_and_nonzero_literals_keep_sign(engine, expr, expected_value
     assert all(math.copysign(1.0, value) == expected_sign for value in values)
 
 
+@pytest.mark.parametrize("engine", SIGNED_ZERO_ENGINES)
+def test_zero_sign_survives_alternating_evaluation(engine):
+    """A backend that reuses a scalar by value (0.0 == -0.0) returns the first sign seen, so alternate both orders."""
+    for expr, expected_sign in [("-0.0", -1.0), ("+0.0", 1.0), ("-0.0", -1.0), ("0.0", 1.0), ("0.0 * -1.0", -1.0)]:
+        values = _values(engine, expr)
+        assert values == [0.0] * 4
+        assert [math.copysign(1.0, value) for value in values] == [expected_sign] * 4, expr
+
+
 # ---------------------------------------------------------------- the op set itself
 
 def test_grammar_admits_exactly_plus_minus_not():

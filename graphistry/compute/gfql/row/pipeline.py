@@ -3072,6 +3072,13 @@ class RowPipelineMixin:
                 out.name = tmp_col
             return out
 
+        # cuDF's scalar assign reuses the first zero it saw (0.0 == -0.0), losing the sign; build the column explicitly.
+        if engine == Engine.CUDF and isinstance(value, float) and value == 0.0:
+            out = s_cons(Engine.CUDF)([value] * len(table_df), index=table_df.index)
+            if hasattr(out, "name"):
+                out.name = tmp_col
+            return out
+
         # Treat list/map literals as scalar row values by explicit broadcasting.
         # Plain `assign(col=[...])` interprets list values as column vectors.
         if isinstance(value, (list, tuple, dict)):
