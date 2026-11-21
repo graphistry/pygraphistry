@@ -436,10 +436,11 @@ existing history—no reset is required.
   and CodeQL push/PR analysis for both lines before routing ordinary PRs there.
 - Decide and record the repository-settings mechanism that permits the
   maintainer's fast-forward push of `master` before cutover.
-- Restrict the `pypi-release` environment to the release tags and branch it is
-  meant to deploy from.
-- Confirm, with a throwaway tag, that the tag protection rules match the
-  release tag format (`X.Y.Z`).
+- Version tags (`X.Y.Z`) are protected by tag rulesets, and the `pypi-release`
+  environment deploys only from `master` and version tags. After any pattern
+  change, verify that the ruleset's "Applies to" list includes the latest
+  release tag; do not push a test tag, because every tag push starts the
+  publish workflow.
 - Inventory open PRs: hotfixes target `master`; ordinary feature/stacked PRs move
   to `develop` in dependency order. Do not retarget a stacked PR until its parent
   lands on `develop`.
