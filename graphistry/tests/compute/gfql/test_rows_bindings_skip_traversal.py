@@ -903,6 +903,17 @@ SCALAR_GROUPS = {
 }
 
 
+def _polars_struct_compare_panics(value) -> bool:
+    """Some Polars releases panic (a Rust assertion, not an error) comparing a struct column to an out-of-range int, on every path."""
+    import polars as pl
+
+    try:
+        pl.DataFrame({"s": [{"a": 1}] * 3}).filter(pl.col("s") == value)
+    except BaseException as exc:  # pyo3 PanicException derives from BaseException
+        return type(exc).__name__ == "PanicException"
+    return False
+
+
 def _later_filter_query(position, column, value):
     seed = n({"id": 99}, name="a")
     if position == "edge":
@@ -922,7 +933,10 @@ def test_same_type_scalars_on_a_later_op_never_change_the_outcome(engine, column
     if engine == "cudf" and column in CUDF_UNHOLDABLE:
         pytest.skip("cuDF cannot hold this column")
     g = _dtype_graph(engine)
-    queries = [_later_filter_query(position, column, value) for value in SCALAR_GROUPS[group]]
+    scalars = SCALAR_GROUPS[group]
+    if engine == "polars" and column == "struct":
+        scalars = [value for value in scalars if not _polars_struct_compare_panics(value)]
+    queries = [_later_filter_query(position, column, value) for value in scalars]
     gfql_clear_caches()
     actual = [_outcome(g, query, engine) for query in queries * 2]  # cold, then warm
     with routes_off([ROUTE]):
@@ -1002,6 +1016,12 @@ def test_bypassing_the_allowlist_makes_known_pairs_diverge(monkeypatch):
 
     if int(pd.__version__.split(".")[0]) >= 3:
         pytest.skip("pandas 3 changes the known int-on-bool mutation outcome; pandas 2 route-manifest still proves the allowlist")
+    try:
+        pd.Series([True, False]) == 2 ** 70
+    except OverflowError:
+        pass
+    else:
+        pytest.skip("this pandas compares an out-of-range int on a bool column without raising, so the bypassed allowlist is not observable")
 
     monkeypatch.setattr(rows_skip_traversal, "_scalar_fits", lambda value, dtype: True)
     g = _dtype_graph("pandas")
