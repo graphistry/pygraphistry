@@ -439,13 +439,13 @@ class OpenAIChatProvider(_ChatDecisionProvider):
             if found is not None and time.monotonic() - found[0] < PROBE_TTL_S:
                 return found[1]
             lock = _probe_locks.setdefault(key, threading.Lock())
-            epoch = _probe_epoch[0]
         wait = -1 if deadline_at is None else min(threading.TIMEOUT_MAX, max(0.0, deadline_at - time.monotonic()))
         if not lock.acquire(timeout=wait):
             raise RequestFailure("deadline_exceeded", 0, 0.0)
         try:
             with _probe_guard:
                 found = _probed.get(key)
+                epoch = _probe_epoch[0]
             if found is not None and time.monotonic() - found[0] < PROBE_TTL_S:
                 return found[1]
             chosen = self.probe(deadline_at, admit)

@@ -231,7 +231,7 @@ def test_langchain_and_auto_fallback_never_upgrade_semantics(requirement: Probab
             {"message": {"content": '{"answer":"A"}'}, "finish_reason": "stop"}]})])
         provider = OpenAIChatProvider("dummy-key", "auto-model", session=session, strategy="auto", max_retries=0)
         check_probability_policy(provider, requirement, "none")
-        assert len(session.posts) == (0 if requirement == "native" else 3)
+        assert len(session.posts) == {False: 3, True: 2, "native": 0}[requirement]  # probes only: no row evidence once a gap is known
     finally:
         forget_probes()
 
@@ -330,3 +330,35 @@ def test_local_preflight_does_not_claim_external_side_effect() -> None:
     provider = OpenAIChatProvider("dummy-key", "model", strategy="text", session=session)
     out = run(provider, [call("sem_decide", decide_params(require_probabilities=True))] + SEL, g=polars_graph())
     assert session.posts == [] and type(out._nodes).__module__.startswith("pandas")
+
+
+def _evidence_posts(session: FakeSession, marker: str) -> int:
+    return sum(marker in json.dumps(post["json"]) for post in session.posts)
+
+
+@pytest.mark.parametrize("requirement", [True, "native"])
+def test_auto_probe_that_resolves_to_a_value_strategy_never_sends_row_evidence(requirement: ProbabilityRequirement) -> None:
+    forget_probes()
+    try:
+        session = FakeSession([FakeResponse(400), FakeResponse(200, {"choices": [
+            {"message": {"content": '{"answer":"A"}'}, "finish_reason": "stop"}]})])
+        provider = OpenAIChatProvider("dummy-key", "auto-leak-model", session=session, strategy="auto", max_retries=0)
+        data = pd.DataFrame({"name": ["ROW-EVIDENCE-MARKER"]})
+        out = sem_decide(data, questions=[P], provider=provider, task_id="t", evidence_cols=["name"],
+                         require_probabilities=requirement, budget={"max_requests": 5})
+        assert out["p__status"].tolist() == ["error"] and out["p__error_code"].tolist() == ["probabilities_unavailable"]
+        assert _evidence_posts(session, "ROW-EVIDENCE-MARKER") == 0
+        assert json.loads(out["p__meta"].iloc[0])["cost_usd"] == 0
+    finally:
+        forget_probes()
+
+
+@pytest.mark.parametrize("strategy", ["logprobs", "auto", "json_schema"])
+@pytest.mark.parametrize("requirement", [True, "native"])
+def test_zero_top_logprobs_is_a_known_gap_before_any_request(strategy: Strategy,
+                                                            requirement: ProbabilityRequirement) -> None:
+    session = FakeSession([])
+    provider = OpenAIChatProvider("dummy-key", "model", session=session, strategy=strategy, top_logprobs=0)
+    out = sem_decide(pd.DataFrame({"name": ["ROW-EVIDENCE-MARKER"]}), questions=[P], provider=provider, task_id="t",
+                     evidence_cols=["name"], require_probabilities=requirement)
+    assert out["p__error_code"].tolist() == ["probabilities_unavailable"] and session.posts == []

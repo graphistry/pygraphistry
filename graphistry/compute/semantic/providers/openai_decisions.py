@@ -144,9 +144,11 @@ class OpenAIDecisionsProvider(HttpDecisionProvider):
         self.rows_per_request = rows_per_request
 
     def capabilities(self) -> ProviderCapabilities:
+        # One planned call must be one HTTP request, so a call's rows x questions never exceed the request limit.
+        rows = min(self.rows_per_request, self.max_questions_per_request)
         return ProviderCapabilities(supports_native_probabilities=True,
-                                    max_questions_per_request=self.max_questions_per_request,
-                                    concurrency_limit=self.concurrency_limit, max_rows_per_request=self.rows_per_request,
+                                    max_questions_per_request=self.max_questions_per_request // rows,
+                                    concurrency_limit=self.concurrency_limit, max_rows_per_request=rows,
                                     max_choice_options=self.max_choice_options, max_levels=self.max_levels)
 
     def question_groups(self, request: DecisionRequest) -> List[Sequence[DecisionQuestion]]:
