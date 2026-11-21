@@ -261,8 +261,14 @@ class HttpDecisionProvider(ABC):
              deadline_at: Optional[float]) -> List[DecisionResult]:
         """POST one body answering ``pairs`` (row, question); ``read`` maps the payload, with the cost split evenly
         over the pairs. A transport failure errors every pair. A reply in which every pair is unread or cut off is
-        sent again up to ``reply_retries`` times, with costs and latencies summed."""
-        asks, resent, spent, waited = 0, 0, 0.0, 0.0
+        sent again up to ``reply_retries`` times, with costs and latencies summed. The cost sums the attempts that
+        reported usage, so every outcome of a resend keeps what the earlier replies billed."""
+        asks, resent, waited = 0, 0, 0.0
+        spent: Optional[float] = None
+
+        def share(total: Optional[float]) -> Optional[float]:
+            return None if total is None else total / len(pairs)
+
         while True:
             try:
                 payload, retries, latency_ms = post_json(
@@ -272,26 +278,28 @@ class HttpDecisionProvider(ABC):
             except RequestFailure as failure:
                 if failure.error_code == "content_filter":
                     blocked = ResponseMeta(model=self.model, latency_ms=failure.latency_ms + waited,
-                                           retries=failure.retry_count + resent, cost_usd=None, cached_tokens=None)
+                                           retries=failure.retry_count + resent, cost_usd=share(spent),
+                                           cached_tokens=None)
                     return [self.answered(request, question, blocked, value=None, distribution=None,
                                           probability_kind="none", reason="refusal",
                                           extra={"refusal_source": "request_content_filter"})
                             for request, question in pairs]
-                return [unanswered_result(request, question, provider=self.name, model=self.model,
-                                          error_code=failure.error_code, latency_ms=failure.latency_ms + waited,
-                                          retry_count=failure.retry_count + resent) for request, question in pairs]
+                return [replace(unanswered_result(request, question, provider=self.name, model=self.model,
+                                                  error_code=failure.error_code, latency_ms=failure.latency_ms + waited,
+                                                  retry_count=failure.retry_count + resent), cost_usd=share(spent))
+                        for request, question in pairs]
             usage = self.usage(payload)
             cost = self.prices.cost_usd(usage)
+            total = spent if cost is None else cost + (spent or 0.0)
             model = payload.get("model")
             meta = ResponseMeta(model=model if isinstance(model, str) else self.model,
-                                latency_ms=latency_ms + waited, retries=retries + resent,
-                                cost_usd=None if cost is None else (cost + spent) / len(pairs),
+                                latency_ms=latency_ms + waited, retries=retries + resent, cost_usd=share(total),
                                 cached_tokens=None if usage is None else usage.cached_input)
             results = read(payload, meta)
             unread = bool(results) and all(result.error_code in RESENT_REPLY_ERRORS for result in results)
             if not unread or asks >= self.reply_retries or (deadline_at is not None and time.monotonic() >= deadline_at):
                 return results
-            asks, resent, spent, waited = asks + 1, resent + 1 + retries, spent + (cost or 0.0), waited + latency_ms
+            asks, resent, spent, waited = asks + 1, resent + 1 + retries, total, waited + latency_ms
 
     def answered(self, request: DecisionRequest, question: DecisionQuestion, meta: ResponseMeta, *,
                  value: Union[bool, str, None], distribution: Optional[Dict[str, float]], probability_kind: ProbabilityKind,

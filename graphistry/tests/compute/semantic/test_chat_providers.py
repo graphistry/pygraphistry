@@ -918,6 +918,39 @@ def cut_off(text: str) -> FakeResponse:
     return reply
 
 
+class TestReplyIndexReadsOneConsistentAnswer:
+    codes = "AB"
+
+    def index(self, text: str) -> Optional[int]:
+        from graphistry.compute.semantic.providers.chat import reply_index
+        return reply_index(text, self.codes, PRED)
+
+    @pytest.mark.parametrize("text", ["The answer is A. Wait, the answer is B.", "Option A.\n\nA\n\nOption B.\n\nB",
+                                      "Answer: A\n\nAnswer: B", "A\n\nB", "The answer is A.\n\nB",
+                                      "Answer: A. Answer: B.", "A\n\nx\n\nB"])
+    def test_conflicting_answers_are_rejected_not_resolved_to_the_last(self, text: str) -> None:
+        assert self.index(text) is None
+
+    @pytest.mark.parametrize("text, expected", [("The answer is A.\n\nA", 0), ("A\n\nA", 0), ("Answer: B\n\nB", 1),
+                                                ("Reasoning: x\n\nThe answer is B.\n\nB. no", 1),
+                                                ("The answer is **B**.", 1), ("The answer is **B**", 1),
+                                                ("Answer: B. no\n\nAnswer: B", 1)])
+    def test_repeated_answers_that_agree_are_read(self, text: str, expected: int) -> None:
+        assert self.index(text) == expected
+
+    @pytest.mark.parametrize("text", ["The answer is A.\n\nSome closing remark", "A\n\nThe answer is B.\n\nx"])
+    def test_the_last_block_must_be_the_answer(self, text: str) -> None:
+        assert self.index(text) is None
+
+    def test_a_long_reply_is_read_without_recursion_in_linear_time(self) -> None:
+        import time as clock
+        for text, expected in (("thinking\n\n" * 20000 + "B", 1), ("A\n\n" * 20000 + "B", None),
+                               ("B\n\n" * 20000 + "B", 1), ("The answer is\n\n" * 20000 + "A", 0)):
+            started = clock.monotonic()
+            assert self.index(text) == expected
+            assert clock.monotonic() - started < 2.0
+
+
 class TestUnreadRepliesAreSentAgain:
 
     @pytest.mark.parametrize("first", [chat_reply("It looks fine to me"), chat_reply(""), cut_off("It looks")])
@@ -933,6 +966,47 @@ class TestUnreadRepliesAreSentAgain:
         result = checked(openai(session, strategy="text"), request((PRED,)))[0]
         assert (result.error_code, result.retry_count, len(session.posts)) == ("answer_truncated", 2, 3)
         assert result.cost_usd == pytest.approx(240 / 1e6)
+
+    def test_a_resend_that_fails_keeps_the_cost_of_the_billed_reply(self) -> None:
+        session = FakeSession([chat_reply("hmm"), FakeResponse(500)])
+        result = checked(openai(session, strategy="text", max_retries=0), request((PRED,)))[0]
+        assert (result.error_code, result.retry_count, len(session.posts)) == ("http_500", 1, 2)
+        assert result.cost_usd == pytest.approx(80 / 1e6)
+
+    def test_a_resend_the_content_filter_stops_keeps_the_cost_of_the_billed_reply(self) -> None:
+        blocked = FakeResponse(400, {"error": {"code": "content_filter", "message": "filtered"}})
+        session = FakeSession([chat_reply("hmm"), blocked])
+        result = checked(openai(session, strategy="text"), request((PRED,)))[0]
+        assert (result.status, result.status_reason, result.retry_count) == ("uncertain", "refusal", 1)
+        assert result.cost_usd == pytest.approx(80 / 1e6)
+
+    def test_a_first_send_the_content_filter_stops_has_no_cost(self) -> None:
+        blocked = FakeResponse(400, {"error": {"code": "content_filter", "message": "filtered"}})
+        assert checked(openai(FakeSession([blocked]), strategy="text"), request((PRED,)))[0].cost_usd is None
+
+    @pytest.mark.parametrize("order", ["unpriced_first", "unpriced_middle", "unpriced_last"])
+    def test_attempt_costs_add_over_the_attempts_that_report_usage(self, order: str) -> None:
+        unpriced = chat_reply("hmm")
+        unpriced._body.pop("usage")  # type: ignore[union-attr]
+        last = chat_reply("B")
+        if order == "unpriced_last":
+            last._body.pop("usage")  # type: ignore[union-attr]
+            replies = [chat_reply("hmm"), chat_reply("hmm"), last]
+        else:
+            replies = [unpriced, chat_reply("hmm"), last] if order == "unpriced_first" else [
+                chat_reply("hmm"), unpriced, last]
+        result = checked(openai(FakeSession(replies), strategy="text"), request((PRED,)))[0]
+        assert (result.value, result.retry_count) == (False, 2)
+        assert result.cost_usd == pytest.approx(160 / 1e6)
+
+    def test_attempts_that_report_no_usage_leave_the_cost_unknown(self) -> None:
+        def unpriced(text: str) -> FakeResponse:
+            reply = chat_reply(text)
+            reply._body.pop("usage")  # type: ignore[union-attr]
+            return reply
+
+        result = checked(openai(FakeSession([unpriced("hmm"), unpriced("B")]), strategy="text"), request((PRED,)))[0]
+        assert result.value is False and result.cost_usd is None
 
     def test_reply_retries_sets_how_often_and_zero_sends_once(self) -> None:
         once = FakeSession([chat_reply("hmm"), chat_reply("B")])
