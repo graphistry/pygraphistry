@@ -352,12 +352,17 @@ waiting for unfinished work while avoiding the overhead of a full Git-flow model
   to the tested `develop` SHA and pushing it, because a GitHub UI merge cannot
   fast-forward. The recorded promotion mechanism is an admin fast-forward push of
   `master`: a repository admin pushes the tested SHA directly, bypassing the
-  pull-request requirement, and no other actor can.
+  pull-request requirement; only repository admins can, under the current branch
+  protection.
 - `ci-required` (a job in `.github/workflows/ci.yml`) is the required status
-  check on both `develop` and `master`. It runs on every event, needs every other
-  job in that workflow, fails if any of them failed or was cancelled, and passes
-  when each succeeded or was skipped. A new job in `ci.yml` must be added to its
-  `needs` list in the same PR, otherwise the required check does not cover it.
+  check on both `develop` and `master`. It needs every other job in that
+  workflow, fails if any of them failed or was cancelled, and passes when each
+  succeeded or was skipped, so green means that nothing that ran failed;
+  path-gated lanes that did not apply are skipped. It does not report when the
+  whole workflow is skipped (for example `[skip ci]`), and `ci.yml` has no
+  `merge_group` trigger, so a merge queue would need one. A new job in `ci.yml`
+  must be added to its `needs` list in the same PR, otherwise the required check
+  does not cover it.
 
 ### Routine flow
 

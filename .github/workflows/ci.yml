@@ -2323,6 +2323,9 @@ jobs:
     env:
       NEEDS_JSON: ${{ toJson(needs) }}
     steps:
+    - name: Fail if the run was cancelled
+      if: ${{ cancelled() }}
+      run: exit 1
     - name: Require every needed job to have succeeded or been skipped
       run: |
         echo "$NEEDS_JSON" | jq -r 'to_entries[] | "\(.value.result)\t\(.key)"' | sort
