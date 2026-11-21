@@ -576,6 +576,24 @@ class TestFallbacks:
         checked(openai(cached, strategy="auto"), request((PRED,)))
         assert len(cached.posts) == 1
 
+    def test_a_truncated_final_text_probe_is_not_kept_as_text(self) -> None:
+        unclosed = chat_reply("<think>The question is")
+        unclosed._body["choices"][0]["finish_reason"] = "length"  # type: ignore[index]
+        session = FakeSession([FakeResponse(400), FakeResponse(400), FakeResponse(400), unclosed])
+        result = checked(openai(session, strategy="auto", base_url="https://cut.test/v1"), request((PRED,)))[0]
+        assert result.error_code == "answer_truncated" and len(session.posts) == 4
+        again = FakeSession([chat_reply("A")])
+        assert checked(openai(again, strategy="auto", base_url="https://cut.test/v1"), request((PRED,)))[0].value is True
+        assert len(again.posts) > 1  # the cut-off probe left nothing in the 1 hour probe cache
+
+    def test_a_filtered_final_text_probe_is_not_kept_as_text(self) -> None:
+        filtered = chat_reply("I cannot say")
+        filtered._body["choices"][0]["finish_reason"] = "content_filter"  # type: ignore[index]
+        session = FakeSession([FakeResponse(400), FakeResponse(400), FakeResponse(400), filtered])
+        provider = openai(session, strategy="auto", base_url="https://filtered.test/v1")
+        assert checked(provider, request((PRED,)))[0].error_code == "invalid_provider_result"
+        assert provider.kept_strategy() is None
+
     @pytest.mark.parametrize("alternatives,kept", [(top(A=0.9), "text"), (top(A=0.9, B=0.05), "logprobs")])
     def test_logprobs_needs_two_alternatives_at_the_answer_token(self, alternatives: List[Dict[str, object]],
                                                                  kept: str) -> None:
