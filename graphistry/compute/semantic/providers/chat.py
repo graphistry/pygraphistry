@@ -144,8 +144,8 @@ def _ends_at_marker(block: str) -> bool:
 
 def _block_claim(block: str, codes: str, question: DecisionQuestion) -> Optional[int]:
     """The answer a block gives, None when it gives none, or ``_CONFLICT`` when it also gives a different one. A block
-    with a marker gives its last marker's code; an answer before it, or a code and a dot opening an earlier marker's
-    text (``A. Wait, the``), must agree. Other uses of the word ``answer`` are not claims."""
+    with a marker gives its last marker's code; an answer before it, or a code opening an earlier marker's text
+    (``A. Wait, the`` or a first line ``A``), must agree. Other uses of the word ``answer`` are not claims."""
     index = _line_index(block, codes, question)
     if index is not None:
         return index
@@ -155,14 +155,14 @@ def _block_claim(block: str, codes: str, question: DecisionQuestion) -> Optional
     last = _coded_index(_marked_answer(parts[-1]), codes, question)
     if last is None:
         return None
-    earlier = [_line_index(line, codes, question) for line in parts[0].split("\n")] + [
-        _opening_code(part, codes, question) for part in parts[1:-1]]
+    earlier = [_line_index(parts[0], codes, question)] + [_opening_code(part, codes, question) for part in parts[1:-1]]
     return last if all(claim in (None, last) for claim in earlier) else _CONFLICT
 
 
 def _opening_code(text: str, codes: str, question: DecisionQuestion) -> Optional[int]:
     said = _marked_answer(text, strip_dot=False)
-    return _coded_index(said[:1], codes, question) if said[1:2] in (".", ")", ":", "-") else None
+    opened = _coded_index(said[:1], codes, question) if said[1:2] in (".", ")", ":", "-") else None
+    return opened if opened is not None else _line_index(said.split("\n")[0], codes, question)
 
 
 def _marked_answer(text: str, strip_dot: bool = True) -> str:

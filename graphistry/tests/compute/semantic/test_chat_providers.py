@@ -959,7 +959,12 @@ class TestReplyIndexReadsOneConsistentAnswer:
     def test_a_reply_that_says_answer_more_than_once_and_agrees_is_read(self, text: str) -> None:
         assert self.index(text) == 1
 
-    @pytest.mark.parametrize("text", ["A\nThe answer is B", "A.\nThe answer is B.", "yes\nThe answer is B",
+    @pytest.mark.parametrize("text", ["A. yes\nB. no\nThe answer is B.", "Question: Is it damaged?\nA. yes\nB. no\nAnswer: B",
+                                      "A. yes\nB. no\nAnswer: B"])
+    def test_options_restated_before_the_marker_are_not_answers(self, text: str) -> None:
+        assert self.index(text) == 1
+
+    @pytest.mark.parametrize("text", ["Answer: A\nAnswer: B", "Answer: A \nAnswer: B", "A\nAnswer: B",
                                       "The answer is A. Wait, the answer is B.", "Answer:\n\nA\n\nAnswer: B"])
     def test_an_answer_before_the_marker_that_differs_is_rejected(self, text: str) -> None:
         assert self.index(text) is None
