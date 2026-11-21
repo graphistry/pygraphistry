@@ -39,8 +39,7 @@ def _bounded_scan(
 def _scan_membership(key: str, ids: "pl.Series") -> "pl.Expr":
     import polars as pl
 
-    # Give Parquet statistics simple bounds to prune even when the reader
-    # cannot derive them from the exact membership expression.
+    # Some Parquet readers need an explicit range to prune membership predicates.
     column = pl.col(key)
     low, high = ids.min(), ids.max()
     return is_in_ids(column, ids) & column.is_between(
