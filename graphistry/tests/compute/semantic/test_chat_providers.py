@@ -11,7 +11,7 @@ from graphistry.compute.semantic.contract import DecisionQuestion, DecisionReque
 from graphistry.compute.semantic.ops import sem_decide
 from graphistry.compute.semantic.providers import chat
 from graphistry.compute.semantic.providers.chat import (
-    DIGITS, LETTERS, SYSTEM_PROMPT, AnthropicMessagesProvider, OpenAIChatProvider, answer_codes, code_index,
+    DIGITS, LETTERS, SYSTEM_PROMPT, AnthropicMessagesProvider, OpenAIChatProvider, Strategy, answer_codes, code_index,
     forget_probes, label_distribution, letter_prompt)
 from graphistry.compute.semantic.providers.http import TokenPrices
 from graphistry.tests.compute.semantic.http_test_utils import CHOICE, PRED, SCORE, FakeResponse, FakeSession, request
@@ -753,3 +753,57 @@ class TestProbeBudget:
                                                "levels": ["F", "D", "C", "B", "A", "A+", "A-", "B+", "B-", "C+", "C-"]}],
                           budget={"max_requests": 3})
         assert session.posts == [] and out["p__error_code"].tolist() == ["unsupported_question"] * 3
+
+
+def test_a_probe_that_starts_after_forget_probes_is_kept() -> None:
+    import threading
+    from graphistry.compute.semantic.providers import chat as chat_module
+
+    class ContendedLock:
+        """A probe lock that reports the second acquire attempt, so the test knows another prober is waiting."""
+
+        def __init__(self) -> None:
+            self._lock = threading.Lock()
+            self.attempts = 0
+            self.contended = threading.Event()
+
+        def acquire(self, timeout: float = -1) -> bool:
+            self.attempts += 1
+            if self.attempts == 2:
+                self.contended.set()
+            return self._lock.acquire(timeout=timeout)
+
+        def release(self) -> None:
+            self._lock.release()
+
+    first_started, release_first = threading.Event(), threading.Event()
+    calls: List[int] = []
+
+    class Slow(OpenAIChatProvider):
+        def probe(self, deadline_at: object, admit: object = None) -> Strategy:  # type: ignore[override]
+            calls.append(1)
+            if len(calls) == 1:
+                first_started.set()
+                release_first.wait(5)
+            return "text"
+
+    forget_probes()
+    try:
+        first = Slow("k", "m", base_url="https://epoch.test/v1", strategy="auto")
+        second = Slow("k", "m", base_url="https://epoch.test/v1", strategy="auto")
+        lock = ContendedLock()
+        chat_module._probe_locks[first.probe_key()] = lock  # type: ignore[assignment]
+        threads = [threading.Thread(target=lambda: first.resolve_strategy(None)),
+                   threading.Thread(target=lambda: second.resolve_strategy(None))]
+        threads[0].start()
+        assert first_started.wait(5)
+        threads[1].start()
+        assert lock.contended.wait(5)
+        forget_probes()  # the second prober was waiting; its probe starts after this reset
+        release_first.set()
+        for thread in threads:
+            thread.join(5)
+        assert len(calls) == 2 and first.probe_key() in chat_module._probed
+    finally:
+        chat_module._probe_locks.pop(first.probe_key(), None)
+        forget_probes()

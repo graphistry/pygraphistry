@@ -335,3 +335,25 @@ class TestRowPacking:
         out = sem_decide(frame, questions=[PRED], provider=p, evidence_cols=["text"], task_id="t", batch_size=3,
                          budget={"max_requests": 2}, max_concurrency=1)
         assert out["p__status"].tolist() == ["ok"] * 6 + ["skipped"] * 4 and len(session.posts) == 2
+
+    @pytest.mark.parametrize("rows_per_request,max_questions", [(4, 3), (2, 3), (4, 5), (3, 2)])
+    def test_one_planned_call_is_one_http_request_so_the_request_budget_holds(self, rows_per_request: int,
+                                                                            max_questions: int) -> None:
+        session = FakeSession([answers_for])
+        p = provider(session, rows_per_request=rows_per_request, max_questions_per_request=max_questions)
+        caps = p.capabilities()
+        assert caps.max_rows_per_request * caps.max_questions_per_request <= max_questions  # type: ignore[operator]
+        frame = pd.DataFrame({"text": list("abcdefgh")})
+        out = sem_decide(frame, questions=[PRED, CHOICE], provider=p, evidence_cols=["text"], task_id="t",
+                         budget={"max_requests": 1}, max_concurrency=1)
+        assert len(session.posts) == 1
+        assert all(len(post["json"]["questions"]) <= max_questions for post in session.posts)  # type: ignore[arg-type,index]
+        assert out["p__status"].tolist().count("skipped") > 0
+
+    def test_every_request_of_a_budgeted_packed_run_is_counted(self) -> None:
+        session = FakeSession([answers_for])
+        p = provider(session, rows_per_request=4, max_questions_per_request=3)
+        frame = pd.DataFrame({"text": list("abcdefgh")})
+        out = sem_decide(frame, questions=[PRED, CHOICE], provider=p, evidence_cols=["text"], task_id="t",
+                         budget={"max_requests": 5}, max_concurrency=1)
+        assert len(session.posts) == 5

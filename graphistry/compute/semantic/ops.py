@@ -594,20 +594,30 @@ def sem_decide(
               for position, evidence in enumerate(rows.evidence) for question in coerced}
     deadline_at = None if deadline is None else started + deadline
     run = [resolved]
+    unavailable = _unavailable_answers(identity)
+    settled_gap = [False]
 
     def prepare(requests_: Sequence[DecisionRequest], admit: Admit) -> bool:
         prepared = _prepared(resolved, requests_, admit, deadline_at)
         run[0] = prepared or resolved
+        settled_gap[0] = prepared is not None and known_probability_gap(prepared, require_probabilities)
         return prepared is not None
+
+    def invoke(batch: Sequence[DecisionRequest], remaining: Optional[float], call_budget: Optional[Budget]) -> object:
+        # A strategy settled by the run's setup (such as a probe) may lack the required probabilities: send no evidence.
+        if settled_gap[0]:
+            return unavailable(batch)
+        return run[0].decide_batch(batch, deadline_s=remaining, budget=call_budget)
 
     cells = _run_rows(
         rows, lambda positions: [[request(position, coerced[start:start + per_call]) for position in positions]
                                  for start in range(0, len(coerced), per_call)],
-        lambda batch, remaining, call_budget: run[0].decide_batch(batch, deadline_s=remaining, budget=call_budget),
+        invoke,
         result_type=DecisionResult, capabilities=capabilities, batch_size=batch_size,
         default_batch_size=DEFAULT_DECIDE_BATCH_SIZE, max_concurrency=max_concurrency, budget=run_budget,
-        deadline_at=deadline_at, effect_name="sem_decide", estimate=lambda batch: _estimate_cost(run[0], batch),
-        local_answers=_unavailable_answers(identity) if known_probability_gap(resolved, require_probabilities) else None,
+        deadline_at=deadline_at, effect_name="sem_decide",
+        estimate=lambda batch: 0.0 if settled_gap[0] else _estimate_cost(run[0], batch),
+        local_answers=unavailable if known_probability_gap(resolved, require_probabilities) else None,
         prepare=prepare)
     grid = {(position, question.id): _decision_cell(request_, question, outcome, row, identity, capabilities,
                                                     threshold, hashes[(position, question.id)], require_probabilities)

@@ -14,7 +14,7 @@ def known_probability_gap(provider: DecisionProvider, requirement: ProbabilityRe
     if type(provider) in (AnthropicMessagesProvider, LangChainDecisionProvider):
         return True
     if isinstance(provider, OpenAIChatProvider) and type(provider) is OpenAIChatProvider:
-        if requirement == "native":
+        if requirement == "native" or provider.top_logprobs == 0:
             return True
         return provider.strategy != "logprobs" and (
             provider.strategy != "auto" or "logprobs" not in provider.probe_strategies)
