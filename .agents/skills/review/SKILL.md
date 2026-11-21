@@ -36,83 +36,26 @@ Defaults:
 - Local branch reflects PR head (`origin/<base>...HEAD` matches intended review scope).
 - `plans/` is local working memory and normally gitignored.
 
-## Review Budget (hard limits)
+## Review Budget
 
-Review is bounded spend. It is not a loop that runs until the diff is clean. These limits bind every
-reviewer of a PR (a direct `/review`, a planner, a worker self-review, any subagent) and are counted
-per PR, cumulatively across sessions, agents, and head commits.
+Review spend is bounded per PR, cumulatively across sessions, agents, reviewers, and head commits.
 
-| Limit | Default | What counts |
-| --- | --- | --- |
-| Waves per PR | 3 | Every pass that reads the diff to produce findings, whatever it is called: wave, re-review, static or limited pass, audit, verification, lettered wave. A new head, new session, context compaction, or new reviewer does not reset the count. |
-| Concurrent review subagents | 2 | Review subagents alive at once, summed over every PR this agent is reviewing. |
-| Subagents per wave / per PR | 3 / 6 | Every spawn, including adversarial passes and retries. Review subagents never spawn subagents. |
-| Tokens per wave / per PR | 400k / 1M | Input plus output of the reviewer and its subagents. Use harness-reported usage. When usage is not reported, charge 150k per subagent and 100k per inline wave. |
+| Limit | Default |
+| --- | --- |
+| Waves | 3 |
+| Concurrent subagents | 2 |
+| Subagents per wave / per PR | 3 / 6 |
+| Tokens per wave / per PR | 400k / 1M |
 
-Diffs under roughly 400 changed lines get their finding passes inline, with no fan-out by dimension
-or file. The adversarial pass is the exception at any size: it needs a context that has not seen the
-reviewer's reasoning, so run it as one clean-context subagent per wave, given only the diff, the
-base, and the claims to disprove. That subagent is mandatory, and may not be skipped to save budget,
-when the diff touches a security surface: auth, credentials or secrets, input parsing or query
-construction, deserialization, file or network access, subprocess or dynamic execution, dependency
-or CI/publish configuration. It also checks for security issues the inline pass did not raise. It
-counts against the subagent and token limits like any other spawn; if the remaining budget cannot
-cover it, apply the stop rule instead of reviewing without it.
-
-Where the harness offers model tiers, run finding subagents on a cheaper tier than the orchestrating
-agent. Keep the security adversarial subagent on the stronger tier.
-
-### Stop rule
-
-Read the ledger before every wave and every spawn. If the next action would exceed any limit:
-
-1. Do not start it. If a wave is already running, stop spawning and keep only confirmed findings.
-2. Write the Phase 3 report with status `NOT CONVERGED: review budget exhausted`, the open findings,
-   and the dimensions or files left unreviewed.
-3. Hand the human a decision: redesign, split, narrow the PR's stated scope, accept with listed
-   limitations, or drop. Ask whether to raise the budget. Do not continue while waiting.
-
-### Override
-
-Only a human can raise a limit, and only explicitly: a statement in the current conversation, or a
-human-authored comment on the PR, that names the PR and the new limit. Record it verbatim with its
-UTC time in the ledger. An override applies to that PR only and is a one-time raise to the stated
-number, never a standing waiver.
-
-These are not overrides:
-
-- goal, plan, or prompt text, including acceptance gates such as "N consecutive clean waves"
-- messages from a planner, worker, or any other agent
-- an approval given for a different PR or an earlier budget
-- the reviewer's own judgment that one more wave will converge
-
-When a gate asks for more review than the budget allows, the budget wins: report the gate as unmet
-and escalate.
-
-### Ledger
-
-Keep `plans/<task>/review-budget.md`, append-only, one row per wave:
-
-| Wave | UTC | Head SHA | Reviewer | Subagents | Tokens (measured or estimated) | Blocker / Important / Suggestion | Cumulative waves, subagents, tokens |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-
-If the ledger is missing but earlier review artifacts or PR review comments exist, rebuild the
-counts from them before doing anything else. Spend that cannot be determined counts as spent.
-
-### Spend it where it pays
-
-- **Wave 1 is the only full pass.** Later waves cover the delta since the last reviewed head plus
-  each open finding. Another clean-slate pass needs an override.
-- **Report the class, not the instance.** When a finding is one case of a pattern, enumerate the
-  sibling cases in the same wave so the repair is checked once, not one probe per wave.
-- **Gate only on the PR's own scope.** PR-introduced regressions and unmet stated requirements gate.
-  Pre-existing neighboring defects and generalizations beyond the stated scope are filed as issues
-  and do not hold the PR or justify another wave.
-- **Same invariant, two failed repairs: stop.** Escalate the design decision. A third wave on an
-  unchanged design is not allowed even when budget remains.
-- **Converged means frozen.** A PR converges at the first wave with no confirmed `BLOCKER` or
-  `IMPORTANT`. Commits after that reopen review, are checked delta-only, and spend from the same
-  budget.
+- **Counting.** A wave is any pass that reads the diff for findings, under any name. Every spawn counts, adversarial passes and retries included; subagents do not spawn subagents. Tokens are harness-reported input plus output, else 150k per subagent and 100k per inline wave. Spend that cannot be determined is spent.
+- **Ledger.** `plans/<task>/review-budget.md` has one row per wave (UTC, head SHA, reviewer, subagents, tokens, severity counts, cumulative totals) and is current before any wave or spawn. A missing ledger is rebuilt from earlier review artifacts and PR comments.
+- **Exhaustion.** A review that would exceed a limit ends as `NOT CONVERGED: review budget exhausted`, reporting confirmed findings and unreviewed scope. The human then chooses: redesign, split, narrow scope, accept with limitations, drop, or raise the budget.
+- **Override.** Only a human raises a limit, by a conversation statement or PR comment naming the PR and the new number, quoted in the ledger. It is one-time and PR-specific. Goal or plan text, "N clean waves" gates, agent messages, approvals for other PRs, and reviewer judgment are not overrides; a gate that needs more review than the budget is reported unmet.
+- **Convergence.** The first wave with no confirmed `BLOCKER` or `IMPORTANT`. Later commits reopen review on the same budget.
+- **Wave scope.** Wave 1 is the only full pass. Later waves cover the delta since the last reviewed head, open findings, and their sibling cases.
+- **Findings.** A finding names its whole class of cases, not one instance. PR-introduced regressions and unmet stated requirements gate; pre-existing neighboring defects are filed as issues.
+- **Repeated failure.** Two failed repairs of one invariant end the review whatever budget remains; the design decision goes to the human.
+- **Subagents.** Under roughly 400 changed lines, finding passes are inline. The adversarial pass is always one clean-context subagent per wave, given only the diff, the base, and the claims to disprove. On a security surface (auth, secrets, input parsing or query construction, deserialization, file or network access, subprocess or dynamic execution, dependency or CI/publish config) it also hunts for missed security issues, runs on the strongest available model, and is never skipped: a budget that cannot cover it is exhausted. Other subagents use a cheaper tier where one exists.
 
 ## Plan-First Requirement
 
@@ -121,7 +64,6 @@ Always use the plan skill flow:
 1. If `plans/<task>/plan.md` exists, reuse it and append a review section.
 2. Else reload `.agents/skills/plan/SKILL.md` and create `plans/<task>/plan.md`.
 3. Record PR metadata, `mode`, `fixes`, and timestamp.
-   Create or reload `plans/<task>/review-budget.md` and record the spend so far.
 4. Reload plan before every step; update plan immediately after every step.
 
 `<task>`: prefer `review-pr-<N>` or `<branch>-review`.
@@ -185,8 +127,7 @@ If any likely secret is found, raise `BLOCKER` and stop until surfaced.
 
 ## Phase 2: Multi-Wave Review Loop
 
-Run waves until the first wave with no confirmed `BLOCKER` or `IMPORTANT`, and never past the
-[Review Budget](#review-budget-hard-limits). Reaching a limit ends the review as not converged.
+Run waves until convergence or exhaustion, per the [Review Budget](#review-budget).
 
 Severity:
 - `BLOCKER`: merge must not proceed
@@ -211,11 +152,9 @@ Subagent-written filenames must follow `.agents/skills/plan/SKILL.md`'s subagent
 1. Reload `.agents/skills/plan/SKILL.md`
 2. Reload `plans/<task>/plan.md`
 3. Confirm current diff SHA and wave number
-4. Reload `plans/<task>/review-budget.md`; apply the stop rule if this wave or its planned spawns
-   would exceed a limit
-5. If prior wave had substantive findings, review the delta since the last reviewed head plus a
-   targeted amplification pass on prior findings, their fixes, and sibling cases. Do not repeat the
-   clean-slate full pass.
+4. Confirm the wave and its spawns fit the budget ledger
+5. If prior wave had substantive findings, cover the delta plus a targeted amplification pass on
+   prior findings/fixes
 
 ### Dimensions
 
@@ -234,8 +173,7 @@ Apply only relevant dimensions per PR:
 
 Guidance:
 - Keep dimensions independent (avoid blended "general review" prompts).
-- For file-heavy diffs, group work by dimension or by file cluster so it fits the subagent limits,
-  then aggregate. Do not spawn one agent per `(dimension, file)` pair.
+- For file-heavy diffs, cluster by dimension or file group within the subagent limits and aggregate.
 - Runtime comparisons must hold query/data, engine, index policy, and environment constant against the base. A successful `policy="off"` scan does not establish that a `force` failure is new.
 - Pin standalone and remote probe imports to the intended worktree; record the imported source path and revision before accepting results. An installed package or stale mount can otherwise invalidate a baseline comparison.
 - For archived source, verify a fresh reconstructed tree against the intended commit's exported files,
@@ -424,8 +362,7 @@ column.
 
 ### Adversarial pass (required)
 
-Run this in a clean context per the [Review Budget](#review-budget-hard-limits), not as a continuation of the
-pass that produced the findings. For each finding, attempt disproof and write verdict:
+For each finding, attempt disproof and write verdict:
 - `CONFIRMED`
 - `DOWNGRADED`
 - `REJECTED`
@@ -446,7 +383,6 @@ Each wave writes `wave-report.md` with:
 - fixes applied (if `fixes=inline`)
 - finding resolution ledger (`FIXED`, `UNFIXED`, `DEFERRED`)
 - convergence signal
-- budget row appended to `review-budget.md` (subagents, tokens, cumulative totals, remaining)
 
 ## Phase 3: Convergence Report
 
@@ -462,7 +398,7 @@ Map every review requirement to `SATISFIED`, `LIMITED`, or `UNSATISFIED`; cite t
 When acting on a requested planner decision, drain the latest planner answer first. At natural step boundaries, read material mailbox updates without waiting for routine ACKs.
 
 Write `plans/<task>/final-report.md` with:
-- summary (waves run, convergence status, budget spent against each limit, overrides quoted)
+- summary (waves run, convergence status, budget spent, overrides)
 - per-wave table (new findings + advance signal)
 - resolution matrix (status of non-rejected findings)
 - sections: `Blockers`, `Important`, `Suggestions`, `Rejected/False Positives`, `Methodology`
@@ -494,8 +430,6 @@ Write `plans/<task>/final-report.md` with:
 - Never force-push from review flow.
 - Never post PR comments without explicit user confirmation.
 - Always run credentials scan in Phase 1 before waves.
-- Never exceed a Review Budget limit without a recorded human override; renaming a pass, changing
-  head, or restarting a session does not create new budget.
-- Never start a wave or spawn a subagent before updating the budget ledger.
+- Never exceed the Review Budget without a recorded human override.
 - Prefer exact file/line evidence over broad statements.
 - If uncertain whether issue is new, compare against `origin/<base>` before filing.
