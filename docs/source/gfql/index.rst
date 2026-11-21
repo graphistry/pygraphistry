@@ -26,6 +26,9 @@ Where to start
   one-keyword CPU speedup; :doc:`performance` covers GPU and remote GPU.
 - **Start from known nodes**: :doc:`indexing` makes
   lookups from known nodes cost O(degree) instead of O(E).
+- **Ask a model about rows**: the :ref:`semantic table operators <gfql-semantic-table-operators>` ``sem_decide`` and
+  ``sem_map`` add typed answers and generated text to a node or edge table. The :doc:`demo notebook </notebooks/gfql>`
+  ``GFQL Semantic Operators`` runs offline.
 
 .. toctree::
    :maxdepth: 1
