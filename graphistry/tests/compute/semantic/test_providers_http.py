@@ -111,3 +111,36 @@ class TestTokenPrices:
 
 def test_mapping_evidence_is_compact_sorted_json() -> None:
     assert evidence_text({"b": 2, "a": "x"}) == '{"a":"x","b":2}' and evidence_text("as is ") == "as is "
+
+
+class TestTransportHardening:
+
+    def test_the_default_post_never_follows_redirects(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        seen: List[dict] = []
+
+        def fake_post(url: str, **kwargs: object) -> FakeResponse:
+            seen.append(kwargs)
+            return FakeResponse(302, headers={"Location": "https://elsewhere.test/"})
+
+        monkeypatch.setattr(requests, "post", fake_post)
+        with pytest.raises(RequestFailure) as info:
+            post_json("https://api.test/v1/x", {"q": 1}, {"Authorization": "Bearer k"}, deadline_at=None,
+                      timeout_s=60.0, max_retries=0, backoff_s=0.0)
+        assert info.value.error_code == "http_302" and [call["allow_redirects"] for call in seen] == [False]
+
+    def test_a_supplied_session_keeps_the_requests_style_post_signature(self) -> None:
+        session = FakeSession([OK])
+        assert post(session)[0] == {"ok": True} and len(session.posts) == 1
+
+    def test_json_nested_too_deeply_is_an_invalid_result(self) -> None:
+        class Deep(FakeResponse):
+            def json(self) -> object:
+                raise RecursionError("maximum recursion depth exceeded")
+
+        assert failure(FakeSession([Deep(200)])).error_code == "invalid_provider_result"
+
+    @pytest.mark.parametrize("base_url", ["ftp://api.test/v1", "api.test/v1", "https://api.test/v 1", "https://", 5])
+    def test_a_malformed_base_url_is_rejected_at_construction(self, base_url: object) -> None:
+        from graphistry.compute.semantic.providers.openai_decisions import OpenAIDecisionsProvider
+        with pytest.raises(ValueError, match="base_url"):
+            OpenAIDecisionsProvider("k", "m", base_url=base_url)  # type: ignore[arg-type]

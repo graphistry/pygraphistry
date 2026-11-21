@@ -477,13 +477,13 @@ class OpenAIChatProvider(_ChatDecisionProvider):
             if found is not None and time.monotonic() - found[0] < PROBE_TTL_S:
                 return found[1]
             lock = _probe_locks.setdefault(key, threading.Lock())
-            epoch = _probe_epoch[0]
         wait = -1 if deadline_at is None else min(threading.TIMEOUT_MAX, max(0.0, deadline_at - time.monotonic()))
         if not lock.acquire(timeout=wait):
             raise RequestFailure("deadline_exceeded", 0, 0.0)
         try:
             with _probe_guard:
                 found = _probed.get(key)
+                epoch = _probe_epoch[0]
             if found is not None and time.monotonic() - found[0] < PROBE_TTL_S:
                 return found[1]
             chosen = self.probe(deadline_at, admit)
@@ -499,9 +499,9 @@ class OpenAIChatProvider(_ChatDecisionProvider):
     def probe(self, deadline_at: Optional[float], admit: Optional[Admit] = None) -> Optional[Strategy]:
         """The first configured strategy that answers a synthetic question in its expected form.
 
-        Plain chat can keep the final text rung even for an off-code reply. Terminal request failures raise
-        RequestFailure; unusable replies keep nothing. Each request first asks ``admit`` with its estimated cost
-        and raises ProbeStopped when refused.
+        Plain chat can keep the final text rung even for an off-code reply, but not a cut-off or refused one.
+        Terminal request failures raise RequestFailure; unusable replies keep nothing. Each request first asks
+        ``admit`` with its estimated cost and raises ProbeStopped when refused.
         """
         question = PROBE_REQUEST.questions[0]
         codes = answer_codes(question) or LETTERS
@@ -531,7 +531,9 @@ class OpenAIChatProvider(_ChatDecisionProvider):
                                       or len(answer_alternatives(found.tokens, codes, index, found.text)) >= 3):
                 return strategy
         if self.probe_strategies[-1] == "text" and payload is not None and _plain_chat(payload):
-            return "text"
+            last = self.strategy_reply(payload, "text")
+            if not (last.unfinished or last.refused):
+                return "text"
         if last_failure is None and payload is not None and self.truncated(payload):
             raise RequestFailure("answer_truncated", 0, 0.0)
         if last_failure is not None:

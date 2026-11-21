@@ -101,9 +101,10 @@ def _error_code(response: requests.Response) -> object:
 def _attempt(session: Optional[HttpPoster], url: str, body: JSONObject, headers: Dict[str, str],
              timeout: float) -> Tuple[Optional[JSONObject], str, bool, Optional[float]]:
     """One POST: ``(payload, failure code, retryable, Retry-After seconds)``; payload is set only on success."""
-    post = session.post if session is not None else requests.post
     try:
-        response = post(url, json=body, headers=headers, timeout=timeout)
+        # The default POST never follows a redirect, so a 3xx cannot forward the key header or evidence to another host.
+        response = (session.post(url, json=body, headers=headers, timeout=timeout) if session is not None
+                    else requests.post(url, json=body, headers=headers, timeout=timeout, allow_redirects=False))
     except (requests.ConnectionError, requests.Timeout, requests.exceptions.ChunkedEncodingError,
             requests.exceptions.ContentDecodingError, requests.exceptions.RetryError):
         return None, "transport_error", True, None
@@ -124,7 +125,7 @@ def _attempt(session: Optional[HttpPoster], url: str, body: JSONObject, headers:
         return None, code, status in RETRYABLE_STATUSES or (status >= 500 and status != 501), delay
     try:
         payload = response.json()
-    except ValueError:
+    except (ValueError, RecursionError):
         payload = None
     return (payload, "", False, None) if isinstance(payload, dict) else (None, "invalid_provider_result", False, None)
 
@@ -151,6 +152,13 @@ def post_json(url: str, body: JSONObject, headers: Dict[str, str], *, deadline_a
         if delay > 0:
             time.sleep(delay)
         retries += 1
+
+
+def _checked_base_url(value: object) -> str:
+    if not (isinstance(value, str) and value.startswith(("http://", "https://")) and not any(c.isspace() for c in value)
+            and value.split("://", 1)[1].strip("/")):
+        raise ValueError(f"base_url must be an http:// or https:// URL without whitespace, got {value!r}")
+    return value.rstrip("/")
 
 
 class ResponseMeta(NamedTuple):
@@ -215,7 +223,7 @@ class HttpDecisionProvider(ABC):
         self.reply_retries = reply_retries
         self._api_key = api_key
         self.model = model
-        self.base_url = (base_url or self.default_base_url).rstrip("/")
+        self.base_url = _checked_base_url(base_url or self.default_base_url)
         self.prices = prices or TokenPrices()
         self.concurrency_limit = concurrency_limit
         self.timeout_s = timeout
