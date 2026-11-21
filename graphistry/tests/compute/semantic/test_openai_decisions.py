@@ -368,4 +368,4 @@ class TestRowPacking:
         frame = pd.DataFrame({"text": list("abcdefgh")})
         out = sem_decide(frame, questions=[PRED, CHOICE], provider=p, evidence_cols=["text"], task_id="t",
                          budget={"max_requests": 5}, max_concurrency=1)
-        assert len(session.posts) == 5 and "skipped" in out["p__status"].tolist()
+        assert len(session.posts) == 5 and "skipped" in out["c__status"].tolist()
