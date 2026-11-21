@@ -346,6 +346,8 @@ waiting for unfinished work while avoiding the overhead of a full Git-flow model
 - Forwarded hotfixes into an active `release/X.Y` and into `develop` go through
   a PR that a maintainer merges with a merge commit; do not use squash or
   rebase merges.
+  Forwarding PRs use a dedicated forwarding branch as the PR head, never
+  `master` or `develop` themselves.
 - The maintainer performs the final promotion by fast-forwarding local `master`
   to the tested `develop` SHA and pushing it, because a GitHub UI merge cannot
   fast-forward. The repository-settings mechanism that permits this push is
@@ -366,14 +368,15 @@ waiting for unfinished work while avoiding the overhead of a full Git-flow model
 	```
 
 3. While an optional `release/X.Y` is active, also forward every `master`
-   hotfix into that release branch. Resolve conflicts and run the release
-   branch's tests on the combined snapshot before closure:
+   hotfix into that release branch by pushing a tested forwarding branch and
+   opening a PR that targets the release branch. Resolve conflicts and run the
+   release branch's tests on the combined snapshot before closure:
 
 	```sh
-	git switch release/X.Y
-	git pull --ff-only origin release/X.Y
+	git fetch origin master release/X.Y
+	git switch -c hotfix/forward-release origin/release/X.Y
 	git merge --no-ff origin/master
-	git push origin refs/heads/release/X.Y
+	git push origin refs/heads/hotfix/forward-release
 	```
 
 4. Forward the same tested `master` hotfix into `develop` before the next
@@ -381,7 +384,8 @@ waiting for unfinished work while avoiding the overhead of a full Git-flow model
    `develop`:
 
 	```sh
-	git switch -c hotfix/forward-develop origin/master
+	git fetch origin master develop
+	git switch -c hotfix/forward-develop origin/develop
 	git merge --no-ff origin/master
 	git push origin refs/heads/hotfix/forward-develop
 	```
@@ -432,12 +436,17 @@ existing history—no reset is required.
   and CodeQL push/PR analysis for both lines before routing ordinary PRs there.
 - Decide and record the repository-settings mechanism that permits the
   maintainer's fast-forward push of `master` before cutover.
+- Restrict the `pypi-release` environment to the release tags and branch it is
+  meant to deploy from.
+- Confirm, with a throwaway tag, that the tag protection rules match the
+  release tag format (`X.Y.Z`).
 - Inventory open PRs: hotfixes target `master`; ordinary feature/stacked PRs move
   to `develop` in dependency order. Do not retarget a stacked PR until its parent
   lands on `develop`.
-- Keep the existing `pypi-release` approval gate and tag-ancestry check. RC
-  evidence may use a synthetic TestPyPI run, but final versions publish only from
-  immutable tags on `master`.
+- Keep the existing `pypi-release` approval gate and tag-ancestry check, with
+  the environment approval enforcing publication. RC evidence may use a
+  synthetic TestPyPI run, but final versions publish only from immutable tags on
+  `master`.
 - After cutover, verify GitHub Releases, Read the Docs `stable`/`latest`, and
   tag-specific activation; record any repository-settings change separately for
   maintainer approval.

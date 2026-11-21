@@ -40,9 +40,8 @@ concurrency:
     }}
   cancel-in-progress: >-
     ${{
-    github.event_name == 'push' && github.ref == 'refs/heads/develop'
-    && false
-    || github.ref != 'refs/heads/master'
+    (github.event_name != 'push' || (github.ref != 'refs/heads/develop' && github.ref != 'refs/heads/master'))
+    && github.ref != 'refs/heads/master'
     }}
 
 env:
