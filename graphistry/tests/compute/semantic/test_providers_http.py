@@ -138,6 +138,11 @@ class TestTransportHardening:
 
         assert failure(FakeSession([Deep(200)])).error_code == "invalid_provider_result"
 
+    @pytest.mark.parametrize("base_url", ["HTTPS://api.test/v1", "Http://localhost:8000/v1"])
+    def test_the_scheme_of_a_base_url_is_case_insensitive(self, base_url: str) -> None:
+        from graphistry.compute.semantic.providers.openai_decisions import OpenAIDecisionsProvider
+        assert OpenAIDecisionsProvider("k", "m", base_url=base_url).base_url == base_url
+
     @pytest.mark.parametrize("base_url", ["ftp://api.test/v1", "api.test/v1", "https://api.test/v 1", "https://", 5])
     def test_a_malformed_base_url_is_rejected_at_construction(self, base_url: object) -> None:
         from graphistry.compute.semantic.providers.openai_decisions import OpenAIDecisionsProvider

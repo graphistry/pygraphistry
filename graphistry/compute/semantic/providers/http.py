@@ -145,7 +145,7 @@ def post_json(url: str, body: JSONObject, headers: Dict[str, str], *, deadline_a
 
 
 def _checked_base_url(value: object) -> str:
-    if not (isinstance(value, str) and value.startswith(("http://", "https://")) and not any(c.isspace() for c in value)
+    if not (isinstance(value, str) and value.lower().startswith(("http://", "https://")) and not any(c.isspace() for c in value)
             and value.split("://", 1)[1].strip("/")):
         raise ValueError(f"base_url must be an http:// or https:// URL without whitespace, got {value!r}")
     return value.rstrip("/")
