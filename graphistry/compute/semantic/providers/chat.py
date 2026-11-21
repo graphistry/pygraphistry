@@ -112,37 +112,63 @@ _CONFLICT = -1
 def reply_index(text: object, codes: str, question: DecisionQuestion) -> Optional[int]:
     """The answer index of a reply: a code alone, a code followed by its own label (``"A. yes"``), or a label alone
     (``"yes"``). A reply that is otherwise not an answer is also read when its last block, after a blank line, is one
-    of those, or when it ends with a code after ``answer:`` or ``answer is``. Earlier blocks that also give an answer
-    must give the same one, else None; so must repeated markers in one block. One pass, linear in the reply."""
+    of those, or when it ends with a code after ``answer:`` or ``answer is``. Every other answer the reply gives
+    must be the same one, else None. One pass, linear in the reply."""
     index = _line_index(text, codes, question)
     if index is not None or not isinstance(text, str):
         return index
-    claims = [_block_claim(block, codes, question) for block in text.rstrip().split("\n\n") if block.strip()]
+    claims: List[Optional[int]] = []
+    pending: Optional[str] = None
+    for block in text.rstrip().split("\n\n"):
+        if not block.strip():
+            continue
+        if pending is not None:
+            joined = _block_claim(pending + " " + block.strip(), codes, question)
+            claims.append(_block_claim(block, codes, question) if joined is None else joined)
+            pending = None
+        elif _ends_at_marker(block):
+            pending = block.rstrip()
+        else:
+            claims.append(_block_claim(block, codes, question))
+    if pending is not None:
+        claims.append(_block_claim(pending, codes, question))
     if not claims or claims[-1] is None or _CONFLICT in claims:
         return None
     return claims[-1] if all(claim in (None, claims[-1]) for claim in claims) else None
 
 
+def _ends_at_marker(block: str) -> bool:
+    parts = ANSWER_MARKER.split(block)
+    return len(parts) > 1 and parts[-1].strip() in ("", ":")
+
+
 def _block_claim(block: str, codes: str, question: DecisionQuestion) -> Optional[int]:
-    """The answer a block gives, None when it gives none, or ``_CONFLICT`` when its markers disagree or an answer
-    comes before its marker."""
+    """The answer a block gives, None when it gives none, or ``_CONFLICT`` when it also gives a different one. A block
+    with a marker gives its last marker's code; an answer before it, or a code and a dot opening an earlier marker's
+    text (``A. Wait, the``), must agree. Other uses of the word ``answer`` are not claims."""
     index = _line_index(block, codes, question)
     if index is not None:
         return index
     parts = ANSWER_MARKER.split(block)
     if len(parts) == 1:
         return None
-    if _line_index(parts[0], codes, question) is not None:
-        return _CONFLICT
-    said = {_coded_index(_marked_answer(part), codes, question) for part in parts[1:]}
-    if len(said) == 1 and None not in said:
-        return said.pop()
-    return _CONFLICT if len(parts) > 2 else None
+    last = _coded_index(_marked_answer(parts[-1]), codes, question)
+    if last is None:
+        return None
+    earlier = [_line_index(line, codes, question) for line in parts[0].split("\n")] + [
+        _opening_code(part, codes, question) for part in parts[1:-1]]
+    return last if all(claim in (None, last) for claim in earlier) else _CONFLICT
 
 
-def _marked_answer(text: str) -> str:
-    """The text after an answer marker without bold marks or a closing dot (``"**B**."`` is ``"B"``)."""
-    return text.strip().strip("*").rstrip(".").strip("*").strip()
+def _opening_code(text: str, codes: str, question: DecisionQuestion) -> Optional[int]:
+    said = _marked_answer(text, strip_dot=False)
+    return _coded_index(said[:1], codes, question) if said[1:2] in (".", ")", ":", "-") else None
+
+
+def _marked_answer(text: str, strip_dot: bool = True) -> str:
+    """The text after an answer marker without a colon, bold marks or a closing dot (``"**B**."`` is ``"B"``)."""
+    said = text.strip().lstrip(":").strip().strip("*")
+    return (said.rstrip(".").strip("*") if strip_dot else said).strip()
 
 
 def _line_index(text: object, codes: str, question: DecisionQuestion) -> Optional[int]:

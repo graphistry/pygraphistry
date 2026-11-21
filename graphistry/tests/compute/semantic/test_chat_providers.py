@@ -952,6 +952,18 @@ class TestReplyIndexReadsOneConsistentAnswer:
     def test_repeated_answers_that_agree_are_read(self, text: str, expected: int) -> None:
         assert self.index(text) == expected
 
+    @pytest.mark.parametrize("text", ["The answer is B. The answer is B.", "So the answer is no. Answer: B.",
+                                      "The answer is clear. Answer: B", "To answer: the box is crushed. The answer is B.",
+                                      "I need to answer: is it damaged? The answer is B.", "The answer is B. Final answer: B.",
+                                      "Answer:\n\n**B**", "The answer is:\n\n**B**", "B Answer: B", "b\n\nB Answer: B"])
+    def test_a_reply_that_says_answer_more_than_once_and_agrees_is_read(self, text: str) -> None:
+        assert self.index(text) == 1
+
+    @pytest.mark.parametrize("text", ["A\nThe answer is B", "A.\nThe answer is B.", "yes\nThe answer is B",
+                                      "The answer is A. Wait, the answer is B.", "Answer:\n\nA\n\nAnswer: B"])
+    def test_an_answer_before_the_marker_that_differs_is_rejected(self, text: str) -> None:
+        assert self.index(text) is None
+
     @pytest.mark.parametrize("text", ["The answer is A.\n\nSome closing remark", "A\n\nThe answer is B.\n\nx"])
     def test_the_last_block_must_be_the_answer(self, text: str) -> None:
         assert self.index(text) is None
