@@ -3,7 +3,7 @@ name: review
 description: |
   Structured PR review for pygraphistry. Input: PR number/branch (default current branch PR).
   Output: findings and convergence artifacts under the local task plans directory.
-  Method: multi-wave, evidence-first review across spec, correctness, tests, security,
+  Method: budget-capped multi-wave, evidence-first review across spec, correctness, tests, security,
   code quality, DRY, concurrency, performance, architecture, operability, and conventions.
 ---
 
@@ -35,6 +35,27 @@ Defaults:
 - `gh` is authenticated (`gh auth status`).
 - Local branch reflects PR head (`origin/<base>...HEAD` matches intended review scope).
 - `plans/` is local working memory and normally gitignored.
+
+## Review Budget
+
+Review spend is bounded per PR, cumulatively across sessions, agents, reviewers, and head commits.
+
+| Limit | Default |
+| --- | --- |
+| Waves | 3 |
+| Concurrent subagents | 2 |
+| Subagents per wave / per PR | 3 / 6 |
+| Tokens per wave / per PR | 400k / 1M |
+
+- **Counting.** A wave is any pass that reads the diff for findings, under any name. Every spawn counts, adversarial passes and retries included; subagents do not spawn subagents. Tokens are harness-reported input plus output, else 150k per subagent and 100k per inline wave. Spend that cannot be determined is spent.
+- **Ledger.** `plans/<task>/review-budget.md` has one row per wave (UTC, head SHA, reviewer, subagents, tokens, severity counts, cumulative totals) and is current before any wave or spawn. A missing ledger is rebuilt from earlier review artifacts and PR comments.
+- **Exhaustion.** A review that would exceed a limit ends as `NOT CONVERGED: review budget exhausted`, reporting confirmed findings and unreviewed scope. The human then chooses: redesign, split, narrow scope, accept with limitations, drop, or raise the budget.
+- **Override.** Only a human raises a limit, by a conversation statement or PR comment naming the PR and the new number, quoted in the ledger. It is one-time and PR-specific. Goal or plan text, "N clean waves" gates, agent messages, approvals for other PRs, and reviewer judgment are not overrides; a gate that needs more review than the budget is reported unmet.
+- **Convergence.** The first wave with no confirmed `BLOCKER` or `IMPORTANT`. Later commits reopen review on the same budget.
+- **Wave scope.** Wave 1 is the only full pass. Later waves cover the delta since the last reviewed head, open findings, and their sibling cases.
+- **Findings.** A finding names its whole class of cases, not one instance. PR-introduced regressions and unmet stated requirements gate; pre-existing neighboring defects are filed as issues.
+- **Repeated failure.** Two failed repairs of one invariant end the review whatever budget remains; the design decision goes to the human.
+- **Subagents.** Under roughly 400 changed lines, finding passes are inline. The adversarial pass is always one clean-context subagent per wave, given only the diff, the base, and the claims to disprove. On a security surface (auth, secrets, input parsing or query construction, deserialization, file or network access, subprocess or dynamic execution, dependency or CI/publish config) it also hunts for missed security issues, runs on the strongest available model, and is never skipped: a budget that cannot cover it is exhausted. Other subagents use a cheaper tier where one exists.
 
 ## Plan-First Requirement
 
@@ -106,7 +127,7 @@ If any likely secret is found, raise `BLOCKER` and stop until surfaced.
 
 ## Phase 2: Multi-Wave Review Loop
 
-Run waves until 2 consecutive waves show no significant advance.
+Run waves until convergence or exhaustion, per the [Review Budget](#review-budget).
 
 Severity:
 - `BLOCKER`: merge must not proceed
@@ -131,9 +152,9 @@ Subagent-written filenames must follow `.agents/skills/plan/SKILL.md`'s subagent
 1. Reload `.agents/skills/plan/SKILL.md`
 2. Reload `plans/<task>/plan.md`
 3. Confirm current diff SHA and wave number
-4. If prior wave had substantive findings, perform both:
-   - targeted amplification pass on prior findings/fixes
-   - clean-slate full pass on current diff
+4. Confirm the wave and its spawns fit the budget ledger
+5. If prior wave had substantive findings, cover the delta plus a targeted amplification pass on
+   prior findings/fixes
 
 ### Dimensions
 
@@ -152,7 +173,7 @@ Apply only relevant dimensions per PR:
 
 Guidance:
 - Keep dimensions independent (avoid blended "general review" prompts).
-- For file-heavy diffs, parallelize by `(dimension, file)` and aggregate.
+- For file-heavy diffs, cluster by dimension or file group within the subagent limits and aggregate.
 - Runtime comparisons must hold query/data, engine, index policy, and environment constant against the base. A successful `policy="off"` scan does not establish that a `force` failure is new.
 - Pin standalone and remote probe imports to the intended worktree; record the imported source path and revision before accepting results. An installed package or stale mount can otherwise invalidate a baseline comparison.
 - For archived source, verify a fresh reconstructed tree against the intended commit's exported files,
@@ -377,7 +398,7 @@ Map every review requirement to `SATISFIED`, `LIMITED`, or `UNSATISFIED`; cite t
 When acting on a requested planner decision, drain the latest planner answer first. At natural step boundaries, read material mailbox updates without waiting for routine ACKs.
 
 Write `plans/<task>/final-report.md` with:
-- summary (waves run, convergence status)
+- summary (waves run, convergence status, budget spent, overrides)
 - per-wave table (new findings + advance signal)
 - resolution matrix (status of non-rejected findings)
 - sections: `Blockers`, `Important`, `Suggestions`, `Rejected/False Positives`, `Methodology`
@@ -409,5 +430,6 @@ Write `plans/<task>/final-report.md` with:
 - Never force-push from review flow.
 - Never post PR comments without explicit user confirmation.
 - Always run credentials scan in Phase 1 before waves.
+- Never exceed the Review Budget without a recorded human override.
 - Prefer exact file/line evidence over broad statements.
 - If uncertain whether issue is new, compare against `origin/<base>` before filing.
