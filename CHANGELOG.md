@@ -20,6 +20,12 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ### Fixed
 
 - **GFQL Cypher string predicates over non-strings** (#2335): `STARTS WITH`, `ENDS WITH`, and `CONTAINS` in Cypher now give openCypher null when either operand is not a string (a numeric, boolean, or mixed-value cell is null, never coerced to text), in both `WHERE` and `RETURN`, and a categorical column of strings matches like strings. The native chain API is unchanged: `contains()`, `startswith()`, `endswith()`, `match()`, and `fullmatch()` on a non-string column still raise the typed `E302` error. The string predicates gain an optional `nonstring` field (`'error'` by default, `'null'` for Cypher), omitted from JSON at its default so existing serialized chains are unchanged.
+- **GFQL exponentiation operator**: `^` now follows TCK power precedence, returns float values on pandas, cuDF, and Polars, and promotes the six numeric-precedence scenarios from expression debt.
+- **GFQL mixed-type CASE branches**: pandas preserves per-row mixed Cypher values, while Polars and cuDF decline incompatible boolean/string/number branches with structured E110 instead of silently coercing (#2330). Numeric int/float branches retain common-type behavior.
+- **GFQL signed-zero literals**: adjacent and explicit unary-minus forms preserve the sign of floating-point zero, including `RETURN -0.0` and `RETURN - 0.0` (#2334).
+- **GFQL comprehension-local `properties()`**: mapping values now return the same map instead of a bare backend `NotImplementedError`, while entity and direct-map rendering stay unchanged (#2339).
+- **GFQL constant-string property subscripts**: `n['type']`, `n['id']`, `n['label__Foo']`, and ordinary `n['key']` now resolve like the matching dotted property on pandas, cuDF, and Polars, including constant concatenation and parameter keys. Absent properties preserve null semantics; unsupported dynamic keys still decline.
+- **GFQL multi-alias entity metadata**: `keys(n)`/`properties(n)` and `keys(r)`/`properties(r)` over multi-alias binding rows now use the selected entity's own properties instead of internal binding columns. Engines that do not yet support the expression keep their structured unsupported-query decline.
 - **GFQL `WITH ... WHERE` quantifier scope**: loop variables in `any`, `all`, `none`, `single`, and list comprehensions now shadow matching MATCH aliases, so `any(n IN [{tags: 'z'}] WHERE n.tags = 'z')` evaluates the local map instead of silently dropping rows.
 
 ## [0.62.2] - 2026-11-21
