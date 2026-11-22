@@ -100,7 +100,8 @@ def test_properties_of_a_map_after_a_two_alias_with_is_the_map_never_node_proper
             graph.gfql(query, engine=engine)
         return
     values = [row["v"] for row in _records(graph.gfql(query, engine=engine)._nodes)]
-    assert values and set(values) == {"{a: 1}"}
+    assert values
+    assert all(value == {"a": 1} or value == "{a: 1}" for value in values), values  # the map itself, as a dict or its text; never a node's properties
 
 
 def test_properties_of_a_map_beside_a_node_alias_is_the_map(engine):
