@@ -8,6 +8,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [Development]
 <!-- Do Not Erase This Section - Used for tracking unreleased changes -->
 
+## [0.62.2] - 2026-11-21
+
 ### Docs
 
 - **Development branch flow**: documents long-lived `master` and `develop` roles, maintainer-controlled merge-commit forwarding, maintainer fast-forward promotion, and the repository-settings decision required before cutover.
