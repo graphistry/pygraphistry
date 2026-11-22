@@ -705,9 +705,13 @@ def _empty_graph(engine):
 @pytest.mark.parametrize("order", ["forward", "reverse"])
 @pytest.mark.parametrize("position", FIVE_OPS)
 @pytest.mark.parametrize("pair", sorted(FILTER_VALUE_PAIRS))
-def test_a_filter_value_at_any_position_never_changes_the_outcome(engine, pair, position, order, seed, graph_kind, validate_schema):
+def test_a_filter_value_at_any_position_never_changes_the_outcome(request, engine, pair, position, order, seed, graph_kind, validate_schema):
     from graphistry.compute.gfql_unified import gfql_clear_caches
 
+    if request.node.callspec.params["route_context"] == "default":
+        pytest.skip("this matrix runs under general-path, where the skip is the route reached; default mode only repeats it")
+    if graph_kind == "empty" and not validate_schema:
+        pytest.skip("an empty graph under validate_schema=False repeats the populated-graph schema paths")
     kind, first, second = FILTER_VALUE_PAIRS[pair]
     makers = [first, second] if order == "forward" else [second, first]
     g = graph(engine) if graph_kind == "populated" else _empty_graph(engine)
