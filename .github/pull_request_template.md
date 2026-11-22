@@ -2,6 +2,7 @@
 
 - [ ] Linked issue(s): `Closes #...`
 - [ ] Scope is explicit (non-goals included when relevant)
+- [ ] Base/release intent: `develop` feature, `master` hotfix, release/maintenance forwarding, or docs-only
 
 ## Validation
 
