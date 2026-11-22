@@ -19,6 +19,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- **GFQL Cypher aggregates over a string subscript**: `count(a['name'])`, `sum(a['w'])` and `avg(...)` over a node alias in a pattern such as `MATCH (a)-[r]->(b)` now answer like the dotted spelling (`a.name`); they raised `unsupported row expression: AST evaluator unsupported` because the planner only materialized node properties for the dotted spelling. A constant plain-name subscript on a variable (`n['name']`) now parses as the property access `n.name`, so every consumer sees one spelling (#2363).
 - **GFQL constant-string property subscripts**: `n['type']`, `n['id']`, `n['label__Foo']`, and ordinary `n['key']` now resolve like the matching dotted property on pandas, cuDF, and Polars, including constant concatenation and parameter keys. Absent properties preserve null semantics; unsupported dynamic keys still decline.
 - **GFQL multi-alias entity metadata**: `keys(n)`/`properties(n)` and `keys(r)`/`properties(r)` over multi-alias binding rows now use the selected entity's own properties instead of internal binding columns. Engines that do not yet support the expression keep their structured unsupported-query decline.
 - **GFQL `WITH ... WHERE` quantifier scope**: loop variables in `any`, `all`, `none`, `single`, and list comprehensions now shadow matching MATCH aliases, so `any(n IN [{tags: 'z'}] WHERE n.tags = 'z')` evaluates the local map instead of silently dropping rows.

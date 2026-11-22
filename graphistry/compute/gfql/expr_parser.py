@@ -5,6 +5,7 @@ from graphistry.compute.gfql.cache_registry import (
     register_process_singleton,
 )
 
+import re
 from dataclasses import dataclass
 from functools import lru_cache
 from typing import Any, Callable, Dict, FrozenSet, Iterable, List, Optional, Protocol, Sequence, Set, Tuple, Type, Union, cast
@@ -26,6 +27,9 @@ DEFAULT_ALLOWED_FUNCTIONS: FrozenSet[str] = GFQL_ALLOWED_FUNCTIONS
 DEFAULT_ALLOWED_BINARY_OPS: FrozenSet[str] = GFQL_ALLOWED_BINARY_OPS
 DEFAULT_ALLOWED_UNARY_OPS: FrozenSet[str] = GFQL_ALLOWED_UNARY_OPS
 DEFAULT_ALLOWED_QUANTIFIERS: FrozenSet[str] = GFQL_ALLOWED_QUANTIFIERS
+
+
+_PLAIN_PROPERTY_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 
 
 # INVARIANT: keep every ExprNode deeply immutable (scalar/tuple fields only) — parse_expr
@@ -679,7 +683,15 @@ def _ast_builder_class() -> Callable[[], _TransformerLike]:
             value = cast(ExprNode, stripped[0])
             sub = cast(Tuple[Any, ...], stripped[1])
             if sub[0] == "index":
-                return SubscriptExpr(value=value, key=cast(ExprNode, sub[1]))
+                key = cast(ExprNode, sub[1])
+                if (
+                    isinstance(value, Identifier)
+                    and isinstance(key, Literal)
+                    and isinstance(key.value, str)
+                    and _PLAIN_PROPERTY_NAME.fullmatch(key.value)
+                ):
+                    return PropertyAccessExpr(value=value, property=key.value)  # n['name'] is n.name: one spelling for every consumer
+                return SubscriptExpr(value=value, key=key)
             return SliceExpr(
                 value=value,
                 start=cast(Optional[ExprNode], sub[1]),
