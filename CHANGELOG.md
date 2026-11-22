@@ -15,6 +15,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Infrastructure
 
+- **`Engine.is_series_like` is a real type guard**: it returns a `TypeGuard` for the engine Series and decides by type (pandas `isinstance`, the cuDF and Polars series guards) instead of probing for `.dropna`, so a DataFrame is no longer "series-like" and mypy narrows the checked value (#2383).
 - **CI required check**: `ci.yml` gains a `ci-required` aggregate job that needs every other job, fails on any failure or cancellation, and passes on success or skip, so one status can gate `develop` and `master`. The CI concurrency group now includes the event name so a PR from a branch named `master` cannot cancel a `master` run. `DEVELOP.md` names `ci-required` as the required check and records the admin fast-forward push of `master` as the promotion mechanism.
 
 ### Fixed
