@@ -1430,8 +1430,7 @@ class RowPipelineMixin:
             if node.op == "+":
                 return True, operand
             if node.op == "-":
-                # Only float negation can keep the sign of zero; everything else keeps the arithmetic `0 - x`
-                # (so a boolean operand is not turned into a logical inversion).
+                # floats negate directly (keeps -0.0); `0 - x` keeps boolean operands arithmetic
                 is_float = (
                     pd.api.types.is_float_dtype(operand.dtype)
                     if hasattr(operand, "dtype")
