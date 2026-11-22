@@ -1941,8 +1941,8 @@ class RowPipelineMixin:
                     return True, None
                 if (
                     is_series_like(inner)
-                    and not RowPipelineMixin._gfql_series_is_entity_text_like(inner)
                     and not RowPipelineMixin._gfql_series_is_mapping_like(inner)
+                    and not RowPipelineMixin._gfql_series_is_entity_text_like(inner)
                 ):
                     arg = node.args[0]
                     if isinstance(arg, Identifier) and (
@@ -2759,6 +2759,12 @@ class RowPipelineMixin:
         fn: str,
         expr: str,
     ) -> Any:
+        if (
+            fn == "properties"
+            and is_series_like(value)
+            and RowPipelineMixin._gfql_series_is_mapping_like(value)
+        ):
+            return value.copy()
         if hasattr(value, "astype"):
             null_mask = self._gfql_null_mask(table_df, value)
             if RowPipelineMixin._gfql_series_is_entity_text_like(value):
