@@ -63,6 +63,8 @@ POLARS_TEST_FILES=(
     # #2338 WITH WHERE quantifier scope is engine-parametrized; Polars structured declines run here
     graphistry/tests/compute/gfql/cypher/test_with_where_quantifier_scope_2338.py
     graphistry/tests/compute/gfql/cypher/test_issue_2258_entity_identity_membership.py
+    # #2336 subscript parity is engine-parametrized; Polars native lowering only runs here
+    graphistry/tests/compute/gfql/cypher/test_subscript_property_parity_2336.py
     # #2333 entity metadata is engine-parametrized; pandas/cuDF run in core and the
     # structured Polars declines only run in this lane
     graphistry/tests/compute/gfql/cypher/test_entity_metadata_multi_alias_2333.py
