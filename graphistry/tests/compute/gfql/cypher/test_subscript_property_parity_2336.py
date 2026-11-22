@@ -118,3 +118,42 @@ def test_binding_row_subscript_of_an_absent_key_is_null_like_the_dotted_property
             continue
         assert len(rows) == 2
         assert all(pd.isna(row["v"]) for row in rows), expr
+
+
+def _rows_or_native_decline(engine, graph, query):
+    """Rows, or None when native Polars declines (parity-or-error); any other engine must answer."""
+    try:
+        return _rows(graph.gfql(query, engine=engine)._nodes)
+    except (NotImplementedError, GFQLUnsupportedError):
+        assert engine in {"polars", "polars-gpu"}, query
+        return None
+
+
+def test_cartesian_node_subscripts_read_their_own_alias(engine):
+    """MATCH (a),(b) builds binding rows with one prefixed column group per node alias."""
+    graph = _edge_graph(engine)
+    for alias, expected in (("a", ["x", "x", "x", "y", "y", "y", "z", "z", "z"]), ("b", ["x", "x", "x", "y", "y", "y", "z", "z", "z"])):
+        rows = _rows_or_native_decline(engine, graph, f"MATCH (a),(b) RETURN {alias}['name'] AS v")
+        if rows is not None:
+            assert sorted(row["v"] for row in rows) == expected, alias
+
+
+def test_cartesian_node_subscript_of_an_absent_key_is_null(engine):
+    rows = _rows_or_native_decline(engine, _edge_graph(engine), "MATCH (a),(b) RETURN a['nope'] AS v")
+    if rows is not None:
+        assert len(rows) == 9
+        assert all(pd.isna(row["v"]) for row in rows)
+
+
+def test_cross_alias_where_reads_node_and_relationship_subscripts(engine):
+    """A cross-alias WHERE keeps binding rows for every alias, including the relationship's edge id."""
+    graph = _edge_graph(engine)
+    rows = _rows_or_native_decline(engine, graph, "MATCH (a)-[r]->(b) WHERE a['name'] <> b['name'] RETURN r['kind'] AS v")
+    if rows is not None:
+        assert sorted(row["v"] for row in rows) == ["K1", "K2"]
+    rows = _rows_or_native_decline(engine, graph, "MATCH (a)-[r]->(b) WHERE a['name'] = 'x' RETURN b.name AS v")
+    if rows is not None:
+        assert [row["v"] for row in rows] == ["y"]
+    rows = _rows_or_native_decline(engine, graph, "MATCH (a)-[r]->(b) WHERE a['nope'] = 'x' RETURN b.name AS v")
+    if rows is not None:
+        assert rows == []
