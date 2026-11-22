@@ -1,5 +1,5 @@
 """Resident-index source rows for native Polars point queries."""
-from typing import TYPE_CHECKING, Dict, List, Optional, Sequence
+from typing import TYPE_CHECKING, Callable, Dict, FrozenSet, List, Optional, Sequence, Tuple, TypeVar
 
 if TYPE_CHECKING:
     from graphistry.compute.gfql.index.registry import AdjacencyIndex
@@ -9,23 +9,23 @@ from graphistry.Plottable import Plottable
 from graphistry.Engine import Engine
 from graphistry.compute.typing import ArrayNamespace, DataFrameT, FilterDict, SeriesT
 from graphistry.compute.gfql.identifiers import is_bare_identifier
-from graphistry.compute.ast import ASTCall, ASTEdge, ASTNode, ASTObject
+from graphistry.compute.ast import ASTCall, ASTEdge, ASTNode, ASTObject, Direction
 from graphistry.compute.chain_fast_paths import (
     _index_edge_rows, _index_node_rows, _record_native_seed_lane,
     _resident_node_id_index, _resident_seed_indexes, _seed_node_rows_from_index,
 )
-from graphistry.compute.gfql.lazy.engine.polars.membership import is_in_ids
+from graphistry.compute.gfql.lazy.engine.polars.membership import id_set, is_in_ids
 from .admission import polars_seeded_lane_admits
 
 
 def polars_point_rows_admits(ops: Sequence[ASTObject]) -> Optional[int]:
-    boundary = 1 if len(ops) in (2, 3) else 3 if len(ops) in (4, 5) else None
-    if boundary is None:
+    boundary = 1 if len(ops) >= 2 and isinstance(ops[1], ASTCall) else 3 if len(ops) >= 4 else None
+    if boundary is None or len(ops) > boundary + 3:
         return None
     first = ops[0]
     if not isinstance(first, ASTNode) or first.query is not None or not first.filter_dict:
         return None
-    if boundary == 3 and not polars_seeded_lane_admits(ops[:3]):
+    if boundary == 3 and not polars_seeded_lane_admits(ops[:3], ("forward", "reverse", "undirected")):
         return None
     for op in ops[:boundary]:
         filters = op.filter_dict if isinstance(op, ASTNode) else op.edge_match if isinstance(op, ASTEdge) else None
@@ -36,17 +36,37 @@ def polars_point_rows_admits(ops: Sequence[ASTObject]) -> Optional[int]:
             or set(row.params) - {"table", "source"} or row.params.get("table") != "nodes"):
         return None
     source = row.params.get("source")
-    joined = boundary == 3 and source is None and len(ops) == 5
+    joined = boundary == 3 and source is None and len(ops) > 4
     if joined:
         if not all(isinstance(op, ASTNode) and isinstance(op._name, str) for op in ops[:boundary:2]):
             return None
     elif not isinstance(source, str) or not any(isinstance(op, ASTNode) and op._name == source for op in ops[:boundary]):
         return None
-    if len(ops) > boundary + 1:
-        projection = ops[-1]
+    tail_ops = ops[boundary + 1:]
+    if tail_ops:
+        projection = tail_ops[0]
         if not isinstance(projection, ASTCall) or projection.function != "select" or set(projection.params) != {"items"}:
             return None
+        if len(tail_ops) == 2 and not _is_plain_order_by(tail_ops[1], projection.params["items"]):
+            return None
     return boundary
+
+
+def _has_duplicate_ids(frame: "pl.DataFrame", node: str) -> bool:
+    return frame.height > 1 and frame.get_column(node).n_unique() != frame.height
+
+
+def _is_plain_order_by(op: ASTObject, select_items: object) -> bool:
+    """An ``order_by`` whose keys are output columns of the ``select`` before it, each ``asc`` or ``desc``."""
+    if not (isinstance(op, ASTCall) and op.function == "order_by" and set(op.params) == {"keys"}):
+        return False
+    outputs = {item[0] for item in select_items if isinstance(item, (list, tuple)) and item and isinstance(item[0], str)} \
+        if isinstance(select_items, list) else set()
+    keys = op.params["keys"]
+    return isinstance(keys, list) and bool(keys) and all(
+        isinstance(key, (list, tuple)) and len(key) == 2 and key[0] in outputs and str(key[1]).lower() in ("asc", "desc")
+        for key in keys
+    )
 
 
 def _gathered_edges_matching(
@@ -89,7 +109,7 @@ def _gathered_edges_matching(
 def _joined_projection(
     seed: "pl.DataFrame", edges: "pl.DataFrame", tail: "pl.DataFrame",
     node: str, from_col: str, to_col: str, seed_alias: str, tail_alias: str,
-    edge_alias: Optional[str], projection: ASTCall,
+    edge_alias: Optional[str], projection: ASTCall, edge_properties: FrozenSet[str],
 ) -> "Optional[pl.DataFrame]":
     import polars as pl
     from graphistry.compute.gfql.lazy import collect
@@ -119,6 +139,8 @@ def _joined_projection(
         alias, column = parts
         if alias not in frames or column not in frames[alias].columns:
             return None
+        if alias == edge_alias and column not in edge_properties:
+            return None  # the general path exposes neither an edge's endpoint columns nor generated ones
         if singleton:
             series = frames[alias].get_column(column)
             if alias != edge_alias:
@@ -174,7 +196,8 @@ def _try_point_rows_polars(g: Plottable, ops: List[ASTObject], start_nodes: Opti
     from graphistry.compute.gfql.row.frame_ops import row_table
     from graphistry.compute.gfql.row.pipeline import _RowPipelineAdapter
     from graphistry.compute.gfql.lazy.engine.polars.predicates import filter_by_dict_polars
-    from graphistry.compute.gfql.lazy.engine.polars.row_pipeline import select_polars
+    from graphistry.compute.gfql.lazy.engine.polars.row_pipeline import order_by_polars, select_polars
+    from graphistry.compute.gfql.index.api import index_policy_may_serve
 
     boundary = polars_point_rows_admits(ops)
     if boundary is None or start_nodes is not None or _policy_is_active() or active_target() == ExecutionTarget.GPU:
@@ -190,13 +213,16 @@ def _try_point_rows_polars(g: Plottable, ops: List[ASTObject], start_nodes: Opti
     assert isinstance(n0, ASTNode) and isinstance(row, ASTCall) and n0.filter_dict
     source = row.params.get("source")
     nid_ctx = _resident_node_id_index(g, nodes, node)
+    scan = nid_ctx is None
+    if scan and index_policy_may_serve(g):
+        return None
     if nid_ctx is None:
-        return None
-    nid, xp, engine = nid_ctx
-    seed_result = _seed_node_rows_from_index(g, nodes, n0.filter_dict, node, nid_ctx, n0.filter_dict)
-    if seed_result is None:
-        return None
-    seed, _ = seed_result
+        seed = filter_by_dict_polars(nodes, n0.filter_dict)
+    else:
+        seed_result = _seed_node_rows_from_index(g, nodes, n0.filter_dict, node, nid_ctx, n0.filter_dict)
+        if seed_result is None:
+            return None
+        seed, _ = seed_result
     if boundary == 1:
         assert isinstance(source, str)
         selected = _with_true_alias(seed, source)
@@ -207,36 +233,68 @@ def _try_point_rows_polars(g: Plottable, ops: List[ASTObject], start_nodes: Opti
         node_dtype = nodes.get_column(node).dtype
         if node_dtype != edges.get_column(src).dtype or node_dtype != edges.get_column(dst).dtype:
             return None
-        ctx = _resident_seed_indexes(g, nodes, edges, node, src, dst, edge.direction)
-        if ctx is None:
+        edge_cap = max(_SCAN_EDGES_FLOOR, edges.height // _SCAN_DIVISOR) if scan and source is None else None
+        if edge_cap is not None and (seed.height > max(_SCAN_SEEDS_FLOOR, nodes.height // _SCAN_DIVISOR)
+                                     or seed.height * edges.height // max(nodes.height, 1) > edge_cap):
             return None
-        matching = _gathered_edges_matching(
-            g, ctx[1], seed.get_column(node), xp, engine, edges, edge.edge_match,
-        )
-        if matching is None:
+        if edge.direction == "undirected" and (nid_ctx is not None or source is not None):
             return None
-        kept_edges = matching
-        from_col, to_col = (src, dst) if edge.direction == "forward" else (dst, src)
-        tail = _index_node_rows(nid, kept_edges.get_column(to_col), xp, engine, nodes, preserve_input_order=True)
-        if tail is None:
-            return None
+        if nid_ctx is None:
+            from_col, to_col = _oriented_endpoint_names(edges, nodes, edge.direction, src, dst)
+            oriented = _orient_toward_tail(edges, edge.direction, src, dst, from_col, to_col,
+                                           seed.get_column(node), edge.edge_match,
+                                           None if edge_cap is None else edge_cap * (2 if edge.direction == "undirected" else 1))
+            if oriented is None:
+                return None
+            kept_edges = oriented
+            payload_edges = kept_edges.select(edges.columns)
+            tail = _rows_with_ids(nodes, (node,), kept_edges.get_column(to_col))
+            # A repeated node id binds differently on the general path; check every row before a filter hides a copy.
+            if (_has_duplicate_ids(tail, node)
+                    or _rows_with_ids(nodes, (node,), seed.get_column(node)).height != seed.height):
+                return None
+        else:
+            nid, xp, engine = nid_ctx
+            ctx = _resident_seed_indexes(g, nodes, edges, node, src, dst, edge.direction)
+            if ctx is None:
+                return None
+            matching = _gathered_edges_matching(
+                g, ctx[1], seed.get_column(node), xp, engine, edges, edge.edge_match,
+            )
+            if matching is None:
+                return None
+            payload_edges = kept_edges = matching
+            from_col, to_col = (src, dst) if edge.direction == "forward" else (dst, src)
+            gathered_tail = _index_node_rows(nid, kept_edges.get_column(to_col), xp, engine, nodes,
+                                             preserve_input_order=True)
+            if gathered_tail is None:
+                return None
+            tail = gathered_tail
         tail = filter_by_dict_polars(tail, tail_op.filter_dict)
         # A single gathered tail is the endpoint of the single surviving edge.
         if not (kept_edges.height == 1 and tail.height == 1):
             kept_edges = kept_edges.filter(is_in_ids(pl.col(to_col), tail.get_column(node)))
         if source is None:
-            projection = ops[-1]
+            projection = ops[boundary + 1]
             assert isinstance(projection, ASTCall) and isinstance(n0._name, str) and isinstance(tail_op._name, str)
-            selected_joined = _joined_projection(seed, kept_edges, tail, node, from_col, to_col,
-                                                 n0._name, tail_op._name, edge._name, projection)
+            selected_joined = _guarded(scan, _joined_projection, seed, kept_edges, tail, node, from_col, to_col,
+                                       n0._name, tail_op._name, edge._name, projection,
+                                       frozenset(payload_edges.columns) - {src, dst})
             if selected_joined is None:
                 return None
+            result_edges = payload_edges.clear()
             if edge._name is not None:
-                kept_edges = _with_true_alias(kept_edges, edge._name)
-            adapter = _RowPipelineAdapter(g.edges(kept_edges))
+                result_edges = _with_true_alias(result_edges, edge._name)
+            adapter = _RowPipelineAdapter(g.edges(result_edges))
             adapter._node = adapter._edge = adapter._source = adapter._destination = None
-            _record_native_seed_lane(nodes, seam="point_rows", reason="served", hop_count=1,
-                                     public_seed_scan=node not in n0.filter_dict)
+            if len(ops) == boundary + 3:
+                order = ops[-1]
+                assert isinstance(order, ASTCall)
+                ordered = _guarded(scan, order_by_polars, row_table(adapter, selected_joined), order.params["keys"])
+                if ordered is None or not isinstance(ordered._nodes, pl.DataFrame):
+                    return None
+                selected_joined = ordered._nodes
+            _record_point_rows(nodes, n0, node, scan)
             return clear_row_exec_context(row_table(adapter, selected_joined))
         if source == tail_op._name:
             selected = tail
@@ -254,13 +312,125 @@ def _try_point_rows_polars(g: Plottable, ops: List[ASTObject], start_nodes: Opti
         if edge._name is not None:
             kept_edges = _with_true_alias(kept_edges, edge._name)
     out = row_table(_RowPipelineAdapter(g.edges(kept_edges)), selected)
-    if len(ops) > boundary + 1:
-        projection = ops[-1]
-        assert isinstance(projection, ASTCall)
-        projected = select_polars(out, projection.params["items"])
-        if projected is None:
+    for call in ops[boundary + 1:]:
+        assert isinstance(call, ASTCall)
+        stepped = (_guarded(scan, select_polars, out, call.params["items"]) if call.function == "select"
+                   else _guarded(scan, order_by_polars, out, call.params["keys"]))
+        if stepped is None:
             return None
-        out = projected
-    _record_native_seed_lane(nodes, seam="point_rows", reason="served", hop_count=boundary // 2,
-                             public_seed_scan=node not in n0.filter_dict)
+        out = stepped
+    _record_point_rows(nodes, n0, node, scan, hop_count=boundary // 2)
     return clear_row_exec_context(out)
+
+
+def _record_point_rows(nodes: "pl.DataFrame", n0: ASTNode, node: str, scan: bool, hop_count: int = 1) -> None:
+    if scan:
+        from graphistry.compute.gfql.index.api import record_fast_path_decision
+        record_fast_path_decision(path="point_rows_scan", engine=Engine.POLARS, served=True,
+                                  reason="seed, edges and tail each resolved by one scan")
+        return
+    _record_native_seed_lane(nodes, seam="point_rows", reason="served", hop_count=hop_count,
+                             public_seed_scan=node not in (n0.filter_dict or {}))
+
+
+_EQUALITY_IDS_MAX = 8
+_SCAN_SEEDS_FLOOR = 64
+_SCAN_EDGES_FLOOR = 512
+_SCAN_DIVISOR = 20
+_SCAN_RAW_EDGES_FACTOR = 4
+
+
+_R = TypeVar("_R")
+
+
+def _guarded(scan: bool, call: Callable[..., Optional[_R]], *args: object) -> Optional[_R]:
+    """Run a row operation; in scan mode a Polars error declines so the general path raises its own error."""
+    import polars as pl
+    try:
+        return call(*args)
+    except pl.exceptions.PolarsError:
+        if not scan:
+            raise
+        return None
+
+
+def _rows_with_ids(frame: "pl.DataFrame", columns: Tuple[str, ...], ids: SeriesT) -> "pl.DataFrame":
+    rows_found = _rows_with_ids_within(frame, columns, ids, None)
+    assert rows_found is not None
+    return rows_found
+
+
+def _rows_with_ids_within(
+    frame: "pl.DataFrame", columns: Tuple[str, ...], ids: SeriesT, limit: Optional[int],
+) -> "Optional[pl.DataFrame]":
+    """Rows of ``frame`` where any of ``columns`` is in ``ids``, in frame order; None when more than ``limit`` match.
+
+    Up to ``_EQUALITY_IDS_MAX`` integer, string or boolean ids compare by equality; every other id dtype (a
+    Python value would lose nanoseconds or compare differently) and more ids semi-join the key columns to row
+    positions, which are counted before any row is gathered.
+    """
+    import polars as pl
+    from graphistry.compute.util import generate_safe_column_name_from
+    unique = ids.drop_nulls().unique(maintain_order=True)
+    if not unique.len():
+        return frame.clear()
+    exact_in_python = unique.dtype.is_integer() or unique.dtype in (pl.String, pl.Boolean)
+    if exact_in_python and unique.len() <= _EQUALITY_IDS_MAX:
+        values = unique.to_list()
+        found = frame.filter(pl.any_horizontal([pl.col(column) == value for column in columns for value in values]))
+        return None if limit is not None and found.height > limit else found
+    position = generate_safe_column_name_from("__gfql_point_rows_position__", list(columns))
+    keys = frame.select(columns).with_row_index(position)
+    hits = [keys.join(pl.DataFrame({column: unique}), on=column, how="semi", maintain_order="left").get_column(position)
+            for column in columns]
+    positions = hits[0] if len(hits) == 1 else pl.concat(hits).unique().sort()
+    if limit is not None and positions.len() > limit:
+        return None
+    return frame.select(pl.all().gather(positions))
+
+
+def _oriented_endpoint_names(
+    edges: "pl.DataFrame", nodes: "pl.DataFrame", direction: Direction, src: str, dst: str,
+) -> Tuple[str, str]:
+    if direction == "forward":
+        return src, dst
+    if direction == "reverse":
+        return dst, src
+    from graphistry.compute.util import generate_safe_column_name_from
+    taken = list(edges.columns) + list(nodes.columns)
+    from_col = generate_safe_column_name_from("__gfql_point_from__", taken)
+    return from_col, generate_safe_column_name_from("__gfql_point_to__", taken + [from_col])
+
+
+def _orient_toward_tail(
+    edges: "pl.DataFrame", direction: Direction, src: str, dst: str, from_col: str, to_col: str, ids: SeriesT,
+    edge_match: Optional[FilterDict], cap: Optional[int],
+) -> "Optional[pl.DataFrame]":
+    """Edges leaving ``ids`` in edge order, filtered by ``edge_match``; None when more than ``cap`` survive.
+
+    An undirected edge appears once per seed-side orientation; a self-loop is one binding, so it keeps only
+    its forward orientation. The filter and the cap run before any orientation work.
+    """
+    import polars as pl
+    from graphistry.compute.gfql.lazy.engine.polars.predicates import filter_by_dict_polars
+    raw = _rows_with_ids_within(edges, (from_col,) if direction != "undirected" else (src, dst), ids,
+                                None if cap is None else _SCAN_RAW_EDGES_FACTOR * cap)
+    if raw is None:
+        return None
+    touching = filter_by_dict_polars(raw, edge_match)
+    if cap is not None and touching.height > cap:
+        return None
+    if direction != "undirected":
+        return touching
+    from graphistry.compute.gfql.lazy import collect
+    from graphistry.compute.util import generate_safe_column_name_from
+    taken = list(edges.columns) + [from_col, to_col]
+    order = generate_safe_column_name_from("__gfql_point_order__", taken)
+    side = generate_safe_column_name_from("__gfql_point_side__", taken + [order])
+    numbered = touching.lazy().with_row_index(order)
+    seed_ids = id_set(ids)
+    forward = numbered.filter(pl.col(src).is_in(seed_ids)).with_columns(
+        pl.col(src).alias(from_col), pl.col(dst).alias(to_col), pl.lit(0, pl.UInt8).alias(side))
+    backward = numbered.filter(pl.col(dst).is_in(seed_ids) & (pl.col(src) != pl.col(dst))).with_columns(
+        pl.col(dst).alias(from_col), pl.col(src).alias(to_col), pl.lit(1, pl.UInt8).alias(side))
+    return collect(pl.concat([forward, backward]).sort([order, side]).drop([order, side]))
