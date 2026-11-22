@@ -82,16 +82,25 @@ def test_keys_and_properties_of_relationship_alias_ignore_other_bindings(engine)
     ]
 
 
-@pytest.mark.parametrize("query", [
-    "MATCH (n),(k) WITH n, k, {a: 1} AS m RETURN properties(m) AS v",
-    "MATCH (n) WITH n.tags AS t RETURN properties(t) AS v",
-], ids=["map-after-two-alias-with", "string-column"])
-def test_properties_of_a_non_alias_is_never_read_as_a_node(engine, query):
-    """Only a real alias may be rebuilt as an entity: a map or plain column raises (as before) instead of answering with node properties."""
+def test_properties_of_a_plain_column_is_never_read_as_a_node(engine):
+    """Only a real alias may be rebuilt as an entity: a plain column raises (as before) instead of answering with node properties."""
     nodes, edges = _engine_frame(engine)
     graph = graphistry.nodes(nodes, "id").edges(edges, "s", "d")
     with pytest.raises((GFQLValidationError, NotImplementedError)):
-        graph.gfql(query, engine=engine)
+        graph.gfql("MATCH (n) WITH n.tags AS t RETURN properties(t) AS v", engine=engine)
+
+
+def test_properties_of_a_map_after_a_two_alias_with_is_the_map_never_node_properties(engine):
+    """properties() of a map returns the map (comprehension/WITH map fidelity); it is never rebuilt as a node's properties."""
+    nodes, edges = _engine_frame(engine)
+    graph = graphistry.nodes(nodes, "id").edges(edges, "s", "d")
+    query = "MATCH (n),(k) WITH n, k, {a: 1} AS m RETURN properties(m) AS v"
+    if engine in {"polars", "polars-gpu"}:
+        with pytest.raises((NotImplementedError, GFQLUnsupportedError, GFQLValidationError)):
+            graph.gfql(query, engine=engine)
+        return
+    values = [row["v"] for row in _records(graph.gfql(query, engine=engine)._nodes)]
+    assert values and set(values) == {"{a: 1}"}
 
 
 def test_properties_of_a_map_beside_a_node_alias_is_the_map(engine):
