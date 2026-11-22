@@ -224,6 +224,8 @@ def _try_point_rows_polars(g: Plottable, ops: List[ASTObject], start_nodes: Opti
         node_dtype = nodes.get_column(node).dtype
         if node_dtype != edges.get_column(src).dtype or node_dtype != edges.get_column(dst).dtype:
             return None
+        if scan and seed.height > max(_SCAN_SEEDS_FLOOR, nodes.height // _SCAN_SEEDS_DIVISOR):
+            return None
         if edge.direction == "undirected" and (nid_ctx is not None or source is not None):
             return None
         if nid_ctx is None:
@@ -318,6 +320,8 @@ def _record_point_rows(nodes: "pl.DataFrame", n0: ASTNode, node: str, scan: bool
 
 
 _EQUALITY_IDS_MAX = 8
+_SCAN_SEEDS_FLOOR = 1024
+_SCAN_SEEDS_DIVISOR = 20
 
 
 def _rows_with_ids(frame: "pl.DataFrame", columns: Tuple[str, ...], ids: SeriesT) -> "pl.DataFrame":

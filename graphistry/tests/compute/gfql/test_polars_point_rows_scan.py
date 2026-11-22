@@ -265,3 +265,33 @@ def test_selecting_an_edge_endpoint_column_matches_the_general_path_with_residen
     with routes_off(["polars-point-rows"]):
         expected = outcome()
     assert actual == expected
+
+
+def _seed_count_graph(nodes_total, seeds):
+    nodes = pl.DataFrame({"id": list(range(nodes_total)), "seed": [i < seeds for i in range(nodes_total)]})
+    edges = pl.DataFrame({"s": list(range(nodes_total)), "d": [(i + 1) % nodes_total for i in range(nodes_total)]})
+    return graphistry.nodes(nodes, "id").edges(edges, "s", "d")
+
+
+def _seed_count_query(edge):
+    return [n({"seed": True}, name="p"), edge, n(name="f"), rows(), select([("pid", "p.id"), ("fid", "f.id")])]
+
+
+SEED_COUNT_CASES = [
+    (3000, 100, True), (3000, 1024, True), (3000, 1025, False), (3000, 3000, False),
+    (40000, 2000, True), (40000, 2001, False),
+]
+
+
+@pytest.mark.parametrize("edge", [e_forward(name="r"), e_undirected(name="r")])
+@pytest.mark.parametrize("nodes_total,seeds,served", SEED_COUNT_CASES)
+def test_a_seed_set_above_the_cost_crossover_matches_the_general_path(edge, nodes_total, seeds, served):
+    _same_as_general_path(_seed_count_graph(nodes_total, seeds), _seed_count_query(edge))
+
+
+@pytest.mark.route_engaged("polars-point-rows")
+@pytest.mark.parametrize("edge", [e_forward(name="r"), e_undirected(name="r")])
+@pytest.mark.parametrize("nodes_total,seeds,served", SEED_COUNT_CASES)
+def test_a_seed_set_above_the_cost_crossover_keeps_the_general_path(edge, nodes_total, seeds, served):
+    g, query = _seed_count_graph(nodes_total, seeds), _seed_count_query(edge)
+    assert (_served(g, query) == {True}) is served
