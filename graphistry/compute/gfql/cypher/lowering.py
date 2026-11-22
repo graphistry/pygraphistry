@@ -1256,7 +1256,7 @@ def _rewrite_alias_properties_to_outputs(
         column=column,
     )
 
-    def _rewrite(node_in: ExprNode) -> ExprNode:
+    def _rewrite(node_in: ExprNode, shadowed_aliases: AbstractSet[str]) -> ExprNode:
         if isinstance(node_in, PropertyAccessExpr) and isinstance(node_in.value, Identifier):
             alias_name, prop = _projection._qualified_ref_from_node(
                 node_in,
@@ -1265,14 +1265,40 @@ def _rewrite_alias_properties_to_outputs(
                 line=line,
                 column=column,
             )
-            if alias_name == source_alias and prop is not None:
+            if alias_name not in shadowed_aliases and alias_name == source_alias and prop is not None:
                 output_name = property_outputs.get(prop)
                 if output_name is not None:
                     return Identifier(output_name)
-            return PropertyAccessExpr(_rewrite(node_in.value), node_in.property)
-        return _rebuild_expr_node(node_in, rewrite=_rewrite, error_context="alias property rewrite")
+            return PropertyAccessExpr(
+                _rewrite(node_in.value, shadowed_aliases), node_in.property
+            )
+        if isinstance(node_in, QuantifierExpr):
+            nested_shadowed_aliases = shadowed_aliases | {node_in.var}
+            return QuantifierExpr(
+                node_in.fn,
+                node_in.var,
+                _rewrite(node_in.source, shadowed_aliases),
+                _rewrite(node_in.predicate, nested_shadowed_aliases),
+            )
+        if isinstance(node_in, ListComprehension):
+            nested_shadowed_aliases = shadowed_aliases | {node_in.var}
+            return ListComprehension(
+                node_in.var,
+                _rewrite(node_in.source, shadowed_aliases),
+                predicate=None if node_in.predicate is None else _rewrite(
+                    node_in.predicate, nested_shadowed_aliases
+                ),
+                projection=None if node_in.projection is None else _rewrite(
+                    node_in.projection, nested_shadowed_aliases
+                ),
+            )
+        return _rebuild_expr_node(
+            node_in,
+            rewrite=lambda child: _rewrite(child, shadowed_aliases),
+            error_context="alias property rewrite",
+        )
 
-    return _render_expr_node(_rewrite(node))
+    return _render_expr_node(_rewrite(node, frozenset()))
 
 
 def _rewrite_expr_to_output_names(
