@@ -113,8 +113,9 @@ def reply_index(text: object, codes: str, question: DecisionQuestion) -> Optiona
     """The answer index of a reply: a code alone, a code followed by its own label (``"A. yes"``), or a label alone
     (``"yes"``). A reply that is otherwise not an answer is also read when its last block, after a blank line, is one
     of those, or when it ends with a code after one ``answer:`` or ``answer is``. Every other block that is an answer
-    must be the same one. A reply that says ``answer:`` or ``answer is`` more than once, or whose marker is not
-    followed by a code, is None: it is sent again, not guessed. One pass, linear in the reply."""
+    must be the same one, and so must a line before the marker that is a code or a label alone. A reply that says
+    ``answer:`` or ``answer is`` more than once, or whose marker is not followed by a code, is None: it is sent again,
+    not guessed. One pass, linear in the reply."""
     index = _line_index(text, codes, question)
     if index is not None or not isinstance(text, str):
         return index
@@ -127,19 +128,30 @@ def reply_index(text: object, codes: str, question: DecisionQuestion) -> Optiona
         match = ANSWER_MARKER.search(block)
         if match is None:
             claim = _line_index(block, codes, question)
-            claims.extend([] if claim is None else [claim])
+            claims.extend(_bare_claims(block, codes, question) if claim is None else [claim])
             answers_last = claim is not None
             continue
         said = _marked_answer(block[match.end():])
         if not said and position + 1 < len(blocks):
             said, skip = _marked_answer(blocks[position + 1]), position + 1
         claim = _coded_index(said, codes, question)
-        if marked or claim is None or len(ANSWER_MARKER.findall(block)) > 1:
+        if marked or claim is None:
             return None
-        before = _line_index(block[:match.start()], codes, question)
-        claims.extend([claim] if before is None else [before, claim])
+        before, opening = block[:match.start()], _line_index(block[:match.start()], codes, question)
+        claims.extend(_bare_claims(before, codes, question) + ([] if opening is None else [opening]) + [claim])
         answers_last, marked = True, True
     return claims[-1] if answers_last and len(set(claims)) == 1 else None
+
+
+def _bare_claims(text: str, codes: str, question: DecisionQuestion) -> List[int]:
+    """The answers of the lines that are a code or a label alone; a line such as ``A. yes`` is an option, not a claim."""
+    found = [(_bare_index(line, codes, question)) for line in text.split("\n")]
+    return [index for index in found if index is not None]
+
+
+def _bare_index(line: str, codes: str, question: DecisionQuestion) -> Optional[int]:
+    index = code_index(line, codes)
+    return index if index is not None and index < len(answer_labels(question)) else label_index(line, question)
 
 
 def _marked_answer(text: str) -> str:
