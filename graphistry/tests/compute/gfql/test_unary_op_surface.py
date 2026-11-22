@@ -156,6 +156,27 @@ def test_zero_scalar_projection_keeps_float_dtype_and_row_count(engine, nodes):
     assert pd.api.types.is_float_dtype(out["w"].dtype)
 
 
+@pytest.mark.parametrize("engine", SIGNED_ZERO_ENGINES)
+@pytest.mark.parametrize("operand", ["n.flag", "n.id > 1"], ids=["boolean-column", "comparison"])
+def test_unary_minus_of_a_boolean_keeps_its_existing_result(engine, operand):
+    """Only float negation changed (to keep the sign of zero): a boolean operand is still arithmetic on pandas/cuDF
+    (-True == -1, -False == 0) and a typed error on Polars, never a logical inversion."""
+    nodes = pd.DataFrame({"id": [1, 2], "flag": [True, False]})
+    query = f"MATCH (n) RETURN n.id AS id, -({operand}) AS v"
+    graph = _graph(engine, nodes=nodes)
+    if engine in {"polars", "polars-gpu"}:
+        with pytest.raises(GFQLTypeError):
+            graph.gfql(query, engine=engine)
+        return
+    out = graph.gfql(query, engine=engine)._nodes
+    if engine == "cudf":
+        out = out.to_pandas()
+    values = out.sort_values("id")["v"].tolist()
+    expected = [-1, 0] if operand == "n.flag" else [0, -1]
+    assert values == expected
+    assert all(not isinstance(v, bool) for v in values)
+
+
 # ---------------------------------------------------------------- the op set itself
 
 def test_grammar_admits_exactly_plus_minus_not():

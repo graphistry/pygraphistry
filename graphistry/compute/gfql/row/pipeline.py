@@ -1430,7 +1430,14 @@ class RowPipelineMixin:
             if node.op == "+":
                 return True, operand
             if node.op == "-":
-                return True, -operand
+                # Only float negation can keep the sign of zero; everything else keeps the arithmetic `0 - x`
+                # (so a boolean operand is not turned into a logical inversion).
+                is_float = (
+                    pd.api.types.is_float_dtype(operand.dtype)
+                    if hasattr(operand, "dtype")
+                    else isinstance(operand, float)
+                )
+                return True, (-operand if is_float else 0 - operand)
             if node.op == "not":
                 bool_out = self._gfql_eval_boolean_op(table_df, operand, _GFQL_MISSING_BOOL_OPERAND, "not")
                 if bool_out is None:
@@ -3073,8 +3080,8 @@ class RowPipelineMixin:
             return out
 
         # cuDF's scalar assign reuses the first zero it saw (0.0 == -0.0), losing the sign; build the column explicitly.
-        if engine == Engine.CUDF and isinstance(value, float) and value == 0.0:  # pragma: no cover - cuDF-only; the changed-line-coverage gate has no cuDF lane (validated by test_zero_sign_survives_alternating_evaluation)
-            out = s_cons(Engine.CUDF)([value] * len(table_df), index=table_df.index, dtype="float64")
+        if engine == Engine.CUDF and isinstance(value, float) and value == 0.0:  # pragma: no cover - cuDF-only; no cuDF lane in the coverage gate
+            out = s_cons(Engine.CUDF)(np.full(len(table_df), value, dtype="float64"), index=table_df.index)
             if hasattr(out, "name"):
                 out.name = tmp_col
             return out
