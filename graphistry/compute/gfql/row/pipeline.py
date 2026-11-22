@@ -1443,7 +1443,7 @@ class RowPipelineMixin:
                 is_float = (
                     pd.api.types.is_float_dtype(operand.dtype)
                     if is_series_like(operand)
-                    else isinstance(operand, float)
+                    else isinstance(operand, numbers.Real) and not isinstance(operand, numbers.Integral)
                 )
                 return True, (-operand if is_float else 0 - operand)
             if node.op == "not":
