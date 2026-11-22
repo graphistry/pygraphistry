@@ -1939,7 +1939,7 @@ class RowPipelineMixin:
                 inner = values[0]
                 if is_null_scalar(inner):
                     return True, None
-                if isinstance(inner, pd.Series) and not RowPipelineMixin._gfql_series_is_entity_text_like(inner):
+                if hasattr(inner, "astype") and not RowPipelineMixin._gfql_series_is_entity_text_like(inner):
                     arg = node.args[0]
                     if isinstance(arg, Identifier):
                         for entity_fn in ("__node_entity__", "__edge_entity__"):
