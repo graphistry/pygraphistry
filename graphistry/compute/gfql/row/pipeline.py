@@ -3042,7 +3042,7 @@ class RowPipelineMixin:
                 return "mixed"
             if pd.api.types.is_string_dtype(dtype):
                 return "str"
-            return str(dtype)
+            return None  # temporal/decimal/categorical/list dtypes are not a family here: fail open like Polars
         except (TypeError, ValueError):
             return None
 
