@@ -18,6 +18,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - **Type-hygiene guard: `dynamic-attr` check**: `bin/ci/ci_type_hygiene_guard.py` now counts calls to the builtins `hasattr`, `getattr` and `setattr` in `graphistry/` (tests excluded) with the same per-file ratchet and `# hygiene-ok: dynamic-attr -- reason` suppression as the other checks. Existing calls are grandfathered in the baseline; new ones fail `bin/lint.sh` and should use the typed helpers in `graphistry/Engine.py`, `isinstance`, or a `Protocol`.
 - **CI required check**: `ci.yml` gains a `ci-required` aggregate job that needs every other job, fails on any failure or cancellation, and passes on success or skip, so one status can gate `develop` and `master`. The CI concurrency group now includes the event name so a PR from a branch named `master` cannot cancel a `master` run. `DEVELOP.md` names `ci-required` as the required check and records the admin fast-forward push of `master` as the promotion mechanism.
 
+### Fixed
+
+- **GFQL `WITH ... WHERE` quantifier scope**: loop variables in `any`, `all`, `none`, `single`, and list comprehensions now shadow matching MATCH aliases, so `any(n IN [{tags: 'z'}] WHERE n.tags = 'z')` evaluates the local map instead of silently dropping rows.
+
 ## [0.62.2] - 2026-11-21
 
 ### Docs
