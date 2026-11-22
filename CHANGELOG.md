@@ -26,7 +26,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Docs
 
-- **GFQL semantic operators supply-chain notebook**: `demos/gfql/gfql_semantic_supply_chain.ipynb` triages real OSV PyPI advisories for a multi-service dependency graph in four stages (naive scan, GFQL reachability, three questions per call, `min_p` with `sem_map`). It runs offline with a simulated model, with an opt-in live mode capped by `budget`.
+- **GFQL semantic operators supply-chain notebook**: `demos/gfql/gfql_semantic_supply_chain.ipynb` triages real OSV PyPI advisories for a multi-service dependency graph in five stages (naive scan, package and version join, GFQL reachability, three questions per call, `min_p` with `sem_map`). It runs offline with a simulated model, with an opt-in live mode that uses `budget` caps.
 
 ## [0.62.2] - 2026-11-21
 
