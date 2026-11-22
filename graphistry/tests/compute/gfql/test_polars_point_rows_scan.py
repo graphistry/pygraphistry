@@ -130,8 +130,7 @@ def test_pandas_answers_match():
         assert bag(actual) == bag(expected), shape
 
 
-@pytest.mark.parametrize("edge", [e_forward(name="r"), e_undirected(name="r")])
-def test_many_seeds_use_the_join_branch_and_match(edge):
+def _many_seed_case(edge):
     size = 40
     nodes = pl.DataFrame({"id": list(range(size)), "kind": ["P"] * size, "name": [f"n{i}" for i in range(size)]})
     edges = pl.DataFrame({"s": list(range(size)) + [0], "d": [(i + 1) % size for i in range(size)] + [0],
@@ -139,7 +138,19 @@ def test_many_seeds_use_the_join_branch_and_match(edge):
     g = graphistry.nodes(nodes, "id").edges(edges, "s", "d")
     query = [n({"kind": "P"}, name="p"), edge, n(name="f"), rows(),
              select([("pid", "p.id"), ("fid", "f.id"), ("since", "r.since")])]
+    return g, query, size
+
+
+@pytest.mark.route_engaged("polars-point-rows")
+@pytest.mark.parametrize("edge", [e_forward(name="r"), e_undirected(name="r")])
+def test_many_seeds_are_served_by_the_scan(edge):
+    g, query, _ = _many_seed_case(edge)
     assert _served(g, query) == {True}
+
+
+@pytest.mark.parametrize("edge", [e_forward(name="r"), e_undirected(name="r")])
+def test_many_seeds_use_the_join_branch_and_match(edge):
+    g, query, size = _many_seed_case(edge)
     with routes_off(["polars-point-rows"]):
         expected = _run(g, query)
     assert len(expected._nodes) == (size + 1 if edge.direction == "forward" else 2 * size + 1)
