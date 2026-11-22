@@ -74,7 +74,7 @@ def _nonstring_null_result(s: Any, na: Optional[bool]) -> Any:
     is_cudf = hasattr(s, '__module__') and 'cudf' in s.__module__
     if is_cudf:  # pragma: no cover - cuDF-only; the changed-line-coverage gate has no cuDF lane (validated on dgx)
         import cudf
-        out = cudf.Series([fill] * n)
+        out = cudf.Series([fill] * n, dtype='bool')  # an untyped all-null list is a string column that a boolean mask cannot AND
         try:
             out.index = s.index
         except Exception:
