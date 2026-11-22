@@ -1439,7 +1439,13 @@ class RowPipelineMixin:
             if node.op == "+":
                 return True, operand
             if node.op == "-":
-                return True, 0 - operand
+                # floats negate directly (keeps -0.0); `0 - x` keeps boolean operands arithmetic
+                is_float = (
+                    pd.api.types.is_float_dtype(operand.dtype)
+                    if is_series_like(operand)
+                    else isinstance(operand, numbers.Real) and not isinstance(operand, numbers.Integral)
+                )
+                return True, (-operand if is_float else 0 - operand)
             if node.op == "not":
                 bool_out = self._gfql_eval_boolean_op(table_df, operand, _GFQL_MISSING_BOOL_OPERAND, "not")
                 if bool_out is None:
@@ -3166,6 +3172,12 @@ class RowPipelineMixin:
             out = s_cons(Engine.CUDF)(repeated_nan, nan_as_null=False)
             if hasattr(out, "name"):
                 out.name = tmp_col
+            return out
+
+        # cuDF's scalar assign reuses the first zero it saw (0.0 == -0.0), losing the sign; build the column explicitly.
+        if engine == Engine.CUDF and isinstance(value, float) and value == 0.0:  # pragma: no cover - cuDF-only; no cuDF lane in the coverage gate
+            out = s_cons(Engine.CUDF)(np.full(len(table_df), value, dtype="float64"), index=table_df.index)
+            out.name = tmp_col
             return out
 
         # Treat list/map literals as scalar row values by explicit broadcasting.
