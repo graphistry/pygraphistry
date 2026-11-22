@@ -8,16 +8,6 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [Development]
 <!-- Do Not Erase This Section - Used for tracking unreleased changes -->
 
-### Docs
-
-- **Development branch flow**: documents long-lived `master` and `develop` roles, maintainer-controlled merge-commit forwarding, maintainer fast-forward promotion, and the repository-settings decision required before cutover.
-
-- **AI skills / review budget**: the `review` skill now caps review waves, subagent parallelism, and token spend per PR, with a persisted ledger and a stop-and-escalate rule; only an explicit human override raises a limit. The planner, worker, and test-amplification skills reference the same caps.
-
-- **GFQL Let binding examples** (#2171): select named subgraphs with `output=` instead of nonexistent binding-marker columns; runnable examples assert nonempty results on pandas and Polars inputs while preserving matcher `name=` markers and service/GPU skips.
-
-- **GFQL quick reference examples run** (#2169): node and edge matcher examples use declarative predicates (`gt`, `lt`, `between`) instead of callables that validation rejects; `let()` examples select bindings with `output=`; remote references are shown as `let()` bindings; the engine section notes which features `auto` runs on pandas for Polars input. The docs example audit now finds code blocks nested under bullets, and every runnable quick-reference example executes on pandas and Polars-bound inputs with matching RETURN rows or graph node/edge identities.
-
 ### Performance
 
 - **GFQL row queries over several named nodes and edges**: a chain such as `[n(name='a'), e(), n(name='b'), rows(), ...]`, or a Cypher `MATCH ... RETURN` that returns more than one variable, no longer runs the graph traversal before it builds its rows. The rows still come from the input graph, so results and errors do not change. Applies to pandas, cuDF, Polars and Polars GPU. These queries still run the traversal: on pandas and cuDF, queries with a policy or a leading `call()`; on every engine, an unnamed pattern, `rows(source=...)` or `rows(table='edges')`, variable-length or hop-labelled edges, query strings, graphs with categorical (or Polars Enum) columns or unhashable dtypes, pandas frames that carry `attrs` or a non-default index, a name that is also a column of the graph, a `None` filter value, a filter on a column the graph does not have, a filter value that could raise or warn depending on the data (for example a number outside the column's range, a type the column cannot hold, or a predicate other than a numeric comparison on the first step), and queries whose index policy can use an index (`auto`, `force`, or `use` with a built index). `gfql_explain` reports the decision as `rows_bindings_skip_traversal` (#2326). Known limits, tracked separately: a query whose skipped path fails after a Polars `PerformanceWarning` repeats that warning when the traversal replays (#2364); results can differ from the traversal only where the traversal itself raises on object-column cells that are not strings (#2365).
@@ -29,6 +19,21 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ### Fixed
 
 - **GFQL `WITH ... WHERE` quantifier scope**: loop variables in `any`, `all`, `none`, `single`, and list comprehensions now shadow matching MATCH aliases, so `any(n IN [{tags: 'z'}] WHERE n.tags = 'z')` evaluates the local map instead of silently dropping rows.
+
+## [0.62.2] - 2026-11-21
+
+### Docs
+
+- **Development branch flow**: documents long-lived `master` and `develop` roles, maintainer-controlled merge-commit forwarding, maintainer fast-forward promotion, and the repository-settings decision required before cutover.
+
+- **AI skills / review budget**: the `review` skill now caps review waves, subagent parallelism, and token spend per PR, with a persisted ledger and a stop-and-escalate rule; only an explicit human override raises a limit. The planner, worker, and test-amplification skills reference the same caps.
+
+- **GFQL Let binding examples** (#2171): select named subgraphs with `output=` instead of nonexistent binding-marker columns; runnable examples assert nonempty results on pandas and Polars inputs while preserving matcher `name=` markers and service/GPU skips.
+
+- **GFQL quick reference examples run** (#2169): node and edge matcher examples use declarative predicates (`gt`, `lt`, `between`) instead of callables that validation rejects; `let()` examples select bindings with `output=`; remote references are shown as `let()` bindings; the engine section notes which features `auto` runs on pandas for Polars input. The docs example audit now finds code blocks nested under bullets, and every runnable quick-reference example executes on pandas and Polars-bound inputs with matching RETURN rows or graph node/edge identities.
+
+### Fixed
+
 - **GFQL nullable entity keys on cuDF** (#2312): `keys(n)` now returns empty lists for rows with no non-null properties alongside populated rows. Native empty key lists use the string child type expected by the grouped result, and key lists remain aligned with their original entities after the native grouping join.
 - **GFQL Cypher empty property maps**: an explicit node `{}` no longer replaces labels, so `MATCH (n:Foo {})` still selects `Foo` nodes. An explicit relationship `{}` no longer replaces relationship types with an empty tuple, so `MATCH ()-[r:R {}]->()` matches only typed `R` relationships on every supported engine, while untyped `n {}` and `r {}` controls remain untyped (#2318).
 
