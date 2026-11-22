@@ -20,6 +20,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ### Fixed
 
 - **GFQL Cypher string predicates over non-strings** (#2335): `STARTS WITH`, `ENDS WITH`, and `CONTAINS` in Cypher now give openCypher null when either operand is not a string (a numeric, boolean, or mixed-value cell is null, never coerced to text), in both `WHERE` and `RETURN`, and a categorical column of strings matches like strings. The native chain API is unchanged: `contains()`, `startswith()`, `endswith()`, `match()`, and `fullmatch()` on a non-string column still raise the typed `E302` error. The string predicates gain an optional `nonstring` field (`'error'` by default, `'null'` for Cypher), omitted from JSON at its default so existing serialized chains are unchanged.
+- **GFQL `WITH ... WHERE` quantifier scope**: loop variables in `any`, `all`, `none`, `single`, and list comprehensions now shadow matching MATCH aliases, so `any(n IN [{tags: 'z'}] WHERE n.tags = 'z')` evaluates the local map instead of silently dropping rows.
 
 ## [0.62.2] - 2026-11-21
 
