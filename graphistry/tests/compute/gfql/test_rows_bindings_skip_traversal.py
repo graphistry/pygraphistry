@@ -1375,3 +1375,42 @@ def test_concurrent_served_queries_leave_process_warning_state_untouched():
 def test_a_numeric_seed_comparison_is_served_only_inside_the_column_range(engine, comparand, served):
     query = [n({"id": gt(comparand)}, name="a"), e_undirected(name="r1"), n(name="m"), rows(), select([("aid", "a.id")])]
     assert _consulted_accepting_validation_errors(graph(engine), query, engine) == {served}
+
+
+def test_numpy_scalars_are_never_admitted_by_the_allowlists():
+    import numpy as np
+
+    from graphistry.compute.gfql.rows_skip_traversal import _numeric_comparand_fits, _scalar_fits
+
+    for value, dtype in [(np.float64(1.5), "float64"), (np.str_("a"), "string"), (np.int64(5), "int64"), (np.bool_(True), "bool")]:
+        assert _scalar_fits(value, dtype) is False
+        assert _numeric_comparand_fits(value, dtype) is False
+
+
+@pytest.mark.route_engaged(ROUTE)
+def test_a_polars_object_column_declines_the_skip(engine):
+    if engine not in ("polars", "polars-gpu"):
+        pytest.skip("Polars Object columns only exist on Polars")
+    import polars as pl
+
+    g = graph(engine)
+    g = g.nodes(g._nodes.with_columns(obj=pl.Series("obj", ["a"] * len(g._nodes), dtype=pl.Object)))
+    query = _later_filter_query("node", "obj", "a")
+    assert True not in _consulted_whatever_the_outcome(g, query, engine)
+
+
+@pytest.mark.route_engaged(ROUTE)
+def test_a_failure_the_canonical_path_surfaces_leaves_no_cache_entry():
+    from graphistry.compute.gfql import rows_skip_traversal
+    from graphistry.compute.gfql_unified import gfql_clear_caches
+
+    gfql_clear_caches()
+    g = graph("pandas")
+    middle = [n({"id": 4}, name="p"), e_forward(name="r"), n(name="q")]
+
+    def surfaces(_twin):
+        raise RuntimeError("an error the canonical path raises itself")
+
+    with pytest.raises(RuntimeError):
+        rows_skip_traversal.run_without_traversal(g, middle, "pandas", lambda graph_: graph_, surfaces)
+    assert not rows_skip_traversal._TWINS

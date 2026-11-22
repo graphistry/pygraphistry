@@ -156,8 +156,9 @@ def _op_filters(op: ASTObject) -> List[Tuple[Optional[Dict[str, object]], str]]:
 
 
 def _column_dtype_names(frame: DataFrameT) -> Dict[str, str]:
-    items = frame.schema.items() if is_polars_df(frame) else frame.dtypes.items()
-    return {str(column): str(dtype).lower() for column, dtype in items}
+    if is_polars_df(frame):  # a Polars Object column holds arbitrary Python values, unlike a pandas/cuDF object column of strings
+        return {str(column): "polars-object" if str(dtype) == "Object" else str(dtype).lower() for column, dtype in frame.schema.items()}
+    return {str(column): str(dtype).lower() for column, dtype in frame.dtypes.items()}
 
 
 _INT_DTYPE = re.compile(r"(u?)int(8|16|32|64)")
@@ -185,6 +186,8 @@ def _scalar_fits(value: object, dtype: str) -> bool:
     """
     if isinstance(value, bool):
         return dtype in _BOOL_DTYPES
+    if not _is_exact_scalar(value):  # a numpy scalar that subclasses float or str may compare differently
+        return False
     if isinstance(value, str):
         return dtype in _STRING_DTYPES
     if isinstance(value, int):
@@ -196,13 +199,17 @@ def _scalar_fits(value: object, dtype: str) -> bool:
     return False
 
 
+def _is_exact_scalar(value: object) -> bool:
+    return type(value) in (str, int, float)
+
+
 def _numeric_comparand_fits(value: object, dtype: str) -> bool:
     """Whether a ``gt``/``lt``/``eq``-style comparison of a numeric column with ``value`` cannot raise or warn by value.
 
     An int must fit the integer column's range, or a 64-bit integer on a float column (a wider Python int
     cannot become an engine literal); a float must be finite and inside the float column's range.
     """
-    if isinstance(value, bool) or not isinstance(value, (int, float)):
+    if not _is_exact_scalar(value) or isinstance(value, (bool, str)) or not isinstance(value, (int, float)):
         return False
     bounds = _int_range(dtype)
     if bounds is not None:
@@ -278,16 +285,25 @@ def run_without_traversal(
         twin, inserted = _zero_row_twin(g, middle, str(engine), traverse)
         return run_suffix(twin)
     except _replayable_errors() as error:
-        if inserted is not None:
-            twin_key, twin_frames = inserted
-            with _TWINS_LOCK:
-                if _TWINS.get(twin_key) is twin_frames:
-                    _TWINS.pop(twin_key)
+        _discard_inserted_twin(inserted)
         record_fast_path_decision(
             path="rows_bindings_skip_traversal", engine=engine, served=False,
             reason="replayed the traversal after an error in the skipped path", replayed_after=type(error).__name__,
         )
         return None
+    except BaseException:
+        _discard_inserted_twin(inserted)  # an error the canonical path surfaces itself still leaves no entry behind
+        raise
+
+
+def _discard_inserted_twin(inserted: Optional[Tuple[Tuple[object, ...], Tuple[DataFrameT, DataFrameT]]]) -> None:
+    """Remove the cache entry one failed attempt inserted, unless a concurrent attempt has replaced it."""
+    if inserted is None:
+        return
+    twin_key, twin_frames = inserted
+    with _TWINS_LOCK:
+        if _TWINS.get(twin_key) is twin_frames:
+            _TWINS.pop(twin_key)
 
 
 def _replayable_errors() -> Tuple[Type[BaseException], ...]:
