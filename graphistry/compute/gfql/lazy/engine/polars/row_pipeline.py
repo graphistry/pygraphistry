@@ -2456,11 +2456,9 @@ def binding_rows_polars(
             )
             if _duplicate_source_ids:
                 return None
-        if seed_ids_lf is not None and seed_row_col is None:
-            # WITH->MATCH re-entry seed: constrain the first alias to the carried ids.
+        if seed_ids_lf is not None:
+            # WITH->MATCH re-entry seed: constrain the first alias to the carried ids, keeping seed_nodes unique on node_id.
             seed_nodes = seed_nodes.join(seed_ids_lf, on=node_id, how="semi")
-        elif seed_ids_lf is not None:
-            seed_nodes = seed_nodes.join(seed_ids_lf, on=node_id, how="inner")
 
         # L4 pushdown twin of pandas `_gfql_connected_bindings_state`'s seed prefilter
         seed_nodes = _apply_alias_prefilters_polars(seed_nodes, first_op._name, alias_prefilters)  # honoured, never dropped (#1804)
@@ -2469,14 +2467,27 @@ def binding_rows_polars(
                 col for col in _names(seed_nodes)
                 if isinstance(col, str) and col.startswith("__cypher_reentry_")
             ]
+            # The reentry token encodes the carried WITH row order, so sort by it; the unique() ahead of it is a no-op.
             state = seed_nodes.select(
                 [pl.col(col) for col in hidden_cols]
                 + [pl.col(node_id).alias(WALK_CURRENT_COL)]
-            ).unique(subset=[reentry_token_col, WALK_CURRENT_COL], maintain_order=True)
-        elif seed_row_col is not None:
-            state = seed_nodes.select(
-                pl.col(seed_row_col), pl.col(node_id).alias(WALK_CURRENT_COL)
-            ).unique(subset=[seed_row_col, WALK_CURRENT_COL], maintain_order=True)
+            ).unique(subset=[reentry_token_col, WALK_CURRENT_COL]).sort(reentry_token_col)  #2370
+        elif seed_row_col is not None and seed_ids_lf is not None:
+            # Polars semi joins always keep the LEFT frame's order, so the carried seed frame goes on the left.
+            state = seed_ids_lf.join(
+                seed_nodes.select(pl.col(node_id)),
+                on=node_id,
+                how="semi",
+                maintain_order="left",
+            ).select(pl.col(seed_row_col), pl.col(node_id).alias(WALK_CURRENT_COL))
+        elif seed_ids_lf is not None:
+            # seed_ids_lf already holds the carried WITH row order, so no row index and no sort are needed.
+            state = seed_ids_lf.join(
+                seed_nodes.select(pl.col(node_id)),
+                on=node_id,
+                how="semi",
+                maintain_order="left",
+            ).select(pl.col(node_id).alias(WALK_CURRENT_COL))
         else:
             state = seed_nodes.select(
                 pl.col(node_id).alias(WALK_CURRENT_COL)
@@ -2496,12 +2507,8 @@ def binding_rows_polars(
                     subset=[node_id, reentry_token_col], keep="first", maintain_order=True
                 )
             elif seed_row_col is not None:
-                # Duplicate carried seed ids: collapse the alias frame to one row
-                # per node so per-seed-row bags stay isolated; the multiplicity
-                # lives in the state rows, not the alias binding.
-                alias_frames[first_alias] = seed_nodes.drop(seed_row_col).unique(
-                    subset=[node_id], keep="first", maintain_order=True
-                )
+                # The seed semi join left seed_nodes unique on node_id, so the alias frame needs no de-duplication.
+                alias_frames[first_alias] = seed_nodes
             else:
                 alias_frames[first_alias] = seed_nodes
             node_aliases.append(first_alias)
