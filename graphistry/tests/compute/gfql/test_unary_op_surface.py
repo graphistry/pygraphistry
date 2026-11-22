@@ -142,6 +142,20 @@ def test_zero_sign_survives_alternating_evaluation(engine):
         assert [math.copysign(1.0, value) for value in values] == [expected_sign] * 4, expr
 
 
+@pytest.mark.parametrize("engine", SIGNED_ZERO_ENGINES)
+@pytest.mark.parametrize("nodes", [_NODES.iloc[:0], _NODES.iloc[[1, 2]]], ids=["empty", "filtered-index"])
+def test_zero_scalar_projection_keeps_float_dtype_and_row_count(engine, nodes):
+    """A broadcast float zero stays float64 on every frame shape, including zero rows and a non-default index."""
+    out = _graph(engine, nodes=nodes).gfql("MATCH (n) RETURN n.id AS id, 0.0 AS v, -0.0 AS w", engine=engine)._nodes
+    if is_polars_df(out):
+        out = out.to_pandas(use_pyarrow_extension_array=False)
+    elif engine == "cudf":
+        out = out.to_pandas()
+    assert len(out) == len(nodes)
+    assert pd.api.types.is_float_dtype(out["v"].dtype)
+    assert pd.api.types.is_float_dtype(out["w"].dtype)
+
+
 # ---------------------------------------------------------------- the op set itself
 
 def test_grammar_admits_exactly_plus_minus_not():
