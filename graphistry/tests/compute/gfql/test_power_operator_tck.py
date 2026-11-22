@@ -86,7 +86,6 @@ def test_power_series_scalar_null_and_bool_paths(engine):
         graph.gfql("MATCH (n) RETURN n.flag ^ n.exp", engine=engine)
 
 
-@pytest.mark.parametrize("engine", ["pandas", *(["polars"] if _HAS_POLARS else [])])
 def test_power_scalar_float_edges_match_series(engine):
     result = _graph(engine).gfql(
         "RETURN 0.0 ^ -1.0 AS zero, (-2.0) ^ 0.5 AS negative",
