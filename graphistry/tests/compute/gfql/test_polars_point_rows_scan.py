@@ -144,3 +144,76 @@ def test_many_seeds_use_the_join_branch_and_match(edge):
         expected = _run(g, query)
     assert len(expected._nodes) == (size + 1 if edge.direction == "forward" else 2 * size + 1)
     assert_frame_equal(_run(g, query)._nodes, expected._nodes)
+
+
+def _outcome(g, query):
+    try:
+        out = _run(g, query)
+    except Exception as error:  # the outcome under test is the error class and message
+        return type(error).__name__, str(error)
+    return "rows", out._nodes.to_dicts(), [str(dtype) for dtype in out._nodes.dtypes], out._edges.columns
+
+
+def _same_as_general_path(g, query):
+    actual = _outcome(g, query)
+    with routes_off(["polars-point-rows"]):
+        expected = _outcome(g, query)
+    assert actual == expected
+    return actual
+
+
+def _precision_graph(kind):
+    """Five nodes whose ids differ by single nanoseconds, so a Python value (microseconds) cannot tell them apart."""
+    dtype = {"ns_datetime": pl.Datetime("ns"), "ns_duration": pl.Duration("ns"), "time": pl.Time}[kind]
+    ids = pl.Series([1, 2, 3, 4, 5]).cast(pl.Int64).cast(dtype)
+    nodes = pl.DataFrame({"id": ids, "name": ["a", "b", "c", "d", "e"]})
+    edges = pl.DataFrame({"s": ids[[0, 0]], "d": ids[[1, 2]]})
+    return graphistry.nodes(nodes, "id").edges(edges, "s", "d")
+
+
+@pytest.mark.parametrize("kind", ["ns_datetime", "ns_duration", "time"])
+@pytest.mark.parametrize("shape", ["source_rows", "joined"])
+def test_ids_finer_than_a_python_value_keep_exact_rows(kind, shape):
+    """Up to eight ids compare by equality; a Python round-trip drops nanoseconds, so only exact dtypes take that branch."""
+    query = {
+        "source_rows": [n({"name": "a"}, name="p"), e_forward(), n(name="f"), rows(source="f")],
+        "joined": [n({"name": "a"}, name="p"), e_forward(name="r"), n(name="f"), rows(),
+                   select([("fname", "f.name")])],
+    }[shape]
+    assert _same_as_general_path(_precision_graph(kind), query)[0] == "rows"
+
+
+def test_duplicate_node_ids_decline_the_source_rows_form():
+    g = graph(duplicate_tail=True)
+    query = [n({"id": 1}, name="p"), e_forward({"type": "LOC"}), n({"kind": "C"}, name="c"), rows(source="c")]
+    _same_as_general_path(g, query)
+    assert _served(g, query) == set()
+
+
+def _twelve_seed_graph(extra_edge_column):
+    nodes = pl.DataFrame({"id": list(range(1, 13)), "kind": ["P"] * 12})
+    edges = pl.DataFrame({"s": list(range(1, 12)), "d": list(range(2, 13)), "type": ["KNOWS"] * 11,
+                          extra_edge_column: [1] * 11})
+    return graphistry.nodes(nodes, "id").edges(edges, "s", "d")
+
+
+@pytest.mark.parametrize("name", ["__gfql_point_order__", "__gfql_point_side__", "__gfql_point_rows_order__"])
+def test_user_columns_named_like_generated_columns_do_not_collide(name):
+    few = graph()
+    few = few.edges(few._edges.with_columns(pl.lit(1).alias(name)))
+    seeded = [n({"id": 4}, name="p"), e_undirected({"type": "KNOWS"}, name="r"), n(name="f"), rows(), SELECT_R]
+    assert _same_as_general_path(few, seeded)[0] == "rows"
+    many = [n({"kind": "P"}, name="p"), e_undirected({"type": "KNOWS"}, name="r"), n(name="f"), rows(),
+            select([("pid", "p.id"), ("fid", "f.id")])]
+    assert _same_as_general_path(_twelve_seed_graph(name), many)[0] == "rows"
+
+
+@pytest.mark.parametrize("column", ["s", "d"])
+def test_selecting_an_edge_endpoint_column_keeps_the_general_path_outcome(column):
+    query = [n({"id": 1}, name="p"), e_forward({"type": "KNOWS"}, name="r"), n(name="f"), rows(),
+             select([("fid", "f.id"), ("end", f"r.{column}")])]
+    g = graph()
+    _same_as_general_path(g, query)
+    with index_trace() as steps:
+        _outcome(g, query)
+    assert not [s for s in steps if s.get("seam") == SEAM and s.get("served")]

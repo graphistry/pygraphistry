@@ -52,6 +52,10 @@ def polars_point_rows_admits(ops: Sequence[ASTObject]) -> Optional[int]:
     return boundary
 
 
+def _has_duplicate_ids(frame: "pl.DataFrame", node: str) -> bool:
+    return frame.height > 1 and frame.get_column(node).n_unique() != frame.height
+
+
 def _is_plain_order_by(op: ASTObject) -> bool:
     return isinstance(op, ASTCall) and op.function == "order_by" and set(op.params) == {"keys"}
 
@@ -96,7 +100,7 @@ def _gathered_edges_matching(
 def _joined_projection(
     seed: "pl.DataFrame", edges: "pl.DataFrame", tail: "pl.DataFrame",
     node: str, from_col: str, to_col: str, seed_alias: str, tail_alias: str,
-    edge_alias: Optional[str], projection: ASTCall,
+    edge_alias: Optional[str], projection: ASTCall, endpoint_columns: Tuple[str, str],
 ) -> "Optional[pl.DataFrame]":
     import polars as pl
     from graphistry.compute.gfql.lazy import collect
@@ -126,6 +130,8 @@ def _joined_projection(
         alias, column = parts
         if alias not in frames or column not in frames[alias].columns:
             return None
+        if alias == edge_alias and column in endpoint_columns:
+            return None  # the general path does not expose an edge's own endpoint columns as properties
         if singleton:
             series = frames[alias].get_column(column)
             if alias != edge_alias:
@@ -252,7 +258,7 @@ def _try_point_rows_polars(g: Plottable, ops: List[ASTObject], start_nodes: Opti
             projection = ops[boundary + 1]
             assert isinstance(projection, ASTCall) and isinstance(n0._name, str) and isinstance(tail_op._name, str)
             selected_joined = _joined_projection(seed, kept_edges, tail, node, from_col, to_col,
-                                                 n0._name, tail_op._name, edge._name, projection)
+                                                 n0._name, tail_op._name, edge._name, projection, (src, dst))
             if selected_joined is None:
                 return None
             if len(ops) == boundary + 3:
@@ -269,6 +275,8 @@ def _try_point_rows_polars(g: Plottable, ops: List[ASTObject], start_nodes: Opti
             adapter._node = adapter._edge = adapter._source = adapter._destination = None
             _record_point_rows(nodes, n0, node, scan)
             return clear_row_exec_context(row_table(adapter, selected_joined))
+        if scan and _has_duplicate_ids(tail if source == tail_op._name else seed, node):
+            return None
         if source == tail_op._name:
             selected = tail
         elif seed.height == 1 and kept_edges.height:
@@ -312,18 +320,21 @@ _EQUALITY_IDS_MAX = 8
 def _rows_with_ids(frame: "pl.DataFrame", columns: Tuple[str, ...], ids: SeriesT) -> "pl.DataFrame":
     """Rows of ``frame`` where any of ``columns`` is in ``ids``, in frame order.
 
-    Up to ``_EQUALITY_IDS_MAX`` ids compare by equality; more ids semi-join per column.
+    Up to ``_EQUALITY_IDS_MAX`` integer, string or boolean ids compare by equality; every other id
+    dtype (a Python value would lose nanoseconds or compare differently) and more ids semi-join per column.
     """
     import polars as pl
+    from graphistry.compute.util import generate_safe_column_name_from
     unique = ids.drop_nulls().unique(maintain_order=True)
-    if unique.len() <= _EQUALITY_IDS_MAX:
+    if not unique.len():
+        return frame.clear()
+    exact_in_python = unique.dtype.is_integer() or unique.dtype in (pl.String, pl.Boolean)
+    if exact_in_python and unique.len() <= _EQUALITY_IDS_MAX:
         values = unique.to_list()
-        if not values:
-            return frame.clear()
         return frame.filter(pl.any_horizontal([pl.col(column) == value for column in columns for value in values]))
     if len(columns) == 1:
         return frame.join(pl.DataFrame({columns[0]: unique}), on=columns[0], how="semi", maintain_order="left")
-    order = "__gfql_point_rows_order__"
+    order = generate_safe_column_name_from("__gfql_point_rows_order__", list(frame.columns))
     numbered = frame.with_row_index(order)
     hits = [numbered.join(pl.DataFrame({column: unique}), on=column, how="semi") for column in columns]
     return pl.concat(hits).unique(subset=[order]).sort(order).drop(order)
@@ -353,7 +364,10 @@ def _orient_toward_tail(
     if direction != "undirected":
         return _rows_with_ids(edges, (from_col,), ids)
     from graphistry.compute.gfql.lazy import collect
-    order, side = "__gfql_point_order__", "__gfql_point_side__"
+    from graphistry.compute.util import generate_safe_column_name_from
+    taken = list(edges.columns) + [from_col, to_col]
+    order = generate_safe_column_name_from("__gfql_point_order__", taken)
+    side = generate_safe_column_name_from("__gfql_point_side__", taken + [order])
     touching = _rows_with_ids(edges, (src, dst), ids).lazy().with_row_index(order)
     seed_ids = id_set(ids)
     forward = touching.filter(pl.col(src).is_in(seed_ids)).with_columns(
