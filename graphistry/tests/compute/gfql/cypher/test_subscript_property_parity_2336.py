@@ -75,6 +75,15 @@ def test_nonliteral_constant_string_subscript_matches_dotted_property(engine, ke
     assert [row["v"] for row in rows] == expected
 
 
+def _rows_or_native_decline(engine, graph, query):
+    """Rows, or None when native Polars declines (parity-or-error); any other engine must answer."""
+    try:
+        return _rows(graph.gfql(query, engine=engine)._nodes)
+    except (NotImplementedError, GFQLUnsupportedError):
+        assert engine in {"polars", "polars-gpu"}, query
+        return None
+
+
 def _edge_graph(engine):
     nodes = pd.DataFrame({"id": ["a", "b", "c"], "name": ["x", "y", "z"]})
     edges = pd.DataFrame({"src": ["a", "b"], "dst": ["b", "c"], "eid": ["e1", "e2"], "kind": ["K1", "K2"]})
@@ -102,7 +111,9 @@ def test_binding_row_string_subscripts_match_dotted_properties(engine, bound_edg
         graph = graph.bind(edge=None)
     results = {}
     for form, expr in [("subscript", f"{alias}['{key}']"), ("dotted", f"{alias}.{key}")]:
-        rows = _rows(graph.gfql(f"MATCH (a)-[r]->(b) RETURN {expr} AS v", engine=engine)._nodes)
+        rows = _rows_or_native_decline(engine, graph, f"MATCH (a)-[r]->(b) RETURN {expr} AS v")
+        if rows is None:
+            return
         results[form] = sorted(row["v"] for row in rows)
     assert results["subscript"] == results["dotted"] == expected
 
@@ -118,15 +129,6 @@ def test_binding_row_subscript_of_an_absent_key_is_null_like_the_dotted_property
             continue
         assert len(rows) == 2
         assert all(pd.isna(row["v"]) for row in rows), expr
-
-
-def _rows_or_native_decline(engine, graph, query):
-    """Rows, or None when native Polars declines (parity-or-error); any other engine must answer."""
-    try:
-        return _rows(graph.gfql(query, engine=engine)._nodes)
-    except (NotImplementedError, GFQLUnsupportedError):
-        assert engine in {"polars", "polars-gpu"}, query
-        return None
 
 
 def test_cartesian_node_subscripts_read_their_own_alias(engine):
