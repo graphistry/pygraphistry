@@ -1939,9 +1939,16 @@ class RowPipelineMixin:
                 inner = values[0]
                 if is_null_scalar(inner):
                     return True, None
-                if hasattr(inner, "astype") and not RowPipelineMixin._gfql_series_is_entity_text_like(inner):
+                if (
+                    hasattr(inner, "astype")
+                    and not RowPipelineMixin._gfql_series_is_entity_text_like(inner)
+                    and not RowPipelineMixin._gfql_series_is_mapping_like(inner)
+                ):
                     arg = node.args[0]
-                    if isinstance(arg, Identifier):
+                    if isinstance(arg, Identifier) and (
+                        RowPipelineMixin._gfql_has_bindings_alias_prefix(table_df, arg.name)
+                        or (arg.name in table_df.columns and RowPipelineMixin._gfql_series_bool_like(table_df[arg.name]))
+                    ):  # only a real alias (binding-row group or boolean marker) may be rebuilt as an entity
                         for entity_fn in ("__node_entity__", "__edge_entity__"):
                             ok, entity = self._gfql_eval_expr_ast_values(
                                 table_df,
