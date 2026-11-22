@@ -641,6 +641,21 @@ def _value_category(v: Any) -> Optional[str]:
     return None
 
 
+def _case_branch_value_kind(dt: Optional[pl.DataType]) -> Optional[str]:
+    """Coarse Cypher value family for CASE branches; unknown families stay fail-open."""
+    import polars as pl
+
+    if dt is None or dt == pl.Null:
+        return None
+    if dt == pl.Boolean:
+        return "bool"
+    if _dtype_is_int(dt) or _dtype_is_float(dt):
+        return "number"
+    if _dtype_is_stringlike(dt):
+        return "str"
+    return None
+
+
 def _lower_list_literal(items: Sequence[ExprNode], columns: Sequence[str]) -> Optional[pl.Expr]:
     """Lower ``[e0, e1, ...]`` to a per-row list via ``pl.concat_list``, or None to defer.
 
@@ -701,7 +716,7 @@ def lower_expr(node: ExprNode, columns: Sequence[str]) -> Optional[pl.Expr]:
     """Lower a parsed cypher ExprNode to a polars expression, or None to defer."""
     import polars as pl
     from graphistry.compute.gfql.expr_parser import (
-        Identifier, Literal, BinaryOp, UnaryOp, IsNullOp, PropertyAccessExpr, FunctionCall, CaseWhen,
+        Identifier, Literal, BinaryOp, UnaryOp, IsNullOp, PropertyAccessExpr, SubscriptExpr, FunctionCall, CaseWhen,
         ListLiteral,
     )
 
@@ -713,6 +728,17 @@ def lower_expr(node: ExprNode, columns: Sequence[str]) -> Optional[pl.Expr]:
         wf = lower_expr(node.when_false, columns)
         if cond is None or wt is None or wf is None:
             return None
+        true_kind = _case_branch_value_kind(_expr_output_dtype(wt))
+        false_kind = _case_branch_value_kind(_expr_output_dtype(wf))
+        if true_kind is not None and false_kind is not None and true_kind != false_kind:
+            from graphistry.compute.exceptions import ErrorCode, GFQLUnsupportedError
+            raise GFQLUnsupportedError(
+                ErrorCode.E110,
+                "CASE branches return incompatible Cypher value types",
+                field="expression",
+                value=sorted([true_kind, false_kind]),
+                suggestion="Use an explicit cast so both branches have the same value type.",
+            )
         # cast cond to Boolean: a Null-dtype/3-valued WHEN takes the ELSE branch (Cypher,
         # matching pandas); no-op on a real Boolean.
         return pl.when(cond.cast(pl.Boolean)).then(wt).otherwise(wf)
@@ -720,6 +746,23 @@ def lower_expr(node: ExprNode, columns: Sequence[str]) -> Optional[pl.Expr]:
         return _lower_function(node, columns)
     if isinstance(node, ListLiteral):
         return _lower_list_literal(node.items, columns)
+    if isinstance(node, SubscriptExpr) and isinstance(node.value, Identifier):
+        key_node = node.key
+        if isinstance(key_node, Literal) and isinstance(key_node.value, str):
+            key = key_node.value
+        elif isinstance(key_node, BinaryOp) and key_node.op == "+":
+            left_operand = key_node.left
+            right_operand = key_node.right
+            if (
+                isinstance(left_operand, Literal) and isinstance(left_operand.value, str)
+                and isinstance(right_operand, Literal) and isinstance(right_operand.value, str)
+            ):
+                key = left_operand.value + right_operand.value
+            else:
+                return None
+        else:
+            return None
+        return lower_expr(PropertyAccessExpr(node.value, key), columns)
     if isinstance(node, Identifier):
         if node.name in columns:
             return pl.col(node.name)

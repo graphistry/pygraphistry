@@ -606,8 +606,7 @@ def _parse_number_token(token: str) -> Union[int, float]:
     if lowered.startswith("0o"):
         return sign * int(lowered[2:], 8)
     if any(ch in body for ch in (".", "e", "E")):
-        value = float(token)
-        return 0.0 if value == 0.0 else value
+        return float(token)
     return int(token)
 
 
