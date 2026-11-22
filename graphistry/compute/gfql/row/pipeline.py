@@ -3012,7 +3012,7 @@ class RowPipelineMixin:
     @staticmethod
     def _gfql_case_branch_value_kind(series: SeriesT) -> Optional[str]:
         """Classify CASE branch values by Cypher family; all-null/unknown is not a family."""
-        if not hasattr(series, "astype"):
+        if not is_series_like(series):
             if isinstance(series, bool):
                 return "bool"
             if RowPipelineMixin._gfql_scalar_numeric_non_bool(series):
@@ -3021,7 +3021,7 @@ class RowPipelineMixin:
         try:
             null_mask = series.isna()
             non_null = ~null_mask
-            if not hasattr(non_null, "any") or not bool(non_null.any()):
+            if not bool(non_null.any()):
                 return None
             dtype = series.dtype
             if pd.api.types.is_bool_dtype(dtype):
