@@ -1610,9 +1610,12 @@ class RowPipelineMixin:
                         if hasattr(right, "astype")
                         else self._gfql_broadcast_scalar(table_df, right)
                     )
-                    return True, left.astype(float) ** right_series.astype(float)
+                    # IEEE power turns a null operand into 1.0 (1 ** NaN, NaN ** 0); Cypher requires null.
+                    null_mask = self._gfql_null_mask(table_df, left) | self._gfql_null_mask(table_df, right_series)
+                    return True, (left.astype(float) ** right_series.astype(float)).where(~null_mask)
                 if hasattr(right, "astype"):
-                    return True, self._gfql_broadcast_scalar(table_df, float(left)) ** right.astype(float)
+                    out = self._gfql_broadcast_scalar(table_df, float(left)) ** right.astype(float)
+                    return True, out.where(~self._gfql_null_mask(table_df, right))
                 scalar_power = pd.Series([float(left)], dtype="float64") ** float(right)
                 return True, float(scalar_power.iloc[0])
             if op == "/":

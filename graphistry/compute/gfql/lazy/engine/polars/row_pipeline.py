@@ -796,6 +796,10 @@ def lower_expr(node: ExprNode, columns: Sequence[str]) -> Optional[pl.Expr]:
             ldt, rdt = _expr_output_dtype(lhs), _expr_output_dtype(rhs)
             if ldt == pl.Boolean or rdt == pl.Boolean or _is_cross_type(ldt, rdt):
                 return None
+            # decline (NIE) unless both operands are numeric (or a null literal): a same-type string pair would
+            # otherwise be cast to Float64 and answer where pandas rejects it.
+            if any(dt is not None and dt != pl.Null and not _dtype_is_numeric(dt) for dt in (ldt, rdt)):
+                return None
             return lhs.cast(pl.Float64) ** rhs.cast(pl.Float64)
         # decline (NIE): ORDERING two ISO temporal constructor-string literals = lexicographic
         # (wrong across timezones). Only literal-vs-literal ordering declines: =/<> are

@@ -96,3 +96,53 @@ def test_power_scalar_float_edges_match_series(engine):
         result = result.to_pandas()
     assert result.iloc[0]["zero"] == float("inf")
     assert pd.isna(result.iloc[0]["negative"])
+
+
+def _column_graph(engine):
+    nodes = pd.DataFrame({
+        "id": [1, 2, 3],
+        "x": [2.0, None, 3.0],
+        "name": ["a", "b", "c"],
+        "s1": ["2", "3", "4"],
+        "s2": ["2", "2", "2"],
+    })
+    edges = pd.DataFrame({"s": [1], "d": [2]})
+    if engine in {"polars", "polars-gpu"}:
+        import polars as pl
+
+        nodes, edges = pl.from_pandas(nodes), pl.from_pandas(edges)
+    elif engine == "cudf":
+        import cudf
+
+        nodes, edges = cudf.from_pandas(nodes), cudf.from_pandas(edges)
+    return graphistry.nodes(nodes, "id").edges(edges, "s", "d")
+
+
+def _column_values(engine, expr):
+    out = _column_graph(engine).gfql(f"MATCH (n) RETURN n.id AS id, {expr} AS v ORDER BY id", engine=engine)._nodes
+    if hasattr(out, "to_pandas"):
+        out = out.to_pandas()
+    return [None if pd.isna(value) else value for value in out["v"].tolist()]
+
+
+@pytest.mark.parametrize(
+    ("expr", "expected"),
+    [
+        ("n.x ^ 0", [1.0, None, 1.0]),
+        ("1 ^ n.x", [1.0, None, 1.0]),
+        ("n.x ^ 2", [4.0, None, 9.0]),
+        ("2 ^ n.x", [4.0, None, 8.0]),
+        ("null ^ 2", [None, None, None]),
+        ("2 ^ null", [None, None, None]),
+    ],
+)
+def test_power_of_a_null_row_is_null(engine, expr, expected):
+    """IEEE power gives 1.0 for 1 ** NaN and NaN ** 0; Cypher gives null whenever either operand is null."""
+    assert _column_values(engine, expr) == expected
+
+
+@pytest.mark.parametrize("expr", ["n.name ^ 2", "2 ^ n.name", "n.name ^ n.name", "n.s1 ^ n.s2"])
+def test_power_of_string_operands_raises_on_every_engine(engine, expr):
+    """Strings (even numeric-looking ones) are not numbers: no engine may answer."""
+    with pytest.raises((GFQLValidationError, NotImplementedError)):
+        _column_values(engine, expr)
