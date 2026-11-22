@@ -278,8 +278,8 @@ def _seed_count_query(edge):
 
 
 SEED_COUNT_CASES = [
-    (3000, 100, True), (3000, 1024, True), (3000, 1025, False), (3000, 3000, False),
-    (40000, 2000, True), (40000, 2001, False),
+    (3000, 100, True), (3000, 150, True), (3000, 151, False), (3000, 3000, False),
+    (1100, 64, True), (1100, 65, False), (40000, 2000, True), (40000, 2001, False),
 ]
 
 
@@ -333,14 +333,14 @@ def _hub_graph(seed_count, edges_per_seed):
 
 
 @pytest.mark.parametrize("edge", [e_forward(name="r"), e_undirected(name="r")])
-@pytest.mark.parametrize("seed_count,edges_per_seed,served", [(100, 40, True), (100, 600, False)])
+@pytest.mark.parametrize("seed_count,edges_per_seed,served", [(10, 40, True), (100, 40, False), (100, 600, False)])
 def test_seeds_that_own_most_of_the_edges_match_the_general_path(edge, seed_count, edges_per_seed, served):
     _same_as_general_path(_hub_graph(seed_count, edges_per_seed), _seed_count_query(edge))
 
 
 @pytest.mark.route_engaged("polars-point-rows")
 @pytest.mark.parametrize("edge", [e_forward(name="r"), e_undirected(name="r")])
-@pytest.mark.parametrize("seed_count,edges_per_seed,served", [(100, 40, True), (100, 600, False)])
+@pytest.mark.parametrize("seed_count,edges_per_seed,served", [(10, 40, True), (100, 40, False), (100, 600, False)])
 def test_seeds_that_own_most_of_the_edges_keep_the_general_path(edge, seed_count, edges_per_seed, served):
     g, query = _hub_graph(seed_count, edges_per_seed), _seed_count_query(edge)
     assert (_served(g, query) == {True}) is served
@@ -351,3 +351,15 @@ def test_source_rows_are_served_above_the_joined_cost_crossover():
     g = _seed_count_graph(3000, 3000)
     query = [n({"seed": True}, name="p"), e_forward(), n(name="f"), rows(source="f")]
     assert _served(g, query) == {True}
+
+
+@pytest.mark.parametrize("edge_type", ["A", "B"])
+def test_an_edge_filter_applies_before_the_orientation_work(edge_type):
+    nodes = pl.DataFrame({"id": list(range(3000)), "seed": [i < 100 for i in range(3000)]})
+    sources = [i for i in range(100) for _ in range(30)]
+    edges = pl.DataFrame({"s": sources, "d": [(i * 7 + 1) % 3000 for i in range(len(sources))],
+                          "type": ["B" if i % 40 == 0 else "A" for i in range(len(sources))]})
+    g = graphistry.nodes(nodes, "id").edges(edges, "s", "d")
+    query = [n({"seed": True}, name="p"), e_undirected({"type": edge_type}, name="r"), n(name="f"), rows(),
+             select([("pid", "p.id"), ("fid", "f.id"), ("kind", "r.type")])]
+    _same_as_general_path(g, query)
