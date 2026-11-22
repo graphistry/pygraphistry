@@ -3096,6 +3096,25 @@ class RowPipelineMixin:
         ]
         return "{" + ", ".join(parts) + "}"
 
+    @staticmethod
+    def _gfql_string_predicate_per_row(left: SeriesT, right: SeriesT, op_name: str, expr: str) -> SeriesT:
+        """A non-literal right operand: evaluate row by row, null unless both operands are strings (pandas only)."""
+        if not (isinstance(left, pd.Series) and isinstance(right, pd.Series)):
+            raise NotImplementedError(
+                f"a non-literal right operand of {op_name} is not supported on this engine in {expr!r}; "
+                f"use engine='pandas' for this query (no silent fallback; parity-or-error by design)"
+            )
+        values: List[Any] = []
+        for lhs, rhs in zip(left, right):
+            if not (isinstance(lhs, str) and isinstance(rhs, str)):
+                values.append(pd.NA)
+                continue
+            try:
+                values.append(apply_string_predicate_scalar(lhs, rhs, op_name))
+            except re.error as exc:
+                raise ValueError(f"invalid regex pattern in {expr!r}: {exc}") from exc
+        return pd.Series(values, index=left.index, dtype="object")
+
     def _gfql_eval_string_predicate_expr(
         self,
         table_df: Any,
@@ -3107,9 +3126,7 @@ class RowPipelineMixin:
         if hasattr(left, "astype") or hasattr(right, "astype"):
             left_series = left if hasattr(left, "astype") else self._gfql_broadcast_scalar(table_df, left)
             if hasattr(right, "astype"):
-                raise ValueError(
-                    f"unsupported row expression: {op_name} rhs must be scalar in vectorized mode for {expr!r}"
-                )
+                return self._gfql_string_predicate_per_row(left_series, right, op_name, expr)
 
             left_null = self._gfql_null_mask(table_df, left_series)
             right_null = self._gfql_null_mask(table_df, right)

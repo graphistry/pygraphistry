@@ -60,6 +60,8 @@ POLARS_TEST_FILES=(
     graphistry/tests/compute/gfql/cypher/test_missing_relationship_property_2262.py
     # #2318 empty-map patterns are engine-parametrized; polars params only run here
     graphistry/tests/compute/gfql/cypher/test_issue_2318_empty_map_relationship.py
+    # #2374 non-literal string predicate operands are engine-parametrized; Polars declines run only in this lane
+    graphistry/tests/compute/gfql/cypher/test_string_predicate_nonliteral_rhs_2374.py
     # #2338 WITH WHERE quantifier scope is engine-parametrized; Polars structured declines run here
     graphistry/tests/compute/gfql/cypher/test_with_where_quantifier_scope_2338.py
     graphistry/tests/compute/gfql/cypher/test_issue_2258_entity_identity_membership.py
