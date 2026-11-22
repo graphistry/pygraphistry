@@ -3073,7 +3073,7 @@ class RowPipelineMixin:
             return out
 
         # cuDF's scalar assign reuses the first zero it saw (0.0 == -0.0), losing the sign; build the column explicitly.
-        if engine == Engine.CUDF and isinstance(value, float) and value == 0.0:
+        if engine == Engine.CUDF and isinstance(value, float) and value == 0.0:  # pragma: no cover - cuDF-only; the changed-line-coverage gate has no cuDF lane (validated by test_zero_sign_survives_alternating_evaluation)
             out = s_cons(Engine.CUDF)([value] * len(table_df), index=table_df.index, dtype="float64")
             if hasattr(out, "name"):
                 out.name = tmp_col
