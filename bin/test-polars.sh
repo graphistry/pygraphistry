@@ -39,6 +39,8 @@ POLARS_TEST_FILES=(
     graphistry/tests/compute/gfql/test_engine_polars_binding_rows.py
     # engine-parametrized (pandas/polars/cudf/polars-gpu); the pandas params also run in
     # test-gfql-core, but only this lane has polars installed
+    graphistry/tests/compute/gfql/test_power_operator_tck.py
+    graphistry/tests/compute/gfql/test_case_mixed_dtype.py
     graphistry/tests/compute/gfql/test_varlen_bounded_engine_parity_1787.py
     graphistry/tests/compute/gfql/test_engine_polars_with_match_reentry.py
     # engine-parametrized: its pandas params run in test-gfql-core, but the polars params
@@ -77,6 +79,7 @@ POLARS_TEST_FILES=(
     graphistry/tests/compute/gfql/cypher/test_issue_2261_grouped_identity.py
     # quoted map keys/MATCH aliases are engine-parametrized; pandas runs in core,
     # polars params only run in this lane
+    graphistry/tests/compute/gfql/test_properties_comprehension_map_2339.py
     graphistry/tests/compute/gfql/cypher/test_backtick_identifiers.py
     graphistry/tests/compute/gfql/test_conformance_ledger.py
     graphistry/tests/compute/gfql/test_polars_nan_clean.py

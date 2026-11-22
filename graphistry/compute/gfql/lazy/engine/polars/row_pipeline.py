@@ -641,6 +641,21 @@ def _value_category(v: Any) -> Optional[str]:
     return None
 
 
+def _case_branch_value_kind(dt: Optional[pl.DataType]) -> Optional[str]:
+    """Coarse Cypher value family for CASE branches; unknown families stay fail-open."""
+    import polars as pl
+
+    if dt is None or dt == pl.Null:
+        return None
+    if dt == pl.Boolean:
+        return "bool"
+    if _dtype_is_int(dt) or _dtype_is_float(dt):
+        return "number"
+    if _dtype_is_stringlike(dt):
+        return "str"
+    return None
+
+
 def _lower_list_literal(items: Sequence[ExprNode], columns: Sequence[str]) -> Optional[pl.Expr]:
     """Lower ``[e0, e1, ...]`` to a per-row list via ``pl.concat_list``, or None to defer.
 
@@ -713,6 +728,17 @@ def lower_expr(node: ExprNode, columns: Sequence[str]) -> Optional[pl.Expr]:
         wf = lower_expr(node.when_false, columns)
         if cond is None or wt is None or wf is None:
             return None
+        true_kind = _case_branch_value_kind(_expr_output_dtype(wt))
+        false_kind = _case_branch_value_kind(_expr_output_dtype(wf))
+        if true_kind is not None and false_kind is not None and true_kind != false_kind:
+            from graphistry.compute.exceptions import ErrorCode, GFQLUnsupportedError
+            raise GFQLUnsupportedError(
+                ErrorCode.E110,
+                "CASE branches return incompatible Cypher value types",
+                field="expression",
+                value=sorted([true_kind, false_kind]),
+                suggestion="Use an explicit cast so both branches have the same value type.",
+            )
         # cast cond to Boolean: a Null-dtype/3-valued WHEN takes the ELSE branch (Cypher,
         # matching pandas); no-op on a real Boolean.
         return pl.when(cond.cast(pl.Boolean)).then(wt).otherwise(wf)
@@ -827,6 +853,19 @@ def lower_expr(node: ExprNode, columns: Sequence[str]) -> Optional[pl.Expr]:
         # ('PT6M'), so +/- would become string concatenation (silent wrong answer); pandas handles it.
         if node.op in ("+", "-") and (_is_iso_duration_literal(node.left) or _is_iso_duration_literal(node.right)):
             return None
+        if node.op == "^":
+            lhs = lower_expr(node.left, columns)
+            rhs = lower_expr(node.right, columns)
+            if lhs is None or rhs is None:
+                return None
+            ldt, rdt = _expr_output_dtype(lhs), _expr_output_dtype(rhs)
+            if ldt == pl.Boolean or rdt == pl.Boolean or _is_cross_type(ldt, rdt):
+                return None
+            # decline (NIE) unless both operands are numeric (or a null literal): a same-type string pair would
+            # otherwise be cast to Float64 and answer where pandas rejects it.
+            if any(dt is not None and dt != pl.Null and not _dtype_is_numeric(dt) for dt in (ldt, rdt)):
+                return None
+            return lhs.cast(pl.Float64) ** rhs.cast(pl.Float64)
         # decline (NIE): ORDERING two ISO temporal constructor-string literals = lexicographic
         # (wrong across timezones). Only literal-vs-literal ordering declines: =/<> are
         # lexicographically correct, and literal-vs-real-string-column must NOT decline.
