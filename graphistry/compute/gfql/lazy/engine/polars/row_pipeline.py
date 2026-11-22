@@ -716,7 +716,7 @@ def lower_expr(node: ExprNode, columns: Sequence[str]) -> Optional[pl.Expr]:
     """Lower a parsed cypher ExprNode to a polars expression, or None to defer."""
     import polars as pl
     from graphistry.compute.gfql.expr_parser import (
-        Identifier, Literal, BinaryOp, UnaryOp, IsNullOp, PropertyAccessExpr, FunctionCall, CaseWhen,
+        Identifier, Literal, BinaryOp, UnaryOp, IsNullOp, PropertyAccessExpr, SubscriptExpr, FunctionCall, CaseWhen,
         ListLiteral,
     )
 
@@ -746,6 +746,23 @@ def lower_expr(node: ExprNode, columns: Sequence[str]) -> Optional[pl.Expr]:
         return _lower_function(node, columns)
     if isinstance(node, ListLiteral):
         return _lower_list_literal(node.items, columns)
+    if isinstance(node, SubscriptExpr) and isinstance(node.value, Identifier):
+        key_node = node.key
+        if isinstance(key_node, Literal) and isinstance(key_node.value, str):
+            key = key_node.value
+        elif isinstance(key_node, BinaryOp) and key_node.op == "+":
+            left_operand = key_node.left
+            right_operand = key_node.right
+            if (
+                isinstance(left_operand, Literal) and isinstance(left_operand.value, str)
+                and isinstance(right_operand, Literal) and isinstance(right_operand.value, str)
+            ):
+                key = left_operand.value + right_operand.value
+            else:
+                return None
+        else:
+            return None
+        return lower_expr(PropertyAccessExpr(node.value, key), columns)
     if isinstance(node, Identifier):
         if node.name in columns:
             return pl.col(node.name)
