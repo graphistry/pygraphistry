@@ -935,6 +935,11 @@ def test_same_type_scalars_on_a_later_op_never_change_the_outcome(engine, column
     g = _dtype_graph(engine)
     scalars = SCALAR_GROUPS[group]
     if engine == "polars" and column == "struct":
+        import polars as pl
+
+        release = tuple(int(part) for part in pl.__version__.split(".")[:2] if part.isdigit())
+        if release < (1, 22):
+            pytest.skip("Polars 1.21, shipped by RAPIDS 25.02, segfaults comparing a struct column")
         scalars = [value for value in scalars if not _polars_struct_compare_panics(value)]
     queries = [_later_filter_query(position, column, value) for value in scalars]
     gfql_clear_caches()
