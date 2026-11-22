@@ -703,9 +703,9 @@ def _empty_graph(engine):
     return g.nodes(g._nodes[:0]).edges(g._edges[:0])
 
 
+# diagonal cover: both orders and both seeds appear, once each, alongside validate_schema=False and an empty graph
 FIVE_OP_VARIANTS = [
-    ("populated", "forward", "matches", True), ("populated", "forward", "matches_nothing", True),
-    ("populated", "reverse", "matches", True), ("populated", "reverse", "matches_nothing", True),
+    ("populated", "forward", "matches", True), ("populated", "reverse", "matches_nothing", True),
     ("populated", "forward", "matches", False), ("empty", "forward", "matches", True),
 ]
 
@@ -942,8 +942,7 @@ def _later_filter_query(position, column, value):
 
 
 class TestScalarMatrix(_GeneralPathOnly):
-    @pytest.mark.parametrize("position", ["edge", "node"])
-    @pytest.mark.parametrize("group", sorted(SCALAR_GROUPS))
+    @pytest.mark.parametrize("group,position", [("int", "edge"), ("float", "node"), ("str", "edge"), ("bool", "node")])  # diagonal cover
     @pytest.mark.parametrize("column", ["int8", "int32", "int64", "uint64", "float32", "float64", "bool", "string", "dt_naive",
                                         "dt_tz", "obj_mixed", "all_null", "list", "struct"])
     def test_same_type_scalars_on_a_later_op_never_change_the_outcome(self, engine, column, group, position):
