@@ -727,7 +727,7 @@ def filter_expr_by_dict_polars(df: "Union[pl.DataFrame, pl.LazyFrame]", filter_d
             if isinstance(resolved_val, AlwaysNull):
                 exprs.append(pl.lit(None, dtype=pl.Boolean))
                 continue
-            if isinstance(resolved_val, (Contains, Startswith, Endswith, Match)):
+            if isinstance(resolved_val, (Contains, Startswith, Endswith, Match, Fullmatch)):
                 _col_dtype = _dtype_of(resolved_col)
                 if _col_dtype is not None and _col_dtype not in (pl.String, pl.Categorical, pl.Enum):
                     if string_predicate_raises_on_nonstring(resolved_val):  # the same rule as filter_by_dict and validate_schema
