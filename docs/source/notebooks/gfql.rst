@@ -11,6 +11,7 @@ GFQL Graph queries
    GFQL Validation Fundamentals <../demos/gfql/gfql_validation_fundamentals.ipynb>
    DateTime Filtering Examples <../demos/gfql/temporal_predicates.ipynb>
    GFQL Semantic Operators <../demos/gfql/gfql_semantic_operators.ipynb>
+   GFQL Semantic Operators: supply-chain advisories <../demos/gfql/gfql_semantic_supply_chain.ipynb>
    GPU Benchmarking <../demos/gfql/benchmark_hops_cpu_gpu.ipynb>
    GFQL Remote mode <../demos/gfql/gfql_remote.ipynb>
    Python Remote mode <../demos/gfql/python_remote.ipynb>
