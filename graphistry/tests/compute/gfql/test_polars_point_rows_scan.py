@@ -295,3 +295,59 @@ def test_a_seed_set_above_the_cost_crossover_matches_the_general_path(edge, node
 def test_a_seed_set_above_the_cost_crossover_keeps_the_general_path(edge, nodes_total, seeds, served):
     g, query = _seed_count_graph(nodes_total, seeds), _seed_count_query(edge)
     assert (_served(g, query) == {True}) is served
+
+
+def _row_op_graph():
+    nodes = pl.DataFrame({"id": [1, 2, 3, 4], "kind": ["P", "C", "C", "C"], "flag": [True, False, True, None],
+                          "name": ["a", "b", "c", "d"], "v": [9, 3, 1, 2]})
+    edges = pl.DataFrame({"s": [1, 1, 1, 2], "d": [2, 3, 4, 3], "w": [3, 1, 2, 0]})
+    return graphistry.nodes(nodes, "id").edges(edges, "s", "d")
+
+
+JOINED_HEAD = [n({"id": 1}, name="p"), e_forward(name="r"), n(name="f"), rows()]
+ROW_OP_CASES = {
+    "sentinel_order_key": JOINED_HEAD + [select([("id", "f.id"), ("w", "r.w")]), order_by([("__gfql_node_id__", "desc")])],
+    "bool_output_absent_key": JOINED_HEAD + [select([("q", "f.flag"), ("id", "f.id"), ("w", "r.w")]),
+                                             order_by([("q.zzz", "asc"), ("w", "asc")])],
+    "identity_order_key": [n({"kind": "C"}, name="p"), e_undirected(name="r"), n(name="f"), rows(),
+                           select([("q", "f.flag"), ("id", "f.id"), ("w", "r.w")]),
+                           order_by([("__node_identity__(q)", "desc")])],
+    "joined_literal_key": JOINED_HEAD + [select([("nm", "f.name"), ("w", "r.w")]), order_by([("1", "asc")])],
+    "source_order_key": JOINED_HEAD[:3] + [rows(source="f"), select([("nm", "f.name")]), order_by([("sqrt(nm)", "asc")])],
+    "source_select": JOINED_HEAD[:3] + [rows(source="p"), select([("x", "sqrt(p.name)")])],
+    "node_only_select": [n({"id": 1}, name="p"), rows(source="p"), select([("x", "sqrt(p.name)")])],
+}
+
+
+@pytest.mark.parametrize("case", sorted(ROW_OP_CASES))
+def test_row_operations_inside_the_scan_answer_like_the_general_path(case):
+    _same_as_general_path(_row_op_graph(), ROW_OP_CASES[case])
+
+
+def _hub_graph(seed_count, edges_per_seed):
+    total = 3000
+    nodes = pl.DataFrame({"id": list(range(total)), "seed": [i < seed_count for i in range(total)]})
+    sources = [i for i in range(seed_count) for _ in range(edges_per_seed)]
+    edges = pl.DataFrame({"s": sources, "d": [(i * 7 + 1) % total for i in range(len(sources))]})
+    return graphistry.nodes(nodes, "id").edges(edges, "s", "d")
+
+
+@pytest.mark.parametrize("edge", [e_forward(name="r"), e_undirected(name="r")])
+@pytest.mark.parametrize("seed_count,edges_per_seed,served", [(100, 40, True), (100, 600, False)])
+def test_seeds_that_own_most_of_the_edges_match_the_general_path(edge, seed_count, edges_per_seed, served):
+    _same_as_general_path(_hub_graph(seed_count, edges_per_seed), _seed_count_query(edge))
+
+
+@pytest.mark.route_engaged("polars-point-rows")
+@pytest.mark.parametrize("edge", [e_forward(name="r"), e_undirected(name="r")])
+@pytest.mark.parametrize("seed_count,edges_per_seed,served", [(100, 40, True), (100, 600, False)])
+def test_seeds_that_own_most_of_the_edges_keep_the_general_path(edge, seed_count, edges_per_seed, served):
+    g, query = _hub_graph(seed_count, edges_per_seed), _seed_count_query(edge)
+    assert (_served(g, query) == {True}) is served
+
+
+@pytest.mark.route_engaged("polars-point-rows")
+def test_source_rows_are_served_above_the_joined_cost_crossover():
+    g = _seed_count_graph(3000, 3000)
+    query = [n({"seed": True}, name="p"), e_forward(), n(name="f"), rows(source="f")]
+    assert _served(g, query) == {True}

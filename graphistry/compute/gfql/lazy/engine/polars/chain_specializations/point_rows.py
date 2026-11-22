@@ -1,5 +1,5 @@
 """Resident-index source rows for native Polars point queries."""
-from typing import TYPE_CHECKING, Dict, FrozenSet, List, Optional, Sequence, Tuple
+from typing import TYPE_CHECKING, Callable, Dict, FrozenSet, List, Optional, Sequence, Tuple, TypeVar
 
 if TYPE_CHECKING:
     from graphistry.compute.gfql.index.registry import AdjacencyIndex
@@ -47,8 +47,8 @@ def polars_point_rows_admits(ops: Sequence[ASTObject]) -> Optional[int]:
         projection = tail_ops[0]
         if not isinstance(projection, ASTCall) or projection.function != "select" or set(projection.params) != {"items"}:
             return None
-    if len(tail_ops) == 2 and not _is_plain_order_by(tail_ops[1]):
-        return None
+        if len(tail_ops) == 2 and not _is_plain_order_by(tail_ops[1], projection.params["items"]):
+            return None
     return boundary
 
 
@@ -56,8 +56,17 @@ def _has_duplicate_ids(frame: "pl.DataFrame", node: str) -> bool:
     return frame.height > 1 and frame.get_column(node).n_unique() != frame.height
 
 
-def _is_plain_order_by(op: ASTObject) -> bool:
-    return isinstance(op, ASTCall) and op.function == "order_by" and set(op.params) == {"keys"}
+def _is_plain_order_by(op: ASTObject, select_items: object) -> bool:
+    """An ``order_by`` whose keys are output columns of the ``select`` before it, each ``asc`` or ``desc``."""
+    if not (isinstance(op, ASTCall) and op.function == "order_by" and set(op.params) == {"keys"}):
+        return False
+    outputs = {item[0] for item in select_items if isinstance(item, (list, tuple)) and item and isinstance(item[0], str)} \
+        if isinstance(select_items, list) else set()
+    keys = op.params["keys"]
+    return isinstance(keys, list) and bool(keys) and all(
+        isinstance(key, (list, tuple)) and len(key) == 2 and key[0] in outputs and str(key[1]).lower() in ("asc", "desc")
+        for key in keys
+    )
 
 
 def _gathered_edges_matching(
@@ -224,7 +233,7 @@ def _try_point_rows_polars(g: Plottable, ops: List[ASTObject], start_nodes: Opti
         node_dtype = nodes.get_column(node).dtype
         if node_dtype != edges.get_column(src).dtype or node_dtype != edges.get_column(dst).dtype:
             return None
-        if scan and seed.height > max(_SCAN_SEEDS_FLOOR, nodes.height // _SCAN_SEEDS_DIVISOR):
+        if scan and source is None and seed.height > max(_SCAN_SEEDS_FLOOR, nodes.height // _SCAN_DIVISOR):
             return None
         if edge.direction == "undirected" and (nid_ctx is not None or source is not None):
             return None
@@ -233,6 +242,8 @@ def _try_point_rows_polars(g: Plottable, ops: List[ASTObject], start_nodes: Opti
             kept_edges = _orient_toward_tail(edges, edge.direction, src, dst, from_col, to_col,
                                              seed.get_column(node))
             kept_edges = filter_by_dict_polars(kept_edges, edge.edge_match)
+            if source is None and kept_edges.height > max(_SCAN_EDGES_FLOOR, edges.height // _SCAN_DIVISOR):
+                return None
             payload_edges = kept_edges.select(edges.columns)
             tail = _rows_with_ids(nodes, (node,), kept_edges.get_column(to_col))
             # A repeated node id binds differently on the general path; check every row before a filter hides a copy.
@@ -263,23 +274,23 @@ def _try_point_rows_polars(g: Plottable, ops: List[ASTObject], start_nodes: Opti
         if source is None:
             projection = ops[boundary + 1]
             assert isinstance(projection, ASTCall) and isinstance(n0._name, str) and isinstance(tail_op._name, str)
-            selected_joined = _joined_projection(seed, kept_edges, tail, node, from_col, to_col,
-                                                 n0._name, tail_op._name, edge._name, projection,
-                                                 frozenset(payload_edges.columns) - {src, dst})
+            selected_joined = _guarded(scan, _joined_projection, seed, kept_edges, tail, node, from_col, to_col,
+                                       n0._name, tail_op._name, edge._name, projection,
+                                       frozenset(payload_edges.columns) - {src, dst})
             if selected_joined is None:
                 return None
-            if len(ops) == boundary + 3:
-                order = ops[-1]
-                assert isinstance(order, ASTCall)
-                ordered = order_by_polars(row_table(_RowPipelineAdapter(g), selected_joined), order.params["keys"])
-                if ordered is None or not isinstance(ordered._nodes, pl.DataFrame):
-                    return None
-                selected_joined = ordered._nodes
             result_edges = payload_edges.clear()
             if edge._name is not None:
                 result_edges = _with_true_alias(result_edges, edge._name)
             adapter = _RowPipelineAdapter(g.edges(result_edges))
             adapter._node = adapter._edge = adapter._source = adapter._destination = None
+            if len(ops) == boundary + 3:
+                order = ops[-1]
+                assert isinstance(order, ASTCall)
+                ordered = _guarded(scan, order_by_polars, row_table(adapter, selected_joined), order.params["keys"])
+                if ordered is None or not isinstance(ordered._nodes, pl.DataFrame):
+                    return None
+                selected_joined = ordered._nodes
             _record_point_rows(nodes, n0, node, scan)
             return clear_row_exec_context(row_table(adapter, selected_joined))
         if source == tail_op._name:
@@ -300,8 +311,8 @@ def _try_point_rows_polars(g: Plottable, ops: List[ASTObject], start_nodes: Opti
     out = row_table(_RowPipelineAdapter(g.edges(kept_edges)), selected)
     for call in ops[boundary + 1:]:
         assert isinstance(call, ASTCall)
-        stepped = (select_polars(out, call.params["items"]) if call.function == "select"
-                   else order_by_polars(out, call.params["keys"]))
+        stepped = (_guarded(scan, select_polars, out, call.params["items"]) if call.function == "select"
+                   else _guarded(scan, order_by_polars, out, call.params["keys"]))
         if stepped is None:
             return None
         out = stepped
@@ -321,7 +332,22 @@ def _record_point_rows(nodes: "pl.DataFrame", n0: ASTNode, node: str, scan: bool
 
 _EQUALITY_IDS_MAX = 8
 _SCAN_SEEDS_FLOOR = 1024
-_SCAN_SEEDS_DIVISOR = 20
+_SCAN_EDGES_FLOOR = 8192
+_SCAN_DIVISOR = 20
+
+
+_R = TypeVar("_R")
+
+
+def _guarded(scan: bool, call: Callable[..., Optional[_R]], *args: object) -> Optional[_R]:
+    """Run a row operation; in scan mode a Polars error declines so the general path raises its own error."""
+    import polars as pl
+    try:
+        return call(*args)
+    except pl.exceptions.PolarsError:
+        if not scan:
+            raise
+        return None
 
 
 def _rows_with_ids(frame: "pl.DataFrame", columns: Tuple[str, ...], ids: SeriesT) -> "pl.DataFrame":
