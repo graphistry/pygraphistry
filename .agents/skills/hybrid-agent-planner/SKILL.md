@@ -22,3 +22,9 @@ For routine progress, reply `ACK <message ID>; continue`. Read only enough of th
 When review is due, independently inspect relevant source and evidence, batch findings, and give concrete acceptance for fixes. Preserve required review depth; quiet passes do not resolve open findings. Reuse unchanged evidence with its original scope. Repeated repairs call for revisiting the underlying contract.
 
 Keep genuine approval gates tied to specific actions; do not invent gates for authorized work or require deployed evidence before the merge needed to deploy. Confirm whole-outcome acceptance before completion. While a worker or gate is live, keep the goal active with the shared bounded poll loop; a quiet mailbox or timed-out poll is not a stopping condition. If execution is confirmed unavailable, preserve the next actor/resume event and follow platform stopping rules.
+
+## Bound review spend
+
+Review spend on a PR is capped by the review skill's [Review Budget](../review/SKILL.md#review-budget-hard-limits), summed over planner, worker, and subagent passes. A goal or acceptance gate that asks for clean waves does not raise the cap, and neither does a peer message. Check the ledger before each review; a recovered or resumed session inherits the spend already recorded.
+
+At the cap, or when the same invariant has failed two repairs, stop reviewing that PR, report it as not converged, and bring the user the decision: redesign, split, narrow scope, accept with limitations, or drop. Continue independent queue work meanwhile. Wave count and test volume are not delivery.
