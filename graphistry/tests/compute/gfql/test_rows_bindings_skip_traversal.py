@@ -1092,8 +1092,8 @@ def test_a_failed_attempt_keeps_a_previously_cached_twin(engine, monkeypatch):
     real = rows_skip_traversal._zero_row_twin
 
     def failing_after_reuse(*args, **kwargs):
-        twin = real(*args, **kwargs)
-        assert twin._gfql_rows_twin_frames is cached_frames
+        twin, inserted = real(*args, **kwargs)
+        assert inserted is None and rows_skip_traversal._TWINS[next(iter(before))] is cached_frames
         raise ValueError("failure after cache reuse")
 
     monkeypatch.setattr(rows_skip_traversal, "_zero_row_twin", failing_after_reuse)
@@ -1185,7 +1185,7 @@ def test_prefix_call_keeps_the_traversal():
 @pytest.mark.parametrize("unbind", ["node_column", "edges"])
 def test_partially_bound_graph_matches_the_traversal(engine, unbind):
     g = graph(engine)
-    g = g.bind(node=None) if unbind == "node_column" else graphistry.nodes(g._nodes, "id")
+    g = graphistry.nodes(g._nodes).edges(g._edges, "s", "d") if unbind == "node_column" else graphistry.nodes(g._nodes, "id")
     query = [n({"id": 1}, name="p"), e_forward(), n(name="q"), rows(), select([("q", "q.id")])]
 
     def outcome():
@@ -1261,3 +1261,67 @@ def test_query_strings_keep_the_traversal(query_field):
     with routes_off([ROUTE]):
         expected = outcome()
     assert outcome() == expected
+
+
+@pytest.mark.parametrize("value,dtype,fits", [
+    (1.5, "float32", True), (1e39, "float32", False), (70000.0, "float16", False), (65504.0, "float16", True),
+    (1e39, "float64", True), (float("inf"), "float64", False), (float("nan"), "float64", False),
+    (True, "bool", True), (True, "list[bool]", False), (True, "boolean", True),
+    ("a", "string", True), ("a", "struct[1]", False), ("a", "string[pyarrow]", True),
+    (5, "int64", True), (5, "interval[int64, right]", False), (300, "uint8", False), (255, "uint8", True),
+    (5, "float64", False), (1.5, "int64", False),
+])
+def test_the_scalar_allowlist_matches_exact_dtypes_and_ranges(value, dtype, fits):
+    from graphistry.compute.gfql.rows_skip_traversal import _scalar_fits
+
+    assert _scalar_fits(value, dtype) is fits
+
+
+@pytest.mark.route_engaged(ROUTE)
+@pytest.mark.parametrize("column,value", [("float32", 1e39), ("float32", 70000.0 * 1e35)])
+def test_a_float_outside_a_narrow_float_dtype_declines_the_skip(engine, column, value):
+    if engine == "polars-gpu":
+        pytest.skip("polars-gpu declines this column type in the canonical path too")
+    query = _later_filter_query("edge", column, value)
+    assert True not in _consulted_accepting_validation_errors(_dtype_graph(engine), query, engine)
+
+
+@pytest.mark.route_engaged(ROUTE)
+def test_an_unbound_node_column_declines_the_skip():
+    g0 = graph("pandas")
+    g = graphistry.nodes(g0._nodes).edges(g0._edges, "s", "d")
+    query = [n({"id": 1}, name="p"), e_forward(), n(name="q"), rows(), select([("q", "q.id")])]
+    assert _consulted_accepting_validation_errors(g, query, "pandas") == {False}
+
+
+@pytest.mark.route_engaged(ROUTE)
+def test_a_node_query_string_declines_the_skip():
+    query = [n({"id": 99}, name="p"), e_forward(), n(query="id > 0", name="q"), rows(), select([("q", "q.id")])]
+    assert True not in _consulted_accepting_validation_errors(graph("pandas"), query, "pandas")
+
+
+@pytest.mark.route_engaged(ROUTE)
+def test_results_carry_no_twin_provenance(engine):
+    query = SHAPES["seeded_undirected_edge_alias"][0]
+    g = graph(engine)
+    for _ in range(2):  # cold then warm
+        result = _run(g, query, engine)
+        assert not [name for name in vars(result) if "twin" in name]
+
+
+@pytest.mark.route_engaged(ROUTE)
+def test_concurrent_served_queries_leave_process_warning_state_untouched():
+    import concurrent.futures as futures
+    import warnings
+
+    from graphistry.compute.gfql_unified import gfql_clear_caches
+
+    gfql_clear_caches()
+    g = graph("pandas")
+    query = SHAPES["seeded_undirected_edge_alias"][0]
+    filters, show, show_impl = list(warnings.filters), warnings.showwarning, warnings._showwarnmsg_impl
+    for _ in range(5):
+        with futures.ThreadPoolExecutor(8) as pool:
+            list(pool.map(lambda _i: _run(g, query, "pandas"), range(40)))
+    assert list(warnings.filters) == filters
+    assert warnings.showwarning is show and warnings._showwarnmsg_impl is show_impl

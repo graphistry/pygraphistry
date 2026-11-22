@@ -10,17 +10,14 @@ from __future__ import annotations
 
 import math
 import re
-import itertools
-import warnings
 import threading
-import uuid
 from collections import OrderedDict
 from typing import Callable, Dict, List, Optional, Tuple, Type
 
 from graphistry.Engine import is_polars_df
 from graphistry.Plottable import Plottable
 from graphistry.compute.ast import ASTCall, ASTEdge, ASTNode, ASTObject, serialize_binding_ops
-from graphistry.compute.gfql.cache_registry import register_clearable_callable, register_clearable_dict
+from graphistry.compute.gfql.cache_registry import register_clearable_callable
 from graphistry.compute.gfql.index.types import TraceEngine
 from graphistry.compute.typing import DataFrameT
 from graphistry.utils.json import JSONVal
@@ -31,18 +28,14 @@ _FILTER_FIELDS = ("filter_dict", "edge_match", "source_node_match", "destination
 _TWINS: "OrderedDict[Tuple[object, ...], Tuple[DataFrameT, DataFrameT]]" = OrderedDict()
 _TWINS_MAX = 256
 _TWINS_LOCK = threading.Lock()
-_TWIN_TOKENS: Dict[Tuple[object, ...], str] = {}
-_ATTEMPT_SEQ = itertools.count()
 
 
 def _clear_twins() -> None:
     with _TWINS_LOCK:
         _TWINS.clear()
-        _TWIN_TOKENS.clear()
 
 
 register_clearable_callable("_TWINS", _clear_twins)
-register_clearable_dict("_TWIN_TOKENS", _TWIN_TOKENS)
 
 
 def bindings_rows_call(middle: List[ASTObject], suffix: List[ASTObject]) -> Optional[ASTCall]:
@@ -165,30 +158,34 @@ def _column_dtype_names(frame: DataFrameT) -> Dict[str, str]:
     return {str(column): str(dtype).lower() for column, dtype in items}
 
 
-def _int_bounds(dtype: str) -> Tuple[int, int]:
-    match = re.search(r"(\d+)", dtype)
-    bits = int(match.group(1)) if match else 64
-    return (0, 2 ** bits - 1) if dtype.startswith("u") else (-(2 ** (bits - 1)), 2 ** (bits - 1) - 1)
+_INT_DTYPE = re.compile(r"(u?)int(8|16|32|64)")
+_FLOAT_MAX = {"float16": 65504.0, "float32": 3.4028234663852886e38, "float64": math.inf}
+_STRING_DTYPES = frozenset({"object", "str", "utf8", "string", "string[python]", "string[pyarrow]"})
+_BOOL_DTYPES = frozenset({"bool", "boolean"})
 
 
 def _scalar_fits(value: object, dtype: str) -> bool:
     """Whether comparing ``value`` to a column of ``dtype`` has an outcome fixed by the scalar's type and the dtype.
 
-    Allowlist of (scalar type, dtype kind): a string on a string column, a bool on a bool column, an
-    int inside the dtype's range on an integer column, a finite float on a float column. Everything
-    else (overflow, nan/inf, None, a type the column cannot hold) can raise or warn by value.
+    Allowlist of (scalar type, exact dtype): a string on a string column, a bool on a bool column, an int
+    inside the dtype's range on an integer column, a float inside the dtype's finite range on a float
+    column. Everything else (overflow, nan/inf, None, a type the column cannot hold, nested or
+    interval dtypes) can raise or warn by value.
     """
     if isinstance(value, bool):
-        return "bool" in dtype
+        return dtype in _BOOL_DTYPES
     if isinstance(value, str):
-        return dtype in ("object", "str", "utf8") or "string" in dtype
+        return dtype in _STRING_DTYPES
     if isinstance(value, int):
-        if dtype.startswith(("int", "uint")):
-            low, high = _int_bounds(dtype)
-            return low <= value <= high
-        return False
+        match = _INT_DTYPE.fullmatch(dtype)
+        if match is None:
+            return False
+        bits = int(match.group(2))
+        low, high = (0, 2 ** bits - 1) if match.group(1) else (-(2 ** (bits - 1)), 2 ** (bits - 1) - 1)
+        return low <= value <= high
     if isinstance(value, float):
-        return dtype.startswith("float") and math.isfinite(value)
+        limit = _FLOAT_MAX.get(dtype)
+        return limit is not None and math.isfinite(value) and abs(value) <= limit
     return False
 
 
@@ -248,26 +245,16 @@ def run_without_traversal(
     """
     from graphistry.compute.gfql.index.api import record_fast_path_decision
 
-    inserted = None
+    inserted: Optional[Tuple[Tuple[object, ...], Tuple[DataFrameT, DataFrameT]]] = None
     try:
-        twin = _zero_row_twin(g, middle, str(engine), traverse)
-        inserted = getattr(twin, "_gfql_rows_twin_inserted", None)
-        # Warning capture is process-global, not thread-safe; the record/re-emit window contains only one fast-path attempt.
-        with warnings.catch_warnings(record=True) as caught:
-            warnings.simplefilter("always", append=True)
-            result = run_suffix(twin)
-        for warning in caught:
-            warnings.warn_explicit(
-                warning.message, warning.category, warning.filename, warning.lineno,
-            )
-        return result
+        twin, inserted = _zero_row_twin(g, middle, str(engine), traverse)
+        return run_suffix(twin)
     except _replayable_errors() as error:
         if inserted is not None:
-            twin_key, twin_frames, twin_token = inserted
+            twin_key, twin_frames = inserted
             with _TWINS_LOCK:
-                if _TWINS.get(twin_key) is twin_frames and _TWIN_TOKENS.get(twin_key) == twin_token:
+                if _TWINS.get(twin_key) is twin_frames:
                     _TWINS.pop(twin_key)
-                    _TWIN_TOKENS.pop(twin_key)
         record_fast_path_decision(
             path="rows_bindings_skip_traversal", engine=engine, served=False,
             reason="replayed the traversal after an error in the skipped path", replayed_after=type(error).__name__,
@@ -295,11 +282,12 @@ def _replayable_errors() -> Tuple[Type[BaseException], ...]:
 
 def _zero_row_twin(
     g: Plottable, middle: List[ASTObject], engine_key: str, traverse: Callable[[Plottable], Plottable],
-) -> Plottable:
-    """``g`` with the frames its canonical middle traversal would produce, at zero rows.
+) -> Tuple[Plottable, Optional[Tuple[Tuple[object, ...], Tuple[DataFrameT, DataFrameT]]]]:
+    """``g`` with the frames its canonical middle traversal would produce, at zero rows, plus the cache entry this call inserted.
 
     The traversal runs once per input schema and plan shape on a zero-row copy of ``g``,
     outside any caller's index trace, and fresh copies of its frames serve later queries.
+    The inserted entry (None on a cache hit) lets a failed attempt remove exactly what it added.
     """
     from graphistry.compute.gfql.index.api import drop_index, suspended_index_trace, with_index_policy
 
@@ -312,7 +300,7 @@ def _zero_row_twin(
         frames = _TWINS.get(key)
         if frames is not None:
             _TWINS.move_to_end(key)
-    inserted = None
+    inserted: Optional[Tuple[Tuple[object, ...], Tuple[DataFrameT, DataFrameT]]] = None
     if frames is None:
         empty = with_index_policy(drop_index(g.nodes(g._nodes[:0]).edges(g._edges[:0])), "off")
         with suspended_index_trace():
@@ -320,17 +308,12 @@ def _zero_row_twin(
         frames = (_independent(out._nodes), _independent(out._edges))
         with _TWINS_LOCK:
             _TWINS[key] = frames
-            attempt_token = uuid.uuid4().hex
-            _TWIN_TOKENS[key] = attempt_token
-            inserted = (key, frames, attempt_token)
+            inserted = (key, frames)
             if len(_TWINS) > _TWINS_MAX:
-                evicted_key, _ = _TWINS.popitem(last=False)
-                _TWIN_TOKENS.pop(evicted_key, None)
+                _TWINS.popitem(last=False)
     twin = g.bind()
     twin._nodes, twin._edges = (_fresh(frame) for frame in frames)
-    twin._gfql_rows_twin_frames = frames  # type: ignore[attr-defined]  # per-attempt provenance on a private bound graph
-    twin._gfql_rows_twin_inserted = inserted  # type: ignore[attr-defined]  # per-attempt provenance on a private bound graph
-    return twin
+    return twin, inserted
 
 
 def _ambient_state() -> Tuple[object, ...]:
