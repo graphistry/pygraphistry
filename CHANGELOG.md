@@ -19,6 +19,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- **GFQL Cypher string parameters**: a whole-expression string parameter such as `RETURN $v` or `count($v)` is a string value in every row expression position, on every engine that runs the query. It raised `unsupported token in row expression` on pandas and cuDF, and a string equal to a column name (`'name'`) or to expression text (`'n.id'`) silently returned the column or the evaluated expression instead of the string (#2324).
 - **GFQL constant-string property subscripts**: `n['type']`, `n['id']`, `n['label__Foo']`, and ordinary `n['key']` now resolve like the matching dotted property on pandas, cuDF, and Polars, including constant concatenation and parameter keys. Absent properties preserve null semantics; unsupported dynamic keys still decline.
 - **GFQL multi-alias entity metadata**: `keys(n)`/`properties(n)` and `keys(r)`/`properties(r)` over multi-alias binding rows now use the selected entity's own properties instead of internal binding columns. Engines that do not yet support the expression keep their structured unsupported-query decline.
 - **GFQL `WITH ... WHERE` quantifier scope**: loop variables in `any`, `all`, `none`, `single`, and list comprehensions now shadow matching MATCH aliases, so `any(n IN [{tags: 'z'}] WHERE n.tags = 'z')` evaluates the local map instead of silently dropping rows.
