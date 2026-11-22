@@ -98,6 +98,20 @@ def test_native_string_predicates_on_a_non_string_column_keep_the_typed_error(en
     assert exc.value.code == ErrorCode.E302
 
 
+@pytest.mark.parametrize("make_predicate", [
+    lambda: contains("5"),
+    lambda: startswith("a"),
+    lambda: endswith("7"),
+    lambda: match("a.*"),
+    lambda: fullmatch("a5"),
+], ids=["contains", "startswith", "endswith", "match", "fullmatch"])
+def test_native_string_predicates_treat_a_categorical_column_as_non_string_on_every_engine(engine, make_predicate):
+    """One native rule: a categorical column raises E302 on pandas, cuDF and Polars alike; only Cypher decodes it (test above)."""
+    with pytest.raises(GFQLSchemaError) as exc:
+        _graph(engine, _CATEGORICAL).gfql([n({"v": make_predicate()})], engine=engine)
+    assert exc.value.code == ErrorCode.E302
+
+
 @pytest.mark.parametrize("op", ["CONTAINS", "STARTS WITH", "ENDS WITH"])
 def test_the_same_predicate_in_cypher_is_null_for_a_non_string_column(engine, op):
     """Only Cypher-lowered predicates carry nonstring='null': no rows in WHERE, null in RETURN."""

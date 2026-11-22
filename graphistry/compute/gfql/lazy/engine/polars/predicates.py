@@ -722,14 +722,15 @@ def filter_expr_by_dict_polars(df: "Union[pl.DataFrame, pl.LazyFrame]", filter_d
             # String predicate on a non-`String` column: pandas/cuDF raise a clean
             # GFQLSchemaError (E302) at schema validation, but polars would build `.str.<op>` and
             # raise an OPAQUE `InvalidOperationError` ("expected String type, got: cat") at collect
-            # on a Categorical/Enum/numeric column. Raise the SAME clean, typed error so all three
-            # engines agree (categorical is treated as non-string here, exactly as filter_by_dict).
+            # on a Categorical/Enum/numeric column. Raise the SAME clean, typed error so all
+            # engines agree (a native predicate treats categorical as non-string, exactly as filter_by_dict;
+            # a Cypher-lowered one decodes a categorical of strings and matches).
             if isinstance(resolved_val, AlwaysNull):
                 exprs.append(pl.lit(None, dtype=pl.Boolean))
                 continue
             if isinstance(resolved_val, (Contains, Startswith, Endswith, Match, Fullmatch)):
                 _col_dtype = _dtype_of(resolved_col)
-                if _col_dtype is not None and _col_dtype not in (pl.String, pl.Categorical, pl.Enum):
+                if _col_dtype is not None and _col_dtype != pl.String:
                     if string_predicate_raises_on_nonstring(resolved_val):  # the same rule as filter_by_dict and validate_schema
                         from graphistry.compute.exceptions import ErrorCode, GFQLSchemaError
                         raise GFQLSchemaError(
@@ -740,8 +741,9 @@ def filter_expr_by_dict_polars(df: "Union[pl.DataFrame, pl.LazyFrame]", filter_d
                             column_type=str(_col_dtype),
                             suggestion='Use numeric predicates like gt() or lt() for numeric columns',
                         )
-                    exprs.append(pl.lit(None, dtype=pl.Boolean))
-                    continue
+                    if _col_dtype not in (pl.Categorical, pl.Enum):
+                        exprs.append(pl.lit(None, dtype=pl.Boolean))
+                        continue
             resolved_dtype = _dtype_of(resolved_col)
             if isinstance(resolved_val, IsIn) and _dtype_is_temporal(resolved_dtype):
                 expr = _temporal_membership_expr(

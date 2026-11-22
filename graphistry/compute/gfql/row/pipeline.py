@@ -3029,7 +3029,11 @@ class RowPipelineMixin:
             if decoded is None or not isinstance(right, str):
                 return None
             left_series = decoded
-            if isinstance(left_series, pd.Series) and pd.api.types.is_object_dtype(left_series.dtype):
+            if (
+                isinstance(left_series, pd.Series)
+                and pd.api.types.is_object_dtype(left_series.dtype)
+                and pd.api.types.infer_dtype(left_series, skipna=True) != "string"  # an all-string column skips the per-cell pass
+            ):
                 any_null = any_null | (~left_series.map(lambda cell: isinstance(cell, str)) & ~left_null)  # a non-string cell is null, never stringified
             left_txt = left_series.astype(str)
             needle = str(right)

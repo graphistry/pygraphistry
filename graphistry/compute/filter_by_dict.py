@@ -302,7 +302,6 @@ def _prepare_filter_dict(
 
             # A native string predicate on a non-string column is a typed error; Cypher-lowered ones are null (nonstring='null').
             if string_predicate_raises_on_nonstring(resolved_val) and not _is_string_dtype_safe(col_dtype):
-                from graphistry.compute.exceptions import ErrorCode, GFQLSchemaError
                 raise GFQLSchemaError(
                     ErrorCode.E302,
                     f'Type mismatch: string predicate used on non-string column "{resolved_col}"',
