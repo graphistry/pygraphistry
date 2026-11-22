@@ -17,6 +17,8 @@ from typing import Callable, Dict, List, Optional, Tuple, Type
 from graphistry.Engine import is_polars_df
 from graphistry.Plottable import Plottable
 from graphistry.compute.ast import ASTCall, ASTEdge, ASTNode, ASTObject, serialize_binding_ops
+from graphistry.compute.predicates.comparison import ComparisonPredicate
+from graphistry.compute.predicates.numeric import NumericASTPredicate
 from graphistry.compute.gfql.cache_registry import register_clearable_callable
 from graphistry.compute.gfql.index.types import TraceEngine
 from graphistry.compute.typing import DataFrameT
@@ -189,13 +191,28 @@ def _scalar_fits(value: object, dtype: str) -> bool:
     return False
 
 
+def _numeric_comparand_fits(value: object, dtype: str) -> bool:
+    """Whether ``gt``/``lt``/``eq``-style comparison of a numeric column with ``value`` cannot raise or warn by value."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return False
+    int_dtype = _INT_DTYPE.fullmatch(dtype)
+    if int_dtype is not None:
+        bits = int(int_dtype.group(2))
+        low, high = (0, 2 ** bits) if int_dtype.group(1) else (-(2 ** (bits - 1)), 2 ** (bits - 1))
+        return low <= value <= high
+    limit = _FLOAT_MAX.get(dtype)
+    return limit is not None and math.isfinite(value) and abs(value) <= limit
+
+
 def _unsafe_later_filter(g: Plottable, middle: List[ASTObject]) -> str:
     """Why a filter may raise or warn by value or column on real data, or "" when none can.
 
     A ``None`` value declines on every op (Polars warns per expression built, so a cached twin changes
     the warning count). The rebuild always evaluates the seed op on the real frames but returns early
     on an empty seed, and the twin evaluates later ops on zero rows only, so a later filter is safe
-    only when it names an existing column and its (scalar type, dtype kind) pair is allowlisted.
+    only when it names an existing column and its (scalar type, dtype kind) pair is allowlisted. A seed
+    filter must be a plain scalar or a numeric comparison inside the column's range: a regex predicate, say, can
+    fail on the real frames after the skipped path has warned, and the replay would then warn twice.
     """
     assert g._nodes is not None and g._edges is not None
     dtypes = {"nodes": _column_dtype_names(g._nodes), "edges": _column_dtype_names(g._edges)}
@@ -205,6 +222,11 @@ def _unsafe_later_filter(g: Plottable, middle: List[ASTObject]) -> str:
                 if value is None:
                     return "a None filter value warns per expression built on some engines"
                 if index == 0:
+                    if isinstance(value, (ComparisonPredicate, NumericASTPredicate)):
+                        if column not in dtypes[frame] or not _numeric_comparand_fits(value.val, dtypes[frame][column]):
+                            return "a seed comparison is not a finite number inside a numeric column's range, so it can fail on real data"
+                    elif not isinstance(value, (bool, int, float, str)):
+                        return "a seed filter that is not a plain scalar or a numeric comparison can fail on real data after the skipped path has already warned"
                     continue
                 if column not in dtypes[frame]:
                     return "a filter after the seed names a column the frame does not have"

@@ -990,11 +990,12 @@ def test_a_string_scalar_on_a_mixed_object_column_is_served():
 
 @pytest.mark.route_engaged(ROUTE)
 @pytest.mark.parametrize("value,may_replay", [
-    (5, False), (2 ** 70, True), (float("nan"), False), (gt(1), False), ("a", False), (True, False), (None, False),
+    (5, False), (2 ** 70, True), (float("nan"), False), ("a", False), (True, False), (None, False),
+    (gt(1), False), (_contains("a"), False), (_is_in([1, 2]), False), (gt(float("nan")), False),
 ])
-def test_the_seed_op_accepts_everything_but_none(engine, value, may_replay):
-    """The seed runs on real frames; overflow engines differ, so require exact outcome parity."""
-    column = "name" if isinstance(value, str) else "score"
+def test_the_seed_op_serves_plain_scalars_and_declines_none_and_predicates(engine, value, may_replay):
+    """The seed runs on real frames; overflow engines differ, so require exact outcome parity. A predicate can fail on real data after the skipped path warned, so it declines."""
+    column = "name" if isinstance(value, str) or type(value).__name__ == "Contains" else "score"
     query = [n({column: value}, name="a"), e_undirected(name="r1"), n(name="m"), rows(), select([("aid", "a.id")])]
     if may_replay:
         actual = _outcome(graph(engine), query, engine)
@@ -1003,7 +1004,8 @@ def test_the_seed_op_accepts_everything_but_none(engine, value, may_replay):
         assert actual == expected
         return
     steps = _consulted(graph(engine), query, engine)
-    assert steps == ({False} if value is None else {True})
+    served = isinstance(value, (bool, int, float, str)) or type(value).__name__ == "GT" and value.val == 1
+    assert steps == ({True} if served else {False})
 
 
 @pytest.mark.route_engaged(ROUTE)
@@ -1325,3 +1327,10 @@ def test_concurrent_served_queries_leave_process_warning_state_untouched():
             list(pool.map(lambda _i: _run(g, query, "pandas"), range(40)))
     assert list(warnings.filters) == filters
     assert warnings.showwarning is show and warnings._showwarnmsg_impl is show_impl
+
+
+@pytest.mark.route_engaged(ROUTE)
+@pytest.mark.parametrize("comparand,served", [(1, True), (2 ** 70, False)])
+def test_a_numeric_seed_comparison_is_served_only_inside_the_column_range(engine, comparand, served):
+    query = [n({"id": gt(comparand)}, name="a"), e_undirected(name="r1"), n(name="m"), rows(), select([("aid", "a.id")])]
+    assert _consulted_accepting_validation_errors(graph(engine), query, engine) == {served}
