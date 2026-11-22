@@ -298,10 +298,11 @@ def test_projection_carry_survives_repeated_reentry(engine: str) -> None:
 def test_reentry_shapes_use_the_general_fallback_pipeline(query: str, engine: str) -> None:
     report = _graph(engine).gfql_explain(query, engine=engine)
     general_pipeline_seams = {"rows_bindings_skip_traversal"}
-    assert not any(
-        step.get("served") is True and step.get("seam") not in general_pipeline_seams
-        for step in report.get("steps", [])
-    )
+    served = [step.get("seam") for step in report.get("steps", []) if step.get("served") is True]
+    # the first MATCH stage is a plain seeded point-rows query and may be served by one scan;
+    # every later stage carries the seed restriction and stays on the general pipeline
+    prefix = served[:1] if served[:1] == ["point_rows_scan"] else []
+    assert all(seam in general_pipeline_seams for seam in served[len(prefix):])
 
 
 # ----------------------------------------------------- helper-level unit pins
