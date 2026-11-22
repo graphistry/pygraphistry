@@ -1754,7 +1754,14 @@ def _row_expr_arg(
     # evaluators and the residual translator whichever equivalent spelling was
     # written. Runs AFTER the integer-division rewrite (order is load-bearing) and
     # only where every engine provably agrees — see expr_const_fold, criterion (E).
-    return _render_expr_node(fold_constants(rewritten))
+    folded = fold_constants(rewritten)
+    rendered = _render_expr_node(folded)
+    if isinstance(folded, ExprLiteral) and not isinstance(folded.value, (str, list, tuple, dict)):
+        # A bare number, boolean or null renders to text that a column may share
+        # (`5`, `true`, `null`); row evaluators read such text as that column first.
+        # Parentheses keep it an expression, so the literal is evaluated.
+        return f"({rendered})"
+    return rendered
 
 
 def _projected_source_replacement(binding: _StageColumnBinding) -> str:

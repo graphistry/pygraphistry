@@ -20,6 +20,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- **GFQL Cypher projected literals** (#2346): `RETURN 5 AS v`, `true` and `null` are evaluated as literals even when the node table has a column named `5`, `true` or `null`; the row evaluators used to read that column instead. Covered on pandas and Polars, with a cuDF parametrization that runs where a GPU is available.
 - **GFQL nullable entity keys on cuDF** (#2312): `keys(n)` now returns empty lists for rows with no non-null properties alongside populated rows. Native empty key lists use the string child type expected by the grouped result, and key lists remain aligned with their original entities after the native grouping join.
 - **GFQL Cypher empty property maps**: an explicit node `{}` no longer replaces labels, so `MATCH (n:Foo {})` still selects `Foo` nodes. An explicit relationship `{}` no longer replaces relationship types with an empty tuple, so `MATCH ()-[r:R {}]->()` matches only typed `R` relationships on every supported engine, while untyped `n {}` and `r {}` controls remain untyped (#2318).
 
