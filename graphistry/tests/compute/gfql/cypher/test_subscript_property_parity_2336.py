@@ -159,3 +159,27 @@ def test_cross_alias_where_reads_node_and_relationship_subscripts(engine):
     rows = _rows_or_native_decline(engine, graph, "MATCH (a)-[r]->(b) WHERE a['nope'] = 'x' RETURN b.name AS v")
     if rows is not None:
         assert rows == []
+
+
+def test_subscript_of_a_map_column_is_not_read_as_a_node_property(engine):
+    """A map value named like nothing in the table, projected beside a node column, still answers from the map."""
+    graph = _edge_graph(engine)
+    for query, expected in (
+        ("MATCH (n) WITH {name: 'z'} AS m, n.name AS name RETURN m['name'] AS v", ["z", "z", "z"]),
+        ("MATCH (n) WITH n, {id: 9} AS m RETURN m['id'] AS v", [9, 9, 9]),
+    ):
+        rows = _rows_or_native_decline(engine, graph, query)
+        if rows is not None:
+            assert [row["v"] for row in rows] == expected, query
+
+
+def test_subscript_of_an_optional_alias_is_null_where_the_alias_is_absent(engine):
+    """Rows with no optional match give null for the subscript, exactly like the dotted spelling."""
+    graph = _edge_graph(engine)
+    results = {}
+    for form, expr in (("subscript", "b['name']"), ("dotted", "b.name")):
+        rows = _rows_or_native_decline(engine, graph, f"MATCH (a) OPTIONAL MATCH (a)-[r]->(b) RETURN {expr} AS v")
+        if rows is None:
+            return
+        results[form] = sorted(("" if pd.isna(row["v"]) else row["v"]) for row in rows)
+    assert results["subscript"] == results["dotted"] == ["", "y", "z"]

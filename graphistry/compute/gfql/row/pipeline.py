@@ -2487,11 +2487,22 @@ class RowPipelineMixin:
             if isinstance(key_value, str):
                 if (
                     isinstance(node.value, Identifier)
+                    and (node.value.quoted or "." not in node.value.name)
                     and node.value.name in table_df.columns
                     and key_value in table_df.columns
                     and key_value != node.value.name
+                    and (
+                        (self._node is not None and self._node in table_df.columns)
+                        or (self._edge is not None and self._edge in table_df.columns)
+                        or RowPipelineMixin._gfql_table_has_graph_shape(table_df)
+                    )
+                    and RowPipelineMixin._gfql_series_bool_like(table_df[node.value.name])
                 ):
-                    return True, table_df[key_value]
+                    # Same guards and alias mask as the dotted property path: a map- or list-valued column is not an alias.
+                    column_value = table_df[key_value]
+                    if hasattr(column_value, "where"):
+                        column_value = self._gfql_mask_fill(column_value, table_df[node.value.name] != True, None)  # noqa: E712
+                    return True, column_value
                 if isinstance(node.value, Identifier):
                     ok, value = self._gfql_binding_row_property_subscript(
                         table_df, node.value.name, key_value
