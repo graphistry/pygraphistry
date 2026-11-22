@@ -703,30 +703,40 @@ def _empty_graph(engine):
     return g.nodes(g._nodes[:0]).edges(g._edges[:0])
 
 
-@pytest.mark.parametrize("validate_schema", [True, False])
-@pytest.mark.parametrize("graph_kind", ["populated", "empty"])
-@pytest.mark.parametrize("seed", sorted(SEEDS))
-@pytest.mark.parametrize("order", ["forward", "reverse"])
-@pytest.mark.parametrize("position", FIVE_OPS)
-@pytest.mark.parametrize("pair", sorted(FILTER_VALUE_PAIRS))
-def test_a_filter_value_at_any_position_never_changes_the_outcome(request, engine, pair, position, order, seed, graph_kind, validate_schema):
-    from graphistry.compute.gfql_unified import gfql_clear_caches
+FIVE_OP_VARIANTS = [
+    ("populated", "forward", "matches", True), ("populated", "forward", "matches_nothing", True),
+    ("populated", "reverse", "matches", True), ("populated", "reverse", "matches_nothing", True),
+    ("populated", "forward", "matches", False), ("empty", "forward", "matches", True),
+]
 
-    if request.node.callspec.params["route_context"] == "default":
-        pytest.skip("this matrix runs under general-path, where the skip is the route reached; default mode only repeats it")
-    if (graph_kind == "empty" or not validate_schema) and (order != "forward" or seed != "matches"):
-        pytest.skip("the empty-graph and validate_schema=False variants keep one representative order and seed")
-    if graph_kind == "empty" and not validate_schema:
-        pytest.skip("an empty graph under validate_schema=False repeats the populated-graph schema paths")
-    kind, first, second = FILTER_VALUE_PAIRS[pair]
-    makers = [first, second] if order == "forward" else [second, first]
-    g = graph(engine) if graph_kind == "populated" else _empty_graph(engine)
-    queries = [_five_op_query(position, make, kind, seed) for make in makers]
-    gfql_clear_caches()
-    actual = [_outcome(g, query, engine, validate_schema) for query in queries * 2]  # cold, then warm
-    with routes_off([ROUTE]):
-        expected = [_outcome(g, query, engine, validate_schema) for query in queries * 2]
-    assert actual == expected
+
+class _GeneralPathOnly:
+    """Matrix tests run only where the skip is the route reached (every other fast route off); default mode would repeat them."""
+
+    @pytest.fixture(autouse=True, params=["general-path"])
+    def route_context(self, request):
+        from graphistry.tests.compute.gfql.routes.switch import ROUTES
+
+        with routes_off([route for route in ROUTES if route != ROUTE]):
+            yield
+
+
+class TestFilterValueMatrices(_GeneralPathOnly):
+    @pytest.mark.parametrize("graph_kind,order,seed,validate_schema", FIVE_OP_VARIANTS)
+    @pytest.mark.parametrize("position", FIVE_OPS)
+    @pytest.mark.parametrize("pair", sorted(FILTER_VALUE_PAIRS))
+    def test_a_filter_value_at_any_position_never_changes_the_outcome(self, engine, pair, position, order, seed, graph_kind, validate_schema):
+        from graphistry.compute.gfql_unified import gfql_clear_caches
+
+        kind, first, second = FILTER_VALUE_PAIRS[pair]
+        makers = [first, second] if order == "forward" else [second, first]
+        g = graph(engine) if graph_kind == "populated" else _empty_graph(engine)
+        queries = [_five_op_query(position, make, kind, seed) for make in makers]
+        gfql_clear_caches()
+        actual = [_outcome(g, query, engine, validate_schema) for query in queries * 2]  # cold, then warm
+        with routes_off([ROUTE]):
+            expected = [_outcome(g, query, engine, validate_schema) for query in queries * 2]
+        assert actual == expected
 
 
 @pytest.mark.parametrize("first", ["chain", "cypher"])
@@ -931,34 +941,33 @@ def _later_filter_query(position, column, value):
     return [seed, e_undirected(name="r1"), n({column: value}, name="m"), rows(), select([("aid", "a.id"), ("mid", "m.id")])]
 
 
-@pytest.mark.parametrize("position", ["edge", "node"])
-@pytest.mark.parametrize("group", sorted(SCALAR_GROUPS))
-@pytest.mark.parametrize("column", ["int8", "int32", "int64", "uint64", "float32", "float64", "bool", "string", "dt_naive",
-                                    "dt_tz", "obj_mixed", "all_null", "list", "struct"])
-def test_same_type_scalars_on_a_later_op_never_change_the_outcome(request, engine, column, group, position):
-    from graphistry.compute.gfql_unified import gfql_clear_caches
+class TestScalarMatrix(_GeneralPathOnly):
+    @pytest.mark.parametrize("position", ["edge", "node"])
+    @pytest.mark.parametrize("group", sorted(SCALAR_GROUPS))
+    @pytest.mark.parametrize("column", ["int8", "int32", "int64", "uint64", "float32", "float64", "bool", "string", "dt_naive",
+                                        "dt_tz", "obj_mixed", "all_null", "list", "struct"])
+    def test_same_type_scalars_on_a_later_op_never_change_the_outcome(self, engine, column, group, position):
+        from graphistry.compute.gfql_unified import gfql_clear_caches
 
-    if request.node.callspec.params["route_context"] == "default":
-        pytest.skip("this matrix runs under general-path, where the skip is the route reached; default mode only repeats it")
-    if engine == "polars-gpu" and column in ("list", "struct", "obj_mixed", "dt_tz"):
-        pytest.skip("polars-gpu declines this column type in the canonical path too")
-    if engine == "cudf" and column in CUDF_UNHOLDABLE:
-        pytest.skip("cuDF cannot hold this column")
-    g = _dtype_graph(engine)
-    scalars = SCALAR_GROUPS[group]
-    if engine == "polars" and column == "struct":
-        import polars as pl
+        if engine == "polars-gpu" and column in ("list", "struct", "obj_mixed", "dt_tz"):
+            pytest.skip("polars-gpu declines this column type in the canonical path too")
+        if engine == "cudf" and column in CUDF_UNHOLDABLE:
+            pytest.skip("cuDF cannot hold this column")
+        g = _dtype_graph(engine)
+        scalars = SCALAR_GROUPS[group]
+        if engine == "polars" and column == "struct":
+            import polars as pl
 
-        release = tuple(int(part) for part in pl.__version__.split(".")[:2] if part.isdigit())
-        if release < (1, 22):
-            pytest.skip("Polars 1.21, shipped by RAPIDS 25.02, segfaults comparing a struct column")
-        scalars = [value for value in scalars if not _polars_struct_compare_panics(value)]
-    queries = [_later_filter_query(position, column, value) for value in scalars]
-    gfql_clear_caches()
-    actual = [_outcome(g, query, engine) for query in queries * 2]  # cold, then warm
-    with routes_off([ROUTE]):
-        expected = [_outcome(g, query, engine) for query in queries * 2]
-    assert actual == expected
+            release = tuple(int(part) for part in pl.__version__.split(".")[:2] if part.isdigit())
+            if release < (1, 22):
+                pytest.skip("Polars 1.21, shipped by RAPIDS 25.02, segfaults comparing a struct column")
+            scalars = [value for value in scalars if not _polars_struct_compare_panics(value)]
+        queries = [_later_filter_query(position, column, value) for value in scalars]
+        gfql_clear_caches()
+        actual = [_outcome(g, query, engine) for query in queries * 2]  # cold, then warm
+        with routes_off([ROUTE]):
+            expected = [_outcome(g, query, engine) for query in queries * 2]
+        assert actual == expected
 
 
 ODD_SCALARS = {
