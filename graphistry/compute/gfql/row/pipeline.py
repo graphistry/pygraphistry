@@ -1433,7 +1433,7 @@ class RowPipelineMixin:
                 # floats negate directly (keeps -0.0); `0 - x` keeps boolean operands arithmetic
                 is_float = (
                     pd.api.types.is_float_dtype(operand.dtype)
-                    if hasattr(operand, "dtype")
+                    if is_series_like(operand)
                     else isinstance(operand, float)
                 )
                 return True, (-operand if is_float else 0 - operand)
@@ -3081,8 +3081,7 @@ class RowPipelineMixin:
         # cuDF's scalar assign reuses the first zero it saw (0.0 == -0.0), losing the sign; build the column explicitly.
         if engine == Engine.CUDF and isinstance(value, float) and value == 0.0:  # pragma: no cover - cuDF-only; no cuDF lane in the coverage gate
             out = s_cons(Engine.CUDF)(np.full(len(table_df), value, dtype="float64"), index=table_df.index)
-            if hasattr(out, "name"):
-                out.name = tmp_col
+            out.name = tmp_col
             return out
 
         # Treat list/map literals as scalar row values by explicit broadcasting.
