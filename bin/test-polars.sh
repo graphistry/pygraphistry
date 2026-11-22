@@ -209,6 +209,7 @@ POLARS_TEST_FILES=(
     graphistry/tests/compute/gfql/index/test_intermediate_graph_indexes.py
     graphistry/tests/compute/gfql/index/test_cross_alias_or_index.py
     graphistry/tests/compute/gfql/test_unseeded_binding_limit.py
+    graphistry/tests/compute/gfql/test_rows_bindings_skip_traversal.py
     graphistry/tests/compute/gfql/index/test_indexed_bindings.py
     graphistry/tests/compute/gfql/index/test_typed_adjacency.py
     graphistry/tests/compute/gfql/index/test_node_type_segments.py
