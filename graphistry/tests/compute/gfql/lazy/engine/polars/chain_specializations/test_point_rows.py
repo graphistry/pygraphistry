@@ -39,15 +39,13 @@ def test_source_rows_exact_parity(variant, source, reverse, project):
             assert getattr(result, attr) == getattr(expected, attr)
 
 
-@pytest.mark.parametrize("reason", ["unindexed", "collision", "start", "gpu", "extra-params"])
+@pytest.mark.parametrize("reason", ["collision", "start", "gpu", "extra-params"])
 def test_source_rows_decline_boundaries(reason):
     from graphistry.compute.gfql.lazy import target_mode, ExecutionTarget
     g = make_graph()
     ops = [n({"id": 1000}, name="a"), rows(source="a")]
     start = None
-    if reason == "unindexed":
-        g = graphistry.nodes(g._nodes.clone(), "key").edges(g._edges.clone(), "s", "d")
-    elif reason == "collision":
+    if reason == "collision":
         g = g.nodes(g._nodes.with_columns(pl.lit("user").alias("a")))
     elif reason == "start":
         start = g._nodes.head(1)
@@ -55,6 +53,19 @@ def test_source_rows_decline_boundaries(reason):
         ops[-1].params["attach_prop_aliases"] = ["a"]
     with target_mode(ExecutionTarget.GPU if reason == "gpu" else ExecutionTarget.CPU):
         assert _try_point_rows_polars(g, ops, start) is None
+
+
+def test_unindexed_source_rows_are_served_by_the_scan_and_match_the_general_path():
+    from polars.testing import assert_frame_equal
+    g = make_graph()
+    g = graphistry.nodes(g._nodes.clone(), "key").edges(g._edges.clone(), "s", "d")
+    ops = [n({"id": 1000}, name="a"), rows(source="a")]
+    direct = _try_point_rows_polars(g, ops)
+    assert direct is not None
+    with routes_off(["polars-point-rows"]):
+        expected = g.gfql(ops, engine="polars")
+    assert_frame_equal(direct._nodes, expected._nodes)
+    assert_frame_equal(direct._edges, expected._edges)
 
 
 @pytest.mark.parametrize("project", [False, True])
