@@ -2702,7 +2702,7 @@ class RowPipelineMixin:
     ) -> Any:
         if (
             fn == "properties"
-            and hasattr(value, "astype")
+            and is_series_like(value)
             and RowPipelineMixin._gfql_series_is_mapping_like(value)
         ):
             return value.copy()
