@@ -831,6 +831,19 @@ def lower_expr(node: ExprNode, columns: Sequence[str]) -> Optional[pl.Expr]:
         # ('PT6M'), so +/- would become string concatenation (silent wrong answer); pandas handles it.
         if node.op in ("+", "-") and (_is_iso_duration_literal(node.left) or _is_iso_duration_literal(node.right)):
             return None
+        if node.op == "^":
+            lhs = lower_expr(node.left, columns)
+            rhs = lower_expr(node.right, columns)
+            if lhs is None or rhs is None:
+                return None
+            ldt, rdt = _expr_output_dtype(lhs), _expr_output_dtype(rhs)
+            if ldt == pl.Boolean or rdt == pl.Boolean or _is_cross_type(ldt, rdt):
+                return None
+            # decline (NIE) unless both operands are numeric (or a null literal): a same-type string pair would
+            # otherwise be cast to Float64 and answer where pandas rejects it.
+            if any(dt is not None and dt != pl.Null and not _dtype_is_numeric(dt) for dt in (ldt, rdt)):
+                return None
+            return lhs.cast(pl.Float64) ** rhs.cast(pl.Float64)
         # decline (NIE): ORDERING two ISO temporal constructor-string literals = lexicographic
         # (wrong across timezones). Only literal-vs-literal ordering declines: =/<> are
         # lexicographically correct, and literal-vs-real-string-column must NOT decline.

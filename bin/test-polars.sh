@@ -39,6 +39,7 @@ POLARS_TEST_FILES=(
     graphistry/tests/compute/gfql/test_engine_polars_binding_rows.py
     # engine-parametrized (pandas/polars/cudf/polars-gpu); the pandas params also run in
     # test-gfql-core, but only this lane has polars installed
+    graphistry/tests/compute/gfql/test_power_operator_tck.py
     graphistry/tests/compute/gfql/test_case_mixed_dtype.py
     graphistry/tests/compute/gfql/test_varlen_bounded_engine_parity_1787.py
     graphistry/tests/compute/gfql/test_engine_polars_with_match_reentry.py

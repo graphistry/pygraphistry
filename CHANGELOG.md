@@ -19,6 +19,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- **GFQL exponentiation operator**: `^` now follows TCK power precedence, returns float values on pandas, cuDF, and Polars, and promotes the six numeric-precedence scenarios from expression debt.
 - **GFQL mixed-type CASE branches**: pandas preserves per-row mixed Cypher values, while Polars and cuDF decline incompatible boolean/string/number branches with structured E110 instead of silently coercing (#2330). Numeric int/float branches retain common-type behavior.
 - **GFQL signed-zero literals**: adjacent and explicit unary-minus forms preserve the sign of floating-point zero, including `RETURN -0.0` and `RETURN - 0.0` (#2334).
 - **GFQL comprehension-local `properties()`**: mapping values now return the same map instead of a bare backend `NotImplementedError`, while entity and direct-map rendering stay unchanged (#2339).

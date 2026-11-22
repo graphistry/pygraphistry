@@ -1611,6 +1611,35 @@ class RowPipelineMixin:
                 if left is None or right is None:
                     return True, None
                 return True, left * right
+            if op == "^":
+                if left is None or right is None:
+                    return True, None
+                left_is_series = is_series_like(left)
+                right_is_series = is_series_like(right)
+                if (left_is_series and RowPipelineMixin._gfql_series_bool_like(left)) or (
+                    right_is_series and RowPipelineMixin._gfql_series_bool_like(right)
+                ):
+                    return False, None
+                if isinstance(left, bool) or isinstance(right, bool):
+                    return False, None
+                left_kind = RowPipelineMixin._gfql_cypher_numeric_kind(left)
+                right_kind = RowPipelineMixin._gfql_cypher_numeric_kind(right)
+                if left_kind is None or right_kind is None:
+                    return False, None
+                if left_is_series:
+                    right_series = (
+                        right
+                        if right_is_series
+                        else self._gfql_broadcast_scalar(table_df, right)
+                    )
+                    # IEEE power turns a null operand into 1.0 (1 ** NaN, NaN ** 0); Cypher requires null.
+                    null_mask = self._gfql_null_mask(table_df, left) | self._gfql_null_mask(table_df, right_series)
+                    return True, (left.astype(float) ** right_series.astype(float)).where(~null_mask)
+                if right_is_series:
+                    out = self._gfql_broadcast_scalar(table_df, float(left)) ** right.astype(float)
+                    return True, out.where(~self._gfql_null_mask(table_df, right))
+                scalar_power = pd.Series([float(left)], dtype="float64") ** float(right)
+                return True, float(scalar_power.iloc[0])
             if op == "/":
                 if left is None or right is None:
                     return True, None
