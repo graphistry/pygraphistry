@@ -764,6 +764,12 @@ def lower_expr(node: ExprNode, columns: Sequence[str]) -> Optional[pl.Expr]:
                 return None
             left_dtype = _expr_output_dtype(left)
             right_dtype = _expr_output_dtype(right)
+            if left_dtype is None or right_dtype is None:
+                return None  # unknown dtype: decline rather than answer null
+            if left_dtype in (pl.Categorical, pl.Enum):  # categorical strings match like strings, as in WHERE
+                left, left_dtype = left.cast(pl.String), pl.String
+            if right_dtype in (pl.Categorical, pl.Enum):
+                right, right_dtype = right.cast(pl.String), pl.String
             if left_dtype not in (pl.String, pl.Null) or right_dtype not in (pl.String, pl.Null):
                 return pl.lit(None, dtype=pl.Boolean)
             if left_dtype == pl.Null or right_dtype == pl.Null:

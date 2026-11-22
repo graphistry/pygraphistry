@@ -91,9 +91,14 @@ class TestChainSchemaPreValidation:
         assert exc_info.value.code == ErrorCode.E302
         assert 'numeric predicate used on non-numeric' in str(exc_info.value)
         
-        # A string predicate over a numeric column is Cypher unknown, not a schema mismatch.
+        # String predicate on numeric column
         ops = [n({'age': contains('old')})]
-        assert validate_chain_schema(self.g, ops) is None
+        
+        with pytest.raises(GFQLSchemaError) as exc_info:
+            validate_chain_schema(self.g, ops)
+        
+        assert exc_info.value.code == ErrorCode.E302
+        assert 'string predicate used on non-string' in str(exc_info.value)
     
     def test_collect_all_errors(self):
         """Can collect multiple schema errors."""
@@ -104,7 +109,7 @@ class TestChainSchemaPreValidation:
         ]
         
         errors = validate_chain_schema(self.g, ops, collect_all=True)
-        assert len(errors) >= 3
+        assert len(errors) >= 4  # At least 4 errors
         
         # Check operation indices are set
         assert all('operation_index' in e.context for e in errors)

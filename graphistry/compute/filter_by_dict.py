@@ -278,7 +278,7 @@ def _prepare_filter_dict(
             # Validate predicates for appropriate column types
             from .predicates.numeric import NumericASTPredicate, Between
             from .predicates.is_in import IsIn
-            from .predicates.str import Contains, Startswith, Endswith, Match
+            from .predicates.str import Contains, Startswith, Endswith, Match, string_predicate_raises_on_nonstring
 
             col_dtype = df[resolved_col].dtype
 
@@ -300,7 +300,17 @@ def _prepare_filter_dict(
                     suggestion='Use string predicates like contains() or startswith() for string columns'
                 )
 
-            # openCypher string predicates over non-string values are unknown.
+            # A native string predicate on a non-string column is a typed error; Cypher-lowered ones are null (nonstring='null').
+            if string_predicate_raises_on_nonstring(resolved_val) and not _is_string_dtype_safe(col_dtype):
+                from graphistry.compute.exceptions import ErrorCode, GFQLSchemaError
+                raise GFQLSchemaError(
+                    ErrorCode.E302,
+                    f'Type mismatch: string predicate used on non-string column "{resolved_col}"',
+                    field=col,
+                    value=f"{resolved_val.__class__.__name__}(...)",
+                    column_type=str(col_dtype),
+                    suggestion='Use numeric predicates like gt() or lt() for numeric columns'
+                )
 
             predicates[col] = (resolved_col, resolved_val)
 

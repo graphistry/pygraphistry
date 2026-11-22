@@ -19037,7 +19037,7 @@ _T6_PROJ_MATRIX_FILTERS: List[Any] = [
     {"rel": "FOLLOWS", "w": 1},
     "gt_pred",       # numeric predicate on a decoy column
     "missing_col",   # typed error parity
-    "str_on_num",    # openCypher null contract on a numeric column
+    "str_on_num",    # E302 parity: string predicate on numeric column
 ]
 
 
@@ -19075,7 +19075,7 @@ def test_t6_filter_project_differential_matrix(engine: str, case: int, monkeypat
     def run(project: Any) -> Any:
         return gfql_fast_paths_module._filter_project(frame, match, project, engine=eng)
 
-    if spec == "missing_col":
+    if spec in ("missing_col", "str_on_num"):
         narrow_exc: Any = None
         full_exc: Any = None
         try:
@@ -19088,12 +19088,6 @@ def test_t6_filter_project_differential_matrix(engine: str, case: int, monkeypat
             full_exc = e
         assert narrow_exc is not None and full_exc is not None, "both arms must raise"
         assert type(narrow_exc) is type(full_exc)
-        return
-
-    if spec == "str_on_num":
-        narrow = _to_pandas_df(run(["s", "d"])).reset_index(drop=True)
-        full = _to_pandas_df(run(None))[["s", "d"]].reset_index(drop=True)
-        assert narrow.empty and full.empty
         return
 
     narrow = _to_pandas_df(run(["s", "d"])).reset_index(drop=True)
@@ -19144,19 +19138,21 @@ def test_t6_count_path_reserved_names_value_correct_all_engines(engine: str, sha
     assert _to_pandas_df(result._nodes).to_dict(orient="records") == [{"numPaths": oracle}]
 
 
-def test_t6_count_path_string_predicate_null_parity_polars(monkeypatch: Any) -> None:
-    # openCypher pin: a string predicate over a numeric column is unknown, so
-    # the narrow (projected) filter and full-width lane both select no rows.
+def test_t6_count_path_narrow_filter_error_parity_polars(monkeypatch: Any) -> None:
+    # Round-4 negative pin: the narrow (projected) filter lane raises the SAME
+    # typed error as the full-width lane -- E302 for a string predicate on a
+    # non-string column -- and its rows match full-width filter + select.
     pl = pytest.importorskip("polars")
+    from graphistry.compute.exceptions import GFQLSchemaError
     from graphistry.compute.predicates.str import Contains
 
     monkeypatch.setattr(gfql_fast_paths_module, "_PROJECT_LAZY_MIN_ROWS", 0)  # force narrowing on the tiny fixture
     edges = pl.DataFrame({"s": [0, 1, 2], "d": [1, 2, 0], "rel": [10, 20, 10]})
     graph = _mk_graph(*_t6_dense_frames())
-    narrow_string = gfql_fast_paths_module._connected_join_cached_edge_filter(
-        graph, cast(Any, edges), {"rel": Contains("F")},
-        engine=Engine.POLARS, project=["s", "d"])
-    assert narrow_string.is_empty()
+    with pytest.raises(GFQLSchemaError):
+        gfql_fast_paths_module._connected_join_cached_edge_filter(
+            graph, cast(Any, edges), {"rel": Contains("F")},
+            engine=Engine.POLARS, project=["s", "d"])
 
     narrow = gfql_fast_paths_module._connected_join_cached_edge_filter(
         graph, cast(Any, edges), {"rel": 10}, engine=Engine.POLARS, project=["s", "d"])

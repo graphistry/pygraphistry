@@ -33,6 +33,7 @@ from graphistry.compute.dataframe_utils import (
 )
 from graphistry.compute.gfql.call.support import AggSpec
 from graphistry.compute.gfql.row import frame_ops as row_frame_ops
+from graphistry.compute.predicates.str import _str_ops_series
 from graphistry.compute.gfql.row.prefilter import AliasPrefilters
 from graphistry.compute.typing import DataFrameT, SeriesT
 from graphistry.utils.json import JSONVal
@@ -3024,8 +3025,12 @@ class RowPipelineMixin:
             left_null = self._gfql_null_mask(table_df, left_series)
             right_null = self._gfql_null_mask(table_df, right)
             any_null = left_null | right_null
-            if not pd.api.types.is_string_dtype(left_series.dtype) or not isinstance(right, str):
+            decoded = _str_ops_series(left_series)  # decodes categorical strings; None for non-string columns
+            if decoded is None or not isinstance(right, str):
                 return None
+            left_series = decoded
+            if isinstance(left_series, pd.Series) and pd.api.types.is_object_dtype(left_series.dtype):
+                any_null = any_null | (~left_series.map(lambda cell: isinstance(cell, str)) & ~left_null)  # a non-string cell is null, never stringified
             left_txt = left_series.astype(str)
             needle = str(right)
 

@@ -3871,15 +3871,15 @@ def _predicate_value(op: str, value: Any) -> Any:
     if op == "contains":
         if not isinstance(value, str):
             return always_null()
-        return str_contains(value, regex=False, na=False)
+        return str_contains(value, regex=False, na=False, nonstring="null")
     if op == "starts_with":
         if not isinstance(value, str):
             return always_null()
-        return startswith(value, na=False)
+        return startswith(value, na=False, nonstring="null")
     if op == "ends_with":
         if not isinstance(value, str):
             return always_null()
-        return endswith(value, na=False)
+        return endswith(value, na=False, nonstring="null")
     if op == "regex":
         # openCypher/neo4j `=~`: Java-regex, full-string/anchored match → fullmatch.
         # Inline flags in the pattern (e.g. `(?i)`) are honored by the regex engine.
