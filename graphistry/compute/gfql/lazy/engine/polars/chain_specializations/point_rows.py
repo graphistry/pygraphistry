@@ -233,8 +233,7 @@ def _try_point_rows_polars(g: Plottable, ops: List[ASTObject], start_nodes: Opti
             kept_edges = filter_by_dict_polars(kept_edges, edge.edge_match)
             payload_edges = kept_edges.select(edges.columns)
             tail = _rows_with_ids(nodes, (node,), kept_edges.get_column(to_col))
-            # An id repeated in the node table binds differently on the general path, so look at every
-            # row of the seed and tail ids before any filter can hide a copy.
+            # A repeated node id binds differently on the general path; check every row before a filter hides a copy.
             if (_has_duplicate_ids(tail, node)
                     or _rows_with_ids(nodes, (node,), seed.get_column(node)).height != seed.height):
                 return None
