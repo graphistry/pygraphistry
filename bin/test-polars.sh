@@ -60,12 +60,20 @@ POLARS_TEST_FILES=(
     graphistry/tests/compute/gfql/cypher/test_missing_relationship_property_2262.py
     # #2318 empty-map patterns are engine-parametrized; polars params only run here
     graphistry/tests/compute/gfql/cypher/test_issue_2318_empty_map_relationship.py
+    # #2338 WITH WHERE quantifier scope is engine-parametrized; Polars structured declines run here
+    graphistry/tests/compute/gfql/cypher/test_with_where_quantifier_scope_2338.py
     graphistry/tests/compute/gfql/cypher/test_issue_2258_entity_identity_membership.py
+    # #2336 subscript parity is engine-parametrized; Polars native lowering only runs here
+    graphistry/tests/compute/gfql/cypher/test_subscript_property_parity_2336.py
+    # #2333 entity metadata is engine-parametrized; pandas/cuDF run in core and the
+    # structured Polars declines only run in this lane
+    graphistry/tests/compute/gfql/cypher/test_entity_metadata_multi_alias_2333.py
     # grouped whole-entity identity is engine-parametrized; pandas runs in core,
     # while Polars only has this explicit lane
     graphistry/tests/compute/gfql/cypher/test_issue_2261_grouped_identity.py
     # quoted map keys/MATCH aliases are engine-parametrized; pandas runs in core,
     # polars params only run in this lane
+    graphistry/tests/compute/gfql/test_properties_comprehension_map_2339.py
     graphistry/tests/compute/gfql/cypher/test_backtick_identifiers.py
     graphistry/tests/compute/gfql/test_conformance_ledger.py
     graphistry/tests/compute/gfql/test_polars_nan_clean.py
