@@ -217,3 +217,40 @@ def test_selecting_an_edge_endpoint_column_keeps_the_general_path_outcome(column
     with index_trace() as steps:
         _outcome(g, query)
     assert not [s for s in steps if s.get("seam") == SEAM and s.get("served")]
+
+
+@pytest.mark.parametrize("source", ["f", "p"])
+def test_an_id_repeated_across_the_seed_and_tail_filters_keeps_the_general_path(source):
+    nodes = pl.DataFrame({"id": [1, 1, 2, 3], "kind": ["S", "T", "T", "S"], "name": ["a", "b", "c", "d"]})
+    edges = pl.DataFrame({"s": [3, 1], "d": [1, 2], "type": ["K", "K"]})
+    g = graphistry.nodes(nodes, "id").edges(edges, "s", "d")
+    query = [n({"kind": "S"}, name="p"), e_forward(), n({"kind": "T"}, name="f"), rows(source=source)]
+    assert _same_as_general_path(g, query)[0] == "rows"
+    assert _served(g, query) == set()
+
+
+def test_generated_helper_columns_are_not_selectable_from_the_edge_alias():
+    from graphistry.compute.util import generate_safe_column_name_from
+
+    g = graph()
+    helper = generate_safe_column_name_from("__gfql_point_from__", list(g._edges.columns) + list(g._nodes.columns))
+    query = [n({"id": 4}, name="p"), e_undirected({"type": "KNOWS"}, name="r"), n(name="f"), rows(),
+             select([("fid", "f.id"), ("x", f"r.{helper}")])]
+    _same_as_general_path(g, query)
+
+
+def test_selecting_an_edge_endpoint_column_matches_the_general_path_with_resident_indexes():
+    g = graph().create_index("node_id", engine="polars").create_index("edge_out_adj", engine="polars")
+    query = [n({"id": 1}, name="p"), e_forward({"type": "LOC"}, name="r"), n(name="f"), rows(),
+             select([("fid", "f.id"), ("end", "r.d")])]
+
+    def outcome():
+        try:
+            return "rows", _run(g, query, "use")._nodes.to_dicts()
+        except Exception as error:  # the outcome under test is the error class
+            return type(error).__name__, None
+
+    actual = outcome()
+    with routes_off(["polars-point-rows"]):
+        expected = outcome()
+    assert actual == expected

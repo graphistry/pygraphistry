@@ -1,5 +1,5 @@
 """Resident-index source rows for native Polars point queries."""
-from typing import TYPE_CHECKING, Dict, List, Optional, Sequence, Tuple
+from typing import TYPE_CHECKING, Dict, FrozenSet, List, Optional, Sequence, Tuple
 
 if TYPE_CHECKING:
     from graphistry.compute.gfql.index.registry import AdjacencyIndex
@@ -100,7 +100,7 @@ def _gathered_edges_matching(
 def _joined_projection(
     seed: "pl.DataFrame", edges: "pl.DataFrame", tail: "pl.DataFrame",
     node: str, from_col: str, to_col: str, seed_alias: str, tail_alias: str,
-    edge_alias: Optional[str], projection: ASTCall, endpoint_columns: Tuple[str, str],
+    edge_alias: Optional[str], projection: ASTCall, edge_properties: FrozenSet[str],
 ) -> "Optional[pl.DataFrame]":
     import polars as pl
     from graphistry.compute.gfql.lazy import collect
@@ -130,8 +130,8 @@ def _joined_projection(
         alias, column = parts
         if alias not in frames or column not in frames[alias].columns:
             return None
-        if alias == edge_alias and column in endpoint_columns:
-            return None  # the general path does not expose an edge's own endpoint columns as properties
+        if alias == edge_alias and column not in edge_properties:
+            return None  # the general path exposes neither an edge's endpoint columns nor generated ones
         if singleton:
             series = frames[alias].get_column(column)
             if alias != edge_alias:
@@ -233,6 +233,11 @@ def _try_point_rows_polars(g: Plottable, ops: List[ASTObject], start_nodes: Opti
             kept_edges = filter_by_dict_polars(kept_edges, edge.edge_match)
             payload_edges = kept_edges.select(edges.columns)
             tail = _rows_with_ids(nodes, (node,), kept_edges.get_column(to_col))
+            # An id repeated in the node table binds differently on the general path, so look at every
+            # row of the seed and tail ids before any filter can hide a copy.
+            if (_has_duplicate_ids(tail, node)
+                    or _rows_with_ids(nodes, (node,), seed.get_column(node)).height != seed.height):
+                return None
         else:
             nid, xp, engine = nid_ctx
             ctx = _resident_seed_indexes(g, nodes, edges, node, src, dst, edge.direction)
@@ -258,7 +263,8 @@ def _try_point_rows_polars(g: Plottable, ops: List[ASTObject], start_nodes: Opti
             projection = ops[boundary + 1]
             assert isinstance(projection, ASTCall) and isinstance(n0._name, str) and isinstance(tail_op._name, str)
             selected_joined = _joined_projection(seed, kept_edges, tail, node, from_col, to_col,
-                                                 n0._name, tail_op._name, edge._name, projection, (src, dst))
+                                                 n0._name, tail_op._name, edge._name, projection,
+                                                 frozenset(payload_edges.columns) - {src, dst})
             if selected_joined is None:
                 return None
             if len(ops) == boundary + 3:
@@ -275,8 +281,6 @@ def _try_point_rows_polars(g: Plottable, ops: List[ASTObject], start_nodes: Opti
             adapter._node = adapter._edge = adapter._source = adapter._destination = None
             _record_point_rows(nodes, n0, node, scan)
             return clear_row_exec_context(row_table(adapter, selected_joined))
-        if scan and _has_duplicate_ids(tail if source == tail_op._name else seed, node):
-            return None
         if source == tail_op._name:
             selected = tail
         elif seed.height == 1 and kept_edges.height:
