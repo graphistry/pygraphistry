@@ -943,7 +943,8 @@ class TestReplyIndexReadsOneConsistentAnswer:
                                       "A\n\nx\n\nB", "A\nAnswer: B", "A. yes\n\nB. no\n\nThe answer is B.",
                                       "Answer:\n\nA\n\nB", "A\r\n\r\nB", "The answer is A\n\nB",
                                       "A\nThe answer is B.", "Hmm.\nA\nAnswer: B", "A\nBecause it is cracked, answer: B",
-                                      "Hmm.\nB\n\nA", "yes\nAnswer: B", "A. yes\nAnswer: B", "A\r\nThe answer is B."])
+                                      "Hmm.\nB\n\nA", "yes\nAnswer: B", "A. yes\nAnswer: B", "A\r\nThe answer is B.",
+                                      "Hmm.\nyes\nAnswer: B", "Hmm.\nno\n\nA"])
     def test_conflicting_answers_are_rejected_not_resolved_to_the_last(self, text: str) -> None:
         assert self.index(text) is None
 
@@ -957,7 +958,7 @@ class TestReplyIndexReadsOneConsistentAnswer:
                                                 ("Question: Is it damaged?\nA. yes\nB. no\nAnswer: B", 1),
                                                 ("A. yes\nB. no\nAnswer: B", 1),
                                                 ("A. yes\nB. no\nAnswer: A", 0), ("A. yes\nB. no\n\nB", 1),
-                                                ("Hmm.\nB\n\nB", 1), ("no\nAnswer: B", 1), ("Is it damaged? yes\nThe answer is A.", 0)])
+                                                ("Hmm.\nB\n\nB", 1), ("no\nAnswer: B", 1), ("x\nC\nAnswer: B", 1), ("Is it damaged? yes\nThe answer is A.", 0)])
     def test_one_consistent_answer_is_read(self, text: str, expected: int) -> None:
         assert self.index(text) == expected
 
