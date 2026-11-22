@@ -23,7 +23,12 @@ from graphistry.Engine import (
     s_to_numeric,
     safe_map_series,
 )
-from graphistry.compute.exceptions import ErrorCode, GFQLTypeError, GFQLValidationError
+from graphistry.compute.exceptions import (
+    ErrorCode,
+    GFQLTypeError,
+    GFQLUnsupportedError,
+    GFQLValidationError,
+)
 from graphistry.compute.dataframe_utils import (
     concat_frames,
     domain_diff,
@@ -1448,7 +1453,13 @@ class RowPipelineMixin:
             if node.op == "+":
                 return True, operand
             if node.op == "-":
-                return True, 0 - operand
+                # floats negate directly (keeps -0.0); `0 - x` keeps boolean operands arithmetic
+                is_float = (
+                    pd.api.types.is_float_dtype(operand.dtype)
+                    if is_series_like(operand)
+                    else isinstance(operand, numbers.Real) and not isinstance(operand, numbers.Integral)
+                )
+                return True, (-operand if is_float else 0 - operand)
             if node.op == "not":
                 bool_out = self._gfql_eval_boolean_op(table_df, operand, _GFQL_MISSING_BOOL_OPERAND, "not")
                 if bool_out is None:
@@ -1609,6 +1620,35 @@ class RowPipelineMixin:
                 if left is None or right is None:
                     return True, None
                 return True, left * right
+            if op == "^":
+                if left is None or right is None:
+                    return True, None
+                left_is_series = is_series_like(left)
+                right_is_series = is_series_like(right)
+                if (left_is_series and RowPipelineMixin._gfql_series_bool_like(left)) or (
+                    right_is_series and RowPipelineMixin._gfql_series_bool_like(right)
+                ):
+                    return False, None
+                if isinstance(left, bool) or isinstance(right, bool):
+                    return False, None
+                left_kind = RowPipelineMixin._gfql_cypher_numeric_kind(left)
+                right_kind = RowPipelineMixin._gfql_cypher_numeric_kind(right)
+                if left_kind is None or right_kind is None:
+                    return False, None
+                if left_is_series:
+                    right_series = (
+                        right
+                        if right_is_series
+                        else self._gfql_broadcast_scalar(table_df, right)
+                    )
+                    # IEEE power turns a null operand into 1.0 (1 ** NaN, NaN ** 0); Cypher requires null.
+                    null_mask = self._gfql_null_mask(table_df, left) | self._gfql_null_mask(table_df, right_series)
+                    return True, (left.astype(float) ** right_series.astype(float)).where(~null_mask)
+                if right_is_series:
+                    out = self._gfql_broadcast_scalar(table_df, float(left)) ** right.astype(float)
+                    return True, out.where(~self._gfql_null_mask(table_df, right))
+                scalar_power = pd.Series([float(left)], dtype="float64") ** float(right)
+                return True, float(scalar_power.iloc[0])
             if op == "/":
                 if left is None or right is None:
                     return True, None
@@ -1950,8 +1990,8 @@ class RowPipelineMixin:
                     return True, None
                 if (
                     is_series_like(inner)
-                    and not RowPipelineMixin._gfql_series_is_entity_text_like(inner)
                     and not RowPipelineMixin._gfql_series_is_mapping_like(inner)
+                    and not RowPipelineMixin._gfql_series_is_entity_text_like(inner)
                 ):
                     arg = node.args[0]
                     if isinstance(arg, Identifier) and (
@@ -2300,6 +2340,22 @@ class RowPipelineMixin:
             cond_mask = self._gfql_bool_mask(table_df, cond_value)
             cond_null = self._gfql_null_mask(table_df, cond_value)
             cond_true = cond_mask & ~cond_null
+            true_kind = self._gfql_case_branch_value_kind(true_value)
+            false_kind = self._gfql_case_branch_value_kind(false_value)
+            is_pandas = resolve_engine(EngineAbstract.AUTO, table_df) == Engine.PANDAS
+            if (
+                not is_pandas
+                and true_kind is not None
+                and false_kind is not None
+                and true_kind != false_kind
+            ):
+                raise GFQLUnsupportedError(
+                    ErrorCode.E110,
+                    "CASE branches return incompatible Cypher value types",
+                    field="expression",
+                    value=sorted([true_kind, false_kind]),
+                    suggestion="Use an explicit cast so both branches have the same value type.",
+                )
             try:
                 return True, true_value.where(cond_true, false_value)
             except TypeError:  # pragma: no cover - cuDF-only (.where mixed-dtype); no cuDF lane in the coverage gate (validated on dgx)
@@ -2768,6 +2824,12 @@ class RowPipelineMixin:
         fn: str,
         expr: str,
     ) -> Any:
+        if (
+            fn == "properties"
+            and is_series_like(value)
+            and RowPipelineMixin._gfql_series_is_mapping_like(value)
+        ):
+            return value.copy()
         if hasattr(value, "astype"):
             null_mask = self._gfql_null_mask(table_df, value)
             if RowPipelineMixin._gfql_series_is_entity_text_like(value):
@@ -3088,6 +3150,43 @@ class RowPipelineMixin:
         return len(values) > 0 and all(RowPipelineMixin._gfql_scalar_numeric_non_bool(v) for v in values)
 
     @staticmethod
+    def _gfql_case_branch_value_kind(series: SeriesT) -> Optional[str]:
+        """Classify CASE branch values by Cypher family; all-null/unknown is not a family."""
+        if not is_series_like(series):
+            if isinstance(series, bool):
+                return "bool"
+            if RowPipelineMixin._gfql_scalar_numeric_non_bool(series):
+                return "number"
+            return "str" if isinstance(series, str) else None
+        try:
+            null_mask = series.isna()
+            non_null = ~null_mask
+            if not bool(non_null.any()):
+                return None
+            dtype = series.dtype
+            if pd.api.types.is_bool_dtype(dtype):
+                return "bool"
+            if pd.api.types.is_numeric_dtype(dtype):
+                return "number"
+            if pd.api.types.is_object_dtype(dtype) and isinstance(series, pd.Series):
+                sample = series.dropna().head(128)
+                values = RowPipelineMixin._gfql_series_to_pylist(sample)
+                if not values:
+                    return None
+                if all(isinstance(value, bool) for value in values):
+                    return "bool"
+                if all(RowPipelineMixin._gfql_scalar_numeric_non_bool(value) for value in values):
+                    return "number"
+                if all(isinstance(value, str) for value in values):
+                    return "str"
+                return "mixed"
+            if pd.api.types.is_string_dtype(dtype):
+                return "str"
+            return None  # temporal/decimal/categorical/list dtypes are not a family here: fail open like Polars
+        except (TypeError, ValueError):
+            return None
+
+    @staticmethod
     def _gfql_format_cypher_scalar_literal(value: Any) -> str:
         if value is None or is_null_scalar(value):
             return "null"
@@ -3169,6 +3268,12 @@ class RowPipelineMixin:
             out = s_cons(Engine.CUDF)(repeated_nan, nan_as_null=False)
             if hasattr(out, "name"):
                 out.name = tmp_col
+            return out
+
+        # cuDF's scalar assign reuses the first zero it saw (0.0 == -0.0), losing the sign; build the column explicitly.
+        if engine == Engine.CUDF and isinstance(value, float) and value == 0.0:  # pragma: no cover - cuDF-only; no cuDF lane in the coverage gate
+            out = s_cons(Engine.CUDF)(np.full(len(table_df), value, dtype="float64"), index=table_df.index)
+            out.name = tmp_col
             return out
 
         # Treat list/map literals as scalar row values by explicit broadcasting.
