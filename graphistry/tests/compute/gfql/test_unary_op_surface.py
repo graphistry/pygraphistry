@@ -10,6 +10,8 @@ zero; `%` is the truncated remainder carrying the sign of the DIVIDEND; an integ
 zero divisor is an error). Cross-engine agreement is NOT used as an oracle -- pandas,
 polars and cudf have been wrong together before on this stack.
 """
+import importlib.util
+import math
 import os
 from decimal import Decimal
 
@@ -48,6 +50,8 @@ try:
 except ImportError:
     HAS_CUDF = False
 
+HAS_CUDF_POLARS = importlib.util.find_spec("cudf_polars") is not None
+
 ENGINES = [
     "pandas",
     pytest.param("polars", marks=pytest.mark.skipif(not HAS_POLARS, reason="polars not installed")),
@@ -73,7 +77,7 @@ _EDGES = pd.DataFrame({"src": ["a"], "dst": ["b"]})
 def _graph(engine, nodes=None, edges=None):
     nodes = _NODES if nodes is None else nodes
     edges = _EDGES if edges is None else edges
-    if engine == "polars":
+    if engine in {"polars", "polars-gpu"}:
         nodes, edges = pl.from_pandas(nodes), pl.from_pandas(edges)
     elif engine == "cudf":
         nodes, edges = cudf.from_pandas(nodes), cudf.from_pandas(edges)
@@ -96,6 +100,81 @@ def _values(engine, expr, column="v", nodes=None):
         None if value is None or (not isinstance(value, (list, tuple, dict)) and pd.isna(value)) else value
         for value in out.sort_values("id")[column].tolist()
     ]
+
+
+SIGNED_ZERO_ENGINES = ENGINES + [
+    pytest.param(
+        "polars-gpu",
+        marks=pytest.mark.skipif(
+            not HAS_CUDF_POLARS or os.environ.get("TEST_POLARS_GPU") != "1",
+            reason="requires actual polars-gpu",
+        ),
+    )
+]
+
+
+@pytest.mark.parametrize("engine", SIGNED_ZERO_ENGINES)
+@pytest.mark.parametrize(
+    ("expr", "expected_value", "expected_sign"),
+    [
+        ("-0.0", 0.0, -1.0),
+        ("- 0.0", 0.0, -1.0),
+        ("-(0.0)", 0.0, -1.0),
+        ("0.0 * -1.0", 0.0, -1.0),
+        ("+0.0", 0.0, 1.0),
+        ("-2.0", -2.0, -1.0),
+        ("+2.0", 2.0, 1.0),
+    ],
+    ids=["adjacent", "spaced", "parenthesized", "multiply", "plus-zero", "minus-nonzero", "plus-nonzero"],
+)
+def test_signed_zero_and_nonzero_literals_keep_sign(engine, expr, expected_value, expected_sign):
+    values = _values(engine, expr)
+    assert values == [expected_value] * 4
+    assert all(math.copysign(1.0, value) == expected_sign for value in values)
+
+
+@pytest.mark.parametrize("engine", SIGNED_ZERO_ENGINES)
+def test_zero_sign_survives_alternating_evaluation(engine):
+    """A backend that reuses a scalar by value (0.0 == -0.0) returns the first sign seen, so alternate both orders."""
+    for expr, expected_sign in [("-0.0", -1.0), ("+0.0", 1.0), ("-0.0", -1.0), ("0.0", 1.0), ("0.0 * -1.0", -1.0)]:
+        values = _values(engine, expr)
+        assert values == [0.0] * 4
+        assert [math.copysign(1.0, value) for value in values] == [expected_sign] * 4, expr
+
+
+@pytest.mark.parametrize("engine", SIGNED_ZERO_ENGINES)
+@pytest.mark.parametrize("nodes", [_NODES.iloc[:0], _NODES.iloc[[1, 2]]], ids=["empty", "filtered-index"])
+def test_zero_scalar_projection_keeps_float_dtype_and_row_count(engine, nodes):
+    """A broadcast float zero stays float64 on every frame shape, including zero rows and a non-default index."""
+    out = _graph(engine, nodes=nodes).gfql("MATCH (n) RETURN n.id AS id, 0.0 AS v, -0.0 AS w", engine=engine)._nodes
+    if is_polars_df(out):
+        out = out.to_pandas(use_pyarrow_extension_array=False)
+    elif engine == "cudf":
+        out = out.to_pandas()
+    assert len(out) == len(nodes)
+    assert pd.api.types.is_float_dtype(out["v"].dtype)
+    assert pd.api.types.is_float_dtype(out["w"].dtype)
+
+
+@pytest.mark.parametrize("engine", SIGNED_ZERO_ENGINES)
+@pytest.mark.parametrize("operand", ["n.flag", "n.id > 1"], ids=["boolean-column", "comparison"])
+def test_unary_minus_of_a_boolean_keeps_its_existing_result(engine, operand):
+    """Only float negation changed (to keep the sign of zero): a boolean operand is still arithmetic on pandas/cuDF
+    (-True == -1, -False == 0) and a typed error on Polars, never a logical inversion."""
+    nodes = pd.DataFrame({"id": [1, 2], "flag": [True, False]})
+    query = f"MATCH (n) RETURN n.id AS id, -({operand}) AS v"
+    graph = _graph(engine, nodes=nodes)
+    if engine in {"polars", "polars-gpu"}:
+        with pytest.raises(GFQLTypeError):
+            graph.gfql(query, engine=engine)
+        return
+    out = graph.gfql(query, engine=engine)._nodes
+    if engine == "cudf":
+        out = out.to_pandas()
+    values = out.sort_values("id")["v"].tolist()
+    expected = [-1, 0] if operand == "n.flag" else [0, -1]
+    assert values == expected
+    assert all(not isinstance(v, bool) for v in values)
 
 
 # ---------------------------------------------------------------- the op set itself
