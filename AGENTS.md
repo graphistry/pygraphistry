@@ -32,6 +32,7 @@ ln -s ../.agents/skills .claude/skills
 
 - File performance issues in [graphistry/pyg-bench](https://github.com/graphistry/pyg-bench), not here: slowdowns, regressions, profiling findings, benchmark results, and proposals whose motivation is speed or memory. Link the pygraphistry code path or PR from the pyg-bench issue.
 - Correctness, API, docs, and engine-support issues stay in pygraphistry. When a perf investigation finds a wrong result, file that bug here and cross-link it.
+- This routing applies only to people with access to the benchmark, TCK and evals repositories; outside contributors have no access, so they file in pygraphistry and a maintainer moves the issue.
 
 ## Release Assistant Reminder
 
