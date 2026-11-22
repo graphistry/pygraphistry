@@ -1981,8 +1981,8 @@ class RowPipelineMixin:
                     return True, None
                 if (
                     is_series_like(inner)
-                    and not RowPipelineMixin._gfql_series_is_entity_text_like(inner)
                     and not RowPipelineMixin._gfql_series_is_mapping_like(inner)
+                    and not RowPipelineMixin._gfql_series_is_entity_text_like(inner)
                 ):
                     arg = node.args[0]
                     if isinstance(arg, Identifier) and (
