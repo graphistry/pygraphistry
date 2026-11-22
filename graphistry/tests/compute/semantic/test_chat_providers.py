@@ -939,44 +939,45 @@ class TestReplyIndexReadsOneConsistentAnswer:
         from graphistry.compute.semantic.providers.chat import reply_index
         return reply_index(text, self.codes, PRED)
 
-    @pytest.mark.parametrize("text", ["The answer is A. Wait, the answer is B.", "Option A.\n\nA\n\nOption B.\n\nB",
-                                      "Answer: A\n\nAnswer: B", "A\n\nB", "The answer is A.\n\nB",
-                                      "Answer: A. Answer: B.", "A\n\nx\n\nB"])
+    @pytest.mark.parametrize("text", ["Option A.\n\nA\n\nOption B.\n\nB", "A\n\nB", "The answer is A.\n\nB",
+                                      "A\n\nx\n\nB", "A\nAnswer: B", "A. yes\n\nB. no\n\nThe answer is B.",
+                                      "Answer:\n\nA\n\nB", "A\r\n\r\nB", "The answer is A\n\nB"])
     def test_conflicting_answers_are_rejected_not_resolved_to_the_last(self, text: str) -> None:
         assert self.index(text) is None
 
     @pytest.mark.parametrize("text, expected", [("The answer is A.\n\nA", 0), ("A\n\nA", 0), ("Answer: B\n\nB", 1),
                                                 ("Reasoning: x\n\nThe answer is B.\n\nB. no", 1),
                                                 ("The answer is **B**.", 1), ("The answer is **B**", 1),
-                                                ("Answer: B. no\n\nAnswer: B", 1)])
-    def test_repeated_answers_that_agree_are_read(self, text: str, expected: int) -> None:
+                                                ("Answer:\n\n**B**", 1), ("The answer is:\n\n**B**", 1),
+                                                ("B Answer: B", 1), ("b\n\nB Answer: B", 1),
+                                                ("Thinking it over.\n\nB", 1), ("thinking\r\n\r\nB", 1),
+                                                ("A. yes\nB. no\nThe answer is B.", 1),
+                                                ("Question: Is it damaged?\nA. yes\nB. no\nAnswer: B", 1),
+                                                ("A. yes\nB. no\nAnswer: B", 1)])
+    def test_one_consistent_answer_is_read(self, text: str, expected: int) -> None:
         assert self.index(text) == expected
 
-    @pytest.mark.parametrize("text", ["The answer is B. The answer is B.", "So the answer is no. Answer: B.",
-                                      "The answer is clear. Answer: B", "To answer: the box is crushed. The answer is B.",
-                                      "I need to answer: is it damaged? The answer is B.", "The answer is B. Final answer: B.",
-                                      "Answer:\n\n**B**", "The answer is:\n\n**B**", "B Answer: B", "b\n\nB Answer: B"])
-    def test_a_reply_that_says_answer_more_than_once_and_agrees_is_read(self, text: str) -> None:
-        assert self.index(text) == 1
-
-    @pytest.mark.parametrize("text", ["A. yes\nB. no\nThe answer is B.", "Question: Is it damaged?\nA. yes\nB. no\nAnswer: B",
-                                      "A. yes\nB. no\nAnswer: B"])
-    def test_options_restated_before_the_marker_are_not_answers(self, text: str) -> None:
-        assert self.index(text) == 1
-
-    @pytest.mark.parametrize("text", ["Answer: A\nAnswer: B", "Answer: A \nAnswer: B", "A\nAnswer: B",
-                                      "The answer is A. Wait, the answer is B.", "Answer:\n\nA\n\nAnswer: B"])
-    def test_an_answer_before_the_marker_that_differs_is_rejected(self, text: str) -> None:
+    @pytest.mark.parametrize("text", [
+        "The answer is A. Wait, the answer is B.", "Answer: A\n\nAnswer: B", "Answer: A. Answer: B.",
+        "Answer: A\nAnswer: B", "The answer is **A**. Wait, the answer is B.", "The answer is A, actually the answer is B.",
+        "The answer is A because X. Actually the answer is B.", "The answer is A (yes). Actually the answer is B.",
+        "The answer is A. Wait, the answer:\n\nNot an answer.\n\nB", "The answer is B. The answer is B.",
+        "Answer: B. no\n\nAnswer: B", "The answer is B. Final answer: B.", "Let us check the answer: a) check logs. "
+        "Therefore the answer is B.", "To answer: the box is crushed. The answer is B."])
+    def test_a_reply_that_says_answer_more_than_once_is_rejected(self, text: str) -> None:
         assert self.index(text) is None
 
-    @pytest.mark.parametrize("text", ["The answer is A.\n\nSome closing remark", "A\n\nThe answer is B.\n\nx"])
-    def test_the_last_block_must_be_the_answer(self, text: str) -> None:
+    @pytest.mark.parametrize("text", ["The answer is A.\n\nSome closing remark", "A\n\nThe answer is B.\n\nx",
+                                      "The answer is A because x.\n\nB", "The answer is clear.\n\nB"])
+    def test_the_last_block_must_be_the_answer_and_a_marker_must_give_one(self, text: str) -> None:
         assert self.index(text) is None
 
     def test_a_long_reply_is_read_without_recursion_in_linear_time(self) -> None:
         import time as clock
         for text, expected in (("thinking\n\n" * 20000 + "B", 1), ("A\n\n" * 20000 + "B", None),
-                               ("B\n\n" * 20000 + "B", 1), ("The answer is\n\n" * 20000 + "A", 0)):
+                               ("B\n\n" * 20000 + "B", 1), ("The answer is\n\n" * 20000 + "A", None),
+                               ("thinking\r\n\r\n" * 20000 + "The answer is\n\nA", 0),
+                               ("A\n\n" * 20000 + "A", 0)):
             started = clock.monotonic()
             assert self.index(text) == expected
             assert clock.monotonic() - started < 2.0
