@@ -2500,7 +2500,7 @@ class RowPipelineMixin:
                 ):
                     # Same guards and alias mask as the dotted property path: a map- or list-valued column is not an alias.
                     column_value = table_df[key_value]
-                    if hasattr(column_value, "where"):
+                    if is_series_like(column_value):
                         column_value = self._gfql_mask_fill(column_value, table_df[node.value.name] != True, None)  # noqa: E712
                     return True, column_value
                 if isinstance(node.value, Identifier):
@@ -2862,7 +2862,7 @@ class RowPipelineMixin:
             self._gfql_report_absent_property(f"{alias_name}.{key_value}")
             out = self._gfql_broadcast_scalar(source, None)
         null_mask = self._gfql_null_mask(source, source[entity_id])
-        if hasattr(out, "where"):
+        if is_series_like(out):
             out = self._gfql_mask_fill(out, null_mask, None)
         return True, out
 
