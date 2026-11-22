@@ -3058,7 +3058,7 @@ class RowPipelineMixin:
 
         if is_null_scalar(left) or is_null_scalar(right):
             return None
-        if hasattr(left, "astype"):
+        if is_series_like(left):
             if not pd.api.types.is_string_dtype(left.dtype):
                 return None
         elif not isinstance(left, str):
