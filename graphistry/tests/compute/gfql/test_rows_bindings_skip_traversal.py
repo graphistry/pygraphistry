@@ -988,24 +988,65 @@ def test_a_string_scalar_on_a_mixed_object_column_is_served():
     assert _consulted(_dtype_graph("pandas"), query, "pandas") == {True}
 
 
+def _consulted_whatever_the_outcome(g, query, engine):
+    """The served flags the route recorded; the decision is traced before any error the query raises."""
+    with index_trace() as steps:
+        try:
+            g.gfql(query, engine=engine, index_policy="off")
+        except Exception:  # the outcome is irrelevant here; only the recorded decision is read
+            pass
+    return {bool(s["served"]) for s in steps if s.get("op") == "fast_path" and s.get("seam") == SEAM}
+
+
+SEED_CASES = [
+    (5, "id", True), ("a", "name", True), (True, "label__Person", True), (gt(1), "score", True),
+    (2 ** 70, "id", False), ("a", "id", False), (5, "score", False), (float("nan"), "score", False),
+    (1, "nope_col", False), (None, "score", False), (gt(float("nan")), "score", False), (gt(2 ** 70), "id", False),
+    (gt(2 ** 70), "score", False), (gt(1), "name", False), (_contains("a"), "name", False), (_is_in([1, 2]), "score", False),
+]
+
+
 @pytest.mark.route_engaged(ROUTE)
-@pytest.mark.parametrize("value,may_replay", [
-    (5, False), (2 ** 70, True), (float("nan"), False), ("a", False), (True, False), (None, False),
-    (gt(1), False), (_contains("a"), False), (_is_in([1, 2]), False), (gt(float("nan")), False),
-])
-def test_the_seed_op_serves_plain_scalars_and_declines_none_and_predicates(engine, value, may_replay):
-    """The seed runs on real frames; overflow engines differ, so require exact outcome parity. A predicate can fail on real data after the skipped path warned, so it declines."""
-    column = "name" if isinstance(value, str) or type(value).__name__ == "Contains" else "score"
+@pytest.mark.parametrize("value,column,served", SEED_CASES)
+def test_the_seed_op_is_served_only_for_values_its_column_accepts(engine, value, column, served):
+    """The seed runs on real frames after the skipped path may have warned, so a seed value that can fail there keeps the traversal."""
     query = [n({column: value}, name="a"), e_undirected(name="r1"), n(name="m"), rows(), select([("aid", "a.id")])]
-    if may_replay:
-        actual = _outcome(graph(engine), query, engine)
-        with routes_off([ROUTE]):
-            expected = _outcome(graph(engine), query, engine)
-        assert actual == expected
-        return
-    steps = _consulted(graph(engine), query, engine)
-    served = isinstance(value, (bool, int, float, str)) or type(value).__name__ == "GT" and value.val == 1
-    assert steps == ({True} if served else {False})
+    consulted = _consulted_whatever_the_outcome(graph(engine), query, engine)
+    assert consulted == {True} if served else True not in consulted
+
+
+@pytest.mark.parametrize("value,column", [
+    (2 ** 70, "id"), ("a", "id"), (1, "nope_col"), (5, "score"), (float("nan"), "score"), (True, "id"), (gt(2 ** 70), "id"),
+])
+def test_a_seed_value_its_column_rejects_never_changes_the_outcome_or_the_warnings(engine, value, column):
+    from graphistry.compute.gfql_unified import gfql_clear_caches
+
+    query = [n({column: value}, name="a"), e_undirected(name="r1"), n(name="m"), rows(), select([("aid", "a.id")])]
+    g = graph(engine)
+    gfql_clear_caches()
+    actual = [_outcome(g, query, engine) for _ in range(3)]  # cold, then warm
+    with routes_off([ROUTE]):
+        expected = [_outcome(g, query, engine) for _ in range(3)]
+    assert actual == expected
+
+
+@pytest.mark.parametrize("value,dtype,fits", [
+    (2 ** 63 - 1, "int64", True), (2 ** 63, "int64", False), (2 ** 64 - 1, "uint64", True), (2 ** 64, "uint64", False),
+    (127, "int8", True), (128, "int8", False), (-128, "int8", True), (-129, "int8", False),
+    (255, "uint8", True), (256, "uint8", False), (32767, "int16", True), (32768, "int16", False),
+])
+def test_both_allowlists_stop_exactly_at_the_integer_range(value, dtype, fits):
+    from graphistry.compute.gfql.rows_skip_traversal import _numeric_comparand_fits, _scalar_fits
+
+    assert _scalar_fits(value, dtype) is fits
+    assert _numeric_comparand_fits(value, dtype) is fits
+
+
+@pytest.mark.parametrize("value,dtype,fits", [(2 ** 64 - 1, "float64", True), (2 ** 64, "float64", False), (-(2 ** 63), "float32", True), (-(2 ** 63) - 1, "float32", False)])
+def test_an_int_comparand_on_a_float_column_must_fit_a_64_bit_integer(value, dtype, fits):
+    from graphistry.compute.gfql.rows_skip_traversal import _numeric_comparand_fits
+
+    assert _numeric_comparand_fits(value, dtype) is fits
 
 
 @pytest.mark.route_engaged(ROUTE)

@@ -166,6 +166,15 @@ _STRING_DTYPES = frozenset({"object", "str", "utf8", "string", "string[python]",
 _BOOL_DTYPES = frozenset({"bool", "boolean"})
 
 
+def _int_range(dtype: str) -> Optional[Tuple[int, int]]:
+    """The inclusive ``(low, high)`` of an integer dtype name, or None for any other dtype."""
+    match = _INT_DTYPE.fullmatch(dtype)
+    if match is None:
+        return None
+    bits = int(match.group(2))
+    return (0, 2 ** bits - 1) if match.group(1) else (-(2 ** (bits - 1)), 2 ** (bits - 1) - 1)
+
+
 def _scalar_fits(value: object, dtype: str) -> bool:
     """Whether comparing ``value`` to a column of ``dtype`` has an outcome fixed by the scalar's type and the dtype.
 
@@ -179,12 +188,8 @@ def _scalar_fits(value: object, dtype: str) -> bool:
     if isinstance(value, str):
         return dtype in _STRING_DTYPES
     if isinstance(value, int):
-        match = _INT_DTYPE.fullmatch(dtype)
-        if match is None:
-            return False
-        bits = int(match.group(2))
-        low, high = (0, 2 ** bits - 1) if match.group(1) else (-(2 ** (bits - 1)), 2 ** (bits - 1) - 1)
-        return low <= value <= high
+        bounds = _int_range(dtype)
+        return bounds is not None and bounds[0] <= value <= bounds[1]
     if isinstance(value, float):
         limit = _FLOAT_MAX.get(dtype)
         return limit is not None and math.isfinite(value) and abs(value) <= limit
@@ -192,27 +197,31 @@ def _scalar_fits(value: object, dtype: str) -> bool:
 
 
 def _numeric_comparand_fits(value: object, dtype: str) -> bool:
-    """Whether ``gt``/``lt``/``eq``-style comparison of a numeric column with ``value`` cannot raise or warn by value."""
+    """Whether a ``gt``/``lt``/``eq``-style comparison of a numeric column with ``value`` cannot raise or warn by value.
+
+    An int must fit the integer column's range, or a 64-bit integer on a float column (a wider Python int
+    cannot become an engine literal); a float must be finite and inside the float column's range.
+    """
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         return False
-    int_dtype = _INT_DTYPE.fullmatch(dtype)
-    if int_dtype is not None:
-        bits = int(int_dtype.group(2))
-        low, high = (0, 2 ** bits) if int_dtype.group(1) else (-(2 ** (bits - 1)), 2 ** (bits - 1))
-        return low <= value <= high
+    bounds = _int_range(dtype)
+    if bounds is not None:
+        return bounds[0] <= value <= bounds[1]
     limit = _FLOAT_MAX.get(dtype)
-    return limit is not None and math.isfinite(value) and abs(value) <= limit
+    if limit is None or not math.isfinite(value) or abs(value) > limit:
+        return False
+    return not isinstance(value, int) or -(2 ** 63) <= value <= 2 ** 64 - 1
 
 
 def _unsafe_later_filter(g: Plottable, middle: List[ASTObject]) -> str:
     """Why a filter may raise or warn by value or column on real data, or "" when none can.
 
     A ``None`` value declines on every op (Polars warns per expression built, so a cached twin changes
-    the warning count). The rebuild always evaluates the seed op on the real frames but returns early
-    on an empty seed, and the twin evaluates later ops on zero rows only, so a later filter is safe
-    only when it names an existing column and its (scalar type, dtype kind) pair is allowlisted. A seed
-    filter must be a plain scalar or a numeric comparison inside the column's range: a regex predicate, say, can
-    fail on the real frames after the skipped path has warned, and the replay would then warn twice.
+    the warning count). The rebuild evaluates the seed op on the real frames after the skipped path may
+    have warned, and the twin evaluates later ops on zero rows only, so a filter value on any op is safe
+    only when it names an existing column and its (scalar type, dtype) pair is allowlisted; a seed may also
+    be a numeric comparison inside the column's range. Any other value (a regex predicate, an overflowing
+    int, a type the column cannot hold) can fail on real data, and the replay would then warn twice.
     """
     assert g._nodes is not None and g._edges is not None
     dtypes = {"nodes": _column_dtype_names(g._nodes), "edges": _column_dtype_names(g._edges)}
@@ -221,17 +230,14 @@ def _unsafe_later_filter(g: Plottable, middle: List[ASTObject]) -> str:
             for column, value in (filters or {}).items():
                 if value is None:
                     return "a None filter value warns per expression built on some engines"
-                if index == 0:
-                    if isinstance(value, (ComparisonPredicate, NumericASTPredicate)):
-                        if column not in dtypes[frame] or not _numeric_comparand_fits(value.val, dtypes[frame][column]):
-                            return "a seed comparison is not a finite number inside a numeric column's range, so it can fail on real data"
-                    elif not isinstance(value, (bool, int, float, str)):
-                        return "a seed filter that is not a plain scalar or a numeric comparison can fail on real data after the skipped path has already warned"
-                    continue
                 if column not in dtypes[frame]:
-                    return "a filter after the seed names a column the frame does not have"
-                if not _scalar_fits(value, dtypes[frame][column]):
-                    return "a filter after the seed is not an allowlisted (scalar type, dtype kind) pair, so it can raise or warn by value"
+                    return "a filter names a column the frame does not have"
+                if index == 0 and isinstance(value, (ComparisonPredicate, NumericASTPredicate)):
+                    fits = _numeric_comparand_fits(value.val, dtypes[frame][column])
+                else:
+                    fits = _scalar_fits(value, dtypes[frame][column])
+                if not fits:
+                    return "a filter value is not an allowlisted (scalar type, dtype) pair for its column, so it can raise or warn by value"
     return ""
 
 
