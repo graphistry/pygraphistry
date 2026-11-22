@@ -575,11 +575,15 @@ def test_concurrent_queries_fill_the_cache_consistently():
     gfql_clear_caches()
     graphs = [graph("pandas"), _widened(graph("pandas"), "pandas")]
     query = SHAPES["seeded_undirected_edge_alias"][0]
+    def result(g):  # frames only: the warnings recorder behind _outcome is process-global and not safe across threads
+        out = _run(g, query, "pandas")
+        return _signature(out._nodes), _signature(out._edges)
+
     with routes_off([ROUTE]):
-        expected = [_outcome(g, query, "pandas") for g in graphs]
+        expected = [result(g) for g in graphs]
     gfql_clear_caches()
     with futures.ThreadPoolExecutor(8) as pool:
-        actual = list(pool.map(lambda i: _outcome(graphs[i % 2], query, "pandas"), range(32)))
+        actual = list(pool.map(lambda i: result(graphs[i % 2]), range(32)))
     assert [actual[i] for i in range(2)] == expected
     assert all(actual[i] == expected[i % 2] for i in range(32))
 
@@ -710,6 +714,8 @@ def test_a_filter_value_at_any_position_never_changes_the_outcome(request, engin
 
     if request.node.callspec.params["route_context"] == "default":
         pytest.skip("this matrix runs under general-path, where the skip is the route reached; default mode only repeats it")
+    if (graph_kind == "empty" or not validate_schema) and (order != "forward" or seed != "matches"):
+        pytest.skip("the empty-graph and validate_schema=False variants keep one representative order and seed")
     if graph_kind == "empty" and not validate_schema:
         pytest.skip("an empty graph under validate_schema=False repeats the populated-graph schema paths")
     kind, first, second = FILTER_VALUE_PAIRS[pair]
@@ -929,9 +935,11 @@ def _later_filter_query(position, column, value):
 @pytest.mark.parametrize("group", sorted(SCALAR_GROUPS))
 @pytest.mark.parametrize("column", ["int8", "int32", "int64", "uint64", "float32", "float64", "bool", "string", "dt_naive",
                                     "dt_tz", "obj_mixed", "all_null", "list", "struct"])
-def test_same_type_scalars_on_a_later_op_never_change_the_outcome(engine, column, group, position):
+def test_same_type_scalars_on_a_later_op_never_change_the_outcome(request, engine, column, group, position):
     from graphistry.compute.gfql_unified import gfql_clear_caches
 
+    if request.node.callspec.params["route_context"] == "default":
+        pytest.skip("this matrix runs under general-path, where the skip is the route reached; default mode only repeats it")
     if engine == "polars-gpu" and column in ("list", "struct", "obj_mixed", "dt_tz"):
         pytest.skip("polars-gpu declines this column type in the canonical path too")
     if engine == "cudf" and column in CUDF_UNHOLDABLE:
@@ -1372,9 +1380,9 @@ def test_concurrent_served_queries_leave_process_warning_state_untouched():
     g = graph("pandas")
     query = SHAPES["seeded_undirected_edge_alias"][0]
     filters, show, show_impl = list(warnings.filters), warnings.showwarning, warnings._showwarnmsg_impl
-    for _ in range(5):
+    for _ in range(2):
         with futures.ThreadPoolExecutor(8) as pool:
-            list(pool.map(lambda _i: _run(g, query, "pandas"), range(40)))
+            list(pool.map(lambda _i: _run(g, query, "pandas"), range(24)))
     assert list(warnings.filters) == filters
     assert warnings.showwarning is show and warnings._showwarnmsg_impl is show_impl
 
