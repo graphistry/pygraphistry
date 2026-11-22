@@ -2,8 +2,8 @@
 seeded traversal.
 
 Public surface (see api.py): ``create_index``, ``drop_index``, ``show_indexes``,
-``gfql_index_edges``, ``gfql_index_all``, ``gfql_index_node_props``, and the
-planner entry ``maybe_index_hop``.
+``gfql_index_edges``, ``gfql_index_all``, ``gfql_index_node_props``,
+``gfql_index_node_types``, and the planner entry ``maybe_index_hop``.
 These are wired onto Plottable via ComputeMixin.
 """
 from .types import (
@@ -12,13 +12,15 @@ from .types import (
 )
 from .registry import (
     GfqlIndexRegistry, EMPTY_REGISTRY,
-    EDGE_OUT_ADJ, EDGE_IN_ADJ, NODE_ID, NODE_PROP, EDGE_PROP, ADJ_KINDS, ALL_KINDS,
+    EDGE_OUT_ADJ, EDGE_IN_ADJ, NODE_ID, NODE_PROP, EDGE_PROP,
+    NODE_TYPE_SEGMENT, ADJ_KINDS, ALL_KINDS,
     AdjacencyIndex, NodeIdIndex, NodePropIndex,
 )
 from .api import (
     create_index, drop_index, show_indexes, gfql_index_edges, gfql_index_all,
     gfql_index_col_stats,
     gfql_index_node_props,
+    gfql_index_node_types,
     GfqlIndexUnsupportedError,
     GfqlIndexNotImplementedError,
     get_registry, set_registry, get_index_policy, with_index_policy, maybe_index_hop,
@@ -36,10 +38,11 @@ __all__ = [
     "AdjacencyIndexKind", "ArrayLike", "ArrayNamespace", "EdgeIndexDirection",
     "HopDirection", "IndexBackend", "IndexKind", "IndexTraceStep",
     "GfqlIndexRegistry", "EMPTY_REGISTRY",
-    "EDGE_OUT_ADJ", "EDGE_IN_ADJ", "NODE_ID", "NODE_PROP", "EDGE_PROP", "ADJ_KINDS", "ALL_KINDS",
+    "EDGE_OUT_ADJ", "EDGE_IN_ADJ", "NODE_ID", "NODE_PROP", "EDGE_PROP",
+    "NODE_TYPE_SEGMENT", "ADJ_KINDS", "ALL_KINDS",
     "AdjacencyIndex", "NodeIdIndex", "NodePropIndex",
     "create_index", "drop_index", "show_indexes", "gfql_index_edges",
-    "gfql_index_all", "gfql_index_col_stats", "gfql_index_node_props", "GfqlIndexUnsupportedError", "GfqlIndexNotImplementedError",
+    "gfql_index_all", "gfql_index_col_stats", "gfql_index_node_props", "gfql_index_node_types", "GfqlIndexUnsupportedError", "GfqlIndexNotImplementedError",
     "get_registry", "with_index_policy", "set_registry", "get_index_policy", "maybe_index_hop", "index_name",
     "index_trace",
     "CreateIndex", "DropIndex", "ShowIndexes", "IndexOp", "apply_index_op",

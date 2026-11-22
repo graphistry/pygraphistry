@@ -25,6 +25,7 @@ from .chain_specializations.hotpaths import _plain_seeded_index_hop_polars, _pla
 
 if TYPE_CHECKING:
     import polars as pl
+    from graphistry.Engine import Engine
     from graphistry.compute.gfql.index.bindings import IndexedBindingsState
     from .dtypes import PolarsFrame, PolarsT
 from .hop_eager import ensure_nodes_polars
@@ -199,7 +200,8 @@ def _exec(op: ASTObject, g: Plottable, prev_wf: Optional[Any], target_wf: Option
         if target_wf is not None:
             nodes = _semi(nodes, target_wf, node_col, node_col)
         if op._name is not None:
-            nodes = nodes.with_columns(pl.lit(True).alias(op._name))
+            from graphistry.compute.gfql.lazy.engine.polars.pattern_apply import alias_node_id_with_property_polars
+            nodes = alias_node_id_with_property_polars(nodes, op._name, node_col)
         return g.nodes(nodes, node_col).edges(g._edges.clear(), g._source, g._destination)
 
     if isinstance(op, ASTEdge):
@@ -338,8 +340,9 @@ def _combine_edges(g: "_LazyShim",
     Takes the ``_LazyShim`` duck-type, NOT a ``Plottable``: the Track-B combine runs entirely on
     already-materialized-then-lazified hop frames, which is exactly what the shim carries (and
     why its frames are ``LazyFrame``, not the ``PolarsFrame`` union). ``steps`` are the edge
-    steps (recomputed ones when ``has_multihop``); ``label_steps`` are the forward-pass steps
-    used for the endpoint gates and the alias flags."""
+    steps (recomputed ones when ``has_multihop``); ``label_steps`` are forward-pass
+    steps used for single-hop endpoint gates. Alias flags come from ``steps`` so an
+    edge is tagged only when it survives path pruning."""
     import polars as pl
     src, dst, node_col, edge_id = g._source, g._destination, g._node, g._edge
     assert src is not None and dst is not None and node_col is not None and edge_id is not None
@@ -387,9 +390,12 @@ def _combine_edges(g: "_LazyShim",
 
     out = all_edges.join(out_ids, on=edge_id, how="semi")
 
-    for op, g_step in label_steps:
-        if op._name is not None and isinstance(op, ASTEdge) and g_step._edges is not None and op._name in colnames(g_step._edges):
-            named = g_step._edges.filter(pl.col(op._name)).select(pl.col(edge_id)).with_columns(pl.lit(True).alias(op._name))
+    for op, g_step in steps:
+        if op._name is not None and isinstance(op, ASTEdge) and g_step._edges is not None:
+            # The pruned edge-ID set is the alias membership. Alias-shadow restoration can
+            # put the original payload column back on this frame, so filtering by op._name
+            # would either read that payload or reintroduce forward-only dead-end edges.
+            named = g_step._edges.select(pl.col(edge_id)).with_columns(pl.lit(True).alias(op._name))
             if op._name in colnames(out):  # the alias marker shadows the user column; only a Cypher pipeline keeps its values, under the restore name
                 if shadow_restore_wanted():
                     restore = shadow_restore_column(op._name)
@@ -532,7 +538,7 @@ def _run_calls_polars(g_cur, calls, start_nodes, base_graph, middle):
     ``_try_native_row_op``; a row op with no native impl raises NotImplementedError (no pandas
     fallback) rather than secretly running the pandas row pipeline.
     """
-    from graphistry.compute.ast import ASTCall, ASTNode as _ASTNode, ASTEdge as _ASTEdge, rows as rows_fn
+    from graphistry.compute.ast import rows as rows_fn
     from graphistry.compute.chain import serialize_binding_ops, select_attach_prop_columns
     from graphistry.compute.gfql.exec_context import attach_row_exec_context, clear_row_exec_context
 
@@ -545,22 +551,8 @@ def _run_calls_polars(g_cur, calls, start_nodes, base_graph, middle):
     # left the WITH re-entry seed behind for the next, unrelated query.
     g_cur = attach_row_exec_context(g_cur, start_nodes=start_nodes, rows_base_graph=base_graph)
 
-    if (
-        middle
-        and any(op._name is not None for op in middle)
-        and isinstance(calls[0], ASTCall)
-        and calls[0].function == "rows"
-        and calls[0].params.get("binding_ops") is None
-        and calls[0].params.get("source") is None
-        and calls[0].params.get("alias_endpoints") is None
-        # See the twin guard in compute/chain.py: a NON-DEFAULT `table` names the table the
-        # caller wants, so the bindings rewrite must not override it. Both surfaces need
-        # the check — this one is the native polars chain, that one the generic chain.
-        # `== "nodes"`, not `is None`: `rows()` defaults table to "nodes" and always emits
-        # it, so an `is None` test disables the rewrite entirely.
-        and calls[0].params.get("table", "nodes") == "nodes"
-        and all(isinstance(op, (_ASTNode, _ASTEdge)) for op in middle)
-    ):
+    from graphistry.compute.gfql.rows_skip_traversal import named_middle_rows_rewrite_applies
+    if named_middle_rows_rewrite_applies(middle, calls):
         # See the twin in compute/chain.py: ADD binding_ops to the caller's call rather
         # than building a fresh one, so the params the rewrite has no opinion about
         # (`attach_prop_aliases`, `alias_prefilters`) reach the binding_ops builder.
@@ -795,6 +787,25 @@ def chain_polars(self: Plottable, ops, start_nodes: Optional[Any] = None) -> Plo
                     )
                 _seen[_name] = _idx
 
+    if self._edges is None and self._nodes is not None and self._node is not None:
+        if any(isinstance(op, ASTEdge) for op in ops):
+            from graphistry.compute.exceptions import ErrorCode, GFQLSchemaError
+            raise GFQLSchemaError(
+                ErrorCode.E304,
+                'Cannot traverse edges: graph has no edges bound',
+                suggestion='Bind edges via g.edges(df, source, destination), or use a node-only pattern'
+            )
+        import polars as pl
+        from graphistry.compute.util import generate_safe_column_name
+        id_dtype = self._nodes.schema[self._node]
+        synth_src = generate_safe_column_name('src', self._nodes, prefix='__gfql_', suffix='__')
+        synth_dst = generate_safe_column_name('dst', self._nodes, prefix='__gfql_', suffix='__')
+        empty_edges = pl.DataFrame(schema={synth_src: id_dtype, synth_dst: id_dtype})
+        out = chain_polars(self.edges(empty_edges, synth_src, synth_dst), ops, start_nodes)
+        result = self.nodes(out._nodes)
+        result._node = out._node
+        return result
+
     point_rows = _try_point_rows_polars(self, ops, start_nodes)
     if point_rows is not None:
         return point_rows
@@ -832,6 +843,9 @@ def chain_polars(self: Plottable, ops, start_nodes: Optional[Any] = None) -> Plo
         )
 
     from graphistry.compute.chain import serialize_binding_ops
+    from graphistry.compute.gfql.rows_skip_traversal import (
+        may_skip_unread_middle_traversal, run_without_traversal,
+    )
     from graphistry.compute.gfql.index.handoff import (
         IndexedBindingsHandoff, attach_handoff,
     )
@@ -860,15 +874,26 @@ def chain_polars(self: Plottable, ops, start_nodes: Optional[Any] = None) -> Plo
             ),
         ))
     else:
-        g_cur = _chain_traversal_polars(self, middle, start_nodes)
-        if indexed_attempted:
+        def with_declined_index(g_mid: Plottable) -> Plottable:
             # Record the exact declined plan so the rows materializer does not
             # re-attempt (and re-record) the same decision. Attach, never mutate:
             # the pandas twin does the same, so neither boundary can write onto a
             # graph it does not own.
-            g_cur = attach_handoff(g_cur, IndexedBindingsHandoff(
-                binding_ops=serialize_binding_ops(middle),
-            ))
+            if not indexed_attempted:
+                return g_mid
+            return attach_handoff(g_mid, IndexedBindingsHandoff(binding_ops=serialize_binding_ops(middle)))
+
+        engine = _active_polars_engine()
+        if may_skip_unread_middle_traversal(self, middle, suffix, engine):
+            twin_answer = run_without_traversal(
+                self, middle, engine,
+                traverse=lambda empty: _chain_traversal_polars(empty, middle, None),
+                run_suffix=lambda twin: _run_calls_polars(
+                    with_declined_index(twin), suffix, start_nodes, base_graph=self, middle=middle),
+            )
+            if twin_answer is not None:
+                return twin_answer
+        g_cur = with_declined_index(_chain_traversal_polars(self, middle, start_nodes))
     if suffix:
         g_cur = _run_calls_polars(g_cur, suffix, start_nodes, base_graph=self, middle=middle)
     return g_cur
@@ -888,42 +913,23 @@ def _try_indexed_middle_polars(
     ops. Everything else (prefiltered/seeded/aliased-endpoint rows, unnamed middle
     without binding ops, non-traversal middle) keeps the canonical path.
     """
-    from graphistry.compute.ast import ASTCall
-    from graphistry.compute.chain import serialize_binding_ops
+    from graphistry.compute.gfql.rows_skip_traversal import bindings_rows_call
 
-    if (
-        not middle
-        or not suffix
-        or start_nodes is not None
-        or not isinstance(suffix[0], ASTCall)
-        or suffix[0].function != "rows"
-        or suffix[0].params.get("source") is not None
-        or suffix[0].params.get("alias_endpoints") is not None
-        or suffix[0].params.get("alias_prefilters")
-        # See the twin guard in chain._plan_indexed_middle: serving the bypass skips the
-        # canonical traversal, so a non-default `table` would read the PRE-traversal edge
-        # table (the whole graph) instead of the narrowed one. "nodes", not None — `rows()`
-        # always emits `table`.
-        or suffix[0].params.get("table", "nodes") != "nodes"
-        or not all(isinstance(op, (ASTNode, ASTEdge)) for op in middle)
-    ):
-        return None, False
-    binding_ops = suffix[0].params.get("binding_ops")
-    if not (
-        binding_ops == serialize_binding_ops(middle)
-        or (
-            binding_ops is None
-            and any(op._name is not None for op in middle)
-        )
-    ):
+    # Alias prefilters are not index-servable (twin gate: chain._plan_indexed_middle).
+    call = bindings_rows_call(middle, suffix) if start_nodes is None else None
+    if call is None or call.params.get("alias_prefilters"):
         return None, False
 
-    from graphistry.Engine import Engine
     from graphistry.compute.gfql.index.bindings import try_indexed_connected_bindings_state
+
+    return try_indexed_connected_bindings_state(g, middle, engine=_active_polars_engine()), True
+
+
+def _active_polars_engine() -> "Engine":
+    from graphistry.Engine import Engine
     from graphistry.compute.gfql.lazy import active_target, ExecutionTarget
 
-    engine = Engine.POLARS_GPU if active_target() == ExecutionTarget.GPU else Engine.POLARS
-    return try_indexed_connected_bindings_state(g, middle, engine=engine), True
+    return Engine.POLARS_GPU if active_target() == ExecutionTarget.GPU else Engine.POLARS
 
 
 def _bound_edge_endpoints(g: Plottable) -> Tuple[str, str]:
@@ -1181,4 +1187,65 @@ def _chain_traversal_polars(self: Plottable, ops, start_nodes: Optional[Any] = N
     # error, and silencing it would cost the lazy/eager distinction the shim exists to keep.
     final_edges_eager, final_nodes_eager = collect_all([final_edges, final_nodes])
     final_edges_eager = _restore_edge_dtypes(final_edges_eager, src, dst, _endpoint_restore)
+    seed_carry_cols = [
+        col for col in (start_nodes.columns if start_nodes is not None else [])
+        if isinstance(col, str) and col.startswith("__cypher_reentry_")
+    ]
+    if seed_carry_cols:
+        carry_map = start_nodes.select([node_col, *seed_carry_cols])
+        from graphistry.compute.gfql.cypher.reentry.naming import (
+            REENTRY_ROW_TOKEN_OUTPUT,
+            _reentry_hidden_column_name,
+        )
+        occurrence_token_col = _reentry_hidden_column_name(REENTRY_ROW_TOKEN_OUTPUT)
+        preserve_seed_occurrences = occurrence_token_col in seed_carry_cols
+        # Tokenized WITH rows also represent a named source alias. Keep that seed
+        # occurrence in the materialized graph while each edge step advances the
+        # carry frontier to destination aliases for a later WITH/MATCH boundary.
+        carry_maps = [carry_map] if preserve_seed_occurrences else []
+        for edge_op, edge_step in edge_steps:
+            if (
+                not isinstance(edge_op, ASTEdge)
+                or edge_step._edges is None
+                or edge_step._source is None
+                or edge_step._destination is None
+            ):
+                continue
+            edge_src, edge_dst = edge_step._source, edge_step._destination
+            edge_parts = []
+            if edge_op.direction != "reverse":
+                edge_parts.append((edge_src, edge_dst))
+            if edge_op.direction != "forward":
+                edge_parts.append((edge_dst, edge_src))
+            next_carry_frames = []
+            for from_col, to_col in edge_parts:
+                next_carry_frames.append(
+                    carry_map.join(
+                        edge_step._edges.select([from_col, to_col]),
+                        left_on=node_col, right_on=from_col, how="inner")
+                    .drop(node_col)
+                    .rename({to_col: node_col})
+                )
+            carry_map = (
+                pl.concat(next_carry_frames, how="vertical")
+                if len(next_carry_frames) > 1 else next_carry_frames[0]
+            )
+            if preserve_seed_occurrences:
+                carry_maps.append(carry_map.select([node_col, *seed_carry_cols]))
+        carries_to_attach = (
+            pl.concat(carry_maps, how="vertical")
+            if preserve_seed_occurrences
+            else carry_map
+        )
+        if preserve_seed_occurrences:
+            # A token identifies one input WITH-row occurrence at an entity. A
+            # cycle can reach the same (entity, token) at multiple depths; aliases
+            # look up one row for that pair, while path multiplicity stays in edges.
+            carries_to_attach = carries_to_attach.unique(
+                subset=[node_col, occurrence_token_col],
+                maintain_order=True,
+            )
+        final_nodes_eager = final_nodes_eager.drop(seed_carry_cols).join(
+            carries_to_attach, on=node_col, how="left"
+        )
     return self.nodes(final_nodes_eager, node_col).edges(final_edges_eager, src, dst)

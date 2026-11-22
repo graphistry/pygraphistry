@@ -638,6 +638,23 @@ people_nodes = result._nodes.query("people == True")
 ```
 
 This pattern is essential for extracting specific subsets from complex graph traversals.
+These columns come from matcher `name=` parameters, not Let binding names.
+
+### Let Binding Results
+
+`let()` names whole subgraphs. A query returns its final binding by default;
+use `output=` to select another binding rather than filtering a marker column:
+
+```python
+from graphistry import let, ref, n
+
+stages = let({
+    'people': n({'type': 'person'}),
+    'first_person': ref('people', [n({'id': 'a'})])
+})
+people = g.gfql(stages, output='people')._nodes
+first_person = g.gfql(stages, output='first_person')._nodes
+```
 
 ## Best Practices
 

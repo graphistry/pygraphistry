@@ -8,6 +8,7 @@ on:
   push:
     branches:
       - master
+      - develop
   pull_request:
 
   #Enable UI-driven branch testing
@@ -26,10 +27,23 @@ permissions:
   contents: read
 
 concurrency:
-  # Cancel stale same-branch PR/manual runs. Branch push CI is master-only;
-  # branch validation happens via pull_request or workflow_dispatch.
-  group: ${{ github.workflow }}-${{ github.event.pull_request.head.repo.full_name || github.repository }}-${{ github.head_ref || github.ref_name }}
-  cancel-in-progress: ${{ github.ref != 'refs/heads/master' }}
+  # Keep each develop push independent. Other runs share a branch-based group
+  # that includes the event name, so a PR whose head branch is named master or
+  # develop cannot cancel (or be cancelled by) a push or scheduled run on that
+  # branch.
+  group: >-
+    ${{
+    github.event_name == 'push' && github.ref == 'refs/heads/develop'
+    && format('{0}-develop-push-{1}', github.workflow, github.sha)
+    || format('{0}-{1}-{2}-{3}', github.workflow, github.event_name,
+       github.event.pull_request.head.repo.full_name || github.repository,
+       github.head_ref || github.ref_name)
+    }}
+  cancel-in-progress: >-
+    ${{
+    (github.event_name != 'push' || (github.ref != 'refs/heads/develop' && github.ref != 'refs/heads/master'))
+    && github.ref != 'refs/heads/master'
+    }}
 
 env:
   # 6-day dependency cooldown: refuse packages uploaded less than 6 days ago
@@ -40,7 +54,7 @@ jobs:
 
   changes:
     # Determine which files changed to run only relevant jobs
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     outputs:
       python: ${{ steps.filter.outputs.python }}
       spark: ${{ steps.filter.outputs.spark }}
@@ -503,7 +517,7 @@ jobs:
     # Uses the PR head ref (not merge ref) to avoid false positives from
     # plans/ files that already exist on the base branch.
     if: ${{ github.event_name == 'pull_request' }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 1
     steps:
     - uses: actions/checkout@v4
@@ -526,7 +540,7 @@ jobs:
   schema-artifacts:
     needs: changes
     if: ${{ (needs.changes.outputs.python == 'true' && needs.changes.outputs.narrow_python_only != 'true') || needs.changes.outputs.schema_lane == 'true' || needs.changes.outputs.core == 'true' || needs.changes.outputs.infra == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
     - uses: actions/checkout@v4
@@ -544,7 +558,7 @@ jobs:
   generate-lockfiles:
     needs: changes
     if: ${{ needs.changes.outputs.python == 'true' || needs.changes.outputs.ai == 'true' || needs.changes.outputs.infra == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
     - uses: actions/checkout@v4
@@ -584,7 +598,7 @@ jobs:
   check-rtd-lockfile:
     needs: changes
     if: ${{ (needs.changes.outputs.docs == 'true' && needs.changes.outputs.narrow_python_only != 'true') || (needs.changes.outputs.python == 'true' && needs.changes.outputs.narrow_python_only != 'true') || needs.changes.outputs.docs_test == 'true' || needs.changes.outputs.infra == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
     - uses: actions/checkout@v4
@@ -616,7 +630,7 @@ jobs:
   check-spark-lockfile:
     needs: changes
     if: ${{ needs.changes.outputs.spark == 'true' || needs.changes.outputs.infra == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
     - uses: actions/checkout@v4
@@ -648,7 +662,7 @@ jobs:
   tck-gfql:
     needs: [changes, test-minimal-python, generate-lockfiles]
     if: ${{ (needs.changes.outputs.gfql == 'true' || needs.changes.outputs.infra == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule') && !(needs.changes.outputs.docs_only_latest == 'true' && (github.event_name == 'push' || github.event_name == 'pull_request')) }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
 
     steps:
@@ -726,7 +740,7 @@ jobs:
   gfql-benchmarks:
     needs: [changes, generate-lockfiles]
     if: ${{ (needs.changes.outputs.gfql == 'true' || needs.changes.outputs.benchmarks == 'true' || github.event_name == 'workflow_dispatch') && !(needs.changes.outputs.docs_only_latest == 'true' && (github.event_name == 'push' || github.event_name == 'pull_request')) }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
 
     steps:
@@ -782,7 +796,7 @@ jobs:
     needs: [changes, generate-lockfiles]
     # Run if Python files changed OR infrastructure changed OR manual/scheduled run
     if: ${{ (needs.changes.outputs.python == 'true' || needs.changes.outputs.ai == 'true' || needs.changes.outputs.infra == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule') && !(needs.changes.outputs.docs_only_latest == 'true' && (github.event_name == 'push' || github.event_name == 'pull_request')) }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     
     strategy:
@@ -831,7 +845,7 @@ jobs:
     # One python version on purpose: the rules this gate ratchets are decided by the
     # source alone, so all seven matrix cells would produce byte-identical output.
     if: ${{ (needs.changes.outputs.python == 'true' || needs.changes.outputs.ai == 'true' || needs.changes.outputs.infra == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule') && !(needs.changes.outputs.docs_only_latest == 'true' && (github.event_name == 'push' || github.event_name == 'pull_request')) }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 6
 
     steps:
@@ -869,7 +883,7 @@ jobs:
     name: cypher-frontend-strict-typing (py3.12)
     needs: [changes, generate-lockfiles]
     if: ${{ (needs.changes.outputs.cypher_frontend_ci == 'true' || needs.changes.outputs.infra == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule') && !(needs.changes.outputs.docs_only_latest == 'true' && (github.event_name == 'push' || github.event_name == 'pull_request')) }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 6
     steps:
     - name: Checkout repo
@@ -920,7 +934,7 @@ jobs:
     name: cypher-frontend-differential-parity (py3.12)
     needs: [changes, generate-lockfiles]
     if: ${{ (needs.changes.outputs.cypher_frontend_ci == 'true' || needs.changes.outputs.gfql == 'true' || needs.changes.outputs.infra == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule') && !(needs.changes.outputs.docs_only_latest == 'true' && (github.event_name == 'push' || github.event_name == 'pull_request')) }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
     - name: Checkout repo
@@ -973,7 +987,7 @@ jobs:
     # Ungated: a guard against a silent coverage gap must not itself be conditionally
     # silent, and the path filters do not cover every file it cross-checks.
     name: gpu-gate-audit
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 3
     steps:
     - name: Checkout repo
@@ -989,7 +1003,7 @@ jobs:
     name: cypher-frontend-surface-guard
     needs: [changes]
     if: ${{ (needs.changes.outputs.cypher_frontend_ci == 'true' || needs.changes.outputs.infra == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule') && !(needs.changes.outputs.docs_only_latest == 'true' && (github.event_name == 'push' || github.event_name == 'pull_request')) }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 3
     steps:
     - name: Checkout repo
@@ -1006,7 +1020,7 @@ jobs:
     name: test-networkx-scipy-policy (${{ matrix.label }}, py${{ matrix.python-version }})
     needs: [changes, generate-lockfiles]
     if: ${{ ((needs.changes.outputs.python == 'true' && needs.changes.outputs.narrow_python_only != 'true') || needs.changes.outputs.networkx == 'true' || needs.changes.outputs.core == 'true' || needs.changes.outputs.infra == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule') && !(needs.changes.outputs.docs_only_latest == 'true' && (github.event_name == 'push' || github.event_name == 'pull_request')) }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 8
     strategy:
       fail-fast: false
@@ -1069,7 +1083,7 @@ jobs:
     needs: [changes, python-lint-types, generate-lockfiles]
     # Run if Python files changed OR infrastructure changed OR manual/scheduled run
     if: ${{ (needs.changes.outputs.python == 'true' || needs.changes.outputs.ai == 'true' || needs.changes.outputs.infra == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule') && !(needs.changes.outputs.docs_only_latest == 'true' && (github.event_name == 'push' || github.event_name == 'pull_request')) }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
 
     strategy:
@@ -1121,7 +1135,7 @@ jobs:
     # + surface guard + full-suite sentinel.
     needs: [changes, test-minimal-python, cypher-frontend-strict-typing, cypher-frontend-differential-parity, cypher-frontend-surface-guard]
     if: ${{ (needs.changes.outputs.cypher_frontend_ci == 'true' || needs.changes.outputs.infra == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule') && !(needs.changes.outputs.docs_only_latest == 'true' && (github.event_name == 'push' || github.event_name == 'pull_request')) }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 2
     steps:
     - name: Report cypher frontend gate status
@@ -1137,7 +1151,7 @@ jobs:
     # Middle versions (3.9-3.13) + non-GFQL deferred files.
     needs: [changes, test-minimal-python, generate-lockfiles]
     if: ${{ ((needs.changes.outputs.python == 'true' && needs.changes.outputs.narrow_python_only != 'true') || needs.changes.outputs.core == 'true' || needs.changes.outputs.infra == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule') && !(needs.changes.outputs.docs_only_latest == 'true' && (github.event_name == 'push' || github.event_name == 'pull_request')) }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
 
     strategy:
@@ -1191,7 +1205,7 @@ jobs:
   test-gfql-core:
     needs: [changes, python-lint-types, generate-lockfiles]
     if: ${{ ((needs.changes.outputs.python == 'true' && needs.changes.outputs.narrow_python_only != 'true') || needs.changes.outputs.gfql == 'true' || needs.changes.outputs.schema_lane == 'true' || needs.changes.outputs.pandas_compat == 'true' || needs.changes.outputs.core == 'true' || needs.changes.outputs.ai == 'true' || needs.changes.outputs.infra == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule') && !(needs.changes.outputs.docs_only_latest == 'true' && (github.event_name == 'push' || github.event_name == 'pull_request')) }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 25
 
     strategy:
@@ -1305,7 +1319,7 @@ jobs:
     # lines outside the diff are intentionally ignored.
     needs: [changes, test-core-python, test-gfql-core, test-polars, generate-lockfiles]
     if: ${{ github.event_name == 'pull_request' && ((needs.changes.outputs.python == 'true' && needs.changes.outputs.narrow_python_only != 'true') || needs.changes.outputs.gfql == 'true' || needs.changes.outputs.schema_lane == 'true' || needs.changes.outputs.pandas_compat == 'true' || needs.changes.outputs.core == 'true' || needs.changes.outputs.infra == 'true') && !(needs.changes.outputs.docs_only_latest == 'true') }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
 
     steps:
@@ -1386,7 +1400,7 @@ jobs:
     needs: [changes, test-minimal-python, generate-lockfiles]
     # Run if Python files changed OR infrastructure changed OR manual/scheduled run
     if: ${{ ((needs.changes.outputs.python == 'true' && needs.changes.outputs.narrow_python_only != 'true') || needs.changes.outputs.pandas_compat == 'true' || needs.changes.outputs.core == 'true' || needs.changes.outputs.infra == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule') && !(needs.changes.outputs.docs_only_latest == 'true' && (github.event_name == 'push' || github.event_name == 'pull_request')) }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
 
     strategy:
@@ -1446,7 +1460,7 @@ jobs:
     needs: [changes, test-minimal-python, generate-lockfiles]
     # Run if Python files changed OR infrastructure changed OR manual/scheduled run
     if: ${{ ((needs.changes.outputs.python == 'true' && needs.changes.outputs.narrow_python_only != 'true') || needs.changes.outputs.pandas_compat == 'true' || needs.changes.outputs.core == 'true' || needs.changes.outputs.infra == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule') && !(needs.changes.outputs.docs_only_latest == 'true' && (github.event_name == 'push' || github.event_name == 'pull_request')) }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
 
     strategy:
@@ -1516,8 +1530,8 @@ jobs:
   test-core-python:
     needs: [changes, test-minimal-python, generate-lockfiles]
     if: ${{ ((needs.changes.outputs.python == 'true' && needs.changes.outputs.narrow_python_only != 'true') || needs.changes.outputs.gfql == 'true' || needs.changes.outputs.core == 'true' || needs.changes.outputs.infra == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule') && !(needs.changes.outputs.docs_only_latest == 'true' && (github.event_name == 'push' || github.event_name == 'pull_request')) }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 8
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
 
     strategy:
       matrix:
@@ -1555,7 +1569,8 @@ jobs:
       if: ${{ matrix.python-version != '3.14' }}
       run: |
         source pygraphistry/bin/activate
-        ./bin/test.sh
+        # GFQL core still runs this full-corpus parity test on 3.12/3.14 (3.12 with coverage).
+        ./bin/test.sh -n auto --ignore=graphistry/tests/compute/gfql/cypher/test_differential_grammar_parity.py
 
     - name: Core tests with changed-line coverage
       if: ${{ matrix.python-version == '3.14' }}
@@ -1563,7 +1578,8 @@ jobs:
         source pygraphistry/bin/activate
         mkdir -p "$RUNNER_TEMP/changed-line-coverage"
         COVERAGE_FILE="$RUNNER_TEMP/changed-line-coverage/coverage.core-py3.14" \
-          ./bin/test.sh -n auto --cov=graphistry --cov-report=
+          ./bin/test.sh -n auto --cov=graphistry --cov-report= \
+            --ignore=graphistry/tests/compute/gfql/cypher/test_differential_grammar_parity.py
 
     - name: Upload core coverage data
       if: ${{ matrix.python-version == '3.14' }}
@@ -1576,7 +1592,7 @@ jobs:
   test-graphviz:
     needs: [changes, test-minimal-python, generate-lockfiles]
     if: ${{ ((needs.changes.outputs.python == 'true' && needs.changes.outputs.narrow_python_only != 'true') || needs.changes.outputs.graphviz_lane == 'true' || needs.changes.outputs.core == 'true' || needs.changes.outputs.infra == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule') && !(needs.changes.outputs.docs_only_latest == 'true' && (github.event_name == 'push' || github.event_name == 'pull_request')) }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10  # Accommodate retry logic: 3 attempts × 2min + 1.5min backoff/cleanup
 
     strategy:
@@ -1639,22 +1655,15 @@ jobs:
         source pygraphistry/bin/activate
         ./bin/test-graphviz.sh
 
-  gfql-routes-off:
-    # Required replay: run the GFQL suites with one hot path declined per cell
-    # (GFQL_ROUTES_OFF); engagement pins are skipped via the route_engaged marker, so the
-    # uploaded lists hold route-vs-general result divergences only.
+  gfql-route-manifest:
+    # One normal Polars-enabled pass records which tests actually call each route.
+    # Every replay compares its collection hash before deselecting unaffected tests.
     needs: [changes, python-lint-types, generate-lockfiles]
     if: ${{ needs.changes.outputs.gfql == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 45
-
-    strategy:
-      fail-fast: false
-      matrix:
-        mode: [polars-point-rows, point-rows, native-fast, polars-single-node, polars-seeded, polars-plain, index-hop, indexed-kernel, polars-bindings-select, cypher-fast, cross-alias-or, binding-limit, all-off]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
 
     steps:
-
     - name: Checkout repo
       uses: actions/checkout@v4
       with:
@@ -1680,10 +1689,78 @@ jobs:
         uv pip install --require-hashes -r requirements/test-polars-py3.12.lock
         uv pip install -e . --no-deps
 
+    - name: Record normal route engagement
+      run: |
+        source pygraphistry/bin/activate
+        mkdir -p build/route-engagement/records
+        GFQL_ROUTE_RECORD_DIR=build/route-engagement/records python -m pytest -n 2 \
+          graphistry/tests/compute/test_chain.py \
+          graphistry/tests/compute/test_hop.py \
+          graphistry/tests/compute/test_gfql.py \
+          graphistry/tests/compute/gfql \
+          -q -p graphistry.tests.compute.gfql.routes.engagement_manifest \
+          -p no:cacheprovider -o addopts="" -rfE
+        python -m bin.ci.build_route_manifest \
+          build/route-engagement/records build/route-engagement/manifest.json --workers 2
+
+    - name: Upload route engagement manifest
+      uses: actions/upload-artifact@v4
+      with:
+        name: gfql-route-engagement
+        path: build/route-engagement/manifest.json
+        if-no-files-found: error
+
+  gfql-routes-off:
+    # Required replay: run the GFQL suites with one hot path declined per cell
+    # (GFQL_ROUTES_OFF); engagement pins are skipped via the route_engaged marker, so the
+    # uploaded lists hold route-vs-general result divergences only.
+    needs: [changes, python-lint-types, generate-lockfiles, gfql-route-manifest]
+    if: ${{ needs.changes.outputs.gfql == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+
+    strategy:
+      fail-fast: false
+      matrix:
+        mode: [polars-point-rows, point-rows, native-fast, polars-single-node, polars-seeded, polars-plain, index-hop, indexed-kernel, polars-bindings-select, cypher-fast, cross-alias-or, binding-limit, bindings-skip-traversal, all-off]
+
+    steps:
+
+    - name: Checkout repo
+      uses: actions/checkout@v4
+      with:
+        lfs: true
+        persist-credentials: false
+
+    - name: Set up Python 3.12
+      uses: actions/setup-python@v5
+      with:
+        python-version: 3.12
+
+    - name: Download lockfiles
+      uses: actions/download-artifact@v4
+      with:
+        name: lockfiles
+        path: requirements
+
+    - name: Download route engagement manifest
+      uses: actions/download-artifact@v4
+      with:
+        name: gfql-route-engagement
+        path: build/route-engagement
+
+    - name: Install Python dependencies
+      run: |
+        python -m venv pygraphistry
+        source pygraphistry/bin/activate
+        python -m pip install --upgrade pip uv
+        uv pip install --require-hashes -r requirements/test-polars-py3.12.lock
+        uv pip install -e . --no-deps
+
     - name: Routes-off replay (${{ matrix.mode }})
       run: |
         source pygraphistry/bin/activate
-        MODES=${{ matrix.mode }} ./bin/test-routes-off.sh
+        GFQL_ROUTE_SELECT_MANIFEST=build/route-engagement/manifest.json ROUTES_XDIST=2 MODES=${{ matrix.mode }} ./bin/test-routes-off.sh
         echo "## routes-off: ${{ matrix.mode }}" >> "$GITHUB_STEP_SUMMARY"
         sed 's/^/- /' build/routes-off/${{ matrix.mode }}.divergences >> "$GITHUB_STEP_SUMMARY"
 
@@ -1698,10 +1775,10 @@ jobs:
   test-polars:
     needs: [changes, test-minimal-python, generate-lockfiles]
     if: ${{ ((needs.changes.outputs.python == 'true' && needs.changes.outputs.narrow_python_only != 'true') || needs.changes.outputs.gfql == 'true' || needs.changes.outputs.pandas_compat == 'true' || needs.changes.outputs.core == 'true' || needs.changes.outputs.infra == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule') && !(needs.changes.outputs.docs_only_latest == 'true' && (github.event_name == 'push' || github.event_name == 'pull_request')) }}
-    runs-on: ubuntu-latest
-    # The py3.12 coverage cell takes ~9m40s on a 2-vCPU hosted runner before
-    # setup, the coverage audit, and artifact upload; keep deterministic margin.
-    timeout-minutes: 15
+    runs-on: ubuntu-24.04
+    # The py3.12 coverage cell can exceed 20 minutes including setup,
+    # two test phases, and coverage artifact work.
+    timeout-minutes: 30
 
     strategy:
       matrix:
@@ -1771,7 +1848,7 @@ jobs:
   test-core-umap:
     needs: [changes, test-minimal-python, test-gfql-core, generate-lockfiles]
     if: ${{ success() && (needs.changes.outputs.ai == 'true' || needs.changes.outputs.infra == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule') }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
 
     strategy:
@@ -1827,7 +1904,7 @@ jobs:
   test-full-ai:
     needs: [changes, test-minimal-python, test-gfql-core, generate-lockfiles]
     if: ${{ success() && (needs.changes.outputs.ai == 'true' || needs.changes.outputs.infra == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule') }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
 
     strategy:
@@ -1986,7 +2063,7 @@ jobs:
   test-dgl-cpu:
     needs: [changes, test-minimal-python]
     if: ${{ ((needs.changes.outputs.python == 'true' && needs.changes.outputs.narrow_python_only != 'true') || needs.changes.outputs.ai == 'true' || needs.changes.outputs.dgl_lane == 'true' || needs.changes.outputs.infra == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule') && !(needs.changes.outputs.docs_only_latest == 'true' && (github.event_name == 'push' || github.event_name == 'pull_request')) }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     env:
       PIP_EXTRA_INDEX_URL: https://download.pytorch.org/whl/cpu
@@ -2033,7 +2110,7 @@ jobs:
   test-spark:
     needs: [changes, test-minimal-python, test-gfql-core]
     if: ${{ (needs.changes.outputs.spark == 'true' || needs.changes.outputs.infra == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule') && !(needs.changes.outputs.docs_only_latest == 'true' && (github.event_name == 'push' || github.event_name == 'pull_request')) }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
     - uses: actions/checkout@v4
@@ -2046,6 +2123,12 @@ jobs:
       with:
         python-version: '3.14'
 
+    - name: Set up Java 17
+      uses: actions/setup-java@v4
+      with:
+        distribution: temurin
+        java-version: '17'
+
     - name: Restore uv cache (spark)
       uses: actions/cache@v4
       with:
@@ -2056,9 +2139,7 @@ jobs:
 
     - name: Install pyspark stack + graphistry
       run: |
-        if ! command -v java >/dev/null 2>&1; then
-          sudo apt-get install -y default-jdk
-        fi
+        java -version
         python -m venv pygraphistry
         source pygraphistry/bin/activate
         python -m pip install --upgrade pip "uv==0.11.3"
@@ -2076,7 +2157,7 @@ jobs:
   test-neo4j:
     needs: [changes, test-minimal-python]
     if: ${{ ((needs.changes.outputs.python == 'true' && needs.changes.outputs.narrow_python_only != 'true') || needs.changes.outputs.neo4j_lane == 'true' || needs.changes.outputs.core == 'true' || needs.changes.outputs.infra == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule') && !(needs.changes.outputs.docs_only_latest == 'true' && (github.event_name == 'push' || github.event_name == 'pull_request')) }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 3
     env:
       COMPOSE_DOCKER_CLI_BUILD: 1
@@ -2097,7 +2178,7 @@ jobs:
   test-build:
     needs: [changes, test-minimal-python, generate-lockfiles]
     if: ${{ ((needs.changes.outputs.python == 'true' && needs.changes.outputs.narrow_python_only != 'true') || needs.changes.outputs.build_package == 'true' || needs.changes.outputs.core == 'true' || needs.changes.outputs.infra == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule') && !(needs.changes.outputs.docs_only_latest == 'true' && (github.event_name == 'push' || github.event_name == 'pull_request')) }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 2
 
     steps:
@@ -2138,7 +2219,7 @@ jobs:
     needs: [changes]
     # Run if docs changed OR Python changed OR infrastructure changed OR manual/scheduled run
     if: ${{ (needs.changes.outputs.docs == 'true' && needs.changes.outputs.narrow_python_only != 'true') || (needs.changes.outputs.python == 'true' && needs.changes.outputs.narrow_python_only != 'true') || needs.changes.outputs.docs_test == 'true' || needs.changes.outputs.infra == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 2
 
     steps:
@@ -2156,7 +2237,7 @@ jobs:
     # A docs-only PR skips python-lint-types; that skip must not skip this job (#2018), so the
     # gate accepts skipped prerequisites and refuses only failed or cancelled ones.
     if: ${{ !cancelled() && needs.changes.result == 'success' && needs.python-lint-types.result != 'failure' && needs.docs-latex-unicode-guard.result != 'failure' && ((needs.changes.outputs.docs == 'true' && needs.changes.outputs.narrow_python_only != 'true') || (needs.changes.outputs.python == 'true' && needs.changes.outputs.narrow_python_only != 'true') || needs.changes.outputs.docs_test == 'true' || needs.changes.outputs.infra == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule') }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
 
     steps:
@@ -2167,6 +2248,10 @@ jobs:
     - name: Test building docs
       env:
         VALIDATE_NOTEBOOK_EXECUTION: 1
+        # Same-repo PRs get full HTML/EPUB/PDF Read the Docs previews.
+        # Keep HTML + example/notebook audits here; build all formats for forks
+        # and push/scheduled/manual runs that may lack an RTD preview.
+        DOCS_FORMAT: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && 'html' || 'all' }}
       run: |
         cd docs && ./ci.sh
 
@@ -2175,7 +2260,7 @@ jobs:
     needs: [changes]
     # Run if docs changed OR infrastructure changed OR manual/scheduled run
     if: ${{ needs.changes.outputs.docs == 'true' || needs.changes.outputs.infra == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 1
 
     steps:
@@ -2189,3 +2274,59 @@ jobs:
         docker run --rm -v "$(pwd)/README.md:/workdir/README.md:ro" -v "$(pwd)/.markdownlint.yaml:/workdir/.markdownlint.yaml:ro" ghcr.io/igorshubovych/markdownlint-cli:v0.37.0 README.md
 
   
+
+  ci-required:
+    # The single required status check for develop and master. It reports on
+    # every event, fails if any job it needs failed or was cancelled, and passes
+    # when each needed job succeeded or was skipped. Add every new job to
+    # `needs` below so it is covered. No matrix, checkout, or installs.
+    if: ${{ always() }}
+    needs:
+      - changes
+      - no-plans-in-repo
+      - schema-artifacts
+      - generate-lockfiles
+      - check-rtd-lockfile
+      - check-spark-lockfile
+      - tck-gfql
+      - gfql-benchmarks
+      - python-lint-types
+      - python-pyright
+      - cypher-frontend-strict-typing
+      - cypher-frontend-differential-parity
+      - gpu-gate-audit
+      - cypher-frontend-surface-guard
+      - test-networkx-scipy-policy
+      - test-minimal-python
+      - cypher-frontend-ci-gates
+      - test-minimal-python-rest
+      - test-gfql-core
+      - changed-line-coverage
+      - test-pandas-compat
+      - test-pandas-compat-gfql
+      - test-core-python
+      - test-graphviz
+      - gfql-route-manifest
+      - gfql-routes-off
+      - test-polars
+      - test-core-umap
+      - test-full-ai
+      - test-dgl-cpu
+      - test-spark
+      - test-neo4j
+      - test-build
+      - docs-latex-unicode-guard
+      - test-docs
+      - test-readme
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    env:
+      NEEDS_JSON: ${{ toJson(needs) }}
+    steps:
+    - name: Fail if the run was cancelled
+      if: ${{ cancelled() }}
+      run: exit 1
+    - name: Require every needed job to have succeeded or been skipped
+      run: |
+        echo "$NEEDS_JSON" | jq -r 'to_entries[] | "\(.value.result)\t\(.key)"' | sort
+        echo "$NEEDS_JSON" | jq -e 'all(.[]; .result == "success" or .result == "skipped")' > /dev/null

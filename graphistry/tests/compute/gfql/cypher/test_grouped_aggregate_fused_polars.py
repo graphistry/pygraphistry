@@ -384,8 +384,12 @@ def _probe_fast_path(monkeypatch: pytest.MonkeyPatch) -> List[bool]:
 
 @pytest.mark.parametrize("engine", ["polars", "polars-gpu"])
 @pytest.mark.parametrize("label,query", _SERVED_SHAPES, ids=[s[0] for s in _SERVED_SHAPES])
+@pytest.mark.parametrize("check_engagement", [
+    False,
+    pytest.param(True, marks=pytest.mark.route_engaged("cypher-fast")),
+])
 def test_grouped_aggregate_fused_polars_serves_total_order_shapes(
-    engine: _PolarsEngine, label: str, query: str, monkeypatch: pytest.MonkeyPatch
+    engine: _PolarsEngine, label: str, query: str, monkeypatch: pytest.MonkeyPatch, check_engagement: bool
 ) -> None:
     """Every shape whose ORDER BY names all group keys is SERVED, and answers what pandas
     answers -- row order included."""
@@ -397,11 +401,13 @@ def test_grouped_aggregate_fused_polars_serves_total_order_shapes(
     result = _records(graph.gfql(query, engine=engine))
 
     assert result == oracle, f"{label}: fused lane diverged from the pandas oracle"
-    _require_fused_service(engine, calls, label)
+    if check_engagement:
+        _require_fused_service(engine, calls, label)
 
 
 @pytest.mark.parametrize("engine", ["polars", "polars-gpu"])
 @pytest.mark.parametrize("label,query", _DECLINED_SHAPES, ids=[s[0] for s in _DECLINED_SHAPES])
+@pytest.mark.route_engaged("cypher-fast")
 def test_grouped_aggregate_fused_polars_declines_are_called_and_hand_back(
     engine: str, label: str, query: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -460,8 +466,13 @@ def test_grouped_aggregate_fused_polars_is_never_reached_by_dataframe_engines(
 @pytest.mark.parametrize("engine", ["polars", "polars-gpu"])
 @pytest.mark.parametrize("graph_name", sorted(_GRAPHS))
 @pytest.mark.parametrize("label,query", _SERVED_SHAPES, ids=[s[0] for s in _SERVED_SHAPES])
+@pytest.mark.parametrize("check_engagement", [
+    False,
+    pytest.param(True, marks=pytest.mark.route_engaged("cypher-fast")),
+])
 def test_grouped_aggregate_fused_polars_matches_eager_twin_and_pandas(
-    engine: _PolarsEngine, graph_name: str, label: str, query: str, monkeypatch: pytest.MonkeyPatch
+    engine: _PolarsEngine, graph_name: str, label: str, query: str,
+    monkeypatch: pytest.MonkeyPatch, check_engagement: bool
 ) -> None:
     """DIFFERENTIAL: fused == eager twin == pandas oracle, ORDER-SENSITIVELY, and the fused
     lane really ran (otherwise the comparison is vacuous).
@@ -481,7 +492,8 @@ def test_grouped_aggregate_fused_polars_matches_eager_twin_and_pandas(
     assert fused == eager, f"{graph_name}/{label}: fused lane diverged from the eager twin"
     if graph_name not in ("dup_node_rows", "dup_start_node_rows"):
         assert fused == oracle, f"{graph_name}/{label}: fused lane diverged from pandas"
-    _require_fused_service(engine, calls, f"{graph_name}/{label}")
+    if check_engagement:
+        _require_fused_service(engine, calls, f"{graph_name}/{label}")
 
 
 @pytest.mark.parametrize("graph_name,query,fused_rows,pandas_rows", [
@@ -498,6 +510,7 @@ def test_grouped_aggregate_fused_polars_matches_eager_twin_and_pandas(
      [{"city": "LA", "s": 230.0}, {"city": "NY", "s": 100.0}, {"city": "SF", "s": 50.0}],
      [{"city": "LA", "s": 160.0}, {"city": "NY", "s": 70.0}, {"city": "SF", "s": 50.0}]),
 ])
+@pytest.mark.route_engaged("cypher-fast")
 def test_grouped_aggregate_fused_polars_duplicate_node_rows_match_the_eager_twin(
     graph_name: str, query: str, fused_rows: List[Dict[str, Any]],
     pandas_rows: List[Dict[str, Any]]
@@ -545,6 +558,7 @@ def _many_group_graph(n_people: int, n_cities: int, seed: int) -> Tuple[pd.DataF
     ("partial_order", Q_PARTIAL_ORDER),
     ("partial_order_with_limit", Q_PARTIAL_ORDER_LIMIT),
 ])
+@pytest.mark.route_engaged("cypher-fast")
 def test_grouped_aggregate_order_totality_gate_declines_undetermined_order(
     label: str, query: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -572,9 +586,13 @@ def test_grouped_aggregate_order_totality_gate_declines_undetermined_order(
     ("count_star_limit", Q_COUNT_STAR),
     ("group_key_desc", Q_GROUP_KEY_DESC),
 ])
+@pytest.mark.parametrize("check_engagement", [
+    False,
+    pytest.param(True, marks=pytest.mark.route_engaged("cypher-fast")),
+])
 def test_grouped_aggregate_total_order_shapes_are_stable_at_scale(
     n_people: int, n_cities: int, seed: int, label: str, query: str,
-    monkeypatch: pytest.MonkeyPatch
+    monkeypatch: pytest.MonkeyPatch, check_engagement: bool
 ) -> None:
     """POSITIVE side of the gate: with a total sort the fused plan is order-identical to the
     eager twin and to pandas even on graphs with many tied groups, where an unstable sort or
@@ -589,7 +607,8 @@ def test_grouped_aggregate_total_order_shapes_are_stable_at_scale(
     calls = _probe_fused(monkeypatch)
     fused = _records(_graph("polars", nodes, edges).gfql(query, engine="polars"))
 
-    assert calls == [True]
+    if check_engagement:
+        assert calls == [True]
     assert fused == eager, f"{label}: fused diverged from the eager twin at scale"
     assert fused == oracle, f"{label}: fused diverged from pandas at scale"
 
@@ -597,6 +616,7 @@ def test_grouped_aggregate_total_order_shapes_are_stable_at_scale(
 # ------------------------------------------------- the hoisted metadata guard (CD4 trap)
 
 @pytest.mark.parametrize("engine", ["polars", "polars-gpu"])
+@pytest.mark.route_engaged("cypher-fast")
 def test_grouped_aggregate_fused_polars_declines_missing_property_column(
     engine: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -706,6 +726,7 @@ def test_grouped_aggregate_fused_polars_supports_min_and_max_through_the_ast_sur
 # ------------------------------------------------------------------ degenerate bindings
 
 @pytest.mark.parametrize("engine", ["polars", "polars-gpu"])
+@pytest.mark.route_engaged("cypher-fast")
 def test_grouped_aggregate_fused_polars_node_key_named_like_the_source_column(
     engine: _PolarsEngine, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -725,6 +746,7 @@ def test_grouped_aggregate_fused_polars_node_key_named_like_the_source_column(
 
 
 @pytest.mark.parametrize("engine", ["polars", "polars-gpu"])
+@pytest.mark.route_engaged("cypher-fast")
 def test_grouped_aggregate_fused_polars_empty_match_returns_no_groups(
     engine: _PolarsEngine, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -753,6 +775,7 @@ def _null_group_key_data() -> Tuple[pd.DataFrame, pd.DataFrame]:
     ("MATCH (p)-[{rel:'L'}]->(c) RETURN c.city AS city, count(*) AS n ORDER BY city ASC", "LA"),
     ("MATCH (p)-[{rel:'L'}]->(c) RETURN c.city AS city, count(*) AS n ORDER BY city DESC", None),
 ])
+@pytest.mark.route_engaged("cypher-fast")
 def test_grouped_aggregate_fused_polars_places_nulls_the_opencypher_way(
     engine: _PolarsEngine, query: str, expected_first_city: Optional[str],
     monkeypatch: pytest.MonkeyPatch
@@ -772,6 +795,7 @@ def test_grouped_aggregate_fused_polars_places_nulls_the_opencypher_way(
 
 
 @pytest.mark.parametrize("engine", ["polars", "polars-gpu"])
+@pytest.mark.route_engaged("cypher-fast")
 def test_grouped_aggregate_fused_polars_null_aggregate_value_ordering(
     engine: _PolarsEngine, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -826,6 +850,7 @@ def _gb_shaped_graph() -> Tuple[pd.DataFrame, pd.DataFrame]:
 
 @pytest.mark.parametrize("engine", ["polars", "polars-gpu"])
 @pytest.mark.parametrize("label,query", _GB_SHAPES, ids=[s[0] for s in _GB_SHAPES])
+@pytest.mark.route_engaged("cypher-fast")
 def test_grouped_aggregate_fused_polars_serves_the_graph_benchmark_shapes(
     engine: _PolarsEngine, label: str, query: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -870,6 +895,7 @@ def test_grouped_aggregate_fused_polars_benchmark_shapes_match_the_eager_twin(
     # mirror image: only the START alias carries properties, the end semi-join survives
     ("group_start_prop_end_semi", Q_GROUP_START_PROP, 1),
 ])
+@pytest.mark.route_engaged("cypher-fast")
 def test_grouped_aggregate_fused_polars_emits_semi_join_only_without_property_join(
     label: str, query: str, expected_semis: int, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -905,6 +931,7 @@ def test_grouped_aggregate_fused_polars_emits_semi_join_only_without_property_jo
 
 
 @pytest.mark.parametrize("engine", ["pandas", "polars", "polars-gpu", "cudf"])
+@pytest.mark.route_engaged("cypher-fast")
 def test_grouped_aggregate_projection_narrows_filters_on_every_engine(
     engine: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -949,6 +976,7 @@ def test_grouped_aggregate_projection_narrows_filters_on_every_engine(
 
 
 @pytest.mark.parametrize("engine", ["pandas", "polars", "polars-gpu", "cudf"])
+@pytest.mark.route_engaged("cypher-fast")
 def test_grouped_aggregate_projection_small_frame_keeps_columns_and_value(
     engine: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:

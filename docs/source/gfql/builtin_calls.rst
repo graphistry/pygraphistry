@@ -163,7 +163,7 @@ The ``opts`` dictionary configures advanced hypergraph behavior by controlling h
      - Attribute ID field name (default: 'attribID')
    * - EVENTID
      - string
-     - Event ID field name (default: 'EventID')
+     - Event ID field name (default: 'EventID'). When omitted and the source contains that column, it is used as the event key with a warning; rename the source column to retain it as an attribute and generate row IDs instead.
    * - EVENTTYPE
      - string
      - Event type field name (default: 'event')

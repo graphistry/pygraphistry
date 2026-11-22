@@ -38,6 +38,7 @@ class ErrorCode:
     E303 = "invalid-node-reference"
     E304 = "invalid-edge-reference"
     E305 = "graph-not-bound"
+    E306 = "call-execution-error"
 
     # Remote transport/response errors (E4xx)
     E401 = "remote-request-failed"
@@ -134,6 +135,16 @@ class GFQLTypeError(GFQLValidationError):
 
 class GFQLSchemaError(GFQLValidationError):
     """Schema validation errors (column existence, type compatibility)."""
+    pass
+
+
+class GFQLCallExecutionError(GFQLTypeError):
+    """A safelisted Call handler raised after parameter validation.
+
+    Distinct E306 subtype of ``GFQLTypeError`` for source compatibility with
+    callers that catch the prior broad class; it identifies engine/handler
+    failures so callers do not rewrite a syntactically valid query.
+    """
     pass
 
 

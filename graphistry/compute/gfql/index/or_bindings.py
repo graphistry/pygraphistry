@@ -25,7 +25,7 @@ from . import bindings
 from .api import _record_indexed_traversal, get_index_policy
 from .bindings import _filter_frame
 from .cost import cost_gate_frac
-from .engine_arrays import as_eager_polars_frame, col_to_array, take_rows
+from .engine_arrays import as_eager_polars_frame, col_to_array, sorted_unique, take_rows
 from .handoff import IndexedBindingsHandoff, attach_handoff
 from .lookup import lookup_degree, lookup_edge_rows, lookup_node_rows
 from .property_lookup import property_candidate_positions
@@ -125,14 +125,14 @@ def prepare_indexed_or_bindings(g: Plottable, chain: Chain, engine: Engine) -> O
         if positions is None:
             return None
         seed = _filter_frame(take_rows(nodes, positions, index_engine), filters, index_engine)
-        ids = xp.unique(col_to_array(seed, node, index_engine))
+        ids = sorted_unique(xp, col_to_array(seed, node, index_engine))
         if get_index_policy(g) != "force" and (
             int(ids.shape[0]) >= cost_gate_frac(engine) * adj.n_keys
             or lookup_degree(adj, ids, xp) >= cost_gate_frac(engine) * len(edges)
         ):
             return None
         parts.append(lookup_edge_rows(adj, ids, xp)[0])
-    candidates = xp.unique(xp.concatenate(parts))
+    candidates = sorted_unique(xp, xp.concatenate(parts))
     if get_index_policy(g) != "force" and int(candidates.shape[0]) >= cost_gate_frac(engine) * len(edges):
         return None
     state = bindings._try_indexed_connected_bindings_state(

@@ -130,9 +130,9 @@ class TestHopColumnConflictsSolution(NoAuthTestCase):
             'dst': ['b', 'c', 'd', 'e', 'a']
         })
         
-        # Rename the columns to test handling of the same columns names for source and destination
-        # This will work in pandas because we're using the edges() method which handles the rename
-        g = CGFull().nodes(nodes_df, 'id').edges(edges_df, 'src', 'dst', src_renamed='id', dst_renamed='id')
+        # edges() has no rename arguments; the src_renamed/dst_renamed kwargs previously passed here
+        # were silently ignored, so the graph is bound to 'src'/'dst' as before
+        g = CGFull().nodes(nodes_df, 'id').edges(edges_df, 'src', 'dst')
         
         try:
             # This should work with our solution despite the extreme conflict

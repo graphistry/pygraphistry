@@ -1,5 +1,5 @@
 {
- "contract_version": 3,
+ "contract_version": 4,
  "title": "pyg-bench published docs numbers",
  "summary": [
   "The boundary between this repository and the pygraphistry docs. pyg-bench MEASURES and",
@@ -21,6 +21,7 @@
  ],
  "policy_required": [
   "max_age_days",
+  "remeasure_issue",
   "managed_docs"
  ],
  "run_required": [
@@ -62,6 +63,7 @@
  ],
  "key_pattern": "^[a-z0-9][a-z0-9_]*(\\.[a-z0-9][a-z0-9_]*)+$",
  "date_pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$",
+ "remeasure_issue_pattern": "^https://github\\.com/graphistry/pyg-bench/issues/[1-9][0-9]*$",
  "max_decimals": 4,
  "invariants": [
   {
@@ -124,10 +126,16 @@
    "rule": "for a cell with operands: its disclosures must contain every disclosure of every operand",
    "why": "the asterisk belongs to the number, so it must survive being divided"
   }
+ ,
+ {
+  "id": "stale_numbers_stay_published",
+  "rule": "age or compute-drift staleness never removes or refuses a published cell; the consumer renders the value, measured date, staleness label, and policy.remeasure_issue link",
+  "why": "a stale measurement is a caveat, not permission to erase public evidence"
+ }
  ],
  "consumer_obligations": [
   "Refuse to render a key the artifact does not contain \u2014 a missing number is a build failure, never blank text.",
-  "Refuse to render a cell whose run.measured_at is older than policy.max_age_days.",
+  "When age (policy.max_age_days) or compute-drift staleness applies, render the cell with its value, measured date, a staleness label, and policy.remeasure_issue; never remove or refuse it.",
   "Refuse to render a non-board_quotable cell as a bare number; it may appear only through a role that labels it diagnostic-only.",
   "Render every referenced cell's disclosures and its run's provenance on the same page.",
   "Re-verify every invariant above before rendering, with an implementation that does not import this repository."

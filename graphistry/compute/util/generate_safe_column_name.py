@@ -10,6 +10,7 @@ def generate_safe_column_name_from(
     existing: Iterable[str],
     prefix: str = "__gfql_",
     suffix: str = "__",
+    start: int = 0,
 ) -> str:
     """Column-name variant of :func:`generate_safe_column_name` taking names, not a frame.
 
@@ -17,7 +18,7 @@ def generate_safe_column_name_from(
     whose ``.columns`` access would re-resolve the schema and warn).
     """
     taken = set(existing)
-    counter = 0
+    counter = start
     temp_name = f"{prefix}{base_name}_{counter}{suffix}"
     while temp_name in taken:
         counter += 1

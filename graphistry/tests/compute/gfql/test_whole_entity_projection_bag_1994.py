@@ -122,6 +122,18 @@ def test_distinct_whole_entity_still_dedupes(engine: _GFQLEngine) -> None:
 
 
 @pytest.mark.parametrize("engine", _ENGINES)
+def test_distinct_whole_entity_dedupes_parallel_edges(engine: _GFQLEngine) -> None:
+    assert _bag(_run("MATCH (a)-->(b) RETURN DISTINCT b", engine, parallel=True), "b.id") == [2, 3]
+
+
+@pytest.mark.parametrize("engine", _ENGINES)
+def test_distinct_whole_entity_with_sibling_property(engine: _GFQLEngine) -> None:
+    df = _run("MATCH (a)-->(b) RETURN DISTINCT b, b.id AS x", engine, parallel=True)
+    assert _bag(df, "b.id") == [2, 3]
+    assert _bag(df, "x") == [2, 3]
+
+
+@pytest.mark.parametrize("engine", _ENGINES)
 def test_whole_entity_projection_without_relationship_unchanged(engine: _GFQLEngine) -> None:
     assert _bag(_run("MATCH (a) RETURN a", engine), "a.id") == [1, 2, 3, 4, 5]
 
@@ -151,9 +163,15 @@ def test_variable_length_whole_entity_projection_unchanged(engine: _GFQLEngine) 
 
 
 @pytest.mark.parametrize("engine", _ENGINES)
-def test_whole_entity_carry_into_reentry_unchanged(engine: _GFQLEngine) -> None:
+def test_whole_entity_carry_into_reentry_keeps_bag(engine: _GFQLEngine) -> None:
+    """The first MATCH binds (a,c) four times. Whole-node carry preserves that
+    prefix bag, so the two node-1 outgoing matches each repeat twice."""
+    query = (
+        "MATCH (a)-->(c) WITH a AS p OPTIONAL MATCH (p)-->(z) RETURN p.id AS pid, z.id AS zid"
+    )
     df = _run(
-        "MATCH (a)-->(c) WITH a AS p OPTIONAL MATCH (p)-->(z) RETURN p.id AS pid, z.id AS zid",
+        query,
         engine,
     )
-    assert len(df) == 4
+    got = sorted((int(row["pid"]), int(row["zid"])) for row in df.to_dict("records"))
+    assert got == [(1, 2), (1, 2), (1, 3), (1, 3), (2, 3), (3, 4)]

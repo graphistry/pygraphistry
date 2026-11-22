@@ -14,7 +14,7 @@ from graphistry.Engine import Engine, POLARS_ENGINES, resolve_engine
 from graphistry.compute.predicates.ASTPredicate import ASTPredicate
 from graphistry.compute.predicates.is_in import IsIn
 from graphistry.compute.typing import ArrayLike, ArrayNamespace, DataFrameT, DType, IndexT, SeriesT
-from .engine_arrays import array_namespace, as_eager_polars_frame
+from .engine_arrays import array_namespace, as_eager_polars_frame, col_to_array, sorted_unique
 from .registry import ColStatsRole, GfqlIndexRegistry, NodePropIndex
 
 if TYPE_CHECKING:
@@ -43,6 +43,39 @@ def is_string_property(frame: DataFrameT, column: str, engine: Engine) -> bool:
         series.dtype == np.dtype("object")
         and pd.api.types.infer_dtype(series, skipna=True) == "string"
     )
+
+
+def is_bool_property(frame: DataFrameT, column: str, engine: Engine) -> bool:
+    """Classify native Boolean storage (nullable BooleanDtype included)."""
+    if column not in frame.columns:
+        return False
+    if engine in POLARS_ENGINES:
+        import polars as pl
+        eager = as_eager_polars_frame(frame)
+        return eager is not None and eager.schema[column] == pl.Boolean
+    return frame[column].dtype.kind == "b"
+
+
+def bool_property_keys(frame: DataFrameT, column: str, engine: Engine) -> ArrayLike:
+    """Extract non-null native Boolean storage without a version-dependent object bridge."""
+    if engine in POLARS_ENGINES:
+        import polars as pl
+        eager = as_eager_polars_frame(frame)
+        assert eager is not None
+        values = eager.get_column(column)
+        if values.dtype == pl.Boolean:
+            # UInt8 materializes Polars Boolean before version-dependent object bridging.
+            return cast(  # hygiene-ok: explicit-cast -- normalized Boolean NumPy array implements the shared bounded array protocol
+                ArrayLike, values.cast(pl.UInt8).to_numpy().astype(bool),
+            )
+    if engine == Engine.CUDF:
+        # CUDF Boolean needs backend-native cuPy rather than NumPy materialization.
+        return col_to_array(frame, column, engine)
+    series = frame[column]
+    if isinstance(series.dtype, pd.BooleanDtype):
+        # Rows are null-filtered; explicit bool avoids pandas 2.0.3 object bridging.
+        return cast(ArrayLike, series.to_numpy(dtype="bool", na_value=False))  # hygiene-ok: explicit-cast -- nullable Boolean converts to a native bounded NumPy array
+    return cast(ArrayLike, series.to_numpy())  # hygiene-ok: explicit-cast -- classified Boolean storage converts to a bounded NumPy array
 
 
 def is_integer_property(frame: DataFrameT, column: str, engine: Engine) -> bool:
@@ -90,7 +123,7 @@ def _float_query_values(index: NodePropIndex, members: Sequence[object], xp: Arr
         values = xp.asarray(members, dtype=index.keys_sorted.dtype)
     except (TypeError, ValueError, OverflowError):
         return None  # Canonical filtering owns incomparable/out-of-range query behavior.
-    return values if int(values.shape[0]) <= 1 else xp.unique(values)
+    return values if int(values.shape[0]) <= 1 else sorted_unique(xp, values)
 
 
 def is_categorical_property(frame: DataFrameT, column: str, engine: Engine) -> bool:
@@ -161,7 +194,7 @@ def uncovered_property_column(
                 continue  # Property keys exclude null/NaN rows for every supported dtype.
         if not any(classify(frame, column, engine) for classify in (
             is_integer_property, is_float_property, is_categorical_property,
-            is_timestamp_property, is_string_property,
+            is_timestamp_property, is_string_property, is_bool_property,
         )):
             continue
         if column == binding_column and isinstance(predicate, Real) and not isinstance(predicate, bool) and (
@@ -280,7 +313,7 @@ def _timestamp_query_values(
             return None
         timestamp_ticks.append(stamp.asm8.astype(f"datetime64[{unit}]").astype(np.int64))
     encoded_ticks = xp.asarray(timestamp_ticks, dtype=xp.int64)
-    return encoded_ticks if int(encoded_ticks.shape[0]) <= 1 else xp.unique(encoded_ticks)
+    return encoded_ticks if int(encoded_ticks.shape[0]) <= 1 else sorted_unique(xp, encoded_ticks)
 
 
 
@@ -438,7 +471,7 @@ def _string_query_codes(index: NodePropIndex, members: Sequence[str], xp: ArrayN
         clipped = xp.minimum(positions, size - 1)
         equal = keys.iloc[clipped].reset_index(drop=True) == values
         hits = equal.values if index.engine == Engine.CUDF else equal.to_numpy(dtype=bool)
-    return xp.unique(positions[(positions < size) & hits])
+    return sorted_unique(xp, positions[(positions < size) & hits])
 
 
 def string_literals_are_utf8(predicate: object) -> bool:
@@ -497,13 +530,17 @@ def property_query_values(index: NodePropIndex, predicate: object, xp: ArrayName
         else:
             values = pd.Index(members, dtype=object)
         codes = xp.asarray(index.category_keys.get_indexer(values))
-        return xp.unique(codes[codes > -1])
+        return sorted_unique(xp, codes[codes > -1])
     if index.string_keys is not None:
         if not all(isinstance(value, str) for value in members):
             return None
         if index.engine in POLARS_ENGINES and not string_literals_are_utf8(predicate):
             return None
         return _string_query_codes(index, [value for value in members if isinstance(value, str)], xp)
+    if index.keys_sorted.dtype.kind == "b":
+        if not all(isinstance(value, bool) for value in members):
+            return None
+        return xp.asarray(sorted(set(members)), dtype=index.keys_sorted.dtype)
     if index.keys_sorted.dtype.kind == "f":
         return _float_query_values(index, members, xp)
     if not all(isinstance(value, Integral) and not isinstance(value, bool) for value in members):
@@ -513,4 +550,4 @@ def property_query_values(index: NodePropIndex, predicate: object, xp: ArrayName
     if index.engine == Engine.CUDF and len(admitted) <= 1024:
         return xp.asarray(sorted(set(admitted)), dtype=index.keys_sorted.dtype)
     values = xp.asarray(admitted, dtype=index.keys_sorted.dtype)
-    return values if int(values.shape[0]) <= 1 else xp.unique(values)
+    return values if int(values.shape[0]) <= 1 else sorted_unique(xp, values)

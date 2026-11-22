@@ -7,9 +7,9 @@ identities") because the native projector never emitted the whole-entity id side
 bounded-reentry executor + seeded binding pipeline were pandas-only.
 
 Pandas is the oracle: every supported query returns an identical result table, polars-typed (no
-pandas bridge). Shapes still out of subset (scalar WITH columns carried alongside the whole-row
-alias) must raise NotImplementedError, never silently diverge. Companion of the seeded
-``rows(binding_ops)`` work in test_engine_polars_binding_rows.
+pandas bridge). Scalar WITH columns carried alongside the whole-row alias are served by the native
+Polars payload path. Companion of the seeded ``rows(binding_ops)`` work in
+test_engine_polars_binding_rows.
 """
 import random
 
@@ -18,7 +18,13 @@ import pytest
 
 import graphistry
 
+from graphistry.compute.exceptions import GFQLValidationError
+from graphistry.compute.gfql.cypher.reentry.naming import REENTRY_ROW_TOKEN_OUTPUT
 pl = pytest.importorskip("polars")
+from graphistry.tests.compute.test_gfql import (
+    TestGFQLCypherReentryCarrier,
+    _mk_reentry_scalar_graph,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -234,19 +240,20 @@ def test_with_match_reentry_binding_table_parity(monkeypatch):
     assert seeded_calls["n"] > 0, "query did not route through the seeded binding_rows path"
 
 
-def test_scalar_carry_declines_cleanly_polars():
-    """WITH that carries a scalar column ALONGSIDE the whole-row alias into the trailing MATCH is
-    pandas-only so far; polars must DECLINE (NotImplementedError), never crash or silently diverge.
-    pandas still answers it (oracle), so this documents an honest capability gap."""
+def test_scalar_carry_matches_pandas_oracle_polars():
+    """A WITH that carries a scalar column alongside the whole-row alias into the trailing
+    MATCH returns the same rows on native Polars and the pandas oracle."""
     q = (
         "MATCH (p {id:0})-[:KNOWS]-(friend) WITH DISTINCT friend, friend.val AS fv "
         "MATCH (friend)-[:HAS_CREATOR]-(post) RETURN post.id AS pid, fv"
     )
-    # pandas oracle succeeds
-    _to_pandas(BASE.gfql(q, engine="pandas")._nodes)
-    # polars declines honestly
-    with pytest.raises(NotImplementedError):
-        BASE.gfql(q, engine="polars")
+    oracle = BASE.gfql(q, engine="pandas")._nodes
+    got = BASE.gfql(q, engine="polars")._nodes
+    pd.testing.assert_frame_equal(
+        _to_pandas(oracle).reset_index(drop=True),
+        _to_pandas(got).reset_index(drop=True),
+        check_dtype=False,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -359,8 +366,8 @@ class TestReentryPolarsFramesServingEngineMatrix:
         "MATCH (a {kind:'person'}) WITH a MATCH (a)-[]->(b) RETURN b.id AS bid",
         "MATCH (a) WITH a MATCH (a)-[:KNOWS]->(b) RETURN a.id AS aid, b.id AS bid",
     ]
-    # Whole-row carry + scalar WITH columns into the trailing MATCH: the payload merge is
-    # pandas-only (parity-or-NIE), so explicit engine='polars' declines while pandas/auto answer.
+    # Whole-row carry + scalar WITH columns into the trailing MATCH now uses the
+    # native Polars payload path; pandas remains the cross-engine oracle.
     SCALAR_CARRY = [
         "MATCH (a {kind:'person'}) WITH a, a.val AS av MATCH (a)-[]->(b) RETURN av, b.id AS bid",
         "MATCH (a) WITH a, a.val AS av MATCH (a)-[:KNOWS]->(b) RETURN av, b.kind AS bk",
@@ -375,24 +382,15 @@ class TestReentryPolarsFramesServingEngineMatrix:
         _assert_same_answers(query, oracle, got)
 
     @pytest.mark.parametrize("query", SCALAR_CARRY)
-    @pytest.mark.parametrize("engine", ["pandas", "auto"])
+    @pytest.mark.parametrize("engine", ["pandas", "polars", "auto"])
     @pytest.mark.parametrize("lazy", [False, True])
     def test_scalar_carry_answers_match_pandas_oracle(self, query, engine, lazy):
         oracle = BASE.gfql(query, engine="pandas")._nodes
         got = _polars_base(lazy).gfql(query, engine=engine)._nodes
         _assert_same_answers(query, oracle, got)
 
-    @pytest.mark.parametrize("query", SCALAR_CARRY)
-    @pytest.mark.parametrize("lazy", [False, True])
-    def test_scalar_carry_polars_engine_declines_and_its_suggestion_works(self, query, lazy):
-        g = _polars_base(lazy)
-        with pytest.raises(NotImplementedError, match="engine='pandas'"):
-            g.gfql(query, engine="polars")
-        oracle = BASE.gfql(query, engine="pandas")._nodes
-        _assert_same_answers(query, oracle, g.gfql(query, engine="pandas")._nodes)
-
     def test_carry_reentry_polars_frames_pandas_engine_returns_values(self):
-        # Exact release-blocker repro: previously raised the NIE whose own message
+        # Exact release-blocker repro: the previous native-Polars decline whose own message
         # suggested the engine='pandas' already being used.
         g = graphistry.nodes(pl.DataFrame({"id": [0, 1], "v": [10, 20]}), "id").edges(
             pl.DataFrame({"s": [0], "d": [1]}), "s", "d")
@@ -427,3 +425,107 @@ def test_multi_match_whole_entity_identity(node_id, return_clause, aliases):
     for alias in aliases:
         assert meta[alias]["id_column"] == node_id
         assert meta[alias]["ids"].to_list() == result._nodes[alias + "." + node_id].to_list()
+
+
+def test_reentry_state_rejects_mismatched_carried_scalar_metadata_rows_native_polars() -> None:
+    from graphistry.tests.test_compute import CGFull
+
+    g = CGFull().nodes(pl.from_pandas(_mk_reentry_scalar_graph()._nodes), "id").edges(
+        pl.from_pandas(_mk_reentry_scalar_graph()._edges), "s", "d"
+    )
+    with pytest.raises(GFQLValidationError, match="metadata row counts disagreed"):
+        TestGFQLCypherReentryCarrier._run_reentry_state(
+            g,
+            TestGFQLCypherReentryCarrier._compile_reentry_query(),
+            TestGFQLCypherReentryCarrier._bind_reentry_prefix_result(
+                g,
+                rows={"property": [1]},
+                ids=["a1", "a2"],
+                engine="polars",
+            ),
+            engine="polars",
+        )
+
+
+def test_reentry_state_preserves_duplicate_carried_scalar_rows_with_row_tokens_native_polars() -> None:
+    from graphistry.tests.test_compute import CGFull
+
+    g = CGFull().nodes(pl.from_pandas(_mk_reentry_scalar_graph()._nodes), "id").edges(
+        pl.from_pandas(_mk_reentry_scalar_graph()._edges), "s", "d"
+    )
+    _, start_nodes = TestGFQLCypherReentryCarrier._run_reentry_state(
+        g,
+        TestGFQLCypherReentryCarrier._compile_reentry_query(),
+        TestGFQLCypherReentryCarrier._bind_reentry_prefix_result(
+            g,
+            rows={"property": [1, 1]},
+            ids=["a1", "a1"],
+            engine="polars",
+        ),
+        engine="polars",
+    )
+
+    assert start_nodes.get_column("id").to_list() == ["a1", "a1"]
+    assert start_nodes.get_column("__cypher_reentry_property__").to_list() == [1, 1]
+    row_token_column = next(iter(
+        TestGFQLCypherReentryCarrier._hidden_updates(**{REENTRY_ROW_TOKEN_OUTPUT: 0})
+    ))
+    assert start_nodes.get_column(row_token_column).to_list() == [0, 1]
+    assert start_nodes.schema["__cypher_reentry_property__"] == pl.Int64
+    assert start_nodes.schema[row_token_column] == pl.Int64
+
+
+def test_reentry_state_accepts_unique_carried_scalar_rows_native_polars() -> None:
+    from graphistry.tests.test_compute import CGFull
+
+    g = CGFull().nodes(pl.from_pandas(_mk_reentry_scalar_graph()._nodes), "id").edges(
+        pl.from_pandas(_mk_reentry_scalar_graph()._edges), "s", "d"
+    )
+    dispatch_graph, start_nodes = TestGFQLCypherReentryCarrier._run_reentry_state(
+        g,
+        TestGFQLCypherReentryCarrier._compile_reentry_query(),
+        TestGFQLCypherReentryCarrier._bind_reentry_prefix_result(
+            g,
+            rows={"property": [1, 2]},
+            ids=["a1", "a2"],
+            engine="polars",
+        ),
+        engine="polars",
+    )
+
+    assert "polars" in type(dispatch_graph._nodes).__module__
+    row_token_column = next(iter(
+        TestGFQLCypherReentryCarrier._hidden_updates(**{REENTRY_ROW_TOKEN_OUTPUT: 0})
+    ))
+    assert dispatch_graph._nodes.schema["__cypher_reentry_property__"] == pl.Int64
+    assert dispatch_graph._nodes.schema[row_token_column] == pl.Int64
+    assert TestGFQLCypherReentryCarrier._carry_by_id(dispatch_graph) == {
+        "a1": TestGFQLCypherReentryCarrier._hidden_updates(
+            property=1, **{REENTRY_ROW_TOKEN_OUTPUT: 0}
+        ),
+        "a2": TestGFQLCypherReentryCarrier._hidden_updates(
+            property=2, **{REENTRY_ROW_TOKEN_OUTPUT: 1}
+        ),
+    }
+
+
+def test_reentry_state_public_projection_keeps_carried_values_and_hides_row_token_polars() -> None:
+    from graphistry.tests.test_compute import CGFull
+
+    base = _mk_reentry_scalar_graph()
+    graph = CGFull().nodes(pl.from_pandas(base._nodes), "id").edges(
+        pl.from_pandas(base._edges), "s", "d"
+    )
+    query = (
+        "MATCH (a:A) WITH a, a.num AS property "
+        "MATCH (a)-->(b) "
+        "RETURN a.id AS aid, property, b.id AS bid ORDER BY aid"
+    )
+    out = graph.gfql(query, engine="polars")._nodes
+
+    assert out.to_dicts() == [
+        {"aid": "a1", "property": 1, "bid": "b1"},
+        {"aid": "a2", "property": 2, "bid": "b2"},
+    ]
+    assert out.schema["property"] == pl.Int64
+    assert not any(column.startswith("__cypher_reentry_") for column in out.columns)

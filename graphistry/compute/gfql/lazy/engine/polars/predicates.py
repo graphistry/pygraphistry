@@ -11,9 +11,10 @@ from __future__ import annotations
 
 import operator
 import re
-from typing import TYPE_CHECKING, Any, Callable, Dict, List, Mapping, Optional, TypeVar, Union
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Mapping, Optional, Tuple, TypeVar, Union
 
 from graphistry.compute.predicates.ASTPredicate import ASTPredicate
+from graphistry.compute.predicates.is_in import IsIn
 from graphistry.compute.predicates.str import Contains, Endswith, Fullmatch, Match, Startswith
 from graphistry.compute.filter_by_dict import resolve_filter_column_or_absent
 from graphistry.compute.gfql.strictness import absent_column_matches
@@ -21,17 +22,13 @@ from .dtypes import is_numeric as _dtype_numeric, is_stringlike as _dtype_string
 
 if TYPE_CHECKING:
     import datetime
+    import pandas as pd
     import polars as pl
 
-    # These helpers are frame-polymorphic: the eager (viz/crossfilter) lane hands them
-    # DataFrames, the lazy chain/bindings lane hands them LazyFrames, and both take the
-    # SAME `.filter(expr)` path. A constrained TypeVar says exactly that and keeps the
-    # caller's flavour on the way out (a plain union would not).
+    # Constrained TypeVar keeps eager DataFrame / lazy LazyFrame flavor through `.filter`.
     PolarsFrameT = TypeVar("PolarsFrameT", "pl.DataFrame", "pl.LazyFrame")
 
-# Comparison-predicate RHS: genuinely dynamic (Cypher properties are dynamically typed) — a
-# python scalar or a GFQL/py temporal matched structurally by type(val).__name__
-# (DateValue/TemporalValue/…, never imported here).
+# Cypher RHS is dynamic: scalar or GFQL temporal, matched structurally without imports.
 CmpValue = Union[int, float, str, bool, "datetime.date", "datetime.time", Any]
 
 # Python-`re` features Rust regex (polars) rejects or evaluates differently: lookaround
@@ -82,6 +79,22 @@ def _dtype_is_temporal(dtype: "Optional[pl.DataType]") -> bool:
     return dtype is not None and (
         isinstance(dtype, (pl.Datetime, pl.Duration)) or dtype == pl.Date or dtype == pl.Time
     )
+
+
+def _utc_timestamp_count(ts: "pd.Timestamp", time_unit: str) -> Optional[int]:
+    """Encode a timestamp as the exact integer count at a Polars datetime unit."""
+    import datetime as _dt
+    utc = ts.tz_convert("UTC") if ts.tzinfo is not None else ts.tz_localize("UTC")
+    days = (utc.date() - _dt.date(1970, 1, 1)).days
+    secs = days * 86400 + utc.hour * 3600 + utc.minute * 60 + utc.second
+    frac_ns = utc.microsecond * 1000 + utc.nanosecond
+    scale = {"s": 10**9, "ms": 10**6, "us": 10**3, "ns": 1}[time_unit]
+    if frac_ns % scale != 0:
+        return None
+    count = secs * (10**9 // scale) + frac_ns // scale
+    if not (-(2**63) <= count <= 2**63 - 1):
+        return None
+    return count
 
 
 def _parse_temporal_filter_scalar(
@@ -135,6 +148,80 @@ def _raise_temporal_str_mismatch(col: str, dtype: "pl.DataType", val: str) -> No
     )
 
 
+def _raise_temporal_member_mismatch(col: str, dtype: "pl.DataType", value: object) -> None:
+    from graphistry.compute.exceptions import ErrorCode, GFQLSchemaError
+    raise GFQLSchemaError(
+        ErrorCode.E302,
+        f'Type mismatch: column "{col}" is temporal ({dtype}) but filter value is not comparable',
+        field=col,
+        value=value,
+        column_type=str(dtype),
+        suggestion='Use matching temporal values with the same timezone contract',
+    )
+
+
+def _temporal_membership_expr(
+    col: str, values: List[object], dtype: "Optional[pl.DataType]",
+) -> "pl.Expr":
+    """Coerce temporal members of a Polars datetime column with the pandas contract."""
+    import datetime as _dt
+    import pandas as pd
+    import polars as pl
+    from graphistry.compute.ast_temporal import TemporalValue
+    from graphistry.compute.filter_by_dict import _coerce_temporal_filter_scalar
+
+    if not isinstance(dtype, pl.Datetime):
+        return pl.col(col).is_in(values)
+    if dtype.time_zone is None:
+        pandas_dtype = pd.api.types.pandas_dtype(f"datetime64[{dtype.time_unit}]")
+    else:
+        pandas_dtype = pd.DatetimeTZDtype(dtype.time_unit, dtype.time_zone)
+
+    def _coerce_member(value: object) -> Tuple[str, object]:
+        if value is None:
+            return "null", None
+        if isinstance(value, str):
+            value = _coerce_temporal_filter_scalar(value, pandas_dtype, field=col)
+        elif isinstance(value, TemporalValue):
+            value = value.as_pandas_value()
+        elif isinstance(value, (_dt.datetime, _dt.date)):
+            value = pd.Timestamp(value)
+        if value is pd.NaT:
+            return "no_match", None
+        if not isinstance(value, pd.Timestamp):
+            _raise_temporal_member_mismatch(col, dtype, value)
+
+        ts = pd.Timestamp(value)
+        if dtype.time_zone is None:
+            if ts.tzinfo is not None:
+                return "no_match", None
+        elif ts.tzinfo is None:
+            return "no_match", None
+        if isinstance(ts, pd.Timestamp):
+            count = _utc_timestamp_count(ts, dtype.time_unit)
+            if count is None:
+                return "no_match", None
+            return "exact", count
+
+        return "no_match", None
+
+    col_utc = (
+        pl.col(col).dt.replace_time_zone("UTC")
+        if dtype.time_zone is None
+        else pl.col(col).dt.convert_time_zone("UTC")
+    )
+
+    members = [_coerce_member(value) for value in values]
+    if not members:
+        return pl.lit(False)
+    exact_counts = [count for kind, count in members if kind == "exact"]
+    if exact_counts:
+        return col_utc.dt.replace_time_zone(None).cast(pl.Int64).is_in(exact_counts)
+    if any(kind == "null" for kind, _ in members):
+        return pl.lit(None, dtype=pl.Boolean)
+    return pl.lit(False)
+
+
 def _temporal_str_cmp_expr(
     col: str,
     col_expr: "pl.Expr",
@@ -151,6 +238,26 @@ def _temporal_str_cmp_expr(
     return op(col_expr, pl.lit(parsed))
 
 
+def _raise_numeric_temporal_mismatch(
+    col: str, dtype: "pl.DataType", val: CmpValue
+) -> None:
+    from graphistry.compute.exceptions import ErrorCode, GFQLSchemaError
+
+    coercion = (
+        "Use a matching temporal value/text, or an explicit UTC epoch instant "
+        '{"type": "datetime", "value": <count>, "unit": "s"|"ms"}; a numeric '
+        "bound is never implicitly an instant"
+    )
+    raise GFQLSchemaError(
+        ErrorCode.E302,
+        f'Type mismatch: column "{col}" is temporal ({dtype}) but filter value is numeric',
+        field=col,
+        value=val,
+        column_type=str(dtype),
+        suggestion=coercion,
+    )
+
+
 def _cmp_expr(
     col_expr: "pl.Expr",
     op: Callable[[Any, Any], Any],
@@ -159,6 +266,41 @@ def _cmp_expr(
     col: str = "",
 ) -> "Optional[pl.Expr]":
     import datetime as _dt
+
+    # Numeric bounds never implicitly become instants: typed GFQLSchemaError, matching
+    # the pandas E302 contract. Explicit epoch instants arrive as DateTimeValue values.
+    import numpy as np
+    if (
+        isinstance(val, (int, float, np.number))
+        and not isinstance(val, bool)
+        and _dtype_is_temporal(dtype)
+        and dtype is not None
+    ):
+        _raise_numeric_temporal_mismatch(col, dtype, val)
+
+    # DateTimeValue lowering (typed datetime instants, incl. tz-aware values and the
+    # explicit-epoch UTC contract): compare naive-UTC instants on both sides, matching
+    # pandas _prepare_temporal_series semantics exactly — a naive column is read as
+    # UTC (tz_localize('UTC')), an aware column is converted, and the scalar is the
+    # instant in UTC. The bound literal is an exact integer epoch count cast at the
+    # column's time unit: no pydatetime conversion, so sub-microsecond (ns) precision
+    # is preserved. A bound finer than the column resolution (or beyond i64 at that
+    # resolution) cannot be represented exactly -> decline (NIE), never round.
+    if type(val).__name__ == "DateTimeValue":
+        import polars as pl
+        if isinstance(dtype, pl.Datetime) and op in _CMP_OPS:
+            ts = val.as_pandas_value()  # type: ignore[union-attr]
+            count = _utc_timestamp_count(ts, dtype.time_unit)
+            if count is None:
+                return None
+            bound = pl.lit(count).cast(pl.Int64).cast(pl.Datetime(dtype.time_unit))
+            if dtype.time_zone is None:
+                col_utc = col_expr.dt.replace_time_zone("UTC")
+            else:
+                col_utc = col_expr.dt.convert_time_zone("UTC")
+            return op(col_utc.dt.replace_time_zone(None), bound)
+        # Date/Time/Duration columns cannot compare a datetime instant -> decline
+        return None
 
     # Native temporal SAFE SUBSET: DateValue (Cypher date('YYYY-MM-DD') / p.gt(date(...))) vs a
     # NAIVE pl.Datetime column. pandas oracle: s.dt.date compared to the tz-free python date
@@ -232,17 +374,24 @@ def predicate_to_expr(col: str, pred: ASTPredicate, dtype: "Optional[pl.DataType
 
     if name == "Between" and hasattr(pred, "lower") and hasattr(pred, "upper"):
         lo, hi = pred.lower, pred.upper
-        if isinstance(lo, (int, float)) and isinstance(hi, (int, float)):
-            if getattr(pred, "inclusive", True):
-                return (c >= lo) & (c <= hi)
-            return (c > lo) & (c < hi)
-        # Temporal Between: pandas evaluates as GE/LE (inclusive) or GT/LT (exclusive)
-        # sub-predicates, and for DateValue bounds each is the date-truncated compare _cmp_expr
-        # already lowers with proven parity — composing the two endpoint compares adds NO new
-        # proof obligation. Both endpoints must be DateValue over a naive Datetime or _cmp_expr
-        # returns None -> honest NIE (tz-aware DateTimeValue, TimeValue, raw datetime, mixed
-        # bounds, non-Datetime dtype all decline this way — never a silent mismatch).
         inclusive = getattr(pred, "inclusive", True)
+        if isinstance(lo, (int, float)) and isinstance(hi, (int, float)):
+            lo_expr = _cmp_expr(
+                c, operator.ge if inclusive else operator.gt,
+                lo, dtype, col,
+            )
+            hi_expr = _cmp_expr(
+                c, operator.le if inclusive else operator.lt,
+                hi, dtype, col,
+            )
+            if lo_expr is not None and hi_expr is not None:
+                return lo_expr & hi_expr
+        # Temporal Between: pandas evaluates as GE/LE (inclusive) or GT/LT (exclusive)
+        # sub-predicates, and each endpoint compare _cmp_expr already lowers with proven
+        # parity (DateValue date-truncation, DateTimeValue naive-UTC instants) — composing
+        # the two endpoint compares adds NO new proof obligation. Both endpoints must lower
+        # or _cmp_expr returns None -> honest NIE (TimeValue, raw datetime, mixed bounds,
+        # non-Datetime dtype all decline this way — never a silent mismatch).
         lo_expr = _cmp_expr(c, operator.ge if inclusive else operator.gt, lo, dtype, col)
         hi_expr = _cmp_expr(c, operator.le if inclusive else operator.lt, hi, dtype, col)
         if lo_expr is not None and hi_expr is not None:
@@ -583,6 +732,15 @@ def filter_expr_by_dict_polars(df: "Union[pl.DataFrame, pl.LazyFrame]", filter_d
                         column_type=str(_col_dtype),
                         suggestion='Use numeric predicates like gt() or lt() for numeric columns',
                     )
+            resolved_dtype = _dtype_of(resolved_col)
+            if isinstance(resolved_val, IsIn) and _dtype_is_temporal(resolved_dtype):
+                expr = _temporal_membership_expr(
+                    resolved_col,
+                    resolved_val.options,
+                    resolved_dtype,
+                )
+                exprs.append(expr)
+                continue
             expr = predicate_to_expr(resolved_col, resolved_val, _dtype_of(resolved_col))
             if expr is None:
                 # decline (NIE): no native lowering for this predicate; no pandas bridge.
@@ -594,7 +752,9 @@ def filter_expr_by_dict_polars(df: "Union[pl.DataFrame, pl.LazyFrame]", filter_d
                 )
             exprs.append(expr)
         elif _is_membership(resolved_val):
-            exprs.append(pl.col(resolved_col).is_in(list(resolved_val)))
+            exprs.append(_temporal_membership_expr(
+                resolved_col, list(resolved_val), _dtype_of(resolved_col)
+            ))
         elif isinstance(_dtype_of(resolved_col), pl.List):
             if resolved_col == "labels":
                 # MATCH (n:Label) = scalar match on the RESERVED `labels` List column ->

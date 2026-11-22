@@ -10,6 +10,7 @@ LOUD-FAILURE CONTRACTS (do not "simplify" away):
   signature tier; files with weaker stringified sigs keep them deliberately (documented there).
 NOT a pytest module (no ``test_`` prefix): importers do their own pytest.importorskip("polars")
 — nothing here imports polars at module scope."""
+import os
 from typing import Callable, Mapping, Optional, Tuple
 
 import pandas as pd
@@ -68,15 +69,16 @@ def run_status(g, query, engine):
 
 
 def available_nonpandas_engines():
-    """polars always; cudf / polars-gpu when the GPU stack is importable (the dgx GPU lane)."""
+    """polars always; cudf / polars-gpu only when explicitly requested for a GPU lane."""
     engines = ["polars"]
-    try:
-        import cudf  # noqa: F401
-        engines.append("cudf")
-    except Exception:
-        pass
+    if os.environ.get("TEST_CUDF") == "1":
+        try:
+            import cudf  # noqa: F401
+            engines.append("cudf")
+        except Exception:
+            pass
     import importlib.util
-    if importlib.util.find_spec("cudf_polars") is not None:
+    if os.environ.get("TEST_POLARS_GPU") == "1" and importlib.util.find_spec("cudf_polars") is not None:
         engines.append("polars-gpu")
     return engines
 

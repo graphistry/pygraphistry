@@ -11,7 +11,14 @@ import requests
 import graphistry
 from graphistry.compute.ast import n
 from graphistry.compute.chain_remote import chain_remote_generic
-from graphistry.compute.exceptions import GFQLRemoteError, GFQLSchemaError, GFQLSyntaxError, GFQLTypeError
+from graphistry.compute.exceptions import (
+    ErrorCode,
+    GFQLRemoteError,
+    GFQLSchemaError,
+    GFQLSyntaxError,
+    GFQLTypeError,
+    GFQLValidationError,
+)
 from graphistry.compute.predicates.numeric import gt
 from graphistry.compute.python_remote import python_remote_generic
 
@@ -338,6 +345,77 @@ def test_shape_variant_accepts_cypher_params():
 
 
 # --- #1960 4: a column subset must not strand the result's own bindings -----
+
+
+# --- #1955: Let/DAG cannot use the valid identity program as a compatibility sentinel ---
+
+
+def test_let_wire_body_omits_identity_fallback_operations():
+    let = {'type': 'Let', 'bindings': {'foo': {'type': 'Chain', 'chain': [{'type': 'Node'}]}}}
+    transport = Transport(resp(200, json.dumps({'nodes': [], 'edges': []}).encode(), 'application/json'))
+    with transport:
+        with pytest.warns(UserWarning, match=r'gfql_query'):
+            gfql(bound_graph(), chain=let)
+    assert 'gfql_operations' not in transport.bodies[0]
+    assert transport.bodies[0]['gfql_query'] == let
+
+
+def test_let_rejected_by_old_server_is_typed_remote_error():
+    let = {'type': 'Let', 'bindings': {'foo': {'type': 'Chain', 'chain': [{'type': 'Node'}]}}}
+    transport = Transport(resp(422, b'{"status":"error","msg":"gfql_query is required"}',
+                               'application/json'))
+    with transport:
+        with pytest.warns(UserWarning, match=r'gfql_query'):
+            with pytest.raises(GFQLRemoteError) as error_info:
+                gfql(bound_graph(), chain=let)
+    assert transport.bodies == [{'gfql_query': let, 'format': 'json', 'engine': 'pandas',
+                                 'strictness': 'warn'}]
+    assert not isinstance(error_info.value, requests.exceptions.RequestException)
+    assert error_info.value.context['status_code'] == 422
+    assert 'gfql_query is required' in str(error_info.value)
+
+
+def test_unrecognized_remote_dict_is_declined_before_the_wire():
+    with Transport(resp(200, json.dumps({'nodes': [], 'edges': []}).encode(), 'application/json')):
+        with pytest.raises(GFQLValidationError) as error_info:
+            gfql(bound_graph(), chain={})
+    assert error_info.value.code == ErrorCode.E105
+
+
+def test_missing_remote_dict_type_declines_empty_dict_as_e105_without_http():
+    transport = Transport(resp(200, json.dumps({'nodes': [], 'edges': []}).encode(), 'application/json'))
+    with transport:
+        with pytest.raises(GFQLValidationError) as error_info:
+            gfql(bound_graph(), chain={})
+    assert error_info.value.code == ErrorCode.E105
+    assert transport.bodies == []
+
+
+def test_legacy_flat_chain_dict_body_retains_operations():
+    chain = {'chain': []}
+    transport = Transport(resp(200, json.dumps({'nodes': [], 'edges': []}).encode(), 'application/json'))
+    with transport:
+        gfql(bound_graph(), chain=chain)
+    assert transport.bodies[0]['gfql_operations'] == []
+    assert transport.bodies[0]['gfql_query'] == chain
+
+
+def test_nonempty_legacy_flat_chain_dict_body_retains_operation():
+    chain = {'chain': [{'type': 'Node'}]}
+    transport = Transport(resp(200, json.dumps({'nodes': [], 'edges': []}).encode(), 'application/json'))
+    with transport:
+        gfql(bound_graph(), chain=chain)
+    assert transport.bodies[0]['gfql_operations'] == chain['chain']
+    assert transport.bodies[0]['gfql_query'] == chain
+
+
+def test_unknown_remote_dict_type_declines_as_e205_without_http():
+    transport = Transport(resp(200, json.dumps({'nodes': [], 'edges': []}).encode(), 'application/json'))
+    with transport:
+        with pytest.raises(GFQLTypeError) as error_info:
+            gfql(bound_graph(), chain={'type': 'UnknownQuery'})
+    assert error_info.value.code == ErrorCode.E205
+    assert transport.bodies == []
 
 
 @pytest.mark.parametrize('fmt,payload_key', [('json', 'json'), ('parquet', 'zip')])

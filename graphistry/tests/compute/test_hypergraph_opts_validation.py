@@ -33,6 +33,10 @@ class TestHypergraphOptsValidation:
         }
         assert validate_hypergraph_opts(opts) is True
 
+    def test_opts_eventid_omission_and_null_are_distinguished(self):
+        assert validate_hypergraph_opts({}) is True
+        assert validate_hypergraph_opts({"EVENTID": None}) is False
+
     def test_opts_with_skip_list(self):
         """Test opts with SKIP parameter."""
         opts = {

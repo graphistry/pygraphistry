@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""CI guardrail for the comment-encoding rules in `agents/skills/review/SKILL.md`.
+"""CI guardrail for the comment-encoding rules in `.agents/skills/review/SKILL.md`.
 
 Meaning belongs in a **name**, a **test/pin**, or the **structure** of the code.
 Prose is the last resort. Every other rule on that stack already has a machine

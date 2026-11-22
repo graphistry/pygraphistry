@@ -36,7 +36,7 @@ from graphistry.compute.gfql.cypher.ast import (
 )
 from graphistry.compute.exceptions import ErrorCode, GFQLValidationError
 from graphistry.compute.gfql.cypher.reentry.naming import REENTRY_HIDDEN_COLUMN_PREFIX
-from graphistry.compute.gfql.identifiers import INTERNAL_COLUMN_SUFFIX
+from graphistry.compute.gfql.identifiers import CYPHER_RESERVED_WORDS, INTERNAL_COLUMN_SUFFIX, parse_cypher_backtick_identifier
 from graphistry.compute.gfql.ir.bound_ir import BoundIR, BoundQueryPart, BoundVariable, ScopeFrame, SemanticTable
 from graphistry.compute.gfql.ir.compilation import GraphSchemaCatalog, PlanContext
 from graphistry.compute.gfql.ir.logical_plan import RowSchema
@@ -46,49 +46,14 @@ from graphistry.compute.gfql.ir.types import BoundPredicate, EdgeRef, ListType, 
 CypherAST = Union[CypherQuery, CypherUnionQuery, CypherGraphQuery]
 SchemaConfidence = Literal["declared", "propagated", "inferred"]
 
-_KEYWORDS: FrozenSet[str] = frozenset(
-    {
-        "AND",
-        "AS",
-        "ASC",
-        "ASCENDING",
-        "BY",
-        "CALL",
-        "CASE",
-        "CONTAINS",
-        "DESC",
-        "DESCENDING",
-        "DISTINCT",
-        "ELSE",
-        "END",
-        "ENDS",
-        "FALSE",
-        "IN",
-        "IS",
-        "LIMIT",
-        "MATCH",
-        "NOT",
-        "NULL",
-        "OPTIONAL",
-        "OR",
-        "ORDER",
-        "RETURN",
-        "SKIP",
-        "STARTS",
-        "THEN",
-        "TRUE",
-        "UNION",
-        "UNWIND",
-        "USE",
-        "WHEN",
-        "WHERE",
-        "WITH",
-        "XOR",
-    }
-)
+_KEYWORDS = CYPHER_RESERVED_WORDS
 _IDENTIFIER_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
-_PROPERTY_RE = re.compile(r"(?<![A-Za-z0-9_])([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z_][A-Za-z0-9_]*)")
+_QUOTED_IDENTIFIER_BODY = r"`(?:[^`]|``)*`"
+_PROPERTY_RE = re.compile(
+    rf"(?<![A-Za-z0-9_])([A-Za-z_][A-Za-z0-9_]*)\.({_QUOTED_IDENTIFIER_BODY}|[A-Za-z_][A-Za-z0-9_]*)"
+)
 _PARAMETER_RE = re.compile(r"\$([A-Za-z_][A-Za-z0-9_]*)")
+_QUOTED_IDENTIFIER_RE = re.compile(_QUOTED_IDENTIFIER_BODY)
 _COUNT_CALL_RE = re.compile(r"(?i)^count\s*\(")
 _COLLECT_ALIAS_CALL_RE = re.compile(r"(?is)^collect\s*\(\s*(?:distinct\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*\)$")
 _SINGLE_ALIAS_LIST_LITERAL_RE = re.compile(r"^\[\s*([A-Za-z_][A-Za-z0-9_]*)\s*\]$")
@@ -866,10 +831,11 @@ class FrontendBinder:
         if not _strict_schema_mode(state):
             return
         spans = _string_literal_spans(expression.text)
+        quoted_spans = [match.span() for match in _QUOTED_IDENTIFIER_RE.finditer(expression.text)]
         comprehension_locals = _comprehension_locals(text=expression.text, string_spans=spans)
         for match in _PROPERTY_RE.finditer(expression.text):
             start = match.start()
-            if any(lo <= start < hi for lo, hi in spans):
+            if any(lo <= start < hi for lo, hi in spans + quoted_spans):
                 continue
             if _is_namespaced_builtin_property_call(expression.text, match):
                 continue
@@ -884,7 +850,7 @@ class FrontendBinder:
                 state=state,
                 property_ref=PropertyRef(
                     alias=alias,
-                    property=match.group(2),
+                    property=_decode_property_match(match),
                     span=expression.span,
                 ),
                 stage=stage,
@@ -1171,7 +1137,7 @@ def _infer_expression_binding(
     prop_match = _PROPERTY_RE.fullmatch(text)
     if prop_match is not None:
         alias = prop_match.group(1)
-        property_name = prop_match.group(2)
+        property_name = _decode_property_match(prop_match)
         source = scope.get(alias)
         if source is None:
             if not _is_hidden_reentry_property(property_name):
@@ -1400,11 +1366,35 @@ def _apply_where_label_narrowing(state: _BindState, where: WhereClause) -> Set[s
     return changed
 
 
+def _next_code_char(text: str, index: int) -> str:
+    """Return the next non-whitespace source character at or after ``index``."""
+    while index < len(text) and text[index].isspace():
+        index += 1
+    return text[index] if index < len(text) else ""
+
+
+def _quoted_identifier_is_map_key(text: str, end: int) -> bool:
+    """Whether a backtick token occupies the key role of a map literal."""
+    return _next_code_char(text, end) == ":"
+
+
 def _referenced_aliases(text: str, scope: Mapping[str, BoundVariable]) -> Set[str]:
     refs: Set[str] = set()
 
     for match in _PROPERTY_RE.finditer(text):
         alias = match.group(1)
+        if alias in scope:
+            refs.add(alias)
+
+    for match in _QUOTED_IDENTIFIER_RE.finditer(text):
+        start = match.start()
+        if start > 0 and text[start - 1] == ".":
+            continue
+        if _quoted_identifier_is_map_key(text, match.end()):
+            continue
+        if _in_string_literal(index=start, string_spans=_string_literal_spans(text)):
+            continue
+        alias = parse_cypher_backtick_identifier(match.group(0))
         if alias in scope:
             refs.add(alias)
 
@@ -1421,6 +1411,7 @@ def _referenced_aliases(text: str, scope: Mapping[str, BoundVariable]) -> Set[st
 def _unresolved_identifiers(*, text: str, scope: Mapping[str, BoundVariable]) -> Set[str]:
     unresolved: Set[str] = set()
     string_spans = _string_literal_spans(text)
+    quoted_spans = [match.span() for match in _QUOTED_IDENTIFIER_RE.finditer(text)]
     comprehension_locals = _comprehension_locals(text=text, string_spans=string_spans)
 
     def in_string(index: int) -> bool:
@@ -1428,6 +1419,8 @@ def _unresolved_identifiers(*, text: str, scope: Mapping[str, BoundVariable]) ->
 
     for match in _PROPERTY_RE.finditer(text):
         if in_string(match.start()):
+            continue
+        if any(lo <= match.start() < hi for lo, hi in quoted_spans):
             continue
         if _is_namespaced_builtin_property_call(text, match):
             continue
@@ -1441,11 +1434,28 @@ def _unresolved_identifiers(*, text: str, scope: Mapping[str, BoundVariable]) ->
         if alias not in scope:
             unresolved.add(alias)
 
+    for match in _QUOTED_IDENTIFIER_RE.finditer(text):
+        start, end = match.span()
+        if in_string(start):
+            continue
+        prev = start - 1
+        while prev >= 0 and text[prev].isspace():
+            prev -= 1
+        if prev >= 0 and text[prev] == ".":
+            continue
+        if _quoted_identifier_is_map_key(text, end):
+            continue
+        alias = parse_cypher_backtick_identifier(match.group(0))
+        if alias not in scope:
+            unresolved.add(alias)
+
     for match in _IDENTIFIER_RE.finditer(text):
         token = match.group(0)
         if token.upper() in _KEYWORDS:
             continue
         start, end = match.span()
+        if any(lo <= start < hi for lo, hi in quoted_spans):
+            continue
         if in_string(start):
             continue
 
@@ -1578,6 +1588,16 @@ def _comprehension_locals(*, text: str, string_spans: Sequence[Tuple[int, int]])
         locals_with_spans.append((match.group(1), match.start() + 1, close_idx))
 
     return locals_with_spans
+
+
+def _decode_property_match(match: Match[str]) -> str:
+    token = match.group(2)
+    if token.startswith("`"):
+        decoded = parse_cypher_backtick_identifier(token)
+        if not isinstance(decoded, str):
+            raise TypeError("Backtick identifier parser returned a non-string")
+        return decoded
+    return token
 
 
 def _is_local_comprehension_reference(

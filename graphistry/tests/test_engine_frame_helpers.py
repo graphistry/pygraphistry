@@ -7,12 +7,14 @@ skipped where polars is not installed (the pandas-only CI lanes); the polars lan
 """
 import pandas as pd
 import pytest
+import os
 
 from graphistry.Engine import (
     assign_constant_columns,
     drop_columns,
     frame_filter,
     is_series_like,
+    null_column,
     ordered_left_join,
     row_as_mapping,
     series_filter,
@@ -27,6 +29,17 @@ except ImportError:
     _HAS_POLARS = False
 
 polars_only = pytest.mark.skipif(not _HAS_POLARS, reason="polars not installed")
+
+try:
+    import cudf
+    _HAS_CUDF = True
+except ImportError:
+    _HAS_CUDF = False
+
+cudf_only = pytest.mark.skipif(
+    not _HAS_CUDF or os.environ.get("TEST_CUDF") != "1",
+    reason="requires cudf and TEST_CUDF=1",
+)
 
 
 # --- pandas branches (run on every lane) ---------------------------------
@@ -72,6 +85,15 @@ def test_assign_constant_columns_pandas_and_empty() -> None:
     # empty values short-circuits and returns the frame unchanged
     same = assign_constant_columns(df, {})
     assert same is df
+
+
+def test_null_column_pandas_preserves_object_none_sentinel() -> None:
+    df = pd.DataFrame({"bools": [True, False], "ints": [1, 2], "text": ["a", "b"]})
+    out = null_column(df, "missing", dtype_from="bools")
+    assert out["missing"].dtype == object
+    assert out["missing"].isna().all()
+    assert all(value is None for value in out["missing"])
+    assert out.drop(columns="missing").equals(df)
 
 
 def test_drop_columns_pandas() -> None:
@@ -168,6 +190,30 @@ def test_row_as_mapping_polars() -> None:
 def test_assign_constant_columns_polars() -> None:
     df = pl.DataFrame({"a": [1, 2]})
     assert assign_constant_columns(df, {"c": 9})["c"].to_list() == [9, 9]
+
+
+@polars_only
+def test_null_column_polars_preserves_dtype() -> None:
+    df = pl.DataFrame({"bools": [True, False], "ints": [1, 2]})
+    out = null_column(df, "missing", dtype_from="bools")
+    assert out.schema["missing"] == pl.Boolean
+    assert out["missing"].is_null().all()
+
+    out = null_column(df, "missing", dtype_from="ints")
+    assert out.schema["missing"] == pl.Int64
+    assert out["missing"].is_null().all()
+
+
+@cudf_only
+def test_null_column_cudf_preserves_dtype() -> None:
+    source = cudf.DataFrame({"bools": [True, False], "ints": [1, 2]})
+    out = null_column(source, "missing", dtype_from="bools")
+    assert str(out["missing"].dtype) == "bool"
+    assert out["missing"].isna().all()
+
+    out = null_column(source, "missing", dtype_from="ints")
+    assert str(out["missing"].dtype) == "int64"
+    assert out["missing"].isna().all()
 
 
 @polars_only

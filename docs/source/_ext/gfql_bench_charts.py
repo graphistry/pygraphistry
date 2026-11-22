@@ -23,6 +23,7 @@ a ``prefers-color-scheme`` block so the charts read in dark mode too.
 from __future__ import annotations
 
 import argparse
+import datetime
 import os
 from collections import OrderedDict
 from collections.abc import Sequence
@@ -154,7 +155,7 @@ def _bar_path(x: float, y: float, width: float, height: float) -> str:
         b=_num(y + height - radius))
 
 
-def render(name: str, payload: JSONObject) -> str:
+def render(name: str, payload: JSONObject, today: datetime.date | None = None) -> str:
     """Render one chart to SVG text."""
     chart = CHARTS[name]
     lengths = [_seconds(payload, bar.value) for bar in chart.bars if bar.value]
@@ -302,7 +303,9 @@ def _gf_ratio_text(ratio: JSONObject) -> str:
         '{} of GraphFrames’ speed (slower)'.format(text)
 
 
-def render_graphframes(name: str, payload: JSONObject) -> str:
+def render_graphframes(
+    name: str, payload: JSONObject, today: datetime.date | None = None,
+) -> str:
     """Render one GraphFrames task chart from the published ladder cells."""
     chart = GF_CHARTS[name]
     subtitle = ('Median of 5 after 2 warmups; same result size on every system unless '
@@ -413,13 +416,15 @@ def chart_path(name: str) -> str:
     return os.path.join(CHART_DIR, name)
 
 
-def rendered(payload: JSONObject | None = None) -> dict[str, str]:
+def rendered(
+    payload: JSONObject | None = None, today: datetime.date | None = None,
+) -> dict[str, str]:
     """Every chart, keyed by file name, rendered from the vendored artifact."""
     data = payload if payload is not None else load(BENCHMARKS_JSON)
-    charts = OrderedDict((name, render(name, data)) for name in CHARTS)
+    charts = OrderedDict((name, render(name, data, today)) for name in CHARTS)
     if gf_published(data):
         for name in GF_CHARTS:
-            charts[name] = render_graphframes(name, data)
+            charts[name] = render_graphframes(name, data, today)
     return charts
 
 

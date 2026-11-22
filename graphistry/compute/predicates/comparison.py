@@ -1,4 +1,4 @@
-from typing import Any, Callable, ClassVar, Dict, TYPE_CHECKING, Union, cast
+from typing import Any, Callable, ClassVar, Dict, Tuple, TYPE_CHECKING, Union, cast
 from datetime import date, time
 import operator
 import numpy as np
@@ -23,12 +23,11 @@ class ComparisonPredicate(ASTPredicate):
     def __init__(self, val: ComparisonInput) -> None:
         self.val = self._normalize_value(val)
     
-    def _normalize_value(self, val: ComparisonInput) -> Union[int, float, np.number, TemporalValue, str]:
+    def _normalize_value(
+        self, val: ComparisonInput
+    ) -> Union[int, float, np.number, TemporalValue, str]:
         """Convert various input types to internal representation"""
-        # Comparison predicates need:
-        # - Numerics as-is
-        # - Temporals as AST objects (for timezone handling)
-        # - Strings rejected (ambiguous)
+        # Numerics stay scalar; bare numeric-vs-datetime is E302; epochs are DateTimeValue.
         if is_native_numeric(val):
             return val
         elif is_any_temporal(val):
@@ -62,11 +61,7 @@ class ComparisonPredicate(ASTPredicate):
             return s
 
         elif isinstance(temporal_val, DateValue):
-            # Day-truncate rather than call .dt.date, which cudf 26.02 raises
-            # NotImplementedError from -- so hasattr does NOT screen it (hasattr only
-            # swallows AttributeError) and a capability branch would crash, not fall
-            # back. The truncation works on every engine and version; the scalar is
-            # paired to the datetime64 it produces (see _prepare_temporal_comparison).
+            # Day-truncate on every engine: cudf raises NotImplementedError before capability checks.
             if hasattr(s, 'dt'):
                 return s.dt.floor('D')
             return s
@@ -115,6 +110,31 @@ class ComparisonPredicate(ASTPredicate):
                 hours=comparison_val.hour, minutes=comparison_val.minute,
                 seconds=comparison_val.second, microseconds=comparison_val.microsecond)
         return prepared_s, comparison_val
+
+    @staticmethod
+    def _series_is_datetime(s: SeriesT) -> bool:
+        """Whether a pandas/cuDF series is stored as datetime64-like."""
+        dtype = getattr(s, "dtype", None)
+        return bool(dtype is not None and pd.api.types.is_datetime64_any_dtype(dtype))
+
+    @staticmethod
+    def _raise_numeric_datetime_mismatch(s: SeriesT) -> None:
+        """Reject the historically silent numeric-vs-datetime comparison."""
+        from graphistry.compute.exceptions import ErrorCode, GFQLSchemaError
+
+        raise GFQLSchemaError(
+            ErrorCode.E302,
+            "Type mismatch: datetime column cannot be compared to a numeric value",
+            field=getattr(s, "name", None),
+            value=None,
+            column_type=str(getattr(s, "dtype", "")),
+            suggestion=(
+                'Use a typed datetime value (for example {"type": "datetime", '
+                '"value": "2020-01-09T00:00:00", "timezone": "UTC"}) or an explicit '
+                'UTC epoch instant {"type": "datetime", "value": 1578528000000, '
+                '"unit": "ms"} (unit "s" or "ms"; no default unit)'
+            ),
+        )
 
     def _safe_scalar_compare(
         self, s: SeriesT, op: Callable[[Any, Any], Any]
@@ -249,6 +269,10 @@ class _ScalarTemporalComparison(_StringAllowingComparisonMixin, ComparisonPredic
         if isinstance(self.val, (int, float, str)):
             if self._orders_boolean_series_against_number(s):
                 return s.notna() & False
+            if isinstance(self.val, (int, float, np.number)) and not isinstance(self.val, bool) and self._series_is_datetime(s):
+                # A bare numeric bound is never implicitly an instant (no default unit
+                # to guess); explicit epoch instants are typed DateTimeValue values.
+                self._raise_numeric_datetime_mismatch(s)
             return (
                 self._safe_scalar_compare(s, type(self).op)
                 if self.safe_scalar_compare
@@ -348,7 +372,9 @@ class Between(ASTPredicate):
         self.upper = self._normalize_value(upper)
         self.inclusive = inclusive
 
-    def _normalize_value(self, val: BetweenBoundInput) -> Union[int, float, np.number, TemporalValue, str]:
+    def _normalize_value(
+        self, val: BetweenBoundInput
+    ) -> Union[int, float, np.number, TemporalValue, str]:
         # Delegates to ComparisonPredicate's normalizer (Between is not a subclass, hence the
         # arg-type ignore for the borrowed self). That method raises on str, so a str is never
         # actually returned for Between's numeric/temporal bounds — but the return type must
@@ -358,13 +384,14 @@ class Between(ASTPredicate):
 
     def __call__(self, s: SeriesT) -> SeriesT:
         # Check if both bounds are same type
-        lower_is_numeric = isinstance(self.lower, (int, float))
-        upper_is_numeric = isinstance(self.upper, (int, float))
         lower_is_temporal = isinstance(self.lower, TemporalValue)
         upper_is_temporal = isinstance(self.upper, TemporalValue)
         
-        if lower_is_numeric and upper_is_numeric:
-            # Numeric comparison
+        if isinstance(self.lower, (int, float)) and isinstance(self.upper, (int, float)):
+            # Numeric comparison. A bare numeric bound is never implicitly an
+            # instant; datetime columns require typed datetime bounds.
+            if ComparisonPredicate._series_is_datetime(s):
+                ComparisonPredicate._raise_numeric_datetime_mismatch(s)
             if self.inclusive:
                 return (s >= self.lower) & (s <= self.upper)
             else:
@@ -411,6 +438,7 @@ class Between(ASTPredicate):
                 field="inclusive",
                 value=type(self.inclusive).__name__
             )
+
     
     def to_json(self, validate=True) -> dict:
         """Serialize maintaining backward compatibility"""

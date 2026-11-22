@@ -106,36 +106,30 @@ def test_decline_trace_does_not_change_structured_residual_errors(engine):
     assert errors[0] == errors[1] == errors[2]
 
 
+@pytest.mark.route_engaged("polars-single-node")
 @pytest.mark.parametrize("check_receipt", [False, pytest.param(True, marks=pytest.mark.route_engaged("native-fast", "polars-single-node", "polars-plain", "cypher-fast"))])
 @pytest.mark.parametrize("cypher", [False, True])
-def test_unindexable_boolean_storage_uses_existing_owner_receipt(engine, cypher, check_receipt):
-    from graphistry.compute.gfql.index.errors import GfqlIndexNotImplementedError
+def test_indexable_boolean_storage_uses_property_index(engine, cypher, check_receipt):
     ids = np.arange(400)
-    nodes = df_to_engine(pd.DataFrame({"id": ids, "active": ids % 2 == 0}), Engine(engine))
-    g = graph(engine).nodes(nodes, "id")
-    with pytest.raises(GfqlIndexNotImplementedError):
-        g.create_index("node_prop", column="active", engine=engine)
+    nodes = df_to_engine(pd.DataFrame({"id": ids, "active": ids == 0}), Engine(engine))
+    g = graph(engine).nodes(nodes, "id").create_index("node_prop", column="active", engine=engine)
     query = "MATCH (a {active: true}) RETURN a.id AS id" if cypher else [n({"active": True})]
     scan = g.gfql(query, engine=engine, index_policy="off")._nodes
-    assert len(scan) == 200
+    assert len(scan) == 1
     for policy in ["use", "force"]:
         report = g.gfql_explain(query, engine=engine, index_policy=policy)
-        assert report["error"] is None and not report["used_index"]
+        assert report["error"] is None and report["used_index"]
         assert_same_frame(g.gfql(query, engine=engine, index_policy=policy)._nodes, scan, engine)
         if check_receipt:
-            assert report["decision_code"] == "not_index_coverable"
-            owners = [s for s in report["steps"] if s.get("op") != "fast_path"]
+            assert report["decision_code"] == "index_selected"
+            owners = [step for step in report["steps"] if step.get("seam") == ("node_lookup" if cypher else "native_seed_lookup")]
             assert len(owners) == 1
-            assert owners[0]["op"] == "indexed_traversal"
-            assert owners[0]["column"] == "active" and owners[0]["index_kind"] == "node_prop"
-            assert owners[0]["reason"] == ("index_missing" if cypher else "no_valid_resident_index")
-            assert owners[0]["hop_count"] == 0
-            assert "est_result_rows" not in owners[0]
+            assert owners[0]["path"] == "index" and owners[0]["decision_code"] == "index_selected"
+            assert owners[0].get("column") in (None, "active")
     assert g.gfql_explain(query, engine=engine, index_policy="off")["decision_code"] == "policy_off"
     assert g._nodes is nodes
 
-
-@pytest.mark.parametrize("storage", ["boolean", "binary", "date", "mixed"])
+@pytest.mark.parametrize("storage", ["binary", "date", "mixed"])
 @pytest.mark.parametrize("role", ["nodes", "edges"])
 def test_direct_filter_reports_unsupported_storage_without_fictitious_cost(engine, storage, role):
     from datetime import date
@@ -145,7 +139,6 @@ def test_direct_filter_reports_unsupported_storage_without_fictitious_cost(engin
     if storage in ("binary", "date") and engine == "cudf":
         pytest.skip("cuDF has no binary/date column distinct from supported string/timestamp storage")
     values, value = {
-        "boolean": ([True, False] * 200, True),
         "binary": ([b"a", b"b"] * 200, b"a"),
         "date": ([date(2025, 1, 1), date(2025, 1, 2)] * 200, date(2025, 1, 1)),
         "mixed": ([1, "x"] * 200, "x"),

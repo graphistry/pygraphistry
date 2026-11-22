@@ -19,7 +19,7 @@ from typing import TYPE_CHECKING, Any, Dict, Optional, Union, cast
 
 from typing_extensions import TypeGuard
 
-from .registry import ALL_KINDS
+from .registry import ALL_KINDS, NODE_TYPE_SEGMENT
 from .errors import is_not_yet_implemented_kind, not_implemented_kind_error
 from .types import IndexKind
 
@@ -157,7 +157,12 @@ def apply_index_op(g: Any, op: IndexOp, *, engine: Any = "auto") -> Any:
             return drop_index(g, kind, column=column)
         if kind is not None and not op.missing_ok:
             reg = get_registry(g)
-            if kind in (NODE_PROP, EDGE_PROP):
+            if kind == NODE_TYPE_SEGMENT:
+                is_resident = (
+                    any(key[0] == op.column for key in reg.node_type_segments)
+                    if op.column is not None else bool(reg.node_type_segments)
+                )
+            elif kind in (NODE_PROP, EDGE_PROP):
                 props = reg.property_indexes("nodes" if kind == NODE_PROP else "edges")
                 is_resident = op.column in props if op.column is not None else bool(props)
             else:

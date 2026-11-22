@@ -22,10 +22,10 @@ from graphistry.compute.gfql.expr_parser import (
     UnaryOp,
     Wildcard,
 )
+from graphistry.compute.gfql.identifiers import render_cypher_identifier
 from graphistry.compute.gfql.string_literals import render_cypher_string_literal
 
 
-_IDENTIFIER_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 
 
 def cypher_literal_expr_text(value: Any) -> str:
@@ -47,7 +47,7 @@ def cypher_literal_expr_text(value: Any) -> str:
         parts: List[str] = []
         for key, item in value.items():
             key_txt = str(key)
-            rendered_key = key_txt if _IDENTIFIER_RE.fullmatch(key_txt) else render_cypher_string_literal(key_txt)
+            rendered_key = render_cypher_identifier(key_txt)
             parts.append(f"{rendered_key}: {cypher_literal_expr_text(item)}")
         return "{" + ", ".join(parts) + "}"
     raise GFQLValidationError(
@@ -71,7 +71,7 @@ def _sign_separator(op: str, operand_text: str) -> str:
 
 def render_expr_node(node: ExprNode) -> str:
     if isinstance(node, Identifier):
-        return node.name
+        return render_cypher_identifier(node.name) if node.quoted else node.name
     if isinstance(node, ExprLiteral):
         return cypher_literal_expr_text(node.value)
     if isinstance(node, UnaryOp):
@@ -113,11 +113,11 @@ def render_expr_node(node: ExprNode) -> str:
         )
     if isinstance(node, QuantifierExpr):
         return (
-            f"{node.fn.upper()}({node.var} IN {render_expr_node(node.source)} "
+            f"{node.fn.upper()}({render_cypher_identifier(node.var)} IN {render_expr_node(node.source)} "
             f"WHERE {render_expr_node(node.predicate)})"
         )
     if isinstance(node, ListComprehension):
-        rendered = f"[{node.var} IN {render_expr_node(node.source)}"
+        rendered = f"[{render_cypher_identifier(node.var)} IN {render_expr_node(node.source)}"
         if node.predicate is not None:
             rendered += f" WHERE {render_expr_node(node.predicate)}"
         if node.projection is not None:
@@ -128,7 +128,7 @@ def render_expr_node(node: ExprNode) -> str:
     if isinstance(node, MapLiteral):
         parts: List[str] = []
         for key, value in node.items:
-            rendered_key = key if _IDENTIFIER_RE.fullmatch(key) else cypher_literal_expr_text(key)
+            rendered_key = render_cypher_identifier(key)
             parts.append(f"{rendered_key}: {render_expr_node(value)}")
         return "{" + ", ".join(parts) + "}"
     if isinstance(node, SubscriptExpr):
@@ -138,5 +138,5 @@ def render_expr_node(node: ExprNode) -> str:
         stop = "" if node.stop is None else render_expr_node(node.stop)
         return f"{render_expr_node(node.value)}[{start}..{stop}]"
     if isinstance(node, PropertyAccessExpr):
-        return f"{render_expr_node(node.value)}.{node.property}"
+        return f"{render_expr_node(node.value)}.{render_cypher_identifier(node.property)}"
     raise TypeError(f"Unsupported expression node type for rendering: {type(node).__name__}")

@@ -7,16 +7,13 @@ Overview of GFQL
    :width: 200px
    :align: center
 
-New to GFQL, the open source dataframe-native graph query language? This article overviews the gaps it fills, special features like GPU accelerations, and where to go next.
+GFQL runs Cypher queries directly on dataframes without a graph database. With
+``engine='polars'``, GFQL runs vectorized dataframe operations in Rust on CPU.
+Use ``engine='polars-gpu'`` for GPU acceleration.
 
-GFQL is the only open-source Cypher implementation that runs in-process on
-dataframes, with no database to install, load, or keep in sync. It brings the
-columnar, vectorized execution model that DuckDB and ClickHouse made standard
-for analytics to graph pattern matching. A query compiles to batched dataframe
-operations over Arrow-backed columns on pandas, Polars, or NVIDIA cuDF. The
-same query therefore runs on a laptop CPU or on a GPU, faster than the graph databases
-it was measured against (see :doc:`performance`), and without the hassle of standing up
-a database to get there.
+A query compiles to batched dataframe operations on pandas, Polars, or NVIDIA cuDF.
+This brings columnar, vectorized execution to graph pattern matching.
+See :doc:`performance` for benchmark comparisons.
 
 
 Why GFQL?
@@ -304,14 +301,12 @@ Traditional Python approach (manual variable management):
 
 GFQL Let approach (declarative DAG with named bindings):
 
-.. doc-test: skip
-
 .. code-block:: python
 
     from graphistry import let, ref, n, e_forward, ge
 
     # GFQL Let: Define a DAG of named operations
-    result = g.gfql(let({
+    stages = let({
         'persons': n({'type': 'person'}),
         'adults': ref('persons', [n({'age': ge(18)})]),  # Reference and filter persons
         'connections': [
@@ -319,11 +314,11 @@ GFQL Let approach (declarative DAG with named bindings):
             e_forward({'type': 'knows'}),
             n()  # Find connections from adults
         ]
-    }))
+    })
 
-    # Access any named result from the DAG
-    adults = result._nodes[result._nodes['adults']]
-    connections = result._edges[result._edges['connections']]
+    # Select a binding with output=; binding names do not create marker columns
+    adults = g.gfql(stages, output='adults')._nodes
+    connections = g.gfql(stages, output='connections')._edges
 
 Key advantages of GFQL Let:
 - **Named subgraphs**: Create reusable named graph operations like constants in code

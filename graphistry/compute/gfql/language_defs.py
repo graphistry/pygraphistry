@@ -65,6 +65,10 @@ GFQL_SCALAR_FUNCTIONS: Final[frozenset[str]] = frozenset(
         "__edge_keys__",
         "__node_entity__",
         "__edge_entity__",
+        "__node_identity__",
+        "__cypher_node_in__",
+        "__cypher_node_identity_value__",
+        "__cypher_non_entity_null__",
         "__cypher_case_eq__",
     }
 )

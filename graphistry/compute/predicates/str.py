@@ -266,7 +266,8 @@ def contains(
 
 class NeverMatch(ASTPredicate):
     def __call__(self, s: SeriesT) -> SeriesT:
-        return s.isna() & False
+        null_mask = s.isna()
+        return null_mask & ~null_mask
 
 
 def never_match() -> NeverMatch:

@@ -279,6 +279,7 @@ def combine_steps(
             steps = new_steps
 
     logger.debug('-----------[ combine %s ---------------]', kind)
+    from graphistry.compute.gfql.cypher.reentry.naming import REENTRY_HIDDEN_COLUMN_PREFIX
 
     if label_steps is None:
         label_steps = steps
@@ -307,6 +308,7 @@ def combine_steps(
     dfs_to_concat = []
     extra_step_dfs = []
     base_cols = set((g._nodes if kind == "nodes" else g._edges).columns)
+    carry_cols: List[str] = []
     for idx, (op, g_step) in enumerate(steps):
         op_label = label_steps[idx][0] if idx < len(label_steps) else op
         step_df = apply_output_slice(op, op_label, (g_step._nodes if kind == "nodes" else g_step._edges))
@@ -315,13 +317,67 @@ def combine_steps(
             raise ValueError(f"Column '{id}' not found in {kind} step DataFrame. "
                            f"Step has id='{step_id}', available columns: {list(step_df.columns)}. "
                            f"Operation: {op}")
-        dfs_to_concat.append(step_df[[id]])
+
+        if (
+            kind == 'nodes'
+            and idx > 0
+            and isinstance(op, ASTNode)
+            and isinstance(label_steps[idx - 1][0], ASTEdge)
+        ):
+            prev_nodes = label_steps[idx - 2][1]._nodes
+            prev_edges = label_steps[idx - 1][1]._edges
+            edge_op = label_steps[idx - 1][0]
+            assert isinstance(edge_op, ASTEdge)
+            prev_carry_cols = (
+                [c for c in prev_nodes.columns if c.startswith(REENTRY_HIDDEN_COLUMN_PREFIX)]
+                if prev_nodes is not None else []
+            )
+            if (
+                prev_nodes is not None
+                and prev_edges is not None
+                and prev_carry_cols
+                and len(step_df)
+                and len(prev_edges)
+            ):
+                edge_parts = []
+                if edge_op.direction != 'reverse':
+                    edge_parts.append((g._source, g._destination))
+                if edge_op.direction != 'forward':
+                    edge_parts.append((g._destination, g._source))
+
+                carry_maps = []
+                for from_col, to_col in edge_parts:
+                    carry_maps.append(
+                        prev_edges[[from_col, to_col]].merge(
+                            prev_nodes[[id] + prev_carry_cols],
+                            left_on=from_col,
+                            right_on=id,
+                            how='inner',
+                        ).drop(columns=[from_col, id]).rename(columns={to_col: id})
+                    )
+                carry_map = df_concat(engine)(carry_maps)
+                try:
+                    carry_map = carry_map.drop_duplicates(subset=[id] + prev_carry_cols)
+                except TypeError:
+                    carry_map = carry_map.drop_duplicates(subset=[id])
+                step_df = step_df.drop(columns=[c for c in prev_carry_cols if c in step_df.columns])
+                step_df = safe_merge(step_df, carry_map, on=id, how='left', engine=engine)
+
+        step_carry_cols = [
+            column for column in step_df.columns
+            if column.startswith(REENTRY_HIDDEN_COLUMN_PREFIX)
+        ]
+        carry_cols.extend(step_carry_cols)
+        dfs_to_concat.append(step_df[[id] + step_carry_cols])
 
     for _, (_, g_step) in enumerate(label_steps):
         step_df = (g_step._nodes if kind == "nodes" else g_step._edges)
         if id not in step_df.columns:
             continue
-        extra_cols = [c for c in step_df.columns if c != id and c not in base_cols and 'hop' in c]
+        extra_cols = [
+            c for c in step_df.columns
+            if c != id and c not in base_cols and 'hop' in c
+        ]
         if extra_cols:
             extra_step_dfs.append(step_df[[id] + extra_cols])
 
@@ -332,7 +388,12 @@ def combine_steps(
             dfs_to_concat = [df_to_engine(df, engine) for df in dfs_to_concat]
 
     concat = df_concat(engine)
-    out_df = concat(dfs_to_concat).drop_duplicates(subset=[id])
+    dedup_cols = [id] + list(dict.fromkeys(carry_cols))
+    combined_df = concat(dfs_to_concat)
+    try:
+        out_df = combined_df.drop_duplicates(subset=dedup_cols)
+    except TypeError:
+        out_df = combined_df.drop_duplicates(subset=[id])
 
     label_cols = set()
     for step_df in extra_step_dfs:
@@ -553,8 +614,9 @@ def combine_steps(
     cols = list(out_df.columns)
     # An alias named like a user column collides here (marker `_x` from the step frames
     # vs user values `_y` from the base frame). The marker is authoritative (null =
-    # unbound row); user values are restored from the base frame at property-read time,
-    # never coalesced into the marker (mixed bool/user dtypes also crash cuDF).
+    # unbound row); a Cypher pipeline keeps the user values in a separate restore column
+    # while the temporary edge identity still aligns them. Never coalesce them into the
+    # marker (mixed bool/user dtypes also crash cuDF).
     alias_marker_names = {
         op._name for op, _ in steps
         if isinstance(op, op_type) and isinstance(op._name, str)
@@ -565,6 +627,12 @@ def combine_steps(
             c_y = base + '_y'
             if c_y in out_df.columns:
                 if base in alias_marker_names:
+                    from graphistry.compute.gfql.identifiers import (
+                        shadow_restore_column,
+                        shadow_restore_wanted,
+                    )
+                    if shadow_restore_wanted():
+                        out_df[shadow_restore_column(base)] = out_df[c_y]
                     out_df[base] = out_df[c].fillna(False).astype(bool)
                     out_df = out_df.drop(columns=[c, c_y])
                     continue
@@ -676,43 +744,14 @@ def _plan_indexed_middle(
     comparable instead of two inline condition chains that drift.
     """
     from .gfql.index.handoff import IndexedBindingsHandoff
-
-    if not (middle and suffix) or prefix or start_nodes is not None or policy:
+    if prefix or start_nodes is not None or policy:
         return None
-    call = suffix[0]
-    if not isinstance(call, ASTCall) or call.function != "rows":
-        return None
-    if (
-        call.params.get("source") is not None
-        or call.params.get("alias_endpoints") is not None
-        or call.params.get("alias_prefilters")
-        # Serving the bypass SKIPS the canonical traversal, so the suffix runs against the
-        # PRE-traversal graph. That is sound for a bindings table (the path bag already is
-        # the answer) but not for `rows(table="edges")`, which would read the whole edge
-        # table instead of the traversal-narrowed one. Non-default `table` therefore keeps
-        # the scan path, for the same reason `source`/`alias_endpoints` do above. Compared
-        # against "nodes", not None: `rows()` defaults `table` to "nodes" and always emits
-        # it, so an `is None` test would disable the bypass outright — the same trap the
-        # named-middle rewrite's guard documents below.
-        or call.params.get("table", "nodes") != "nodes"
-        or not all(isinstance(op, (ASTNode, ASTEdge)) for op in middle)
-    ):
+    # Alias prefilters are not index-servable.
+    from .gfql.rows_skip_traversal import bindings_rows_call
+    call = bindings_rows_call(middle, suffix)
+    if call is None or call.params.get("alias_prefilters"):
         return None
     plan = serialize_binding_ops(middle)
-    # The bypass is only sound when the rows call actually consumes the WHOLE
-    # middle as binding ops: either it already carries them, or the named-middle
-    # rewrite installs exactly them. A rows call with no binding ops over an
-    # UNNAMED middle instead reads the traversal-narrowed node table, which the
-    # bypass would not produce.
-    if not (
-        call.params.get("binding_ops") == plan
-        or (
-            call.params.get("binding_ops") is None
-            and any(op._name is not None for op in middle
-                    if isinstance(op, (ASTNode, ASTEdge)))
-        )
-    ):
-        return None
 
     engine_concrete = resolve_engine(engine, g)  # type: ignore[arg-type]
     if engine_concrete not in (Engine.PANDAS, Engine.CUDF):
@@ -791,6 +830,9 @@ def _handle_boundary_calls(
     # module-scope import would be a cycle.
     from .gfql.index.handoff import attach_handoff, clear_handoff, read_handoff
     from .gfql.exec_context import attach_row_exec_context, clear_row_exec_context
+    from .gfql.rows_skip_traversal import (
+        may_skip_unread_middle_traversal, named_middle_rows_rewrite_applies, run_without_traversal,
+    )
 
     g_temp = self
     suffix_base_graph = g_temp
@@ -817,95 +859,91 @@ def _handle_boundary_calls(
     )
     served = handoff is not None and handoff.state is not None
 
-    if served:
-        assert handoff is not None  # narrowed by `served`
-        g_temp = attach_handoff(self, handoff)
-        assert handoff.state is not None
-        if handoff.state.edge_template is not None:
-            g_temp = g_temp.edges(handoff.state.edge_template)
-    else:
-        if middle:
-            logger.debug('Executing middle operations: %s', middle)
+    def finish(g_temp: Plottable, suffix: List[ASTObject]) -> Plottable:
+        if suffix:
+            logger.debug('Executing boundary suffix calls: %s', suffix)
+            # #1786: per-execution state rides on an INTERNAL COPY. Without prefix/middle
+            # ops (or a handoff) nothing above rebuilt `g_temp`, so it is still the CALLER's
+            # graph -- assigning here left the WITH re-entry seed on the user's object and
+            # the next, unrelated query was answered against it (silent wrong count).
+            g_temp = attach_row_exec_context(
+                g_temp, start_nodes=start_nodes, rows_base_graph=suffix_base_graph
+            )
+            if named_middle_rows_rewrite_applies(middle, suffix):
+                # ADD binding_ops to the call the caller wrote; do not build a fresh one. The
+                # rewrite's job is to say WHERE the bindings come from, and every other param
+                # on `rows()` is still the caller's — `attach_prop_aliases` (the #1711
+                # projection pushdown) and the advisory `alias_prefilters` both survive into
+                # the binding_ops builder, which is the only place they are read. Rebuilding
+                # threw them away, so merely naming the middle silently attached every alias's
+                # properties. The excluded params above cannot be present here.
+                rows_call = suffix[0]
+                assert isinstance(rows_call, ASTCall)  # narrowed by the rewrite gate
+                prev_params = rows_call.params
+                attach_prop_columns = prev_params.get("attach_prop_columns")
+                if attach_prop_columns is None and suffix_base_graph._nodes is not None:
+                    attach_prop_columns = select_attach_prop_columns(
+                        middle, suffix, list(suffix_base_graph._nodes.columns), suffix_base_graph._node,
+                    )
+                suffix = [rows_fn(
+                    binding_ops=serialize_binding_ops(middle),
+                    alias_prefilters=prev_params.get("alias_prefilters"),
+                    attach_prop_aliases=prev_params.get("attach_prop_aliases"),
+                    attach_prop_columns=attach_prop_columns,
+                )] + list(suffix[1:])
             g_temp = _chain_impl(
                 g_temp,
-                middle,
+                suffix,
                 engine,
                 validate_schema,
                 policy,
                 context,
                 start_nodes
             )
-        if handoff is not None:
-            # attach (not mutate): `g_temp` may still be the caller's graph on
-            # paths where nothing rebuilt it, and this is internal plumbing.
-            g_temp = attach_handoff(g_temp, handoff)
 
-    if suffix:
-        logger.debug('Executing boundary suffix calls: %s', suffix)
-        # #1786: per-execution state rides on an INTERNAL COPY. Without prefix/middle
-        # ops (or a handoff) nothing above rebuilt `g_temp`, so it is still the CALLER's
-        # graph -- assigning here left the WITH re-entry seed on the user's object and
-        # the next, unrelated query was answered against it (silent wrong count).
-        g_temp = attach_row_exec_context(
-            g_temp, start_nodes=start_nodes, rows_base_graph=suffix_base_graph
+        # Each site that attaches the row context also detaches it: the suffix chain has run,
+        # so the context is spent, and a caller who queries THIS result must not inherit it.
+        result = clear_row_exec_context(g_temp)
+        if read_handoff(result) is not None:
+            result = result.bind()
+            clear_handoff(result)
+        return result
+
+    if served:
+        assert handoff is not None  # narrowed by `served`
+        g_temp = attach_handoff(self, handoff)
+        assert handoff.state is not None
+        if handoff.state.edge_template is not None:
+            g_temp = g_temp.edges(handoff.state.edge_template)
+        return finish(g_temp, suffix)
+
+    if not prefix and not policy and may_skip_unread_middle_traversal(g_temp, middle, suffix, engine):
+        if validate_schema:
+            validate_chain_schema(g_temp, middle, collect_all=False)
+        twin_answer = run_without_traversal(
+            g_temp, middle, engine,
+            traverse=lambda empty: _chain_impl(empty, middle, engine, False, None, context, None),
+            run_suffix=lambda twin: finish(attach_handoff(twin, handoff) if handoff is not None else twin, suffix),
         )
-        if (
-            middle
-            and any(op._name is not None for op in middle)
-            and isinstance(suffix[0], ASTCall)
-            and suffix[0].function == "rows"
-            and suffix[0].params.get("binding_ops") is None
-            and suffix[0].params.get("source") is None
-            and suffix[0].params.get("alias_endpoints") is None
-            # A NON-DEFAULT `table` names the table the caller wants. Rewriting that into a
-            # bindings table silently answers a different question — and on an even-length
-            # middle (a path ending on an EDGE, e.g. LDBC IS3's edge lookup) the rewritten
-            # op list is not an alternating node/edge path at all, so it hard-errors. Same
-            # reason `source` and `alias_endpoints` are excluded above.
-            # Tested against `"nodes"` rather than None because `rows()` DEFAULTS table to
-            # "nodes" and always emits it, so `is None` is never true and would disable the
-            # rewrite outright (measured: it breaks the IS6 bindings path). The cost is that
-            # an EXPLICIT `rows(table="nodes")` is indistinguishable from a bare `rows()` at
-            # the params level, so it still rewrites; only a non-default table opts out.
-            and suffix[0].params.get("table", "nodes") == "nodes"
-            and all(isinstance(op, (ASTNode, ASTEdge)) for op in middle)
-        ):
-            # ADD binding_ops to the call the caller wrote; do not build a fresh one. The
-            # rewrite's job is to say WHERE the bindings come from, and every other param
-            # on `rows()` is still the caller's — `attach_prop_aliases` (the #1711
-            # projection pushdown) and the advisory `alias_prefilters` both survive into
-            # the binding_ops builder, which is the only place they are read. Rebuilding
-            # threw them away, so merely naming the middle silently attached every alias's
-            # properties. The excluded params above cannot be present here.
-            prev_params = suffix[0].params
-            attach_prop_columns = prev_params.get("attach_prop_columns")
-            if attach_prop_columns is None and suffix_base_graph._nodes is not None:
-                attach_prop_columns = select_attach_prop_columns(
-                    middle, suffix, list(suffix_base_graph._nodes.columns), suffix_base_graph._node,
-                )
-            suffix = [rows_fn(
-                binding_ops=serialize_binding_ops(middle),
-                alias_prefilters=prev_params.get("alias_prefilters"),
-                attach_prop_aliases=prev_params.get("attach_prop_aliases"),
-                attach_prop_columns=attach_prop_columns,
-            )] + list(suffix[1:])
+        if twin_answer is not None:
+            return twin_answer
+
+    if middle:
+        logger.debug('Executing middle operations: %s', middle)
         g_temp = _chain_impl(
             g_temp,
-            suffix,
+            middle,
             engine,
             validate_schema,
             policy,
             context,
             start_nodes
         )
-
-    # Each site that attaches the row context also detaches it: the suffix chain has run,
-    # so the context is spent, and a caller who queries THIS result must not inherit it.
-    result = clear_row_exec_context(g_temp)
-    if read_handoff(result) is not None:
-        result = result.bind()
-        clear_handoff(result)
-    return result
+    if handoff is not None:
+        # attach (not mutate): `g_temp` may still be the caller's graph on
+        # paths where nothing rebuilt it, and this is internal plumbing.
+        g_temp = attach_handoff(g_temp, handoff)
+    return finish(g_temp, suffix)
 
 
 def _chain_otel_attrs(
@@ -1505,6 +1543,9 @@ def _chain_impl(
 
             if g_out._edges is not None and len(g_out._edges) > 0:
                 concat_fn = df_concat(engine_concrete)
+                from graphistry.compute.gfql.cypher.reentry.naming import (
+                    REENTRY_HIDDEN_COLUMN_PREFIX,
+                )
                 endpoints = concat_fn(
                     [
                         g_out._edges[[g_out._source]].rename(columns={g_out._source: g_out._node}),
@@ -1518,7 +1559,15 @@ def _chain_impl(
                 nodes_out = g_out._nodes
                 if len(missing) > 0:  # only a dangling endpoint is backfilled; a present id would widen the attribute dtypes
                     nodes_out = safe_row_concat([nodes_out, missing], ignore_index=True, sort=False)
-                g_out = g_out.nodes(nodes_out.drop_duplicates(subset=[g_out._node]))
+                node_dedup_cols = [g_out._node] + [
+                    column for column in nodes_out.columns
+                    if column.startswith(REENTRY_HIDDEN_COLUMN_PREFIX)
+                ]
+                try:
+                    nodes_out = nodes_out.drop_duplicates(subset=node_dedup_cols)
+                except TypeError:
+                    nodes_out = nodes_out.drop_duplicates(subset=[g_out._node])
+                g_out = g_out.nodes(nodes_out)
 
             success = True
 

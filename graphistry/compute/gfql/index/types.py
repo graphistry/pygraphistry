@@ -1,7 +1,7 @@
 """Shared internal types for GFQL physical indexes."""
 from __future__ import annotations
 
-from graphistry.Engine import EngineAbstract
+from graphistry.Engine import Engine, EngineAbstract
 from typing import TYPE_CHECKING, Any, Dict, FrozenSet, List, Literal, Mapping, Optional, Set, Tuple, TypedDict, Union
 
 import numpy as np
@@ -12,7 +12,10 @@ from graphistry.compute.typing import ArrayLike, ArrayNamespace, DataFrameT
 if TYPE_CHECKING:
     from graphistry.compute.predicates.ASTPredicate import ASTPredicate
 
-IndexKind = Literal["edge_out_adj", "edge_in_adj", "node_id", "node_prop", "edge_prop"]
+IndexKind = Literal[
+    "edge_out_adj", "edge_in_adj", "node_id", "node_prop", "edge_prop",
+    "node_type_segment",
+]
 #: Build-time facts that `show_indexes` reports but that are not registry `indexes`.
 SidecarFactKind = Literal["category", "endpoint_rows", "temporal_text"]
 AdjacencyIndexKind = Literal["edge_out_adj", "edge_in_adj"]
@@ -28,11 +31,12 @@ FrameLike = DataFrameT
 #: nobody can assert on.
 FastPathName = Literal[
     "single_hop_grouped_aggregate", "two_hop_count", "seeded_typed_hop", "seeded_node_lookup",
+    "rows_bindings_skip_traversal", "point_rows_scan",
 ]
 
 #: What the executor holds at the fast-path seam: post-parse but NOT yet narrowed
 #: to a Literal. Named so the widening is deliberate and in one place.
-TraceEngine = Union[EngineAbstract, str]
+TraceEngine = Union[Engine, EngineAbstract, str]
 
 #: Outcome of one column-stat fact consult; each needs a different fix.
 ColStatsOutcomeName = Literal["served", "absent", "stale", "insufficient"]
@@ -89,11 +93,13 @@ class IndexTraceStep(TypedDict, total=False):
     path: IndexPath
     decision_reason: str
     decision_code: IndexDecisionCode
+    replayed_after: str
     index_kind: IndexKind
     n_keys: int
     seed_deg_sum: Optional[int]
     est_result_rows: Optional[int]
     threshold_frac: float
+    node_segments: Dict[str, str]
     # column-stat fact consults
     role: str
     column: str

@@ -14,6 +14,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, Optional, Tuple, Union, cast
 
+import numpy as np
+
 if TYPE_CHECKING:
     import polars as pl
     from .registry import AdjacencyIndex, NodeIdIndex, NodePropIndex
@@ -213,9 +215,28 @@ def set_difference(cand: ArrayLike, visited: ArrayLike, xp: ArrayNamespace) -> A
     return cand[~ismember]
 
 
+def sorted_unique(xp: ArrayNamespace, values: ArrayLike) -> ArrayLike:
+    """Sorted distinct values of a 1-D array, identical to ``xp.unique(values)``.
+
+    NumPy integer keys use sort plus adjacent differences for bulk frontiers;
+    Boolean keys use it above one entry. Other backends/dtypes keep ``xp.unique``.
+    """
+    if xp is not np or len(values.shape) != 1 or values.dtype.kind not in "iub":
+        return xp.unique(values)
+    # NumPy 2.4 favors native unique for tiny integers, but sort for booleans.
+    size = int(values.shape[0])
+    if size <= 1 or (values.dtype.kind != "b" and size < 128):
+        return xp.unique(values)
+    ordered = xp.sort(values)
+    keep = xp.empty(ordered.shape[0], dtype=bool)
+    keep[0] = True
+    keep[1:] = ordered[1:] != ordered[:-1]
+    return ordered[keep]
+
+
 def union1d(a: ArrayLike, b: ArrayLike, xp: ArrayNamespace) -> ArrayLike:
     if int(a.shape[0]) == 0:
-        return xp.unique(b)
+        return sorted_unique(xp, b)
     if int(b.shape[0]) == 0:
-        return xp.unique(a)
-    return xp.unique(xp.concatenate([a, b]))
+        return sorted_unique(xp, a)
+    return sorted_unique(xp, xp.concatenate([a, b]))

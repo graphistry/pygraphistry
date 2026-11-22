@@ -65,6 +65,33 @@ When the query argument is a string, the ``language`` selector defaults to
 query compilation; regular GFQL AST / Chain inputs use normal Python values in
 the AST itself.
 
+Graph results for direct layouts
+-------------------------------
+
+Use GFQL's ``GRAPH { MATCH ... }`` extension when the query result itself should
+be a graph. It retains matched nodes, edges, and bindings, so layout methods can
+be called directly. Ordinary Cypher ``MATCH ... RETURN ...`` still produces rows.
+
+.. code-block:: python
+
+    import graphistry
+    import polars as pl
+
+    nodes = pl.DataFrame({"id": [0, 1, 2, 3]})
+    edges = pl.DataFrame({"src": [0, 1, 1], "dst": [1, 2, 3], "eid": [10, 11, 12]})
+    g = graphistry.edges(edges, "src", "dst", edge="eid").nodes(nodes, "id")
+
+    result = g.gfql(
+        "GRAPH { MATCH (a)-[r]->(b) WHERE r.eid <= 11 }",
+        engine="polars",  # use "polars-gpu" for a RAPIDS-backed query
+    )
+    laid_out = result.circle_layout(bounding_box=(0, 0, 10, 10))
+
+The result contains the matched edges with ``eid`` 10 and 11 and their three
+endpoint nodes. The layout defaults to pandas computation and returns eager
+Polars frames; a prior ``polars-gpu`` query does not change that default. See
+the :doc:`layout API </api/layout/index>` for explicit layout backend choices.
+
 Helper Functions
 ----------------
 

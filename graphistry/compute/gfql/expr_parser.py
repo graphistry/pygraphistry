@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from functools import lru_cache
 from typing import Any, Callable, Dict, FrozenSet, Iterable, List, Optional, Protocol, Sequence, Set, Tuple, Type, Union, cast
 
+from graphistry.compute.gfql.identifiers import parse_cypher_backtick_identifier
 from graphistry.compute.gfql.string_literals import parse_cypher_string_token
 from graphistry.compute.gfql.language_defs import (
     GFQL_ALLOWED_BINARY_OPS,
@@ -32,6 +33,7 @@ DEFAULT_ALLOWED_QUANTIFIERS: FrozenSet[str] = GFQL_ALLOWED_QUANTIFIERS
 @dataclass(frozen=True)
 class Identifier:
     name: str
+    quoted: bool = False
 
 
 @dataclass(frozen=True)
@@ -215,7 +217,7 @@ _GRAMMAR = r"""
 
 ?postfix: primary
         | postfix "[" subscript_key "]"  -> subscript
-        | postfix "." PROP_NAME          -> property_access
+        | postfix "." (PROP_NAME|QUOTED_PROP_NAME) -> property_access
 
 ?subscript_key: expr                     -> subscript_index
               | expr ".." expr           -> subscript_slice_between
@@ -252,7 +254,7 @@ distinct_func_args: "DISTINCT"i func_arg
 // PROP_NAME (dot contexts only) admits non-reserved keywords as property names
 // (n.when, n.order) — openCypher property keys are unreserved; only after "." can
 // no keyword ambiguity arise, so NAME's exclusions need not apply there.
-identifier: NAME ("." PROP_NAME)*
+identifier: NAME ("." (BARE_PROP_NAME|QUOTED_PROP_NAME))*
 
 case_expr: searched_case_expr
          | simple_case_expr
@@ -280,9 +282,11 @@ literal: "NULL"i                            -> null_lit
 REGEX_MATCH.2: "=~"
 COMP_OP: __GFQL_COMPARISON_GRAMMAR_ALTS__
 MINUS: /-(?!-)/
-NAME: /(?!(?i:AND|OR|XOR|NOT|IN|IS|NULL|CASE|WHEN|THEN|ELSE|END|CONTAINS|STARTS|WITH|ENDS|ANY|ALL|NONE|SINGLE)\b)[A-Za-z_][A-Za-z0-9_]*/
-PROP_NAME: /[A-Za-z_][A-Za-z0-9_]*/
-MAP_KEY_NAME: /[A-Za-z_][A-Za-z0-9_]*/
+NAME: /(?:(?!(?i:AND|OR|XOR|NOT|IN|IS|NULL|CASE|WHEN|THEN|ELSE|END|CONTAINS|STARTS|WITH|ENDS|ANY|ALL|NONE|SINGLE)\b)[A-Za-z_][A-Za-z0-9_]*|`(?:[^`]|``)*`)/
+PROP_NAME: /(?:[A-Za-z_][A-Za-z0-9_]*|`(?:[^`]|``)*`)/
+BARE_PROP_NAME: /[A-Za-z_][A-Za-z0-9_]*/
+QUOTED_PROP_NAME: /`(?:[^`]|``)*`/
+MAP_KEY_NAME: /(?:[A-Za-z_][A-Za-z0-9_]*|`(?:[^`]|``)*`)/
 NUMBER: /[+-]?(?:0[xX][0-9A-Fa-f]+|0[oO][0-7]+|(?:\d+\.\d+(?:[eE][+-]?\d+)?|\.\d+(?:[eE][+-]?\d+)?|\d+(?:[eE][+-]?\d+)?))/
 STRING : /'(?:\\.|[^'\\])*'|"(?:\\.|[^"\\])*"/
 LINE_COMMENT: /--[^\n]*/
@@ -292,6 +296,7 @@ BLOCK_COMMENT: /\/\*[\s\S]*?\*\//
 """
 
 _GRAMMAR = _GRAMMAR.replace("__GFQL_COMPARISON_GRAMMAR_ALTS__", GFQL_COMPARISON_GRAMMAR_ALTS)
+_GRAMMAR = _GRAMMAR.replace("`(?:[^`]|``)*`", r"`(?:[^`]|``)*`")
 
 class _ParserLike(Protocol):
     def parse(self, text: str) -> object:
@@ -391,6 +396,14 @@ def _ast_builder_class() -> Callable[[], _TransformerLike]:
         then_expr: ExprNode
 
     class _AstBuilder(Transformer):  # type: ignore[valid-type,misc]
+        def __default_token__(self, token: Any) -> Any:  # hygiene-ok: explicit-any -- Lark Token dynamic API
+
+            if str(getattr(token, "type", "")) in {"NAME", "PROP_NAME", "QUOTED_PROP_NAME", "MAP_KEY_NAME"} and str(token).startswith("`"):
+                quoted_token = type("QuotedToken", (token.__class__,), {})(token.type, parse_cypher_backtick_identifier(str(token)))
+                quoted_token.quoted = True
+                return quoted_token
+            return token
+
         def __init__(self) -> None:
             super().__init__(visit_tokens=True)
 
@@ -419,11 +432,19 @@ def _ast_builder_class() -> Callable[[], _TransformerLike]:
                 raise GFQLExprParseError("Invalid string literal")
             return Literal(_parse_string_token(str(items[0])))
 
-        def identifier(self, items: Sequence[Any]) -> Identifier:
-            names = [str(i) for i in items if _is_token(i) and str(getattr(i, "type", "")) in ("NAME", "PROP_NAME")]
-            if len(names) == 0:
+        def identifier(self, items: Sequence[Any]) -> ExprNode:
+            tokens = [i for i in items if _is_token(i) and str(getattr(i, "type", "")) in ("NAME", "BARE_PROP_NAME", "PROP_NAME", "QUOTED_PROP_NAME")]
+            if not tokens:
                 raise GFQLExprParseError("Invalid identifier")
-            return Identifier(".".join(names))
+            first_quoted = getattr(tokens[0], "quoted", False)
+            names = [str(token) for token in tokens]
+            quoted_index = next((idx for idx, token in enumerate(tokens) if getattr(token, "quoted", False)), None)
+            if quoted_index is None:
+                return Identifier(".".join(names))
+            out: ExprNode = Identifier(str(tokens[0]), quoted=first_quoted)
+            for token in tokens[1:]:
+                out = PropertyAccessExpr(value=out, property=str(token))
+            return out
 
         def regular_func_args(self, items: Sequence[Any]) -> _FunctionArgs:
             return _FunctionArgs(tuple(cast(ExprNode, i) for i in _strip_tokens(items)))
@@ -814,6 +835,8 @@ def _rebuild_expr_node(
 
 def _normalize_dotted_identifiers(node: ExprNode) -> ExprNode:
     if isinstance(node, Identifier):
+        if node.quoted:
+            return node
         parts = node.name.split(".")
         if len(parts) <= 1:
             return node

@@ -4,8 +4,10 @@ Choosing a GFQL Engine: pandas, Polars, cuDF, Polars-GPU
 ========================================================
 
 GFQL runs the same query on four execution engines. You choose the engine with one
-keyword, ``engine=``, on ``g.gfql()`` and ``g.hop()``. Supported queries return the
-same results across engines. Set an explicit engine to control execution; the default
+keyword, ``engine=``, on ``g.gfql()`` and ``g.hop()``. With ``engine='polars'``,
+GFQL runs vectorized dataframe operations in Rust on CPU.
+Use ``engine='polars-gpu'`` for GPU acceleration. Supported queries
+return the same results across engines. Set an explicit engine to control execution; the default
 ``engine='auto'`` selects from the input frames.
 
 This page assumes you have a graph ``g`` and a ``query``. If not, start with
@@ -230,6 +232,16 @@ a Python setting overrides the environment:
    set_call_mode('strict')   # raise on off-engine analytics (pass None to reset to env/default)
    # or: export GFQL_POLARS_CALL_MODE=strict
 
+Direct ``compute_igraph`` / ``layout_igraph`` calls on Polars graphs use pandas;
+``compute_cugraph`` / ``layout_cugraph`` use cuDF. They return eager Polars frames
+with binding ID dtypes preserved, collecting lazy input first. ``call_mode`` governs
+GFQL ``call()`` only; these direct methods choose their backend by algorithm.
+
+Direct layouts accept Polars input and return eager Polars frames by default;
+they do not inherit a previous GFQL query's engine. See the
+:doc:`Cypher graph-result example </api/gfql/cypher>` and
+:doc:`layout API </api/layout/index>` for usage and backend choices.
+
 cuDF vs Polars-GPU
 ------------------
 
@@ -321,10 +333,6 @@ Install
    pip install graphistry polars   # adds the CPU 'polars' engine
    # 'cudf' and 'polars-gpu' require the NVIDIA RAPIDS stack (GPU);
    # 'polars-gpu' additionally uses cudf_polars.
-
-.. note::
-   Layouts, plotting and featurization accept Polars frames as input and compute in
-   pandas. The engine behavior on this page applies to GFQL query execution.
 
 Provenance
 ----------

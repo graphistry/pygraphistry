@@ -263,6 +263,7 @@ class State:
         self.refs: typing.Dict[str, typing.List[str]] = {}
         self.provenance: typing.Dict[str, typing.List[str]] = {}
         self.disclosed: typing.List[str] = []
+        self.stale_keys: typing.Set[str] = set()
 
         policy = _obj(payload.get('policy'), 'policy')
         max_age = policy.get('max_age_days')
@@ -270,6 +271,8 @@ class State:
         drift = policy.get('max_compute_commit_drift')
         self.max_compute_commit_drift = (
             drift if isinstance(drift, int) and not isinstance(drift, bool) else None)
+        remeasure = policy.get('remeasure_issue')
+        self.remeasure_issue = remeasure if isinstance(remeasure, str) and remeasure else None
         waivers = policy.get('drift_waivers')
         self.drift_waivers: typing.Dict[str, str] = {
             run_id: reason for run_id, reason in (waivers.items() if isinstance(waivers, dict) else [])
@@ -314,6 +317,27 @@ class State:
         measured = datetime.datetime.strptime(measured_at, '%Y-%m-%d').date()
         return (self.today - measured).days
 
+    def staleness_reasons(self, run_id: str) -> typing.List[str]:
+        """Return why a run is stale; an empty list means it is fresh or undated."""
+        run = self.run(run_id)
+        reasons: typing.List[str] = []
+        if run is None:
+            return reasons
+        measured_at = run.get('measured_at')
+        if not isinstance(measured_at, str):
+            return reasons
+        age = self.age_days(run_id)
+        if age is not None and age > self.max_age_days:
+            reasons.append('measured {} ({} days ago; max_age_days {})'.format(
+                measured_at, age, self.max_age_days))
+        limit = self.max_compute_commit_drift
+        drift = self.drift(run_id) if limit is not None and run_id not in self.drift_waivers else None
+        if drift is not None and drift > limit:
+            reasons.append(
+                'measured {} compute commits ago (max_compute_commit_drift {})'.format(
+                    drift, limit))
+        return reasons
+
 
 
 
@@ -349,17 +373,15 @@ def check_reference(state: State, key: str, docname: str, lineno: int,
         if age is None:
             state.fail('{}:{}: {!r} names run {!r}, which has no usable measurement '
                        'date'.format(docname, lineno, key, run_id))
-        elif age > state.max_age_days:
-            state.fail('{}:{}: {!r} was measured {} days ago; policy.max_age_days is {}. '
-                       'Re-measure in pyg-bench and republish.'.format(
-                           docname, lineno, key, age, state.max_age_days))
-        limit = state.max_compute_commit_drift
-        waived = run_id in state.drift_waivers
-        drift = state.drift(run_id) if limit is not None and not waived else None
-        if drift is not None and drift > limit:
-            state.fail('{}:{}: {!r} was measured {} graphistry/compute commits ago; '
-                       'policy.max_compute_commit_drift is {}. Re-measure in pyg-bench '
-                       'and republish.'.format(docname, lineno, key, drift, limit))
+        else:
+            reasons = state.staleness_reasons(run_id)
+            if reasons and not state.remeasure_issue:
+                state.fail(
+                    '{}:{}: {!r} is stale but policy.remeasure_issue is missing; stale '
+                    'numbers stay published only with their measured date, staleness label, '
+                    'and linked re-measure issue'.format(docname, lineno, key))
+            elif reasons:
+                state.stale_keys.add(key)
 
     quotable = cell['board_quotable'] is True
     if diagnostic and quotable:
