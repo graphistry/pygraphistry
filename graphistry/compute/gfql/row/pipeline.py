@@ -1940,7 +1940,7 @@ class RowPipelineMixin:
                 if is_null_scalar(inner):
                     return True, None
                 if (
-                    hasattr(inner, "astype")
+                    is_series_like(inner)
                     and not RowPipelineMixin._gfql_series_is_entity_text_like(inner)
                     and not RowPipelineMixin._gfql_series_is_mapping_like(inner)
                 ):
