@@ -8,6 +8,12 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [Development]
 <!-- Do Not Erase This Section - Used for tracking unreleased changes -->
 
+### Infrastructure
+
+- **CI required check**: `ci.yml` gains a `ci-required` aggregate job that needs every other job, fails on any failure or cancellation, and passes on success or skip, so one status can gate `develop` and `master`. The CI concurrency group now includes the event name so a PR from a branch named `master` cannot cancel a `master` run. `DEVELOP.md` names `ci-required` as the required check and records the admin fast-forward push of `master` as the promotion mechanism.
+
+## [0.62.2] - 2026-11-21
+
 ### Docs
 
 - **Development branch flow**: documents long-lived `master` and `develop` roles, maintainer-controlled merge-commit forwarding, maintainer fast-forward promotion, and the repository-settings decision required before cutover.
@@ -17,10 +23,6 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - **GFQL Let binding examples** (#2171): select named subgraphs with `output=` instead of nonexistent binding-marker columns; runnable examples assert nonempty results on pandas and Polars inputs while preserving matcher `name=` markers and service/GPU skips.
 
 - **GFQL quick reference examples run** (#2169): node and edge matcher examples use declarative predicates (`gt`, `lt`, `between`) instead of callables that validation rejects; `let()` examples select bindings with `output=`; remote references are shown as `let()` bindings; the engine section notes which features `auto` runs on pandas for Polars input. The docs example audit now finds code blocks nested under bullets, and every runnable quick-reference example executes on pandas and Polars-bound inputs with matching RETURN rows or graph node/edge identities.
-
-### Infrastructure
-
-- **CI required check**: `ci.yml` gains a `ci-required` aggregate job that needs every other job, fails on any failure or cancellation, and passes on success or skip, so one status can gate `develop` and `master`. The CI concurrency group now includes the event name so a PR from a branch named `master` cannot cancel a `master` run. `DEVELOP.md` names `ci-required` as the required check and records the admin fast-forward push of `master` as the promotion mechanism.
 
 ### Fixed
 
