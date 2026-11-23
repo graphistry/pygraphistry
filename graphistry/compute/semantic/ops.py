@@ -450,9 +450,10 @@ def _run_rows(rows: _Rows, requests_for: Callable[[List[int]], List[List[Request
     number of planned calls, the setup requests that were admitted and the estimated cost of the calls."""
     layout = _layout(rows, requests_for, capabilities, batch_size, default_batch_size, max_concurrency)
     calls, threads = layout.calls, layout.threads
-    if telemetry is not None:
+    if telemetry is not None:       # the estimate is taken only when a cost cap makes the run estimate anyway: a trace adds no provider call
+        capped = budget is not None and budget.max_cost_usd is not None
         telemetry.update(planned_calls=len(calls), probe_requests=0,
-                         estimated_cost_usd=_estimated_total(estimate, calls) if local_answers is None else 0.0)
+                         estimated_cost_usd=(0.0 if local_answers is not None else _estimated_total(estimate, calls)) if capped else None)
     if local_answers is not None:
         expired = deadline_at is not None and time.monotonic() >= deadline_at
         outcomes = [_CallOutcome(skipped="deadline") if expired else _CallOutcome(returned=local_answers(batch))
@@ -834,6 +835,15 @@ class _Flight:
             self.active -= 1
 
 
+def _strategy_of(provider: object) -> Optional[str]:
+    """The strategy that a provider names, or None. Provider code is untrusted: an attribute that raises is None."""
+    try:
+        value = getattr(provider, "strategy", None)
+    except Exception:
+        return None
+    return value if isinstance(value, str) else None
+
+
 def _run_stats(op: str, setup: Union[_DecideSetup, _MapSetup], cells: Dict[Cell, Union[DecisionResult, GenerationResult]],
                provider_cells: Dict[Cell, Union[DecisionResult, GenerationResult]], questions: Sequence[str],
                telemetry: Dict[str, object], flight: _Flight, started: float, strategy: Optional[object]) -> SemanticRunStats:
@@ -1011,10 +1021,11 @@ def sem_decide(
         for question in coerced:
             grid[(position, question.id)] = _copy_of(grid[(representative, question.id)], rows.request_ids[position],
                                                      rows.request_ids[representative])
+    out = _with_columns(df, _result_columns(coerced, grid, len(rows.request_ids)))
     if tracing:
         record_run(_run_stats("sem_decide", setup, grid, provider_cells, [q.id for q in coerced], telemetry, flight,  # type: ignore[arg-type]
-                              started, getattr(run[0], "strategy", None)))
-    return _with_columns(df, _result_columns(coerced, grid, len(rows.request_ids)))
+                              started, _strategy_of(run[0])))
+    return out
 
 
 def sem_map(
@@ -1091,13 +1102,14 @@ def sem_map(
     results.update(setup.served)
     for position, representative in setup.duplicates.items():
         results[position] = _copy_of(results[representative], rows.request_ids[position], rows.request_ids[representative])
-    if tracing:
-        record_run(_run_stats("sem_map", setup, {(p, ""): r for p, r in results.items()},  # type: ignore[arg-type]
-                              {(p, ""): r for p, r in provider_results.items()}, [""], telemetry, flight, started, None))
     ordered = [results[position] for position in range(len(rows.request_ids))]
-    return _with_columns(df, {
+    out = _with_columns(df, {
         out_col: np.array([result.value for result in ordered], dtype=object),
         f"{out_col}__status": np.array([result.status for result in ordered], dtype=object),
         f"{out_col}__error_code": np.array([result.error_code for result in ordered], dtype=object),
         f"{out_col}__meta": np.array([_meta_json(result) for result in ordered], dtype=object),
     })
+    if tracing:
+        record_run(_run_stats("sem_map", setup, {(p, ""): r for p, r in results.items()},  # type: ignore[arg-type]
+                              {(p, ""): r for p, r in provider_results.items()}, [""], telemetry, flight, started, None))
+    return out

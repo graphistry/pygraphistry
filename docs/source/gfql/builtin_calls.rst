@@ -2170,17 +2170,22 @@ Three tools show what a run will do, what it did, and which rows the model answe
 **A plan** is what a run would do, with no provider call. ``explain_sem_decide`` and ``explain_sem_map`` take the arguments of
 ``sem_decide`` and ``sem_map`` and return a ``SemanticPlanReport``. The plan is built by the code that the run uses, so it is
 what the run does. It sends no answer request and no probe. It reads the provider's limits and cost estimate, and it reads a
-bound cache without changing it (it uses ``peek_many`` when the cache has it, as ``MemorySemanticCache`` does).
+bound cache without changing it. It uses ``peek_many`` when the cache has it, as ``MemorySemanticCache`` does. A cache without
+``peek_many`` is read with ``get_many``, which can have side effects. A plan does not use ``deadline_s``, and it does not count the
+probe requests that ``strategy="auto"`` can send.
 
 **A trace** is what a run did. ``with semantic_trace() as runs:`` gives a list. Each ``sem_decide`` or ``sem_map`` run in the
-block, direct or through ``g.gfql([call(...)])``, adds one ``SemanticRunStats``. Blocks nest. The trace follows ``contextvars``
+block, direct or through ``g.gfql([call(...)])``, adds one ``SemanticRunStats`` when the run ends. Blocks nest: a run goes to the
+innermost block when it ends, and to each outer block when the inner block ends. The trace follows ``contextvars``
 rules, so a thread that you start yourself sees it only when you start it with ``contextvars.copy_context().run``. Outside a block
 a run does no tracing work.
 
 **A verdict** says whether the model answered. ``semantic_verdicts`` turns the columns of one question into ``yes``, ``no``,
 ``uncertain``, ``error`` or ``skipped``. Only an ``ok`` row is ``yes`` or ``no``. ``~out["q"]`` and ``out["q"] == "label"`` both
 count an ``error`` or ``skipped`` row as ``no``, and a report that does this shows a row as safe when the model never answered it.
-``semantic_summary`` counts the statuses of every question, with an ``unanswered`` column.
+``semantic_summary`` counts the statuses of every question, with an ``unanswered`` column. Both raise ``ValueError`` for a status that
+is not one of the four (a null too), so that no row is left out of a count. ``semantic_verdicts`` also raises for a ``positive`` of
+the wrong type, and warns when the answers match ``positive`` only if you ignore case and spaces. A cuDF table is read as pandas.
 
 .. code-block:: python
 
@@ -2246,12 +2251,14 @@ The fields of ``SemanticRunStats``:
    * - ``uncertain_reasons``, ``error_codes``, ``probability_kind_counts``
      - Histograms over the answers of all questions
    * - ``provider_calls``, ``probe_calls``, ``retries``
-     - Calls that reached the provider, setup requests such as host probes, and extra requests that the provider made
+     - Calls of ``decide_batch`` or ``generate_batch`` (a call that was answered locally does not count), setup requests such as host
+       probes, and extra requests that the provider made. A provider can send several HTTP requests in one call
    * - ``billed_cost_usd``, ``provider_latency_ms_sum``, ``cached_input_tokens``
      - Summed over the answers that the provider gave. A copy of a duplicate row and a cache hit add nothing, so nothing counts twice.
        ``billed_cost_usd`` is the sum of the ``cost_usd`` of the answers: it does not hold the cost of probe requests
    * - ``estimated_cost_usd``
-     - The estimate of the input cost of the planned calls, or None
+     - The estimate of the input cost of the planned calls. It is set only when ``budget`` has ``max_cost_usd`` (the run estimates only
+       then, and a trace adds no provider call); otherwise None
    * - ``wall_ms``, ``peak_in_flight``, ``strategy_used``
      - Time of the run, the most calls in flight at once, and the strategy that the provider settled on (None when it has none)
 

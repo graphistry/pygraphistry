@@ -133,6 +133,7 @@ CONFIGS = [
     dict(budget={"max_requests": 2}, batch_size=1),
     dict(budget={"max_requests": 3}, batch_size=1, max_rows=6),
     dict(max_concurrency=2),
+    dict(budget={"max_requests": 1}, batch_size=3),
 ]
 
 
@@ -184,7 +185,10 @@ class TestPlanEqualsExecution:
             plan = explain_sem_decide(df, **decide_args(df, provider), **kwargs)  # type: ignore[arg-type]
             assert session.posts == []
             _out, stats = run_traced(df, **decide_args(df, provider), **kwargs)  # type: ignore[arg-type]
-            assert plan["estimated_input_cost_usd"] == pytest.approx(stats["estimated_cost_usd"])
+            if cap is not None:
+                assert plan["estimated_input_cost_usd"] == pytest.approx(stats["estimated_cost_usd"])
+            else:
+                assert stats["estimated_cost_usd"] is None and plan["estimated_input_cost_usd"] > 0    # a trace makes no estimate call
             assert plan["would_budget_skip_rows"] == stats["budget_skipped_rows"] and plan["calls_within_budget"] == stats["provider_calls"]
             if expected_skipped is not None:
                 assert stats["budget_skipped_rows"] == expected_skipped
@@ -350,6 +354,93 @@ class TestTrace:
         provider = Recording(delay=0.3, capabilities=caps(concurrency_limit=1, max_rows_per_request=1))
         _out, stats = run_traced(df, **decide_args(df, provider), deadline_s=0.4)
         assert stats["deadline_skipped_rows"] >= 3 and stats["status_counts"]["p"].get("skipped", 0) == stats["deadline_skipped_rows"]
+
+
+class TestFindingsOfWaveOne:
+
+    def test_a_trace_makes_no_provider_call_that_an_untraced_run_would_not(self) -> None:
+        class Counting(Recording):
+            estimates = 0
+
+            def estimate_cost_usd(self, requests: Sequence[DecisionRequest]) -> float:
+                Counting.estimates += 1
+                return 0.0
+        df = table(["a", "b", "c"])
+        sem_decide(df, **decide_args(df, Counting(fingerprint="v1", **serial())))
+        untraced = Counting.estimates
+        run_traced(df, **decide_args(df, Counting(fingerprint="v1", **serial())))
+        assert Counting.estimates == untraced == 0
+        run_traced(df, **decide_args(df, Counting(fingerprint="v1", **serial())), budget={"max_cost_usd": 1.0})
+        assert Counting.estimates > 0
+
+    def test_a_provider_property_that_raises_does_not_lose_a_paid_run(self) -> None:
+        class Angry(Recording):
+            @property
+            def strategy(self) -> str:                               # type: ignore[override]
+                raise RuntimeError("no")
+        df = table(["a", "b"])
+        provider = Angry(fingerprint="v1", **serial())
+        plan = explain_sem_decide(df, **decide_args(df, provider))
+        out, stats = run_traced(df, **decide_args(df, provider))
+        assert plan["strategy"] is None and stats["strategy_used"] is None and list(out["p__status"]) == ["ok", "ok"]
+
+    def test_a_row_that_spans_several_calls_counts_once_if_any_call_was_skipped(self) -> None:
+        df = table(["a", "b"])
+        provider = Recording(fingerprint="v1", capabilities=caps(max_questions_per_request=1, concurrency_limit=1))
+        args = decide_args(df, provider, questions=[P, C])
+        plan = explain_sem_decide(df, **args, batch_size=2, budget={"max_requests": 1})
+        _out, stats = run_traced(df, **args, batch_size=2, budget={"max_requests": 1})
+        assert plan["planned_calls"] == 2 and plan["calls_within_budget"] == 1 == stats["provider_calls"]
+        assert plan["would_budget_skip_rows"] == 2 == stats["budget_skipped_rows"]
+        assert stats["status_counts"]["c"] == {"skipped": 2} and stats["status_counts"]["p"] == {"ok": 2}
+
+    def test_only_a_deadline_counts_as_a_deadline_skip(self) -> None:
+        df = table(["a", "b", "c", "d"])
+        _out, stats = run_traced(df, **decide_args(df, Recording(**serial())), budget={"max_requests": 2}, batch_size=1)
+        assert stats["budget_skipped_rows"] == 2 and stats["deadline_skipped_rows"] == 0
+
+    def test_a_plan_without_a_cache_has_no_misses_and_a_known_gap_costs_nothing(self) -> None:
+        df = table(["a", "b"])
+        plan = explain_sem_decide(df, **decide_args(df, versioned()))
+        assert plan["cache_bound"] is False and plan["cache_hits"] == plan["cache_misses"] == 0
+        session = FakeSession([FakeResponse(200, {"choices": []})])
+        chat = OpenAIChatProvider("k", "m", strategy="text", session=session, prices=TokenPrices(input=1.0, cached_input=0.1))
+        gap = explain_sem_decide(df, **decide_args(df, chat), require_probabilities=True)
+        assert gap["known_probability_gap"] is True and gap["estimated_input_cost_usd"] == 0.0 and gap["planned_calls"] == 0
+
+    def test_a_map_plan_leaves_the_cache_as_it_was(self) -> None:
+        cache, df = MemorySemanticCache(), table(["a", "b"])
+        args = dict(instruction="i", out_col="o", task_id="t", evidence_cols=["name"])
+        with bind_providers({}, cache=cache):
+            sem_map(df, provider=RecordingGenerator(fingerprint="g1", **serial()), **args)  # type: ignore[arg-type]
+            before = (cache.stats(), list(cache._entries))
+            plan = explain_sem_map(df, provider=RecordingGenerator(fingerprint="g1", **serial()), **args)  # type: ignore[arg-type]
+            assert (cache.stats(), list(cache._entries)) == before
+        assert plan["cache_hits"] == 2 and plan["planned_calls"] == 0
+
+
+class TestHelpersAfterReview:
+
+    def test_a_summary_never_drops_a_row(self) -> None:
+        df = pd.DataFrame({"q": pd.array([True, None, None, None, None], dtype="boolean"), "q__status": ["ok", "uncertain", None, "skipped", "error"]})
+        with pytest.raises(ValueError, match="unknown status"):
+            semantic_summary(df)
+        with pytest.raises(ValueError, match="unknown status"):
+            semantic_verdicts(df, "q")
+
+    def test_a_positive_label_of_the_wrong_type_raises_and_a_near_miss_warns(self) -> None:
+        df = pd.DataFrame({"u": ["a", "b"], "u__status": ["ok", "ok"]})
+        with pytest.raises(ValueError, match="label strings"):
+            semantic_verdicts(df, "u", positive=True)
+        pred = pd.DataFrame({"q": pd.array([True, False], dtype="boolean"), "q__status": ["ok", "ok"]})
+        with pytest.raises(ValueError, match="predicate"):
+            semantic_verdicts(pred, "q", positive="true")
+        with pytest.warns(UserWarning, match="case and spaces"):
+            assert list(semantic_verdicts(df, "u", positive="A")) == ["no", "no"]
+
+    def test_a_predicate_in_an_object_column_is_still_a_predicate(self) -> None:
+        df = pd.DataFrame({"q": pd.Series([True, False, None], dtype=object), "q__status": ["ok", "ok", "error"]})
+        assert list(semantic_verdicts(df, "q")) == ["yes", "no", "error"]
 
 
 def answered(statuses: Sequence[str]) -> pd.DataFrame:

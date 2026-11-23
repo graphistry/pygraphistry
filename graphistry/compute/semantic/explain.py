@@ -9,7 +9,7 @@ from typing import Callable, Optional, Sequence, Union
 from graphistry.compute.semantic.contract import DecisionProvider, DecisionRequest, GenerationProvider
 from graphistry.compute.semantic.observe import SemanticPlanReport
 from graphistry.compute.semantic.ops import (
-    RequestT, _DecideSetup, _Layout, _MapSetup, _check_estimable, _estimate_cost, _estimated_total, _plan_calls)
+    RequestT, _DecideSetup, _Layout, _MapSetup, _check_estimable, _estimate_cost, _estimated_total, _plan_calls, _strategy_of)
 from graphistry.compute.semantic.probability import known_probability_gap
 from graphistry.compute.semantic.rules import BudgetSpec, ProbabilityRequirement, QuestionLike
 from graphistry.compute.typing import DataFrameT
@@ -31,10 +31,10 @@ def _report(op: str, setup: Union[_DecideSetup, _MapSetup], layout: "_Layout[Req
         would_skip = len({request.request_id for call in layout.calls[taken:] for request in call})
         runnable = taken
     total_cost = 0.0 if gap else _estimated_total(estimate, layout.calls)
-    strategy = getattr(setup.resolved, "strategy", None)
+    strategy = _strategy_of(setup.resolved)
     return {
         "op": op, "provider": setup.identity[0], "model": setup.identity[1],
-        "strategy": strategy if isinstance(strategy, str) else None,
+        "strategy": strategy,
         "total_rows": len(rows.request_ids), "null_evidence_rows": skipped.count("null_evidence"),
         "max_rows_skipped": skipped.count("max_rows"), "active_rows": active, "dedupe": setup.dedupe,
         "unique_rows": unique, "dedupe_saved_rows": dedupe_saved, "cache_bound": setup.cache is not None,
