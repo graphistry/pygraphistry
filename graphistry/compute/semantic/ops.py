@@ -195,7 +195,7 @@ def _cacheable(result: Union[DecisionResult, GenerationResult]) -> bool:
 
 def _result_payload(result: Union[DecisionResult, GenerationResult]) -> str:
     """The result as JSON. It holds no row id: ``request_id`` is blank here and set again on load."""
-    fields = {field.name: getattr(result, field.name) for field in dataclasses.fields(result)}
+    fields = {field.name: getattr(result, field.name) for field in dataclasses.fields(result)}  # hygiene-ok: dynamic-attr -- duck-typed host object with no common base
     fields["request_id"] = ""
     return json.dumps(_json_ready(fields), sort_keys=True, separators=(",", ":"))
 

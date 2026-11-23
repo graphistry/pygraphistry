@@ -45,10 +45,10 @@ def cache_key(provider_fingerprint: str, input_hash: str, salt: str = "") -> str
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
-def provider_fingerprint(provider: object) -> Optional[str]:
+def provider_fingerprint(provider: object) -> Optional[str]:  # hygiene-ok: object-annotation -- untrusted host or user input, narrowed by isinstance
     """What a provider says its answers depend on (its ``cache_fingerprint()``), or None when it has none.
     Provider code is untrusted: a failing or non-string result is None."""
-    hook = getattr(provider, "cache_fingerprint", None)
+    hook = getattr(provider, "cache_fingerprint", None)  # hygiene-ok: dynamic-attr -- duck-typed host object with no common base
     if not callable(hook):
         return None
     try:
@@ -63,7 +63,7 @@ def fingerprint_of(settings: Mapping[str, object]) -> str:
     return hashlib.sha256(json.dumps(settings, sort_keys=True, separators=(",", ":"), default=str).encode("utf-8")).hexdigest()
 
 
-def _positive(value: object, name: str, allow_none: bool = False) -> None:
+def _positive(value: object, name: str, allow_none: bool = False) -> None:  # hygiene-ok: object-annotation -- untrusted host or user input, narrowed by isinstance
     if value is None and allow_none:
         return
     ok = isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value) and value > 0
