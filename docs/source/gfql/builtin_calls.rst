@@ -1833,27 +1833,113 @@ Map node attributes to icons.
 Semantic Table Operators
 ------------------------
 
-``sem_decide`` and ``sem_map`` ask a model provider about every row of the node (or edge) table and append
-typed result columns. Every input row is kept, in order and with its index; provider failures become per-row
-``error`` results instead of exceptions. Providers are bound per execution with
-``graphistry.compute.semantic.bind_providers``; a GFQL ``call()`` names the provider by alias, so queries stay
-JSON-serializable. These calls run locally only: ``gfql_remote()`` refuses them before any network request.
+Narrow a graph with GFQL, then ask a model typed questions about the rows that remain. The answers come back as columns,
+next to the data, with calibrated probabilities when the provider can measure them.
+
+Why semantic table operators?
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+* **Graph first, model second.** A GFQL chain or Cypher query narrows 100,000 rows to the few hundred that matter before you
+  spend one model token. See :doc:`overview` and :doc:`cypher`.
+* **Typed, calibrated decisions, not brittle chat prose.** The operators are built around decision models such as the
+  `OpenAI Decisions API <https://developers.openai.com/api/docs/guides/decisions>`_. A question is a predicate, a choice or a
+  score. The answer has native or token-logprob probabilities, ``min_p`` sends unsure answers to a queue, and the code never makes up
+  a confidence. OpenAI-compatible chat hosts, vLLM and SGLang grammars, Anthropic and LangChain work too.
+* **Guardrails are built in.** ``dedupe`` asks once for repeated rows. A ``SemanticCache`` answers repeated input between runs.
+  ``budget`` and ``deadline_s`` stop a run. ``explain_sem_decide`` plans a run without a provider call, and ``semantic_trace()``
+  reports what a run did.
+
+Quickstart: input, config, output
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The callable provider plays the model, so these examples run offline. Replace it with a real provider (see `Providers`_).
+All three forms give the same rows.
+
+*A Plottable method on a GFQL result:*
 
 .. code-block:: python
 
-    from graphistry import call
-    from graphistry.compute.semantic import bind_providers, CallableDecisionProvider
+    from graphistry.compute.semantic import CallableDecisionProvider, semantic_summary, semantic_trace
 
-    provider = CallableDecisionProvider(lambda evidence, q: "inc" in str(evidence).lower())
-    with bind_providers({"rules": provider}):
-        g2 = g.gfql([call("sem_decide", {
-            "questions": [{"id": "is_company", "kind": "predicate", "text": "Is this a company?"}],
-            "provider": "rules", "task_id": "companies", "evidence_cols": ["name"],
-        })])
+    provider = CallableDecisionProvider(lambda evidence, q: evidence["type"] == "company", fingerprint="rules-v1")
+    questions = [{"id": "is_company", "kind": "predicate", "text": "Is this a company?"}]          # config
 
-The same call as a Plottable method, with the three question kinds. The callable provider here plays the model, so the
-example runs offline. A runnable offline tour of every operator, provider and limit is in the
-:doc:`demo notebook </notebooks/gfql>` ``GFQL Semantic Operators``.
+    usa = g.gfql([n({"country": "USA"})])                                                          # input: a GFQL subgraph
+    with semantic_trace() as runs:
+        out = usa.sem_decide(questions, provider, task_id="quickstart", evidence_cols=["type"])
+    semantic_summary(out._nodes)                                                                   # output: status counts
+    runs[-1]["provider_calls"], runs[-1]["billed_cost_usd"]                                        # output: what the run did
+
+*A GFQL* ``call(...)`` *(JSON-serializable: the provider is named by an alias):*
+
+.. code-block:: python
+
+    from graphistry.compute.semantic import MemorySemanticCache, bind_providers
+
+    with bind_providers({"rules": provider}, cache=MemorySemanticCache()):
+        out = g.gfql([n({"country": "USA"}),
+                      call("sem_decide", {"questions": questions, "provider": "rules",
+                                          "task_id": "quickstart", "evidence_cols": ["type"]})])
+    out._nodes[["id", "is_company", "is_company__status"]]
+
+*A Cypher query, then* ``sem_decide`` *(alias the returned columns so that they are plain names):*
+
+.. code-block:: python
+
+    rows = g.gfql("MATCH (p {country: 'USA'}) RETURN p.id AS id, p.type AS type")
+    out = rows.sem_decide(questions, provider, task_id="quickstart", evidence_cols=["type"])
+    out._nodes[["id", "is_company"]]
+
+A native Cypher ``CALL`` procedure for the operators is on the roadmap. Until then, use ``g.gfql("MATCH ...").sem_decide(...)``
+or ``call("sem_decide", ...)``. These calls run locally only: ``gfql_remote()`` refuses them before any network request.
+Every input row is kept, in order and with its index, and a provider failure becomes a per-row ``error`` result, not an exception.
+
+Function contracts
+~~~~~~~~~~~~~~~~~~
+
+.. code-block:: text
+
+    g.sem_decide(questions, provider, *, task_id, kind="nodes", evidence_cols=None, template=None, id_col=None,
+                 task_version="1", batch_size=None, max_concurrency=None, deadline_s=None, budget=None,
+                 max_rows=None, min_p=None, require_probabilities=False, column_max_chars=None,
+                 overwrite=False, dedupe=True) -> Plottable            # adds q, q__status, q__p, ... per question
+    g.sem_map(instruction, out_col, provider, *, task_id, kind="nodes", evidence_cols=None, template=None,
+              id_col=None, task_version="1", max_output_tokens=None, batch_size=None, max_concurrency=None,
+              deadline_s=None, budget=None, max_rows=None, column_max_chars=None, overwrite=False,
+              dedupe=True) -> Plottable                                 # adds out_col, out_col__status, ...
+    explain_sem_decide(df, *, questions, provider, task_id, ...)  -> SemanticPlanReport   # same arguments, no provider call
+    explain_sem_map(df, *, instruction, out_col, provider, task_id, ...) -> SemanticPlanReport
+    with bind_providers(providers, *, cache=None): ...                  # alias -> provider; optional SemanticCache
+    with semantic_trace() as runs: ...                                  # runs: list of SemanticRunStats
+    MemorySemanticCache(max_entries=10_000, max_bytes=64 * 2**20, ttl_s=3600.0)   # .stats(), .clear(), .peek_many()
+    SemanticCache                                                       # protocol: get_many(keys), put_many(entries), clear()
+    semantic_verdicts(df, question_id, *, positive=None) -> Series      # yes | no | uncertain | error | skipped
+    semantic_summary(df, question_ids=None) -> DataFrame                # status counts and an "unanswered" column
+
+.. list-table::
+   :header-rows: 1
+   :widths: 24 76
+
+   * - Entry point
+     - Contract
+   * - ``sem_decide``
+     - One typed answer for each row and question. ``kind`` is ``"nodes"`` or ``"edges"``. It never raises for a provider fault.
+   * - ``sem_map``
+     - One generated string for each row. ``budget`` takes ``max_requests`` only.
+   * - ``explain_sem_*``
+     - What the run would do. It sends no request and no probe. It raises ``ValueError`` where the run would.
+   * - ``bind_providers``
+     - Binds provider aliases and an optional cache for the runs in its block (``contextvars``: bind in the calling thread).
+   * - ``semantic_trace``
+     - Collects one ``SemanticRunStats`` for each run in its block. It costs nothing outside a block.
+   * - ``MemorySemanticCache``
+     - A thread-safe LRU cache with an entry cap, a byte cap and a time to live. You own the instance. There is no default cache.
+   * - ``semantic_verdicts``, ``semantic_summary``
+     - Read the status columns so that an ``error`` or ``skipped`` row is never counted as ``no``.
+
+**All three question kinds.** The callable provider plays the model, so the example runs offline. A runnable offline tour of every
+operator, provider and limit is in the :doc:`demo notebook </notebooks/gfql>` ``GFQL Semantic Operators``. Four demos apply the operators to
+real public data: a software supply chain, network logs, offshore companies and device recalls.
 
 .. code-block:: python
 
@@ -1965,31 +2051,66 @@ Answer typed questions per row: ``predicate`` (yes/no), ``choice`` (one of ``opt
      - ``True`` (default) asks once for rows that have the same evidence and copies the answer; ``False`` asks for every
        row (see `Repeated inputs`_)
 
-**Output columns** per question ``q``: ``q`` (answer: nullable boolean for predicates, string otherwise),
-``q__status`` (``ok``, ``uncertain``, ``error``, ``skipped``), ``q__p`` (the probability the answer distribution gives
-the answer; missing when undefined, so test it with ``isna()``), ``q__dist`` (JSON distribution or null),
-``q__probability_kind`` (``native_decision``, ``token_logprob``, ``verbalized`` or ``none``), ``q__error_code`` and
-``q__meta`` (JSON with model, provider, task version, input hash, latency, cost, cache hit, retry count, provider
-confidence, status reason and extra metadata). Unparseable answers are errors, never default values; distributions are
-never fabricated. A row whose evidence columns are all null is ``skipped`` with status reason ``null_evidence``; no call
-is made for it.
+**Output columns** for each question ``q``:
 
-``require_probabilities=True`` checks each successful answer after result validation and before ``min_p``.
-It accepts ``native_decision`` and ``token_logprob`` distributions only when they include the returned value.
-``'native'`` accepts only ``native_decision``. A missing required probability produces an ``error`` with code
-``probabilities_unavailable`` and clears the answer, distribution and provider confidence. Zero is an available
-probability. Refusals, ties and other answerless uncertain results, errors and skipped rows keep their existing verdicts.
-An uncertain result that still carries a value must also meet the explicit probability requirement.
-With the default ``False``, value-only and ``verbalized`` results retain their current behavior, including ``min_p``.
+.. list-table::
+   :header-rows: 1
+   :widths: 24 22 54
 
-Known incompatible shipped chat configurations fail locally before evidence, probes, cost estimates or provider
-calls are sent. Eligible rows receive ``probabilities_unavailable`` with zero cost and retries; null-evidence,
-``max_rows`` and reached-deadline skips remain. This capability check precedes provider-call budget planning
-and consumes no request budget. Anthropic and LangChain adapters are always value-only. OpenAI chat can provide
-token logprobs, but cannot provide native-decision probabilities. An ``auto`` profile that includes logprobs
-is checked from its actual answers; its probes still count against the run's budget. Custom providers and
-subclasses are checked from their validated results rather than inferred from their type name.
-No path converts generated confidence or constrained tokens into probabilities.
+   * - Column
+     - Type
+     - Meaning
+   * - ``q``
+     - nullable boolean (predicate), string (choice, score)
+     - The answer. Null unless the status is ``ok``.
+   * - ``q__status``
+     - string
+     - ``ok``, ``uncertain``, ``error`` or ``skipped``.
+   * - ``q__p``
+     - float
+     - The probability that the distribution gives the answer. Missing when undefined, so test it with ``isna()``.
+   * - ``q__dist``
+     - JSON string or null
+     - The distribution over the labels. It is never made up.
+   * - ``q__probability_kind``
+     - string
+     - ``native_decision``, ``token_logprob``, ``verbalized`` or ``none``.
+   * - ``q__error_code``
+     - string or null
+     - Set when the status is ``error``.
+   * - ``q__meta``
+     - JSON string
+     - Model, provider, task version, input hash, latency, cost, cache hit, retry count, provider confidence, status reason and extra metadata.
+
+An unparseable answer is an error, never a default value. A row whose evidence columns are all null is ``skipped`` with status
+reason ``null_evidence``, and the provider is not called for it. ``sem_map`` adds ``out_col``, ``out_col__status``,
+``out_col__error_code`` and ``out_col__meta``.
+
+.. list-table:: ``require_probabilities``
+   :header-rows: 1
+   :widths: 22 78
+
+   * - Value
+     - Effect
+   * - ``False`` (default)
+     - Value-only and ``verbalized`` answers are accepted, with ``min_p`` as it is.
+   * - ``True``
+     - Accepts ``native_decision`` and ``token_logprob`` distributions that include the returned value.
+   * - ``'native'``
+     - Accepts only ``native_decision``.
+
+The check runs on each successful answer after result validation and before ``min_p``. A missing required probability gives an
+``error`` with code ``probabilities_unavailable`` and clears the answer, the distribution and the provider confidence. Zero is an
+available probability. Refusals, ties, other answerless uncertain results, errors and skipped rows keep their verdicts. An uncertain
+result that still carries a value must also meet the requirement.
+
+* A known incompatible shipped chat configuration fails locally before any evidence, probe, cost estimate or provider call. Its eligible
+  rows get ``probabilities_unavailable`` with zero cost and retries. Null-evidence, ``max_rows`` and deadline skips remain. This check
+  comes before the budget plan and uses none of the budget.
+* The Anthropic and LangChain adapters are always value-only. OpenAI chat can give token logprobs but not native-decision probabilities.
+* An ``auto`` profile that includes logprobs is checked from its actual answers, and its probes count against the run's budget.
+* Custom providers and subclasses are checked from their validated results, not from their type name.
+* No path turns a generated confidence or a constrained token into a probability.
 
 The limits and probability checks together, on a provider that reports native probabilities. Rows
 ``a`` and ``b`` are answered. Row ``c`` is ``uncertain`` because its probability, 0.8, is below ``min_p``. Row ``d`` is
@@ -2071,31 +2192,87 @@ limits, provider-fault handling, remote refusal and the ``engine='auto'`` rule a
     g4 = g.sem_map("Write a short label.", "label", writer, task_id="labels", evidence_cols=["name", "type"])
     g4._nodes[["id", "label", "label__status"]]
 
-**Providers:** ``CallableDecisionProvider`` and ``CallableGenerationProvider`` wrap Python functions (one row is one call by default, so up to
-``concurrency_limit`` rows run at once and the function must be safe to call from several threads); ``OpenAIDecisionsProvider`` calls the public
-`OpenAI Decisions API <https://developers.openai.com/api/docs/guides/decisions>`_ with a caller-supplied model and
-``TokenPrices``; ``OpenAIChatProvider`` (OpenAI-compatible chat completions: OpenAI, Azure OpenAI, Fireworks, Mistral
-and other hosts) and ``AnthropicMessagesProvider`` ask each question with a one-character code per label and, when
-the host returns token logprobs, read a label distribution from the answer token (``probability_kind``
-``token_logprob``, conditional on the answer being a code; the codes' share of the answer token's probability is
-``extra.label_mass``); without logprobs the answer has no distribution. A question whose labels cannot be given
-unambiguous codes is an ``unsupported_question`` error and is not sent. A reply may also echo its code's label
-(``A. yes``) or be one label alone (``yes``; a predicate also takes ``y`` and ``n``), a leading ``<think>`` or ``<reasoning>`` block is ignored, and a reply that reasons first is read when its last line, after a blank line, is such an answer or when it ends with a code after a single ``answer:`` or ``answer is``. A reply that says ``answer:`` or ``answer is`` more than once, whose marker is followed by anything but a code, or that gives two different answers (including a line before the marker that is a code or a label alone), is not read; it is sent again, up to ``reply_retries`` times. For hosts whose free-text replies cannot be read, ``OpenAIChatProvider(strategy='json_schema')`` or
-``strategy='tool'`` constrains the answer to the codes (no distribution; ``extra.answer_strategy`` says which), and
-``strategy='text'`` sends no logprobs fields; ``strategy='auto'`` probes the host once per endpoint, model and
-settings (each probe request counts against the run's budget), keeps the first strategy that works for an hour, and
-``graphistry.compute.semantic.forget_probes()`` drops kept results. A reply cut off at ``max_answer_tokens`` (default
-256; output tokens are not part of the cost estimate, so lower it to bound them) before a readable answer is an ``answer_truncated`` error; reasoning models need a higher limit or reasoning turned
-off through ``extra_body``. A request the host's content filter rejects (HTTP 400, error code ``content_filter``) is
-``uncertain`` with reason ``refusal``, the same as a filtered reply. Servers with the
-OpenAI Decisions API and smaller limits set ``max_questions_per_request``, ``max_choice_options`` and ``max_levels``
-on ``OpenAIDecisionsProvider``. ``OpenAIDecisionsProvider`` sends one request per row by default;
-``rows_per_request=k`` opts in to packing up to ``k`` rows into one request. The rows times the questions of one
-request stay within ``max_questions_per_request``, so each provider call is one HTTP request and counts once in
-``budget.max_requests``. Each question then carries its own row's evidence, so a row's answers do
-not depend on which rows share its request, but they can differ from one-row answers; packing cuts request count and
-latency, not tokens, and packed answers record ``extra.packed_rows``. Any object implementing the
-``DecisionProvider`` or ``GenerationProvider`` protocol in ``graphistry.compute.semantic`` can be bound.
+Providers
+~~~~~~~~~
+
+.. list-table:: Provider compatibility
+   :header-rows: 1
+   :widths: 24 12 22 18 12 12
+
+   * - Provider
+     - For
+     - Probabilities
+     - Questions share one call
+     - Row packing
+     - Extra dependency
+   * - ``CallableDecisionProvider``
+     - ``sem_decide``
+     - What ``fn`` returns (``probability_kind``)
+     - No (``fn`` runs for each row and question)
+     - No
+     - None
+   * - ``CallableGenerationProvider``
+     - ``sem_map``
+     - Not applicable
+     - Not applicable
+     - No (one row for each call by default)
+     - None
+   * - ``OpenAIDecisionsProvider``
+     - ``sem_decide``
+     - ``native_decision``
+     - Yes (one request for each row)
+     - Opt in: ``rows_per_request``
+     - None
+   * - ``OpenAIChatProvider``
+     - ``sem_decide``
+     - ``token_logprob`` when the host returns logprobs, else none
+     - No (one question for each request)
+     - No
+     - None
+   * - ``AnthropicMessagesProvider``
+     - ``sem_decide``
+     - None (value only)
+     - No
+     - No
+     - None
+   * - ``LangChainDecisionProvider``
+     - ``sem_decide``
+     - None (value only)
+     - No
+     - No
+     - ``langchain-core`` (you supply the chat model)
+
+Any object that implements the ``DecisionProvider`` or ``GenerationProvider`` protocol in ``graphistry.compute.semantic`` can be bound.
+A callable provider runs one row for each call by default, so up to ``concurrency_limit`` rows run at once and the function must be safe to
+call from several threads. ``OpenAIDecisionsProvider`` calls the public
+`OpenAI Decisions API <https://developers.openai.com/api/docs/guides/decisions>`_ with a caller-supplied model and ``TokenPrices``.
+
+**Chat providers** (``OpenAIChatProvider`` for OpenAI-compatible hosts such as OpenAI, Azure OpenAI, Fireworks and Mistral, and
+``AnthropicMessagesProvider``) ask each question with a one-character code for each label.
+
+* With token logprobs, the provider reads a label distribution from the answer token (``probability_kind`` ``token_logprob``,
+  conditional on the answer being a code). The share of the answer token's probability that the codes hold is ``extra.label_mass``.
+  Without logprobs the answer has no distribution.
+* A question whose labels cannot get unambiguous codes is an ``unsupported_question`` error and is not sent.
+* The provider also reads a reply that echoes the label of its code (``A. yes``) or that is one label alone (``yes``; a predicate also
+  takes ``y`` and ``n``). It ignores a leading ``<think>`` or ``<reasoning>`` block. It reads a reply that reasons first when the last
+  line, after a blank line, is such an answer, or when the reply ends with a code after a single ``answer:`` or ``answer is``.
+* It does not read a reply that says ``answer:`` or ``answer is`` more than once, whose marker is followed by anything but a code, or that
+  gives two different answers. The provider sends such a request again, up to ``reply_retries`` times.
+* For a host whose free-text replies cannot be read, ``strategy='json_schema'`` or ``strategy='tool'`` constrains the answer to the codes
+  (no distribution; ``extra.answer_strategy`` says which). ``strategy='text'`` sends no logprobs fields.
+* ``strategy='auto'`` probes the host once for each endpoint, model and setting set. Each probe request counts against the run's
+  budget. The provider keeps the first strategy that works for an hour, and ``graphistry.compute.semantic.forget_probes()`` drops the kept results.
+* A reply cut off at ``max_answer_tokens`` before a readable answer is an ``answer_truncated`` error. The default is 256, output tokens are
+  not in the cost estimate, so lower the limit to bound them. A reasoning model needs a higher limit, or reasoning turned off through ``extra_body``.
+* A request that the host's content filter rejects (HTTP 400, error code ``content_filter``) is ``uncertain`` with reason ``refusal``, like a filtered reply.
+
+**The Decisions provider.** A server that has the OpenAI Decisions API and smaller limits sets ``max_questions_per_request``,
+``max_choice_options`` and ``max_levels`` on ``OpenAIDecisionsProvider``. It sends one request for each row by default.
+``rows_per_request=k`` opts in to packing up to ``k`` rows into one request. The rows times the questions of one request stay within
+``max_questions_per_request``, so each provider call is one HTTP request and counts once in ``budget.max_requests``. Each question then
+carries the evidence of its own row, so the answers of a row do not depend on which rows share its request, but they can differ from
+one-row answers. Packing cuts the request count and the latency, not the tokens. Packed answers record ``extra.packed_rows``.
 
 Repeated inputs
 ~~~~~~~~~~~~~~~
