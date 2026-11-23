@@ -48,12 +48,13 @@ def _run(engine, query):
 
 
 def _rows(engine, query):
-    """Rows of the query. The one decline today: polars-gpu on an executor without GPU group-by (cudf-polars 25.02)
-    raises GFQLUnsupportedError; that error, for that engine, is returned as None and nothing else is tolerated."""
+    """Rows of the query. The one decline today: polars-gpu when the installed cudf-polars cannot run the plan on the GPU
+    (every aggregate on 25.02, the cartesian count on 26.02) raises NotImplementedError or GFQLUnsupportedError; that
+    decline, for that engine, is returned as None and nothing else is tolerated."""
     try:
         return _run(engine, query)
-    except GFQLUnsupportedError as exc:
-        assert engine == "polars-gpu" and "cannot execute this aggregation" in str(exc), str(exc)
+    except (NotImplementedError, GFQLUnsupportedError) as exc:
+        assert engine == "polars-gpu" and ("not fully GPU-executable" in str(exc) or "cannot execute this aggregation" in str(exc)), str(exc)
         return None
 
 
