@@ -1,7 +1,13 @@
 """Categorical and Enum columns keep their dictionary comparisons; only string predicates decode them (#2335)."""
+import os
+
+import pandas as pd
 import pytest
 
 pl = pytest.importorskip("polars")
+
+import graphistry
+from graphistry import n
 
 from graphistry.compute.gfql.lazy.engine.polars.predicates import predicate_to_expr
 from graphistry.compute.predicates.comparison import eq, ge, gt, le, lt, ne
@@ -59,3 +65,41 @@ def test_string_predicates_still_decode_a_categorical_or_enum_column(column, pre
     expr = predicate_to_expr(column, predicate, _FRAME.schema[column])
     assert expr is not None
     assert _FRAME.filter(expr)[column].cast(pl.String).to_list() == expected
+
+
+# The same predicates through the native GFQL form, n({column: predicate}), on every Polars engine: the answers must equal the
+# lowered-expression answers above. The one tolerated decline is polars-gpu on an older cudf-polars, matched by exact message.
+_GPU_DECLINES = ("not fully GPU-executable", "cannot execute this aggregation")
+
+
+@pytest.fixture(params=["polars", "polars-gpu"])
+def native_engine(request):
+    if request.param == "polars-gpu":
+        pytest.importorskip("cudf_polars")
+        if os.environ.get("TEST_POLARS_GPU") != "1":
+            pytest.skip("requires actual polars-gpu")
+    return request.param
+
+
+def _native_answer(native_engine, column, predicate):
+    nodes = _FRAME.with_row_index("id")
+    edges = pl.from_pandas(pd.DataFrame({"src": [0], "dst": [1]}))
+    graph = graphistry.edges(edges, "src", "dst").nodes(nodes, "id")
+    try:
+        out = graph.gfql([n({column: predicate})], engine=native_engine)._nodes
+    except NotImplementedError as exc:
+        assert native_engine == "polars-gpu" and any(known in str(exc) for known in _GPU_DECLINES), str(exc)
+        return None
+    return out[column].cast(pl.String).to_list()
+
+
+@pytest.mark.parametrize("name,predicate,enum_answer,_cat", _COMPARISONS, ids=[case[0] for case in _COMPARISONS])
+def test_an_enum_column_through_the_native_form(native_engine, name, predicate, enum_answer, _cat):
+    answer = _native_answer(native_engine, "e", predicate)
+    assert answer is None or answer == enum_answer
+
+
+@pytest.mark.parametrize("name,predicate,_enum,cat_answer", _COMPARISONS, ids=[case[0] for case in _COMPARISONS])
+def test_a_categorical_column_through_the_native_form(native_engine, name, predicate, _enum, cat_answer):
+    answer = _native_answer(native_engine, "k", predicate)
+    assert answer is None or answer == cat_answer
