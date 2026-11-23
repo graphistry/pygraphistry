@@ -180,6 +180,7 @@ POLARS_TEST_FILES=(
     graphistry/tests/compute/gfql/cypher/test_grouped_aggregate_cross_alias.py
     graphistry/tests/compute/gfql/cypher/test_single_alias_where_2019.py
     graphistry/tests/compute/gfql/cypher/test_in_null_three_valued_2123.py
+    graphistry/tests/compute/gfql/cypher/test_projected_literal_named_like_column_2346.py
     # module-level `importorskip("polars")` files that previously ran in no lane at all
     graphistry/tests/compute/gfql/test_engine_polars_narrow_combine.py
     graphistry/tests/compute/gfql/row/test_alias_prefilter_alignment_2020.py
