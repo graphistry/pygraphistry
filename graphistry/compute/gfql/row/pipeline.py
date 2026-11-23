@@ -3198,23 +3198,47 @@ class RowPipelineMixin:
         return "{" + ", ".join(parts) + "}"
 
     @staticmethod
-    def _gfql_string_predicate_per_row(left: SeriesT, right: SeriesT, op_name: str, expr: str) -> SeriesT:
-        """A non-literal right operand: evaluate row by row, null unless both operands are strings.
+    def _gfql_string_predicate_columnwise_cudf(left: SeriesT, right: SeriesT, op_name: str, expr: str) -> SeriesT:
+        """A non-literal right operand on cuDF, entirely on the GPU: null unless both operands are strings.
 
-        pandas evaluates in place; cuDF round-trips the two series through pandas and converts the result back;
-        the Polars engines decline."""
-        on_gpu = is_cudf_series(left) or is_cudf_series(right)
-        if on_gpu:
-            left_pd, right_pd = left.to_pandas(), right.to_pandas()
-        elif isinstance(left, pd.Series) and isinstance(right, pd.Series):
-            left_pd, right_pd = left, right
+        contains uses the string-pattern column form; starts_with / ends_with compare a per-row slice (bounded by the pattern's
+        length) with the pattern. Regex (=~) has no column-pattern form, so it declines by name instead of leaving the GPU."""
+        import cudf
+
+        if op_name == "regex":
+            raise NotImplementedError(
+                f"a non-literal right operand of =~ is not supported on cuDF in {expr!r}; "
+                f"use engine='pandas' for this query (no silent fallback; parity-or-error by design)"
+            )
+        left_str, right_str = _str_ops_series(left), _str_ops_series(right)
+        if left_str is None or right_str is None:
+            return cudf.Series([None] * len(left), dtype="bool", index=left.index)
+        left_len, right_len = left_str.str.len().fillna(0), right_str.str.len().fillna(0)
+        if op_name == "contains":
+            out = left_str.str.contains(right_str, regex=False)
+        elif op_name == "starts_with":
+            out = (left_str.str.slice_from(starts=left_len * 0, stops=right_len) == right_str) & (right_len <= left_len)
+        elif op_name == "ends_with":
+            starts = (left_len - right_len).clip(lower=0)
+            out = (left_str.str.slice_from(starts=starts, stops=left_len) == right_str) & (right_len <= left_len)
         else:
+            raise ValueError(f"unsupported row expression predicate op: {op_name} in {expr!r}")
+        return out.where(~(left_str.isna() | right_str.isna()), pd.NA)
+
+    @staticmethod
+    def _gfql_string_predicate_per_row(left: SeriesT, right: SeriesT, op_name: str, expr: str) -> SeriesT:
+        """A non-literal right operand: null unless both operands are strings.
+
+        pandas evaluates row by row; cuDF stays on the GPU; the Polars engines lower it natively in their row pipeline."""
+        if is_cudf_series(left) or is_cudf_series(right):
+            return RowPipelineMixin._gfql_string_predicate_columnwise_cudf(left, right, op_name, expr)
+        if not (isinstance(left, pd.Series) and isinstance(right, pd.Series)):
             raise NotImplementedError(
                 f"a non-literal right operand of {op_name} is not supported on this engine in {expr!r}; "
                 f"use engine='pandas' for this query (no silent fallback; parity-or-error by design)"
             )
         values: List[Any] = []
-        for lhs, rhs in zip(left_pd, right_pd):
+        for lhs, rhs in zip(left, right):
             if not (isinstance(lhs, str) and isinstance(rhs, str)):
                 values.append(pd.NA)
                 continue
@@ -3222,12 +3246,7 @@ class RowPipelineMixin:
                 values.append(apply_string_predicate_scalar(lhs, rhs, op_name))
             except re.error as exc:
                 raise ValueError(f"invalid regex pattern in {expr!r}: {exc}") from exc
-        out = pd.Series(values, index=left_pd.index, dtype="object")
-        if on_gpu:
-            import cudf
-
-            return cudf.from_pandas(out.astype("boolean"))
-        return out
+        return pd.Series(values, index=left.index, dtype="object")
 
     def _gfql_eval_string_predicate_expr(
         self,
