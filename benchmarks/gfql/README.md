@@ -393,8 +393,8 @@ A GFQL change that can affect performance or memory needs a before and after in 
 2. Run it on `develop` and on your branch, on the same machine, with the same flags, and keep the written tables:
 
    ```bash
-   git switch develop && uv run python benchmarks/gfql/cypher_row_pipeline.py --runs 5 --output /tmp/before.md
-   git switch my-branch && uv run python benchmarks/gfql/cypher_row_pipeline.py --runs 5 --output /tmp/after.md
+   git switch develop && python benchmarks/gfql/cypher_row_pipeline.py --runs 5 --output /tmp/before.md
+   git switch my-branch && python benchmarks/gfql/cypher_row_pipeline.py --runs 5 --output /tmp/after.md
    ```
 
 3. Do the same for two scripts or scenarios you did not touch: the regular path (the common case before your change existed) and an inactive path (a case where your new code is not supposed to run). A real change moves the first and leaves the other two within run-to-run noise.

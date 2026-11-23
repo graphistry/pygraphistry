@@ -30,7 +30,7 @@ Before and after on the changed case and on two paths you did not change, from t
 (paste the table here)
 ```
 
-## Cypher Frontend CI Evidence (when PR touches cypher frontend / IR scope)
+## Cypher Frontend CI Evidence (only when the PR touches `graphistry/compute/gfql/cypher/` or the IR; otherwise leave unchecked)
 
 - [ ] `cypher-frontend-strict-typing (py3.12)` passed (strict typing gate)
 - [ ] `cypher-frontend-differential-parity (py3.12)` passed (trust-but-verify gate)
