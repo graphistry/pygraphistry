@@ -58,6 +58,9 @@ POLARS_TEST_FILES=(
     # non-sequence operand) only ever run here
     graphistry/tests/compute/gfql/test_size_nonlist_decline_1985.py
     graphistry/tests/compute/gfql/test_polars_string_predicate_nonstring.py
+    graphistry/tests/compute/gfql/test_polars_categorical_predicates.py
+    graphistry/tests/compute/gfql/cypher/test_string_predicate_nonstring_2335.py
+    graphistry/tests/compute/gfql/cypher/test_string_predicate_families_2335.py
     graphistry/tests/compute/gfql/cypher/test_order_by_null_placement.py
     graphistry/tests/compute/gfql/cypher/test_null_equality_conjunction.py
     graphistry/tests/compute/gfql/cypher/test_missing_relationship_property_2262.py
