@@ -154,7 +154,7 @@ def format_entities_from_col(
             [(
                 c,
                 base_df[c].dtype.name,
-                meta[c].dtype.name  # type: ignore
+                meta[c].dtype.name
             ) for c in missing_cols])
         for c in base_df:
             logger.debug('test base_df2 col [ %s ]: %s', c, base_df[c].dtype)
@@ -169,7 +169,7 @@ def format_entities_from_col(
         c: coerce_col_safe(
             base_df[c],
             meta[c].dtype)
-            if base_df[c].dtype.name != meta[c].dtype.name  # type: ignore
+            if base_df[c].dtype.name != meta[c].dtype.name
             else base_df[c]
         for c in missing_cols
     })
@@ -648,7 +648,7 @@ def df_coercion(  # noqa: C901
     if engine == Engine.DASK:
         import dask.dataframe
         if isinstance(df, pd.DataFrame):
-            out = dask.dataframe.from_pandas(df, **{  # type: ignore[call-overload]
+            out = dask.dataframe.from_pandas(df, **{
                 **({'npartitions': npartitions} if npartitions is not None else {}) , 
                 **({'chunksize': chunksize} if chunksize is not None else {})
             })
@@ -849,11 +849,11 @@ def hypergraph(
             stacklevel=_caller_stacklevel()
         )
     entity_types = [i for i in screen_entities(raw_events, entity_types, defs) if i != defs.event_id]
-    events = clean_events(raw_events, defs, dropna=drop_na, engine=engine_resolved, npartitions=npartitions, chunksize=chunksize, debug=debug)  # type: ignore
+    events = clean_events(raw_events, defs, dropna=drop_na, engine=engine_resolved, npartitions=npartitions, chunksize=chunksize, debug=debug)
     if debug and (engine in [ Engine.DASK, Engine.DASK_CUDF ]):
         logger.debug('==== events: %s', events.compute())
     
-    entities = format_entities(events, entity_types, defs, direct, drop_na, engine_resolved, npartitions, chunksize, debug)  # type: ignore
+    entities = format_entities(events, entity_types, defs, direct, drop_na, engine_resolved, npartitions, chunksize, debug)
 
     event_entities = None
     edges = None

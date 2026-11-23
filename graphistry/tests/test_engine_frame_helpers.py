@@ -49,6 +49,21 @@ def test_is_series_like_pandas() -> None:
     assert is_series_like(object()) is False
 
 
+def test_is_series_like_decides_by_type_not_by_attribute() -> None:
+    class SeriesSubclass(pd.Series):
+        pass
+
+    class LooksLikeASeries:
+        def dropna(self) -> None:
+            return None
+
+    assert is_series_like(SeriesSubclass([1])) is True
+    assert is_series_like(pd.DataFrame({"a": [1]})) is False  # a frame also has .dropna
+    assert is_series_like(LooksLikeASeries()) is False
+    assert is_series_like(None) is False
+    assert is_series_like([1, 2]) is False
+
+
 def test_series_not_null_mask_pandas() -> None:
     assert list(series_not_null_mask(pd.Series([1, None, 3]))) == [True, False, True]
 
@@ -151,6 +166,8 @@ def test_series_to_pylist_pandas_and_fallbacks() -> None:
 @polars_only
 def test_is_series_like_polars() -> None:
     assert is_series_like(pl.Series([1, 2])) is True
+    assert is_series_like(pl.DataFrame({"a": [1]})) is False
+    assert is_series_like(pl.DataFrame({"a": [1]}).lazy()) is False
 
 
 @polars_only

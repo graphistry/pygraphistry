@@ -175,7 +175,7 @@ def partitioned_layout(
         'x': ['max', 'min'],
         'y': ['max', 'min']
     })
-    node_stats.columns = ['x_max', 'x_min', 'y_max', 'y_min']  # type: ignore
+    node_stats.columns = ['x_max', 'x_min', 'y_max', 'y_min']
     node_stats['dx'] = df_cons(engine)({
         'dx': node_stats['x_max'] - node_stats['x_min'],
         'min': 1

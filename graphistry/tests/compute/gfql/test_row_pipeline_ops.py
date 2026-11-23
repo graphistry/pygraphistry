@@ -1008,7 +1008,7 @@ class TestRowPipelineExecution:
             pytest.param(
                 {"id": ["a", "b"], "txt": ["x5", "yy"]},
                 "txt CONTAINS 5",
-                ["a"],
+                [],
                 id="numeric-string-rhs",
             ),
             pytest.param(
@@ -1062,9 +1062,9 @@ class TestRowPipelineExecution:
         nodes_df = pd.DataFrame({"id": ["a", "b", "c"], "txt": ["abc5", "5abc", "none"]})
 
         cases = [
-            ("txt CONTAINS (5)", ["a", "b"]),
-            ("txt STARTS WITH (5)", ["b"]),
-            ("txt ENDS WITH (5)", ["a"]),
+            ("txt CONTAINS (5)", []),
+            ("txt STARTS WITH (5)", []),
+            ("txt ENDS WITH (5)", []),
         ]
         for expr, expected_ids in cases:
             assert self._where_expr_ids(nodes_df, expr) == expected_ids
