@@ -89,7 +89,7 @@ def evidence_text(evidence: Evidence) -> str:
     return json.dumps(evidence, sort_keys=True, separators=(",", ":"), ensure_ascii=False, default=str)
 
 
-def _error_code(response: requests.Response) -> object:
+def _error_code(response: requests.Response) -> object:  # hygiene-ok: object-annotation -- untrusted host or user input, narrowed by isinstance
     try:
         body = response.json()
     except ValueError:
