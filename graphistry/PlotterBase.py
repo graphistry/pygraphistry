@@ -874,14 +874,14 @@ class PlotterBase(Plottable):
             raise ValueError(_TEXT_MAPPING_ERROR.format(method=method))
         return self.bind(**{_TEXT_BINDING_METHODS[method]: column})
 
-    encode_edge_size = partialmethod(_encode_mapped_property_method, "encode_edge_size")  # type: ignore[assignment]
-    encode_edge_weight = partialmethod(_encode_mapped_property_method, "encode_edge_weight")  # type: ignore[assignment]
-    encode_point_opacity = partialmethod(_encode_mapped_property_method, "encode_point_opacity")  # type: ignore[assignment]
-    encode_edge_opacity = partialmethod(_encode_mapped_property_method, "encode_edge_opacity")  # type: ignore[assignment]
-    encode_point_label = partialmethod(_encode_text_binding_method, "encode_point_label")  # type: ignore[assignment]
-    encode_edge_label = partialmethod(_encode_text_binding_method, "encode_edge_label")  # type: ignore[assignment]
-    encode_point_title = partialmethod(_encode_text_binding_method, "encode_point_title")  # type: ignore[assignment]
-    encode_edge_title = partialmethod(_encode_text_binding_method, "encode_edge_title")  # type: ignore[assignment]
+    encode_edge_size = partialmethod(_encode_mapped_property_method, "encode_edge_size")  # type: ignore[assignment, unused-ignore]
+    encode_edge_weight = partialmethod(_encode_mapped_property_method, "encode_edge_weight")  # type: ignore[assignment, unused-ignore]
+    encode_point_opacity = partialmethod(_encode_mapped_property_method, "encode_point_opacity")  # type: ignore[assignment, unused-ignore]
+    encode_edge_opacity = partialmethod(_encode_mapped_property_method, "encode_edge_opacity")  # type: ignore[assignment, unused-ignore]
+    encode_point_label = partialmethod(_encode_text_binding_method, "encode_point_label")  # type: ignore[assignment, unused-ignore]
+    encode_edge_label = partialmethod(_encode_text_binding_method, "encode_edge_label")  # type: ignore[assignment, unused-ignore]
+    encode_point_title = partialmethod(_encode_text_binding_method, "encode_point_title")  # type: ignore[assignment, unused-ignore]
+    encode_edge_title = partialmethod(_encode_text_binding_method, "encode_edge_title")  # type: ignore[assignment, unused-ignore]
 
 
     def encode_point_icon(
@@ -2536,7 +2536,7 @@ class PlotterBase(Plottable):
         assert uploader is not None
         if skip_upload:
             return uploader
-        uploader.token = self.session.api_token  # type: ignore[assignment]
+        uploader.token = self.session.api_token  # type: ignore[assignment, unused-ignore]
         uploader.post(
             as_files=as_files,
             memoize=memoize,
@@ -3122,7 +3122,7 @@ class PlotterBase(Plottable):
             if df[col].dtype == object:
                 try:
                     if is_cudf:
-                        df[[col]].to_arrow()  # type: ignore[union-attr]
+                        df[[col]].to_arrow()
                     else:
                         pa.array(df[col], from_pandas=True)
                 except (pa.lib.ArrowTypeError, pa.lib.ArrowInvalid):
@@ -3146,7 +3146,7 @@ class PlotterBase(Plottable):
             if df[col].dtype == object:
                 try:
                     if is_cudf:
-                        df[[col]].to_arrow()  # type: ignore[union-attr]
+                        df[[col]].to_arrow()
                     else:
                         pa.array(df[col], from_pandas=True)
                 except (pa.lib.ArrowTypeError, pa.lib.ArrowInvalid):
@@ -3494,7 +3494,7 @@ class PlotterBase(Plottable):
                     raise ArrowConversionError(columns=bad_cols, original_error=e)
                 logger.debug('cuDF Arrow conversion failed, auto-coercing: %s', e)
                 table_fixed = self._coerce_mixed_type_columns(table, is_cudf=True, emit_warning=emit_warnings)
-                out = table_fixed.to_arrow()  # type: ignore[union-attr]
+                out = table_fixed.to_arrow()
 
             if memoize:
                 w = WeakValueWrapper(out)
@@ -3697,7 +3697,7 @@ class PlotterBase(Plottable):
                 'usertag': self.session._tag,
                 'agent': 'pygraphistry',
                 'apiversion' : '3',
-                'agentversion': sys.modules['graphistry'].__version__,  # type: ignore
+                'agentversion': sys.modules['graphistry'].__version__,
                 **(metadata or {})
             },
             certificate_validation=self._pygraphistry.certificate_validation())

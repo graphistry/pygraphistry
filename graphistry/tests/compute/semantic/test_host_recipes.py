@@ -3,6 +3,9 @@
 Each pin builds the provider exactly as its recipe does and checks the URL, the auth header and the payload that a host sees.
 """
 import math
+import re
+import textwrap
+from pathlib import Path
 from typing import Dict, List
 
 import pytest
@@ -62,3 +65,22 @@ class TestHostRecipes:
         assert post["json"]["model"] == "llama3.1" and post["json"]["logprobs"] is True  # type: ignore[index]
         assert results[0].value is True and results[0].probability_kind == "token_logprob"
         assert results[0].distribution == pytest.approx({"true": 0.8 / 0.95, "false": 0.15 / 0.95})
+
+    def test_every_provider_recipe_in_the_docs_builds(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """The copy-paste recipes in builtin_calls.rst name real parameters and strategies: each block builds its providers, with no request."""
+        for key in ("OPENAI_API_KEY", "OPENROUTER_API_KEY", "ANTHROPIC_API_KEY"):
+            monkeypatch.setenv(key, "not-a-real-key")
+        rst = (Path(__file__).resolve().parents[4] / "docs" / "source" / "gfql" / "builtin_calls.rst").read_text(encoding="utf-8")
+        section = rst[rst.index("Provider recipes\n~~~~"):rst.index("Repeated inputs\n~~~~")]
+        blocks = re.findall(r"\.\. doc-test: skip\n\n\.\. code-block:: python\n\n((?:    .*\n|\n)+)", section)
+        assert len(blocks) == 5
+        built: Dict[str, object] = {}
+        for index, block in enumerate(blocks, 1):
+            namespace: Dict[str, object] = {}
+            exec(compile(textwrap.dedent(block), f"recipe{index}", "exec"), namespace)  # noqa: S102
+            built.update({name: value for name, value in namespace.items() if hasattr(value, "decide_batch") and not isinstance(value, type)})
+        assert {name: type(value).__name__ for name, value in built.items()} == {
+            "provider": "OpenAIChatProvider", "chat": "OpenAIChatProvider", "native": "OpenAIDecisionsProvider",
+            "vllm": "OpenAIChatProvider", "sglang": "OpenAIChatProvider"}
+        assert built["chat"].base_url == "https://openrouter.ai/api/v1" and built["provider"].base_url == "http://localhost:11434/v1"  # type: ignore[attr-defined]
+        assert (built["vllm"].strategy, built["sglang"].strategy) == ("vllm_choice", "sglang_regex")  # type: ignore[attr-defined]
