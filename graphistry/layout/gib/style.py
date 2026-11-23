@@ -32,7 +32,7 @@ def categorical_color_by_col(
         )
         .to_dict()
     )['color']
-    g2 = g.encode_point_color(col, categorical_mapping=partition_to_color)  # type: ignore
+    g2 = g.encode_point_color(col, categorical_mapping=partition_to_color)
     return g2
 
 

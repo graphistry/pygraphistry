@@ -54,14 +54,14 @@ def _array_module(s: SeriesT) -> ArrayNamespace:
     """numpy for pandas, cupy for cuDF: the index lives where the column lives."""
     if _is_cudf(s):
         import cupy
-        return cupy  # type: ignore[return-value]
+        return cupy
     import numpy
-    return numpy  # type: ignore[return-value]
+    return numpy
 
 
 def _values(s: SeriesT) -> ArrayLike:
     """The column's array on its own device."""
-    return s.values if _is_cudf(s) else s.to_numpy()  # type: ignore[return-value]
+    return s.values if _is_cudf(s) else s.to_numpy()
 
 
 class DatetimeIndexCacheThrashWarning(RuntimeWarning):
@@ -180,9 +180,9 @@ def _module_of(array: ArrayLike) -> ArrayNamespace:
     """The array module an existing array belongs to."""
     if type(array).__module__.startswith("cupy"):
         import cupy
-        return cupy  # type: ignore[return-value]
+        return cupy
     import numpy
-    return numpy  # type: ignore[return-value]
+    return numpy
 
 
 def _zone_codes(localized: SeriesT) -> Tuple[ArrayLike, List[str]]:

@@ -102,7 +102,7 @@ def _accumulate_metadata(
         acc: Dict[str, object] = dict(existing)
         for k, v in new.items():
             prev = acc.get(k)
-            acc[k] = prev + v if isinstance(prev, int) and isinstance(v, int) else v  # type: ignore[operator]
+            acc[k] = prev + v if isinstance(prev, int) and isinstance(v, int) else v
         merged[pass_name] = acc
     else:
         merged[pass_name] = dict(new)

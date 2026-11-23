@@ -203,7 +203,11 @@ restatements of the signature. A keep must state a constraint that no name and n
 
 Typing, same rule: `Any` over a known domain gets the real alias; a new `# type: ignore` or
 `hygiene-ok` gets restructured (both are for grandfathered debt only); `cast()` to satisfy the
-checker becomes `isinstance` narrowing. Hygiene-guard "no growth" is not sufficient — a file the PR
+checker becomes `isinstance` narrowing. The escape hatches the guard counts, each of which is a
+finding when it appears on a line the PR adds: `hasattr`/`getattr`/`setattr`, `__module__`/`__dict__`
+and `type(x).__name__` sniffing (when the name is tested), `except AttributeError`, `vars()`, a bare
+`# type: ignore` (no error code), `object` in an annotation (a `TypeGuard`-returning function is
+exempt), `Any`, `cast()` and `# hygiene-ok`. Hygiene-guard "no growth" is not sufficient — a file the PR
 touches should go down.
 
 Run this skill on your own `<base>..HEAD` diff before pushing, and carry these rules in any brief
@@ -256,7 +260,9 @@ python -m pytest -q [targeted_test]
   assertion in pygraphistry tests is a finding.
   A new route also updates the hosted replay matrix and runs `graphistry/tests/compute/gfql/routes/test_replay.py`;
   focused local replay does not check hosted matrix coverage.
-- **Perf claims live in pyg-bench.** A number in a PR body or CHANGELOG needs a pyg-bench measurement
+- **Perf claims and perf issues live in pyg-bench.** File perf follow-ups found in review in pyg-bench, not pygraphistry.
+  This routing applies only to people with access to the benchmark, TCK and evals repositories; outside contributors have no access, so they file in pygraphistry and a maintainer moves the issue.
+  A number in a PR body or CHANGELOG needs a pyg-bench measurement
   with an A/A control beside the A/B, pinned in that repo's thresholds + contract test; pygraphistry
   carries results and data contracts only. Local-box numbers do not close a perf PR.
 - **Cypher surface.** A change reachable from a Cypher query (parser, DDL, row pipeline, WHERE/RETURN
