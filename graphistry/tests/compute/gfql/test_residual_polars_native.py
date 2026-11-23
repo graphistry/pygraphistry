@@ -106,12 +106,7 @@ class TestResidualTranslator:
 
     @requires_polars
     @pytest.mark.parametrize("bad", [
-        # --- string predicates: the row lowering has no native kernel for them, AND the
-        # connected-join WHERE renderer cannot emit them at all (pinned in
-        # TestStringPredicatesAreUnreachable), so covering them here would be dead code
-        "(a.name CONTAINS 'x')",
-        "(a.name STARTS WITH 'x')",
-        "(a.name ENDS WITH 'x')",
+        # String predicates have native kernels now and are covered natively below.
         "(a.name =~ '.*x.*')",
         # --- another alias's column: not in THIS frame, and the fallback's prefixed row
         # table cannot resolve it either (-> its designed NotImplementedError)
@@ -479,17 +474,15 @@ class TestStringPredicatesAnswerNatively:
     @requires_polars
     @pytest.mark.parametrize("expr", [
         "(a.name STARTS WITH 'A')", "(a.name ENDS WITH 'e')",
-        "(a.name CONTAINS 'l')", "(a.name =~ '.*l.*')",
+        "(a.name CONTAINS 'l')",
     ])
-    def test_translator_declines_them_and_so_does_the_evaluator(self, expr):
-        """Belt-and-braces: even if such a residual were synthesized by hand, the fast lane
-        declines it and the fallback raises -- no engine answers it natively, so there is
-        no correct answer for the fast lane to guess at."""
+    def test_translator_answers_them_natively(self, expr):
+        """Pin the native residual kernel for supported string predicates."""
         nodes = _tricky_nodes()
-        assert fp._residual_polars_expr(expr, "a", dict(nodes.schema)) is None
-        with pytest.raises(NotImplementedError):
-            fp._connected_join_apply_node_residuals(
-                _pl_graph(nodes), nodes, "a", [expr], "node_id", engine=Engine.POLARS)
+        assert fp._residual_polars_expr(expr, "a", dict(nodes.schema)) is not None
+        out = fp._connected_join_apply_node_residuals(
+            _pl_graph(nodes), nodes, "a", [expr], "node_id", engine=Engine.POLARS)
+        assert out is not None
 
 
 class TestFusedTwoStarLane:

@@ -55,16 +55,16 @@ def log(msg:str) -> None:
 
 class EmbedDistScore:
     @staticmethod
-    def TransE(h:TT, r:TT, t:TT) -> TT:  # type: ignore
-        return (h + r - t).norm(p=1, dim=1)  # type: ignore
+    def TransE(h:TT, r:TT, t:TT) -> TT:
+        return (h + r - t).norm(p=1, dim=1)
 
     @staticmethod
-    def DistMult(h:TT, r:TT, t:TT) -> TT:  # type: ignore
-        return (h * r * t).sum(dim=1)  # type: ignore
+    def DistMult(h:TT, r:TT, t:TT) -> TT:
+        return (h * r * t).sum(dim=1)
 
     @staticmethod
-    def RotatE(h:TT, r:TT, t:TT) -> TT:  # type: ignore
-        return -(h * r - t).norm(p=1, dim=1)  # type: ignore
+    def RotatE(h:TT, r:TT, t:TT) -> TT:
+        return -(h * r - t).norm(p=1, dim=1)
 
 
 class HeterographEmbedModuleMixin(ComputeMixin):
@@ -137,7 +137,7 @@ class HeterographEmbedModuleMixin(ComputeMixin):
             log(msg="--Splitting data")
             train_size = int(train_split * len(triplets))
             test_size = len(triplets) - train_size
-            train_dataset, test_dataset = torch.utils.data.random_split(triplets, [train_size, test_size])  # type: ignore
+            train_dataset, test_dataset = torch.utils.data.random_split(triplets, [train_size, test_size])
             res._train_idx = train_dataset.indices
             res._test_idx = test_dataset.indices
 
@@ -153,14 +153,14 @@ class HeterographEmbedModuleMixin(ComputeMixin):
 
         if res._train_idx is not None:
             g_dgl = dgl.graph(
-                (s[res._train_idx], t[res._train_idx]), num_nodes=res._num_nodes  # type: ignore
+                (s[res._train_idx], t[res._train_idx]), num_nodes=res._num_nodes
 
             )
             g_dgl.edata[dgl.ETYPE] = r[res._train_idx]
 
         else:
             g_dgl = dgl.graph(
-                (s, t), num_nodes=res._num_nodes  # type:ignore
+                (s, t), num_nodes=res._num_nodes
             )
             g_dgl.edata[dgl.ETYPE] = r
 
@@ -343,7 +343,7 @@ class HeterographEmbedModuleMixin(ComputeMixin):
             res = res._preprocess_embedding_data(res, train_split=train_split)  # type: ignore
             res = res._build_graph(res)  # type: ignore
 
-        return res._train_embedding(res, epochs, batch_size, lr=lr, sample_size=sample_size, num_steps=num_steps, device=device)  # type: ignore
+        return res._train_embedding(res, epochs, batch_size, lr=lr, sample_size=sample_size, num_steps=num_steps, device=device)
 
 
     def _score_triplets(self, triplets, threshold, anomalous, retain_old_edges, return_dataframe):
@@ -356,11 +356,11 @@ class HeterographEmbedModuleMixin(ComputeMixin):
         ############################################################
         if len(triplets) > 1:
             if anomalous:
-                predicted_links = triplets[scores < threshold]  # type: ignore
-                this_score = scores[scores < threshold]  # type: ignore
+                predicted_links = triplets[scores < threshold]
+                this_score = scores[scores < threshold]
             else:
-                predicted_links = triplets[scores > threshold]  # type: ignore
-                this_score = scores[scores > threshold]  # type: ignore
+                predicted_links = triplets[scores > threshold]
+                this_score = scores[scores > threshold]
         else:
             predicted_links = triplets
             this_score = scores
@@ -400,7 +400,7 @@ class HeterographEmbedModuleMixin(ComputeMixin):
         anomalous: Optional[bool] = False,
         retain_old_edges: Optional[bool] = False,
         return_dataframe: Optional[bool] = False
-    ) -> Plottable:  # type: ignore
+    ) -> Plottable:
         """predict_links over all the combinations of given source, relation, destinations.
 
         Parameters
@@ -438,7 +438,7 @@ class HeterographEmbedModuleMixin(ComputeMixin):
             # this is temporary, will be removed after gpu feature utils
             try:
                 if isinstance(source, cudf.DataFrame):
-                    source = source.to_pandas()  # type: ignore
+                    source = source.to_pandas()
             except:
                 pass
             src = pd.Series(source)
@@ -450,7 +450,7 @@ class HeterographEmbedModuleMixin(ComputeMixin):
             # this is temporary, will be removed after gpu feature utils
             try:
                 if isinstance(relation, cudf.DataFrame):
-                    relation = relation.to_pandas()  # type: ignore
+                    relation = relation.to_pandas()
             except:
                 pass
             rel = pd.Series(relation)
@@ -462,7 +462,7 @@ class HeterographEmbedModuleMixin(ComputeMixin):
             # this is temporary, will be removed after gpu feature utils
             try:
                 if isinstance(destination, cudf.DataFrame):
-                    destination = destination.to_pandas()  # type: ignore
+                    destination = destination.to_pandas()
             except:
                 pass
             dst = pd.Series(destination)
@@ -492,7 +492,7 @@ class HeterographEmbedModuleMixin(ComputeMixin):
         anomalous: Optional[bool] = False,
         retain_old_edges: Optional[bool] = False,
         return_dataframe: Optional[bool] = False
-    ) -> Plottable:  # type: ignore
+    ) -> Plottable:
         """predict_links over entire graph given a threshold
 
         Parameters
@@ -540,7 +540,7 @@ class HeterographEmbedModuleMixin(ComputeMixin):
         return self._score_triplets(triplets, threshold, anomalous, retain_old_edges, return_dataframe)
         
 
-    def _score(self, triplets: Union[np.ndarray, TT]) -> TT:  # type: ignore
+    def _score(self, triplets: Union[np.ndarray, TT]) -> TT:
         _, torch, _, _, _, _, _, _ = lazy_embed_import()
         emb = self._kg_embeddings.clone().detach()
         if not isinstance(triplets, torch.Tensor):
@@ -554,7 +554,7 @@ class HeterographEmbedModuleMixin(ComputeMixin):
         if self._test_idx is not None:
             triplets = self._triplets[self._test_idx]  # type: ignore
             score = self._score(triplets)
-            score = len(score[score >= threshold]) / len(score)  # type: ignore
+            score = len(score[score >= threshold]) / len(score)
             return score
         else:
             log("WARNING: train_split must be < 1 for _eval()")
@@ -584,7 +584,7 @@ class SubgraphIterator:
             self.num_nodes,
         )
 
-        src, rel, dst = samples.T  # type: ignore
+        src, rel, dst = samples.T
 
         sub_g = dgl.graph((src, dst), num_nodes=self.num_nodes)
         sub_g.edata[dgl.ETYPE] = rel
@@ -593,7 +593,7 @@ class SubgraphIterator:
         return sub_g, samples, labels
 
     @staticmethod
-    def _sample_neg(triplets:np.ndarray, num_nodes:int) -> Tuple[TT, TT]:  # type: ignore
+    def _sample_neg(triplets:np.ndarray, num_nodes:int) -> Tuple[TT, TT]:
         _, torch, _, _, _, _, _, _ = lazy_embed_import()
         triplets = torch.tensor(triplets)
         h, r, t = triplets.T
