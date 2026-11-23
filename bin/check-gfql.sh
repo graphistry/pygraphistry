@@ -72,7 +72,15 @@ run_step() {  # name, command...
   echo
   echo "=== $name: $*"
   if [ "$DRY" = 1 ]; then SUMMARY+=("dry   $name"); return 0; fi
-  if "$@"; then SUMMARY+=("ok    $name"); else SUMMARY+=("FAIL  $name"); FAILED+=("$name"); fi
+  "$@"
+  local rc=$?
+  if [ "$rc" = 0 ]; then
+    SUMMARY+=("ok    $name")
+  elif [ "$rc" = 5 ]; then  # pytest: no tests collected (e.g. a -k filter that matches nothing in this step)
+    SUMMARY+=("none  $name (no tests matched)")
+  else
+    SUMMARY+=("FAIL  $name"); FAILED+=("$name")
+  fi
 }
 
 if [ "$WITH_LINT" = 1 ]; then
