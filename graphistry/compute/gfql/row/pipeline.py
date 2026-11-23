@@ -4,6 +4,7 @@ import math
 from decimal import Decimal, InvalidOperation
 import numpy as np
 import numbers
+import operator
 import re
 import warnings
 from functools import lru_cache
@@ -148,8 +149,8 @@ GFQLParseExprFn = Callable[[str], "ExprNode"]
 GFQLValidateExprFn = Callable[["ExprNode"], List[str]]
 GFQLRuntimeParserBundle = Tuple[GFQLParseExprFn, GFQLValidateExprFn, ModuleType]
 _GFQL_MISSING_BOOL_OPERAND = object()
+_GFQL_STRING_PREDICATE_PAIR_OPS: Dict[str, Callable[[str, str], bool]] = {"contains": operator.contains, "starts_with": str.startswith, "ends_with": str.endswith}  # (left, right) -> bool
 _GFQL_STRING_PREDICATE_MAX_PATTERNS = 256  # distinct column patterns answered pass by pass; beyond it pandas goes row by row and cuDF declines
-_GFQL_STRING_PREDICATE_NUMPY_BYTES = 1 << 29  # padded numpy string arrays above this go row by row
 _INT64_MIN = -(2**63)
 _INT64_LIMIT_HIGH = 2**63
 _INT64_MIN_AS_FLOAT = float(_INT64_MIN)
@@ -3218,13 +3219,13 @@ class RowPipelineMixin:
 
     @staticmethod
     def _gfql_string_predicate_by_pattern(left_str: SeriesT, right_str: SeriesT, usable: SeriesT, op_name: str, expr: str) -> SeriesT:
-        """One pass per DISTINCT pattern through the literal-pattern path, so the answer is the literal operand's answer. Boolean, False where not `usable`.
+        """`=~` with a column pattern: one literal-path pass per DISTINCT pattern, so the answer is the literal operand's answer. Boolean, False where not `usable`.
 
-        The only per-row cost left is one regex per distinct pattern, which is what a column of regexes means."""
+        The only per-row cost left is one regex per row, which is what a column of regexes means. pandas passes each pattern only its own rows;
+        cuDF passes each pattern the whole column and keeps its rows with a mask; only the distinct pattern strings (at most the cap) reach the host, as each becomes a literal argument."""
         is_gpu = is_cudf_series(left_str)
-        patterns = right_str[usable].unique()
-        patterns = patterns.to_pandas() if is_gpu else patterns
-        if len(patterns) > _GFQL_STRING_PREDICATE_MAX_PATTERNS:
+        distinct = right_str[usable].unique()
+        if len(distinct) > _GFQL_STRING_PREDICATE_MAX_PATTERNS:
             if is_gpu:  # pragma: no cover - cuDF-only; no cuDF lane in the coverage gate
                 raise NotImplementedError(
                     f"{op_name} over more than {_GFQL_STRING_PREDICATE_MAX_PATTERNS} distinct patterns is not supported on cuDF in {expr!r}; "
@@ -3237,20 +3238,36 @@ class RowPipelineMixin:
                 )
             except re.error as exc:
                 raise ValueError(f"invalid regex pattern in {expr!r}: {exc}") from exc
-        out = usable & False
-        for pattern in patterns:
+        if is_gpu:  # pragma: no cover - cuDF-only; no cuDF lane in the coverage gate
+            out = usable & False
+            for pattern in distinct.to_pandas():
+                try:
+                    hit = apply_string_predicate_series(left_str, pattern, op_name)
+                except re.error as exc:
+                    raise ValueError(f"invalid regex pattern in {expr!r}: {exc}") from exc
+                out = out | (hit.fillna(False).astype(bool) & usable & (right_str == pattern))
+            return out
+        rows = np.flatnonzero(usable.to_numpy(dtype=bool))
+        codes, patterns = pd.factorize(right_str.to_numpy(dtype=object)[rows])
+        order = np.argsort(codes, kind="stable")
+        ends = np.cumsum(np.bincount(codes, minlength=len(patterns)))
+        hits = np.zeros(len(left_str), dtype=bool)
+        start = 0
+        for code, pattern in enumerate(patterns):
+            own = rows[order[start:ends[code]]]
+            start = ends[code]
             try:
-                hit = apply_string_predicate_series(left_str, pattern, op_name)
+                hit = apply_string_predicate_series(left_str.iloc[own], pattern, op_name)
             except re.error as exc:
                 raise ValueError(f"invalid regex pattern in {expr!r}: {exc}") from exc
-            out = out | (hit.fillna(False).astype(bool) & usable & (right_str == pattern))
-        return out
+            hits[own] = hit.fillna(False).to_numpy(dtype=bool)
+        return pd.Series(hits, index=left_str.index, dtype=bool)
 
     @staticmethod
     def _gfql_string_predicate_per_row(left: SeriesT, right: SeriesT, op_name: str, expr: str) -> SeriesT:
         """A non-literal right operand: null unless both operands are strings; column-wise on every engine that lowers it.
 
-        contains / starts_with / ends_with: numpy string functions over both columns on pandas, the string-pattern column form and
+        contains / starts_with / ends_with: the string method mapped over both columns on pandas, the string-pattern column form and
         a per-row slice on cuDF, native expressions on the Polars engines. `=~`: one literal-path pass per distinct pattern."""
         gpu = is_cudf_series(left) or is_cudf_series(right)
         if not gpu and not (isinstance(left, pd.Series) and isinstance(right, pd.Series)):
@@ -3267,7 +3284,7 @@ class RowPipelineMixin:
         elif gpu:  # pragma: no cover - cuDF-only; no cuDF lane in the coverage gate
             hit = RowPipelineMixin._gfql_string_predicate_columnwise_cudf(left_str, right_str, op_name, expr)
         else:
-            hit = RowPipelineMixin._gfql_string_predicate_columnwise_pandas(left_str, right_str, usable, op_name, expr)
+            hit = RowPipelineMixin._gfql_string_predicate_columnwise_pandas(left_str, right_str, usable, op_name)
         return hit.where(usable) if gpu else hit.where(usable, pd.NA)
 
     @staticmethod
@@ -3279,28 +3296,14 @@ class RowPipelineMixin:
         return pd.Series([pd.NA] * len(like), index=like.index, dtype="object")
 
     @staticmethod
-    def _gfql_string_predicate_columnwise_pandas(left_str: SeriesT, right_str: SeriesT, usable: SeriesT, op_name: str, expr: str) -> SeriesT:
-        """contains / starts_with / ends_with over two columns with numpy's elementwise string functions (C loops on numpy 2).
+    def _gfql_string_predicate_columnwise_pandas(left_str: SeriesT, right_str: SeriesT, usable: SeriesT, op_name: str) -> SeriesT:
+        """contains / starts_with / ends_with over two columns: the string method mapped over both columns in C, with no per-row Python frame.
 
-        Falls back to one Python call per row when numpy would pad past the byte budget or a value carries a NUL (numpy drops trailing NULs)."""
-        left_txt, right_txt = left_str.astype(object).where(usable, "").astype(str), right_str.astype(object).where(usable, "").astype(str)  # a categorical takes no new category, so decode first
-        width = (int(left_txt.str.len().max()) + int(right_txt.str.len().max())) if len(left_txt) else 0
-        has_nul = bool(left_txt.str.contains("\x00", regex=False).any() or right_txt.str.contains("\x00", regex=False).any())
-        if has_nul or width * 4 * len(left_txt) > _GFQL_STRING_PREDICATE_NUMPY_BYTES:
-            return pd.Series(
-                [apply_string_predicate_scalar(lhs, rhs, op_name) for lhs, rhs in zip(left_txt, right_txt)],
-                index=left_txt.index, dtype=bool,
-            )
-        left_arr, right_arr = left_txt.to_numpy(dtype=str), right_txt.to_numpy(dtype=str)
-        if op_name == "contains":
-            hit = np.char.find(left_arr, right_arr) >= 0
-        elif op_name == "starts_with":
-            hit = np.char.startswith(left_arr, right_arr)
-        elif op_name == "ends_with":
-            hit = np.char.endswith(left_arr, right_arr)
-        else:
-            raise ValueError(f"unsupported row expression predicate op: {op_name} in {expr!r}")
-        return pd.Series(hit, index=left_txt.index, dtype=bool)
+        Unusable cells are filled with '' first, so the map never meets a null or a non-string; the caller nulls them again."""
+        left_vals = left_str.astype(object).where(usable, "").to_numpy(dtype=object)
+        right_vals = right_str.astype(object).where(usable, "").to_numpy(dtype=object)
+        hit = np.fromiter(map(_GFQL_STRING_PREDICATE_PAIR_OPS[op_name], left_vals, right_vals), dtype=bool, count=len(left_vals))
+        return pd.Series(hit, index=left_str.index, dtype=bool)
 
     @staticmethod
     def _gfql_string_predicate_columnwise_cudf(left_str: SeriesT, right_str: SeriesT, op_name: str, expr: str) -> SeriesT:  # pragma: no cover - cuDF-only; no cuDF lane in the coverage gate (the cuDF cases run on the GPU lanes)

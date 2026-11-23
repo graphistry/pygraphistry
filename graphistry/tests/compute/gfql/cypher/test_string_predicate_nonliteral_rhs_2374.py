@@ -144,7 +144,7 @@ def test_the_column_pattern_result_has_the_literal_operand_result_dtype(engine):
     assert str(column["v"].dtype) == str(literal["v"].dtype)
 
 
-# The column form on pandas: numpy string functions over both columns, checked against the scalar definition per pair.
+# The column form on pandas: the string method mapped over both columns, checked against the scalar definition per pair.
 _PAIRS = [
     ("abcdef", "abc"), ("abcdef", "def"), ("abcdef", "cd"), ("abcdef", "xyz"), ("abc", ""), ("", ""), ("", "a"), ("x", "xx"),
     ("a.b", "."), ("a+b", "a+"), ("é-ü", "ü"), ("日本語", "本"), ("日本語", "日本語x"), ("tab\there", "\t"),
@@ -163,17 +163,10 @@ def test_the_pandas_column_form_equals_the_scalar_definition_for_every_pair(op):
 
 
 @pytest.mark.parametrize("op", _OPS)
-def test_values_with_a_nul_character_take_the_row_by_row_path_and_stay_exact(op):
+def test_values_with_a_nul_character_stay_exact(op):
     pairs = [("ab\x00", "b\x00"), ("ab\x00", "b"), ("a\x00b", "\x00"), ("ab", "ab\x00")]
     result = _column_form([l for l, _ in pairs], [r for _, r in pairs], op)
     assert list(result) == [apply_string_predicate_scalar(l, r, op) for l, r in pairs]
-
-
-@pytest.mark.parametrize("op", _OPS)
-def test_a_padded_array_over_the_byte_budget_takes_the_row_by_row_path_and_stays_exact(monkeypatch, op):
-    monkeypatch.setattr(row_pipeline, "_GFQL_STRING_PREDICATE_NUMPY_BYTES", 0)
-    left, right = [pair[0] for pair in _PAIRS], [pair[1] for pair in _PAIRS]
-    assert list(_column_form(left, right, op)) == [apply_string_predicate_scalar(l, r, op) for l, r in _PAIRS]
 
 
 @pytest.mark.parametrize("op", _OPS + ["regex"])
@@ -188,9 +181,9 @@ def test_a_column_with_no_strings_is_all_null(op):
 
 
 def test_a_regex_column_is_answered_one_pass_per_distinct_pattern_like_the_literal_operand():
-    left = ["abc", "abd", "ABC", "xyz", "abc"]
-    right = ["ab.", "ab.", "(?i)abc", "x.z", "a"]
-    assert [None if pd.isna(v) else bool(v) for v in _column_form(left, right, "regex")] == [True, True, True, True, False]
+    left = ["abc", "abd", "ABC", "xyz", "abc", None, "abc"]
+    right = ["ab.", "ab.", "(?i)abc", "x.z", "a", "a", None]
+    assert [None if pd.isna(v) else bool(v) for v in _column_form(left, right, "regex")] == [True, True, True, True, False, None, None]
 
 
 def test_a_regex_column_of_many_distinct_patterns_goes_row_by_row_with_the_same_answer(monkeypatch):
@@ -212,3 +205,21 @@ def test_a_categorical_column_pattern_matches_like_strings():
     right = pd.Series(["ab", "x", "a"]).astype("category")
     result = row_pipeline.RowPipelineMixin._gfql_string_predicate_per_row(left, right, "starts_with", "x")
     assert [None if pd.isna(v) else bool(v) for v in result] == [True, False, None]
+
+
+def _error_class(engine, query):
+    try:
+        _run(engine, query)
+    except Exception as exc:  # the class is what is compared
+        return type(exc)
+    return None
+
+
+@pytest.mark.parametrize("pattern", ["(", "[a-"])
+def test_an_invalid_regex_in_a_column_raises_the_class_the_same_literal_raises(engine, pattern):
+    literal = _error_class(engine, f"MATCH (n) WITH n.id AS i, n.name AS name WHERE name =~ '{pattern}' RETURN i")
+    column = _error_class(engine, f"MATCH (n) WITH n.id AS i, n.name AS name, '{pattern}' AS other WHERE name =~ other RETURN i")
+    if engine in _POLARS:
+        assert column is NotImplementedError  # the column-pattern regex is a named decline there
+    else:
+        assert column is not None and column is literal
