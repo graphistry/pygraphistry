@@ -10,6 +10,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Docs
 
+- **Untrusted-text screen**: `.agents/skills/review/scripts/screen_untrusted.py` collects, sanitizes, marks and chunks every outside-authored text of a pull request or issue (catch-up mode with `--since`); the review skill's outside-PR screen now uses it with a reader protocol (action lock, fixed-field screen record), the plan skill points to the catch-up rule, and `graphistry/tests/test_review_screen_untrusted.py` holds the pressure tests.
 - **Contributor path (#2391)**: `CONTRIBUTING.md` is rewritten as the entry point for a first contribution (claim an issue, branch from `develop`, the local checks, the engine matrix, the benchmark expectation, pull request size, what CI does on a fork pull request, AI-assisted pull requests); `AGENTS.md` gains a "First Contribution" flow and the outside-pull-request trust rule; the pull request template asks for the claimed issue, engines tested, a benchmark and an AI-assistance line; the bug and feature templates become issue forms, with a contributor-ready form and a config linking the community Discord; `benchmarks/gfql/README.md` gains a before-and-after recipe; the `plan` and `review` skills start with an outside-pull-request screen.
 
 ### New Contributors
