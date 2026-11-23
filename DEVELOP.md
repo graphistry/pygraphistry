@@ -145,6 +145,7 @@ that keep coming back in code review, so a reviewer does not have to.
 | `plottable-setattr` | `setattr()` onto a parameter annotated as a `Plottable` |
 | `plottable-attr-write` | `param.attr = ...` onto a parameter annotated as a `Plottable` |
 | `vocab-str-param` | a closed-vocabulary parameter (`table`, `kind`, `direction`, `how`, `mode`, `engine`) annotated as plain `str` |
+| `dynamic-attr` | a call to the builtin `hasattr`, `getattr` (two or three arguments) or `setattr`: an untyped attribute probe mypy cannot narrow. A `setattr` already reported as `plottable-setattr` is counted once, there. A method named `.getattr()` and a file that defines its own `getattr` are not flagged |
 
 Enforcement is a **per-file count ratchet** against
 `bin/ci/ci_type_hygiene_baseline.json`: a file may not gain findings, and a file
@@ -156,6 +157,15 @@ moved code is not.
 ./bin/ci/ci_type_hygiene_guard.py --report    # totals per check
 ./bin/ci/ci_type_hygiene_guard.py --list plottable-setattr
 ./bin/ci/ci_type_hygiene_guard.py --strict    # show files that improved; time to retighten
+```
+
+Instead of `hasattr` / `getattr` / `setattr`, use the typed helpers in `graphistry/Engine.py`
+(`is_series_like`, `is_cudf_series`, `is_polars_series`, `is_polars_df`), `isinstance`, or a
+`Protocol`, so mypy can narrow the value. `__module__` string sniffing is not part of the check
+and stays a review item. Suppress a probe only when no typed form exists:
+
+```python
+if hasattr(frame, "to_pandas"):  # hygiene-ok: dynamic-attr -- third-party frame with no common base
 ```
 
 When a finding is genuinely correct, annotate that line and say why:
@@ -350,8 +360,19 @@ waiting for unfinished work while avoiding the overhead of a full Git-flow model
   `master` or `develop` themselves.
 - The maintainer performs the final promotion by fast-forwarding local `master`
   to the tested `develop` SHA and pushing it, because a GitHub UI merge cannot
-  fast-forward. The repository-settings mechanism that permits this push is
-  selected and recorded during cutover.
+  fast-forward. The recorded promotion mechanism is an admin fast-forward push of
+  `master`: a repository admin pushes the tested SHA directly, bypassing the
+  pull-request requirement; only repository admins can, under the current branch
+  protection.
+- `ci-required` (a job in `.github/workflows/ci.yml`) is the required status
+  check on both `develop` and `master`. It needs every other job in that
+  workflow, fails if any of them failed or was cancelled, and passes when each
+  succeeded or was skipped, so green means that nothing that ran failed;
+  path-gated lanes that did not apply are skipped. It does not report when the
+  whole workflow is skipped (for example `[skip ci]`), and `ci.yml` has no
+  `merge_group` trigger, so a merge queue would need one. A new job in `ci.yml`
+  must be added to its `needs` list in the same PR, otherwise the required check
+  does not cover it.
 
 ### Routine flow
 
@@ -432,10 +453,14 @@ existing history—no reset is required.
 - After the cutover prerequisite is met, create `develop` from the recorded
   stable release baseline on `master`; do not rewrite master.
 - Keep `master` as the default and publish-ref line initially.
-- Add branch protection and required checks for `develop`; enable branch-push CI
-  and CodeQL push/PR analysis for both lines before routing ordinary PRs there.
-- Decide and record the repository-settings mechanism that permits the
-  maintainer's fast-forward push of `master` before cutover.
+- Add branch protection for `develop` and `master` with `ci-required` as the
+  required check on both; enable branch-push CI and CodeQL push/PR analysis for
+  both lines before routing ordinary PRs there. Require `ci-required` only after
+  the PR that adds it has merged to `develop` (and, for `master`, after the next
+  promotion carries it there).
+- The mechanism that permits the maintainer's fast-forward push of `master` is an
+  admin fast-forward push (see "Push and protection path"); keep admin bypass on
+  `master` for that purpose only.
 - Version tags (`X.Y.Z`) are protected by tag rulesets, and the `pypi-release`
   environment deploys only from `master` and version tags. After any pattern
   change, verify that the ruleset's "Applies to" list includes the latest

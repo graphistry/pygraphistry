@@ -511,6 +511,9 @@ class _BoundLoweringContext:
 _CYPHER_PARAM_RE = re.compile(r"^\$([A-Za-z_][A-Za-z0-9_]*)$")
 _CYPHER_PARAM_TOKEN_RE = re.compile(r"\$([A-Za-z_][A-Za-z0-9_]*)")
 _CYPHER_ENTITY_KEYS_RE = re.compile(r"\bkeys\s*\(\s*([A-Za-z_][A-Za-z0-9_]*)\s*\)")
+_CYPHER_ENTITY_METADATA_RE = re.compile(
+    r"\b(?:keys|properties)\s*\(\s*([A-Za-z_][A-Za-z0-9_]*)\s*\)"
+)
 _CYPHER_LABEL_PREDICATE_RE = re.compile(
     r"^\(\s*(?P<alias>[A-Za-z_][A-Za-z0-9_]*)((?::[A-Za-z_][A-Za-z0-9_]*)+)\s*\)$"
 )
@@ -1253,7 +1256,7 @@ def _rewrite_alias_properties_to_outputs(
         column=column,
     )
 
-    def _rewrite(node_in: ExprNode) -> ExprNode:
+    def _rewrite(node_in: ExprNode, shadowed_aliases: AbstractSet[str]) -> ExprNode:
         if isinstance(node_in, PropertyAccessExpr) and isinstance(node_in.value, Identifier):
             alias_name, prop = _projection._qualified_ref_from_node(
                 node_in,
@@ -1262,14 +1265,40 @@ def _rewrite_alias_properties_to_outputs(
                 line=line,
                 column=column,
             )
-            if alias_name == source_alias and prop is not None:
+            if alias_name not in shadowed_aliases and alias_name == source_alias and prop is not None:
                 output_name = property_outputs.get(prop)
                 if output_name is not None:
                     return Identifier(output_name)
-            return PropertyAccessExpr(_rewrite(node_in.value), node_in.property)
-        return _rebuild_expr_node(node_in, rewrite=_rewrite, error_context="alias property rewrite")
+            return PropertyAccessExpr(
+                _rewrite(node_in.value, shadowed_aliases), node_in.property
+            )
+        if isinstance(node_in, QuantifierExpr):
+            nested_shadowed_aliases = shadowed_aliases | {node_in.var}
+            return QuantifierExpr(
+                node_in.fn,
+                node_in.var,
+                _rewrite(node_in.source, shadowed_aliases),
+                _rewrite(node_in.predicate, nested_shadowed_aliases),
+            )
+        if isinstance(node_in, ListComprehension):
+            nested_shadowed_aliases = shadowed_aliases | {node_in.var}
+            return ListComprehension(
+                node_in.var,
+                _rewrite(node_in.source, shadowed_aliases),
+                predicate=None if node_in.predicate is None else _rewrite(
+                    node_in.predicate, nested_shadowed_aliases
+                ),
+                projection=None if node_in.projection is None else _rewrite(
+                    node_in.projection, nested_shadowed_aliases
+                ),
+            )
+        return _rebuild_expr_node(
+            node_in,
+            rewrite=lambda child: _rewrite(child, shadowed_aliases),
+            error_context="alias property rewrite",
+        )
 
-    return _render_expr_node(_rewrite(node))
+    return _render_expr_node(_rewrite(node, frozenset()))
 
 
 def _rewrite_expr_to_output_names(
@@ -3480,6 +3509,23 @@ def _binding_row_aliases_for_match(
     return set(alias_targets.keys())
 
 
+def _binding_row_aliases_for_entity_metadata(
+    clause: Optional[ReturnClause],
+    *,
+    alias_targets: Mapping[str, ASTObject],
+) -> Set[str]:
+    """Metadata needs the multiplicity-preserving binding view whenever an
+    entity alias shares a projection with others; otherwise merged columns leak
+    into the selected entity or the planner rejects the rewritten helper."""
+    if clause is None or len(alias_targets) <= 1:
+        return set()
+    for item in clause.items:
+        match = _CYPHER_ENTITY_METADATA_RE.search(item.expression.text)
+        if match is not None and match.group(1) in alias_targets:
+            return set(alias_targets.keys())
+    return set()
+
+
 def _binding_row_aliases_for_multi_alias_whole_row_node_projection(
     query: CypherQuery,
     *,
@@ -4438,6 +4484,12 @@ def _lower_projection_chain(
     alias_targets = _alias_target(lowered.query)
     binding_row_aliases = _binding_row_aliases_for_match(query.match, alias_targets=alias_targets)
     binding_row_aliases.update(
+        _binding_row_aliases_for_entity_metadata(
+            query.return_,
+            alias_targets=alias_targets,
+        )
+    )
+    binding_row_aliases.update(
         _binding_row_aliases_for_row_where(
             lowered.row_where,
             alias_targets=alias_targets,
@@ -4557,6 +4609,12 @@ def _build_initial_row_scope(
     merged_match = _merged_match_clause(query)
     relationship_count = _match_relationship_count(merged_match) if merged_match is not None else 0
     binding_row_aliases = _binding_row_aliases_for_match(query.match, alias_targets=alias_targets)
+    binding_row_aliases.update(
+        _binding_row_aliases_for_entity_metadata(
+            stage_clause,
+            alias_targets=alias_targets,
+        )
+    )
     stage_aggregate_specs = _collect_aggregate_specs_for_clause(
         stage_clause,
         params=params,
@@ -7053,6 +7111,12 @@ def _lower_general_row_projection(
         non_aggregate_items.append(item)
 
     binding_row_aliases = _binding_row_aliases_for_match(query.match, alias_targets=alias_targets)
+    binding_row_aliases.update(
+        _binding_row_aliases_for_entity_metadata(
+            query.return_,
+            alias_targets=alias_targets,
+        )
+    )
     forced_binding_row_aliases = False
     requires_bindings = _requires_aggregate_bindings(
         aggregate_specs=aggregate_specs,
@@ -9565,6 +9629,12 @@ def compile_cypher_query(
 
     if query.with_stages:
         binding_row_aliases = _binding_row_aliases_for_match(query.match, alias_targets=alias_targets)
+        binding_row_aliases.update(
+            _binding_row_aliases_for_entity_metadata(
+                query.return_,
+                alias_targets=alias_targets,
+            )
+        )
         binding_row_aliases = _apply_bound_scope_membership(
             binding_row_aliases,
             alias_targets=alias_targets,
@@ -9651,6 +9721,12 @@ def compile_cypher_query(
 
     if merged_match is not None and not query.unwinds:
         binding_row_aliases = _binding_row_aliases_for_match(query.match, alias_targets=alias_targets)
+        binding_row_aliases.update(
+            _binding_row_aliases_for_entity_metadata(
+                query.return_,
+                alias_targets=alias_targets,
+            )
+        )
         if not binding_row_aliases:
             binding_row_aliases.update(
                 _binding_row_aliases_for_multi_alias_whole_row_node_projection(
