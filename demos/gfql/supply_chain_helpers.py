@@ -15,6 +15,7 @@ import re
 import textwrap
 import threading
 import time
+import warnings
 import urllib.error
 import urllib.request
 import zipfile
@@ -34,6 +35,7 @@ from graphistry.compute.semantic import (CallableGenerationProvider, OpenAIChatP
                                          sem_decide, sem_map)
 from IPython.display import Markdown, display
 
+warnings.filterwarnings("ignore", message="Determining the column names of a LazyFrame")
 pd.set_option("display.width", 200)
 pd.set_option("display.max_colwidth", 70)
 
