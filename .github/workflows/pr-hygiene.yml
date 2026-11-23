@@ -14,7 +14,7 @@ name: PR hygiene
 
 on:
   pull_request_target:  # zizmor: ignore[dangerous-triggers] -- comment-only job, no checkout, no PR code run; see the security model above
-    types: [opened, edited, reopened, synchronize, ready_for_review]
+    types: [opened, edited, reopened, ready_for_review]
 
 permissions: {}
 
@@ -36,14 +36,16 @@ jobs:
           REPO: ${{ github.repository }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
           BASE_REF: ${{ github.event.pull_request.base.ref }}
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
           PR_BODY: ${{ github.event.pull_request.body }}
         run: |
           set -euo pipefail
           marker='<!-- pr-hygiene -->'
           problems=()
 
-          # 1. Base branch: features and fixes target develop.
-          if [ "$BASE_REF" != "develop" ]; then
+          # 1. Base branch: features and fixes target develop. A maintainer's release or hotfix pull request
+          #    (same repository, into master) is exempt.
+          if [ "$BASE_REF" != "develop" ] && ! { [ "$BASE_REF" = "master" ] && [ "$HEAD_REPO" = "$REPO" ]; }; then
             problems+=("This pull request does not target \`develop\`. Features and fixes target \`develop\`; \`master\` is for hotfixes (say why in the description). To change the base, use the Edit button next to the title.")
           fi
 
@@ -59,8 +61,9 @@ jobs:
             problems+=("The Validation section is empty. Tick what you ran and paste the last lines of its output (\`./bin/lint.sh\`, \`./bin/check-gfql.sh\`); see CONTRIBUTING.md.")
           fi
 
+          # Only the workflow's own comment counts: marker AND authored by the Actions bot (anyone can paste the marker).
           existing="$(gh api "repos/${REPO}/issues/${PR_NUMBER}/comments" --paginate \
-            --jq ".[] | select(.body | startswith(\"${marker}\")) | .id" | head -n 1)"
+            --jq ".[] | select(.user.login == \"github-actions[bot]\" and .user.type == \"Bot\" and (.body | startswith(\"${marker}\"))) | .id" | head -n 1)"
 
           if [ "${#problems[@]}" -eq 0 ]; then
             msg="${marker}"$'\n'"PR hygiene: base branch, linked issue and validation section all look fine. Thanks!"
