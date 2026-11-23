@@ -76,7 +76,7 @@ run_step() {  # name, command...
   local rc=$?
   if [ "$rc" = 0 ]; then
     SUMMARY+=("ok    $name")
-  elif [ "$rc" = 5 ]; then  # pytest: no tests collected (e.g. a -k filter that matches nothing in this step)
+  elif [ "$rc" = 5 ] && [ "${NONE_OK:-0}" = 1 ]; then  # pytest steps only: no tests collected (e.g. a -k filter that matches nothing in this step)
     SUMMARY+=("none  $name (no tests matched)")
   else
     SUMMARY+=("FAIL  $name"); FAILED+=("$name")
@@ -87,13 +87,13 @@ if [ "$WITH_LINT" = 1 ]; then
   run_step "lint" ./bin/lint.sh
   run_step "types" ./bin/typecheck.sh
 fi
-run_step "pandas" "$PYTHON_BIN" -B -m pytest -q -n auto "${GFQL_TESTS[@]}" "${PYTEST_ARGS[@]+"${PYTEST_ARGS[@]}"}"
-run_step "polars" ./bin/test-polars.sh "${PYTEST_ARGS[@]+"${PYTEST_ARGS[@]}"}"
+NONE_OK=1 run_step "pandas" "$PYTHON_BIN" -B -m pytest -q -n auto "${GFQL_TESTS[@]}" "${PYTEST_ARGS[@]+"${PYTEST_ARGS[@]}"}"
+NONE_OK=1 run_step "polars" ./bin/test-polars.sh "${PYTEST_ARGS[@]+"${PYTEST_ARGS[@]}"}"
 if [ "$CUDF" = 1 ]; then
-  run_step "cudf" env TEST_CUDF=1 "$PYTHON_BIN" -B -m pytest -q -n 2 "${GFQL_TESTS[@]}" "${PYTEST_ARGS[@]+"${PYTEST_ARGS[@]}"}"
+  NONE_OK=1 run_step "cudf" env TEST_CUDF=1 "$PYTHON_BIN" -B -m pytest -q -n 2 "${GFQL_TESTS[@]}" "${PYTEST_ARGS[@]+"${PYTEST_ARGS[@]}"}"
 fi
 if [ "$POLARS_GPU" = 1 ]; then
-  run_step "polars-gpu" env TEST_POLARS_GPU=1 "$PYTHON_BIN" -B -m pytest -q -n 2 "${GFQL_TESTS[@]}" "${PYTEST_ARGS[@]+"${PYTEST_ARGS[@]}"}"
+  NONE_OK=1 run_step "polars-gpu" env TEST_POLARS_GPU=1 "$PYTHON_BIN" -B -m pytest -q -n 2 "${GFQL_TESTS[@]}" "${PYTEST_ARGS[@]+"${PYTEST_ARGS[@]}"}"
 fi
 
 echo
