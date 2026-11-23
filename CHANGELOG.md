@@ -8,6 +8,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [Development]
 <!-- Do Not Erase This Section - Used for tracking unreleased changes -->
 
+### New Contributors
+
+- Welcome to new contributor @vikingps (Vikas), who made their first contribution in #2358 (experimental bounded Parquet traversal for GFQL `.hop()`).
+
 ### Added
 
 - **GFQL bounded Parquet hop** — use the experimental `limits=HopLimits(...)` option for finite seeded forward CPU traversal with native Polars scans and late property materialization.
