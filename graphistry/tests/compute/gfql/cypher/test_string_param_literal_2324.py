@@ -40,54 +40,54 @@ def _graph(engine):
 
 
 def _rows(engine, query, value):
-    """Rows of the query, or None when a Polars engine declines it (parity-or-error)."""
-    try:
-        out = _graph(engine).gfql(query, params={"v": value}, engine=engine)._nodes
-    except NotImplementedError:
-        assert engine in {"polars", "polars-gpu"}, "only the Polars engines may decline"
-        return None
+    """Rows of the query on every engine: none of them declines a string parameter today."""
+    out = _graph(engine).gfql(query, params={"v": value}, engine=engine)._nodes
     if hasattr(out, "to_pandas"):
         out = out.to_pandas()
     return out.to_dict("records")
 
 
 # A string equal to a column name or to expression text must stay a string, never a column or an expression.
-_VALUES = ["x", "name", "n.id", "it's", "a b", ""]
+_VALUES = [
+    "x", "name", "n.id", "it's", "a b", "",
+    'say "hi"', "a\\b", "a\\'b", "a\\\\'b", "line1\nline2", "h\u00e9llo \u2713",
+    "1 + 1", "$v", "null", "true", "n.id + 1", "'; RETURN 1 //",
+]
 
 
 @pytest.mark.parametrize("value", _VALUES)
 def test_return_of_a_string_parameter_is_the_string(engine, value):
     rows = _rows(engine, "MATCH (n) WHERE n.id = 1 RETURN $v AS v", value)
-    assert rows is None or rows == [{"v": value}]
+    assert rows == [{"v": value}]
 
 
-@pytest.mark.parametrize("value", ["x", "name"])
+@pytest.mark.parametrize("value", _VALUES)
 def test_with_then_return_carries_the_string(engine, value):
     rows = _rows(engine, "MATCH (n) WITH $v AS p, n RETURN p, n.id AS i ORDER BY i", value)
-    assert rows is None or rows == [{"p": value, "i": 1}, {"p": value, "i": 2}]
+    assert rows == [{"p": value, "i": 1}, {"p": value, "i": 2}]
 
 
-@pytest.mark.parametrize("value", ["x", "name"])
+@pytest.mark.parametrize("value", _VALUES)
 def test_aggregates_and_grouping_over_a_string_parameter(engine, value):
     count = _rows(engine, "MATCH (n) RETURN count($v) AS c", value)
-    assert count is None or count == [{"c": 2}]
+    assert count == [{"c": 2}]
     grouped = _rows(engine, "MATCH (n) RETURN $v AS v, count(*) AS c", value)
-    assert grouped is None or grouped == [{"v": value, "c": 2}]
+    assert grouped == [{"v": value, "c": 2}]
 
 
 def test_collect_of_a_string_parameter(engine):
     rows = _rows(engine, "MATCH (n) RETURN collect($v) AS c", "x")
-    assert rows is None or (len(rows) == 1 and list(rows[0]["c"]) == ["x", "x"])  # Polars returns the list as an array
+    assert len(rows) == 1 and list(rows[0]["c"]) == ["x", "x"]  # Polars returns the list as an array
 
 
-@pytest.mark.parametrize("value", ["x", "name"])
+@pytest.mark.parametrize("value", _VALUES)
 def test_where_and_unwind_with_a_string_parameter_keep_their_answers(engine, value):
     where = _rows(engine, "MATCH (n) WHERE n.name = $v RETURN n.id AS i", "id")
-    assert where is None or where == [{"i": 2}]
+    assert where == [{"i": 2}]
     unwound = _rows(engine, "UNWIND [$v] AS x RETURN x", value)
-    assert unwound is None or unwound == [{"x": value}]
+    assert unwound == [{"x": value}]
 
 
 def test_non_string_parameters_are_unchanged(engine):
     rows = _rows(engine, "MATCH (n) WHERE n.id = 1 RETURN $v AS v", 5)
-    assert rows is None or rows == [{"v": 5}]
+    assert rows == [{"v": 5}]
