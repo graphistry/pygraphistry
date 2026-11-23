@@ -14,6 +14,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- **`./bin/check-gfql.sh`** (#2391): one command for a GFQL change: lint, types, the GFQL tests on pandas and the Polars lane, with `--changed` (only your test files), `--cudf` and `--polars-gpu` (GPU engines), `--no-lint` and `--dry-run`; `docs/contributing/gfql-gpu-colab.md` is the local-GPU and free-Colab-T4 path for the GPU engines.
+
 - **GFQL bounded Parquet hop** — use the experimental `limits=HopLimits(...)` option for finite seeded forward CPU traversal with native Polars scans and late property materialization.
 
 ### Performance
