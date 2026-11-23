@@ -16,7 +16,7 @@ from graphistry.compute.semantic import binding, cache as cache_module
 from graphistry.compute.semantic.cache import cache_key, provider_fingerprint
 from graphistry.compute.semantic.contract import DecisionQuestion, DecisionRequest, compute_decision_hash, compute_generation_hash
 from graphistry.tests.compute.semantic.semantic_test_utils import (
-    C, P, Recording, RecordingGenerator, Scripted, full_answer, result)
+    C, P, Recording, RecordingGenerator, Scripted, caps, full_answer, result)
 
 
 def decide(df: pd.DataFrame, provider: object, questions: Sequence[object] = (P,), **kwargs: object) -> pd.DataFrame:
@@ -33,8 +33,13 @@ def repeated(names: Sequence[str]) -> pd.DataFrame:
     return pd.DataFrame({"name": list(names), "note": [f"note {i}" for i in range(len(names))]})
 
 
+def serial(native: bool = False) -> Dict[str, object]:
+    """Capabilities for a provider that runs one row at a time, so that the order of its calls is the order of the rows."""
+    return dict(capabilities=caps(native=native, concurrency_limit=1, max_rows_per_request=1))
+
+
 def versioned(fn: object = None, **kwargs: object) -> Recording:
-    return Recording(fn or full_answer, fingerprint="v1", probability_kind="native_decision", **kwargs)  # type: ignore[arg-type]
+    return Recording(fn or full_answer, fingerprint="v1", probability_kind="native_decision", **serial(native=True), **kwargs)  # type: ignore[arg-type]
 
 
 class Clock:
@@ -48,7 +53,7 @@ class Clock:
 class TestDedupe:
 
     def test_rows_with_the_same_evidence_are_asked_once(self) -> None:
-        provider = Recording()
+        provider = Recording(**serial())
         out = decide(repeated(["a", "b", "a", "a", "c", "b"]), provider)
         assert provider.request_ids == ["0", "1", "4"]
         assert out["p"].tolist() == [True] * 6 and set(out["p__status"]) == {"ok"}
@@ -56,16 +61,16 @@ class TestDedupe:
                                                   {"deduped_from": "1"}]
 
     def test_the_evidence_decides_not_other_columns(self) -> None:
-        provider = Recording()
+        provider = Recording(**serial())
         decide(repeated(["a", "a"]), provider, evidence_cols=["name"])
         assert provider.request_ids == ["0"]
-        provider = Recording()
+        provider = Recording(**serial())
         decide(repeated(["a", "a"]), provider, evidence_cols=["name", "note"])
         assert provider.request_ids == ["0", "1"]
 
     def test_dedupe_false_asks_for_every_row_so_votes_can_differ(self) -> None:
         answers = iter([True, False, True])
-        provider = Recording(lambda evidence, question: next(answers))
+        provider = Recording(lambda evidence, question: next(answers), **serial())
         out = decide(repeated(["a", "a", "a"]), provider, dedupe=False)
         assert provider.request_ids == ["0", "1", "2"] and out["p"].tolist() == [True, False, True]
         assert all(m["extra"] is None for m in meta(out))
@@ -81,19 +86,19 @@ class TestDedupe:
 
     def test_skipped_rows_never_merge_and_budget_sees_only_the_asked_rows(self) -> None:
         df = repeated(["x", "x", "y", "y", None, "x"])  # type: ignore[list-item]
-        provider = Recording()
+        provider = Recording(**serial())
         out = decide(df, provider, batch_size=1, max_rows=5, budget={"max_requests": 2})
         assert provider.request_ids == ["0", "2"]
         assert out["p__status"].tolist() == ["ok"] * 4 + ["skipped", "skipped"]
         assert [m["status_reason"] for m in meta(out)][4:] == ["null_evidence", "max_rows"]
-        provider = Recording()
+        provider = Recording(**serial())
         out = decide(df, provider, batch_size=1, max_rows=5, budget={"max_requests": 2}, dedupe=False)
         assert provider.request_ids == ["0", "1"] and out["p__status"].tolist()[2:4] == ["skipped"] * 2
 
     def test_copies_of_an_unanswered_row_are_unanswered(self) -> None:
         def boom(evidence: object, question: object) -> object:
             raise RuntimeError("down")
-        out = decide(repeated(["a", "a"]), Recording(boom))
+        out = decide(repeated(["a", "a"]), Recording(boom, **serial()))
         assert out["p__status"].tolist() == ["error", "error"]
         assert out["p__error_code"].tolist() == ["callable_exception"] * 2
 
@@ -104,11 +109,11 @@ class TestDedupe:
 
     def test_sem_map_asks_once_per_distinct_row_and_dedupe_false_opts_out(self) -> None:
         df = repeated(["a", "b", "a"])
-        provider = RecordingGenerator(lambda evidence, instruction: f"<{evidence['name']}>")  # type: ignore[index]
+        provider = RecordingGenerator(lambda evidence, instruction: f"<{evidence['name']}>", **serial())  # type: ignore[index]
         out = sem_map(df, instruction="i", out_col="o", provider=provider, task_id="t", evidence_cols=["name"])
         assert [r.request_id for call_ in provider.calls for r in call_] == ["0", "1"]
         assert out["o"].tolist() == ["<a>", "<b>", "<a>"] and meta(out, "o")[2]["extra"] == {"deduped_from": "0"}
-        provider = RecordingGenerator()
+        provider = RecordingGenerator(**serial())
         sem_map(df, instruction="i", out_col="o", provider=provider, task_id="t", evidence_cols=["name"], dedupe=False)
         assert len([r for call_ in provider.calls for r in call_]) == 3
 
@@ -123,33 +128,33 @@ class TestDedupe:
                 got = [m["input_hash"] for m in meta(out)]
                 assert [h for i, h in enumerate(got) if i not in (2, 5)] == [h for i, h in enumerate(expected) if i not in (2, 5)]
                 assert out["p__status"].tolist()[2] == "skipped" and out["p__status"].tolist()[5] == "skipped"
-        generated = sem_map(repeated(["a", "a", "b"]), instruction="i", out_col="o", provider=RecordingGenerator(), task_id="t",
+        generated = sem_map(repeated(["a", "a", "b"]), instruction="i", out_col="o", provider=RecordingGenerator(**serial()), task_id="t",
                             evidence_cols=["name"])
         assert [m["input_hash"] for m in meta(generated, "o")] == [compute_generation_hash({"name": n}, "i", "1") for n in "aab"]
 
     def test_dedupe_must_be_a_bool(self) -> None:
         with pytest.raises(ValueError, match="dedupe"):
-            decide(repeated(["a"]), Recording(), dedupe="no")
+            decide(repeated(["a"]), Recording(**serial()), dedupe="no")
         with pytest.raises(ValueError, match="dedupe"):
-            sem_map(repeated(["a"]), instruction="i", out_col="o", provider=RecordingGenerator(), task_id="t",
+            sem_map(repeated(["a"]), instruction="i", out_col="o", provider=RecordingGenerator(**serial()), task_id="t",
                     evidence_cols=["name"], dedupe=1)  # type: ignore[arg-type]
 
     def test_method_and_call_take_dedupe(self) -> None:
         g = graphistry.nodes(repeated(["a", "a"]).assign(id=[1, 2]), "id")
         question = {"id": "p", "kind": "predicate", "text": "?"}
         for dedupe, expected in ((True, ["1"]), (False, ["1", "2"])):
-            provider = Recording()
+            provider = Recording(**serial())
             g.sem_decide([question], provider, task_id="t", evidence_cols=["name"], dedupe=dedupe)
             assert provider.request_ids == expected
-            provider = Recording()
+            provider = Recording(**serial())
             with bind_providers({"p": provider}):
                 g.gfql([call("sem_decide", {"questions": [question], "provider": "p", "task_id": "t",
                                             "evidence_cols": ["name"], "dedupe": dedupe})])
             assert provider.request_ids == expected
-        provider = RecordingGenerator()
+        provider = RecordingGenerator(**serial())
         g.sem_map("i", "o", provider, task_id="t", evidence_cols=["name"], dedupe=False)
         assert len([r for call_ in provider.calls for r in call_]) == 2
-        with bind_providers({"p": Recording()}), pytest.raises(Exception, match="dedupe"):
+        with bind_providers({"p": Recording(**serial())}), pytest.raises(Exception, match="dedupe"):
             g.gfql([call("sem_decide", {"questions": [question], "provider": "p", "task_id": "t",
                                         "evidence_cols": ["name"], "dedupe": "no"})])
 
@@ -391,7 +396,7 @@ class TestCacheInDecide:
 
     def test_another_fingerprint_or_question_or_version_is_another_entry(self) -> None:
         cache = MemorySemanticCache()
-        first, second = versioned(), Recording(full_answer, fingerprint="v2", probability_kind="native_decision")
+        first, second = versioned(), Recording(full_answer, fingerprint="v2", probability_kind="native_decision", **serial(native=True))
         self.run(cache, first)
         self.run(cache, second)
         assert len(second.request_ids) == 3
@@ -409,7 +414,7 @@ class TestCacheInDecide:
         assert provider.request_ids == ["0", "0"] and meta(out, "c")[0]["cache_hit"] is True
 
     def test_a_provider_without_a_fingerprint_is_refused_before_any_call(self) -> None:
-        cache, provider = MemorySemanticCache(), Recording()
+        cache, provider = MemorySemanticCache(), Recording(**serial())
         with pytest.raises(ValueError, match="cache_fingerprint"):
             self.run(cache, provider)
         assert provider.request_ids == [] and provider_fingerprint(object()) is None
@@ -484,7 +489,7 @@ class TestCacheInDecide:
 class TestCacheInMap:
 
     def provider(self) -> RecordingGenerator:
-        return RecordingGenerator(lambda evidence, instruction: f"<{evidence['name']}>", fingerprint="g1")  # type: ignore[index]
+        return RecordingGenerator(lambda evidence, instruction: f"<{evidence['name']}>", fingerprint="g1", **serial())  # type: ignore[index]
 
     def map_(self, cache: Optional[SemanticCache], provider: RecordingGenerator, df: Optional[pd.DataFrame] = None,
              **kwargs: object) -> pd.DataFrame:
@@ -516,7 +521,7 @@ class TestCacheInMap:
         out = self.map_(cache, provider, repeated(["a", "b", "c"]), batch_size=1, budget={"max_requests": 1})
         assert out["o__status"].tolist() == ["ok"] * 3 and self.asked(provider)[-1] == "2"
         with pytest.raises(ValueError, match="cache_fingerprint"):
-            self.map_(cache, RecordingGenerator())
+            self.map_(cache, RecordingGenerator(**serial()))
 
 
 class TestFingerprints:
