@@ -30,6 +30,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 - **GFQL semantic result cache**: `bind_providers(..., cache=...)` binds a `SemanticCache`, a protocol of `get_many`, `put_many` and `clear` over JSON strings. `MemorySemanticCache` is a thread-safe LRU cache with an entry cap, a byte cap and a time to live. The key is a hash of the provider's `cache_fingerprint()` and the input hash, never the evidence or the API key. The cache stores answers before `min_p`, and never errors or skips. A hit uses no budget and has `cache_hit` true. A bound cache still returns the stored answer when `dedupe=False`. Callable providers take `fingerprint=` to opt in. A chat provider needs an explicit strategy (not `auto`), and `LangChainDecisionProvider` has no fingerprint, so a bound cache raises for both.
 
+### Docs
+
+- **GFQL semantic operators offshore shell-company notebook**: `demos/gfql/gfql_semantic_fraud_aml.ipynb` screens the Panama Papers companies of the ICIJ Offshore Leaks database (213,634 companies) in five stages (naive scan, flat filter, GFQL nominee-cluster filter, three questions per call with `dedupe`, `min_p` with `sem_map`) and runs a `MemorySemanticCache` second pass. It downloads the archive into `/tmp` at run time (no dataset is committed; the database is ODbL 1.0 and its contents CC BY-SA), answers with a simulated model by default, and has an opt-in live mode that uses `budget` caps.
+
 ## [0.62.2] - 2026-11-21
 
 ### Docs
