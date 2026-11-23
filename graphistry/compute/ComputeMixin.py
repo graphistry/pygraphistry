@@ -417,6 +417,7 @@ class ComputeMixin(Plottable):
         require_probabilities: "ProbabilityRequirement" = False,
         column_max_chars: Optional[int] = None,
         overwrite: bool = False,
+        dedupe: bool = True,
     ) -> Plottable:
         """Ask a model provider typed questions about every node (or edge) row; see :func:`graphistry.compute.semantic.sem_decide`.
 
@@ -438,7 +439,7 @@ class ComputeMixin(Plottable):
                 template=template, id_col=rows_id, task_version=task_version, batch_size=batch_size,
                 max_concurrency=max_concurrency, deadline_s=deadline_s, budget=budget, max_rows=max_rows,
                 min_p=min_p, require_probabilities=require_probabilities, column_max_chars=column_max_chars,
-                overwrite=overwrite,
+                overwrite=overwrite, dedupe=dedupe,
             )
 
         return _apply_to_graph_table(self, kind, id_col, run, "sem_decide")
@@ -463,6 +464,7 @@ class ComputeMixin(Plottable):
         max_rows: Optional[int] = None,
         column_max_chars: Optional[int] = None,
         overwrite: bool = False,
+        dedupe: bool = True,
     ) -> Plottable:
         """Generate one text value per node (or edge) row; see :func:`graphistry.compute.semantic.sem_map`.
 
@@ -482,7 +484,7 @@ class ComputeMixin(Plottable):
                 evidence_cols=evidence_cols, template=template, id_col=rows_id, task_version=task_version,
                 max_output_tokens=max_output_tokens, batch_size=batch_size, max_concurrency=max_concurrency,
                 deadline_s=deadline_s, budget=budget, max_rows=max_rows, column_max_chars=column_max_chars,
-                overwrite=overwrite,
+                overwrite=overwrite, dedupe=dedupe,
             )
 
         return _apply_to_graph_table(self, kind, id_col, run, "sem_map")

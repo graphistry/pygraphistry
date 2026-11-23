@@ -1959,6 +1959,11 @@ Answer typed questions per row: ``predicate`` (yes/no), ``choice`` (one of ``opt
      - boolean
      - No
      - Replace existing output columns instead of raising
+   * - dedupe
+     - boolean
+     - No
+     - ``True`` (default) asks once for rows that have the same evidence and copies the answer; ``False`` asks for every
+       row (see `Repeated inputs`_)
 
 **Output columns** per question ``q``: ``q`` (answer: nullable boolean for predicates, string otherwise),
 ``q__status`` (``ok``, ``uncertain``, ``error``, ``skipped``), ``q__p`` (the probability the answer distribution gives
@@ -2092,6 +2097,58 @@ not depend on which rows share its request, but they can differ from one-row ans
 latency, not tokens, and packed answers record ``extra.packed_rows``. Any object implementing the
 ``DecisionProvider`` or ``GenerationProvider`` protocol in ``graphistry.compute.semantic`` can be bound.
 
+Repeated inputs
+~~~~~~~~~~~~~~~
+
+Two mechanisms stop the same input from being sent twice.
+
+**Dedupe** works inside one call. After ``max_rows`` and null-evidence skips, and before ``budget`` is planned,
+``sem_decide`` and ``sem_map`` group the rows that have the same evidence (the same input hash for every question). Only
+the first row of each group goes to the provider. Each other row gets a copy of the answer with ``cost_usd`` 0,
+``latency_ms`` 0, ``retry_count`` 0 and ``extra.deduped_from`` set to the id of the row that was asked. The sum of
+``cost_usd`` over the output is therefore the money that was spent, and ``budget.max_requests`` counts only real calls.
+Pass ``dedupe=False`` when you want an answer for every row, for example to vote over several answers from a model that
+is not deterministic.
+
+**The result cache** works between calls. ``bind_providers(..., cache=cache)`` gives every ``sem_decide`` and
+``sem_map`` run inside the block a ``SemanticCache``. There is no default cache and no module-level state: you create the
+cache, and an inner block without ``cache`` keeps the outer one. ``MemorySemanticCache`` is a thread-safe LRU cache in
+process memory:
+
+.. code-block:: python
+
+    from graphistry.compute.semantic import MemorySemanticCache, OpenAIDecisionsProvider, TokenPrices, bind_providers
+
+    cache = MemorySemanticCache(max_entries=50_000, ttl_s=900)       # also max_bytes; defaults 10,000 entries, 64 MiB, 1 hour
+    provider = OpenAIDecisionsProvider(api_key=key, model=model_id, prices=TokenPrices(input=in_rate))
+    with bind_providers({"fast": provider}, cache=cache):
+        first = g.sem_decide(questions, "fast", task_id="t", evidence_cols=["name"])    # sends requests
+        again = g.sem_decide(questions, "fast", task_id="t", evidence_cols=["name"])    # sends none
+    cache.stats()          # hits, misses, puts, evictions, expirations, rejected, entries, bytes, hit_rate
+
+A cache key is a hash of the schema version, the provider fingerprint and the input hash. The provider fingerprint comes
+from ``provider.cache_fingerprint()``. For the HTTP providers it covers the class, name, model, base URL and the settings
+that shape an answer (strategy, ``max_answer_tokens``, ``extra_body``, ``rows_per_request`` and similar). It never covers the
+API key or the headers. A callable provider has a fingerprint only when you pass ``fingerprint="..."``, so change that text
+when your function changes. If a cache is bound and the provider has no fingerprint, the run raises ``ValueError`` before
+any call. The ``sem_map`` key also covers ``max_output_tokens``. A key never holds evidence, and a stored answer never
+holds evidence, keys or tenant names.
+
+What the cache holds, and what a hit looks like:
+
+- It stores each answer after the provider reply is checked and **before** ``min_p``. A later run with another ``min_p``
+  still hits. It stores ``ok`` answers and ``uncertain`` answers with status reason ``tie`` or ``refusal``. It never
+  stores ``error``, ``skipped``, ``null_answer`` or ``min_p`` results.
+- A hit runs through the same checks as a provider reply, and runs before ``budget`` is planned, so it uses none of the
+  budget and sends no request. It has ``cost_usd`` 0, ``latency_ms`` 0, ``retry_count`` 0, ``cache_hit`` true and
+  ``extra.cache_source`` ``local_cache``. A stored answer that fails the checks is a miss.
+- ``sem_decide`` serves a row from the cache only when every question of the row hits. A stored answer is assumed to not
+  depend on the other questions that share its call.
+- A cache that raises, or that returns data of the wrong shape, counts as a miss. A cache never fails a run.
+
+To keep answers in Redis or a database, write a class with ``get_many(keys)`` (a mapping of the keys it holds to JSON
+strings), ``put_many(entries)`` and ``clear()``, and bind an instance for each tenant.
+
 Defaults to review
 ~~~~~~~~~~~~~~~~~~
 
@@ -2118,6 +2175,12 @@ Defaults to review
    * - ``rows_per_request``
      - 1
      - Row packing of ``OpenAIDecisionsProvider`` is opt in.
+   * - ``dedupe``
+     - ``True``
+     - Rows with the same evidence are asked once. ``False`` asks for every row.
+   * - result cache
+     - none
+     - Bind one with ``bind_providers(..., cache=...)``. ``MemorySemanticCache`` keeps 10,000 entries or 64 MiB for 1 hour.
    * - Host probe (``strategy='auto'``)
      - once per host, kept for 1 hour
      - Each probe request counts in ``budget.max_requests`` and its estimated cost in ``budget.max_cost_usd``, before

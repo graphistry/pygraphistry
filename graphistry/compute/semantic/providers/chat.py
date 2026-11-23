@@ -323,6 +323,9 @@ class _ChatDecisionProvider(HttpDecisionProvider):
     def answer_tokens(self) -> int:
         return DEFAULT_ANSWER_TOKENS if self.max_answer_tokens is None else self.max_answer_tokens
 
+    def answer_settings(self) -> Dict[str, object]:
+        return {**super().answer_settings(), "max_answer_tokens": self.answer_tokens(), "extra_body": self.extra_body}
+
     def capabilities(self) -> ProviderCapabilities:
         return ProviderCapabilities(supports_native_probabilities=False, max_questions_per_request=1,
                                     concurrency_limit=self.concurrency_limit, max_rows_per_request=1,
@@ -452,6 +455,10 @@ class OpenAIChatProvider(_ChatDecisionProvider):
         self.strategy: Strategy = strategy
         self.strategy_in_use: Strategy = "logprobs" if strategy == "auto" else strategy
         self.run_failure: Optional[RequestFailure] = None
+
+    def answer_settings(self) -> Dict[str, object]:
+        return {**super().answer_settings(), "strategy": self.strategy, "top_logprobs": self.top_logprobs,
+                "max_tokens_field": self.max_tokens_field, "probe_strategies": list(self.probe_strategies)}
 
     def prepare_run(self, requests_: Sequence[DecisionRequest], admit: Admit, *,
                     deadline_s: Optional[float]) -> Optional["OpenAIChatProvider"]:
@@ -763,6 +770,9 @@ class AnthropicMessagesProvider(_ChatDecisionProvider):
         if strategy not in get_args(AnthropicStrategy):
             raise ValueError("strategy must be text, json_schema or tool")
         self.strategy = strategy
+
+    def answer_settings(self) -> Dict[str, object]:
+        return {**super().answer_settings(), "strategy": self.strategy}
 
     def headers(self) -> Dict[str, str]:
         return {"x-api-key": self._api_key, "anthropic-version": self.api_version, "content-type": "application/json",

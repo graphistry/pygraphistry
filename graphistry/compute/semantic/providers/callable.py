@@ -1,6 +1,7 @@
 """Providers backed by plain Python functions, for tests, rules and local models."""
 from typing import Callable, List, Mapping, Optional, Sequence, Tuple, Union
 
+from graphistry.compute.semantic.cache import fingerprint_of
 from graphistry.compute.semantic.contract import (
     PROBABILITY_KINDS, Budget, DecisionQuestion, DecisionRequest, DecisionResult, Evidence, GenerationRequest,
     GenerationResult, ProbabilityKind, ProviderCapabilities, canonicalize, compute_decision_hash, compute_generation_hash,
@@ -33,19 +34,28 @@ class CallableDecisionProvider:
     """
 
     def __init__(self, fn: DecisionFn, *, name: str = "callable", probability_kind: ProbabilityKind = "none",
-                 capabilities: Optional[ProviderCapabilities] = None, model: Optional[str] = None) -> None:
+                 capabilities: Optional[ProviderCapabilities] = None, model: Optional[str] = None,
+                 fingerprint: Optional[str] = None) -> None:
         if not callable(fn) or probability_kind not in PROBABILITY_KINDS:
             raise ValueError(f"fn must be callable and probability_kind one of {PROBABILITY_KINDS}")
         self.fn = fn
         self.name = name
         self.model = model if model is not None else name
         self.probability_kind: ProbabilityKind = probability_kind
+        self._fingerprint = fingerprint
         self._capabilities = capabilities or ProviderCapabilities(
             supports_native_probabilities=probability_kind == "native_decision", max_questions_per_request=1000,
             concurrency_limit=4, max_rows_per_request=1)
 
     def capabilities(self) -> ProviderCapabilities:
         return self._capabilities
+
+    def cache_fingerprint(self) -> Optional[str]:
+        """None unless you gave ``fingerprint``: a label for what ``fn`` computes, such as its version. Result caches
+        key on it, so change it whenever ``fn`` would answer differently."""
+        return None if self._fingerprint is None else fingerprint_of(
+            {"class": type(self).__name__, "name": self.name, "model": self.model,
+             "probability_kind": self.probability_kind, "fingerprint": self._fingerprint})
 
     def estimate_cost_usd(self, requests: Sequence[DecisionRequest]) -> Optional[float]:
         return 0.0
@@ -90,17 +100,24 @@ class CallableGenerationProvider:
     """
 
     def __init__(self, fn: GenerationFn, *, name: str = "callable",
-                 capabilities: Optional[ProviderCapabilities] = None, model: Optional[str] = None) -> None:
+                 capabilities: Optional[ProviderCapabilities] = None, model: Optional[str] = None,
+                 fingerprint: Optional[str] = None) -> None:
         if not callable(fn):
             raise ValueError("fn must be callable")
         self.fn = fn
         self.name = name
         self.model = model if model is not None else name
+        self._fingerprint = fingerprint
         self._capabilities = capabilities or ProviderCapabilities(
             supports_native_probabilities=False, max_questions_per_request=1, concurrency_limit=4, max_rows_per_request=1)
 
     def capabilities(self) -> ProviderCapabilities:
         return self._capabilities
+
+    def cache_fingerprint(self) -> Optional[str]:
+        """None unless you gave ``fingerprint``; see :meth:`CallableDecisionProvider.cache_fingerprint`."""
+        return None if self._fingerprint is None else fingerprint_of(
+            {"class": type(self).__name__, "name": self.name, "model": self.model, "fingerprint": self._fingerprint})
 
     def generate_batch(self, requests: Sequence[GenerationRequest], *, deadline_s: Optional[float],
                        budget: Optional[Budget]) -> List[GenerationResult]:
