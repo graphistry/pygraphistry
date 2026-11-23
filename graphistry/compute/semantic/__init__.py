@@ -1,5 +1,6 @@
 """Semantic table operators (``sem_decide``, ``sem_map``) and their provider contract."""
 from graphistry.compute.semantic.binding import bind_providers
+from graphistry.compute.semantic.cache import MemorySemanticCache, SemanticCache
 from graphistry.compute.semantic.contract import (
     Budget, DecisionProvider, DecisionQuestion, DecisionRequest, DecisionResult, GenerationProvider, GenerationRequest,
     GenerationResult, ProviderCapabilities)
@@ -23,9 +24,11 @@ __all__ = [
     "GenerationRequest",
     "GenerationResult",
     "LangChainDecisionProvider",
+    "MemorySemanticCache",
     "OpenAIChatProvider",
     "OpenAIDecisionsProvider",
     "ProviderCapabilities",
+    "SemanticCache",
     "TokenPrices",
     "bind_providers",
     "forget_probes",

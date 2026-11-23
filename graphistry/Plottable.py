@@ -434,6 +434,7 @@ class Plottable(Protocol):
         require_probabilities: "ProbabilityRequirement" = False,
         column_max_chars: Optional[int] = None,
         overwrite: bool = False,
+        dedupe: bool = True,
     ) -> 'Plottable':
         ...
 
@@ -457,6 +458,7 @@ class Plottable(Protocol):
         max_rows: Optional[int] = None,
         column_max_chars: Optional[int] = None,
         overwrite: bool = False,
+        dedupe: bool = True,
     ) -> 'Plottable':
         ...
 

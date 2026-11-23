@@ -8,6 +8,7 @@ from typing import Callable, Dict, List, Mapping, NamedTuple, Optional, Protocol
 
 import requests
 
+from graphistry.compute.semantic.cache import fingerprint_of
 from graphistry.compute.semantic.contract import (
     Budget, DecisionQuestion, DecisionRequest, DecisionResult, Evidence, ExtraValue, ProbabilityKind,
     ProviderCapabilities, StatusReason, compute_decision_hash, finite_float, unanswered_result)
@@ -234,6 +235,16 @@ class HttpDecisionProvider(ABC):
 
     def __repr__(self) -> str:
         return f"{type(self).__name__}(model={self.model!r}, base_url={self.base_url!r})"
+
+    def answer_settings(self) -> Dict[str, object]:
+        """Settings, besides the model and the URL, that can change an answer; subclasses extend this."""
+        return {}
+
+    def cache_fingerprint(self) -> Optional[str]:
+        """A digest of what this provider's answers depend on: its class, name, model, base URL and
+        ``answer_settings()``. It never holds the API key or the headers. Result caches key on it."""
+        return fingerprint_of({"class": type(self).__name__, "name": self.name, "model": self.model,
+                               "base_url": self.base_url, **self.answer_settings()})
 
     def estimate_cost_usd(self, requests_: Sequence[DecisionRequest]) -> Optional[float]:
         """Prices the text of every HTTP request a batch sends: one per question group of each row."""

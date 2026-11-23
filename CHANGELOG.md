@@ -62,6 +62,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 - **GFQL callable providers run their rows on all their threads**: `CallableDecisionProvider` and `CallableGenerationProvider` default to one row per call (`max_rows_per_request=1`), so a small run uses up to `concurrency_limit` threads, and `fn` must be safe to call from several threads (`concurrency_limit=1` runs it one row at a time). An explicit `batch_size` above 1 is lowered to 1 unless the capabilities you pass have no row limit. `budget={"max_requests": n}` counts rows for a default callable provider.
 
+- **GFQL semantic operators ask once for repeated input**: `sem_decide` and `sem_map` take `dedupe`, on by default. Rows with the same evidence are asked once. A copy gets `cost_usd` 0, `latency_ms` 0 and `extra.deduped_from`, so the cost column sums to the spend. A table with repeated evidence now sends fewer requests, and one failed call fails every row that shares it. `dedupe=False` asks for every row, for example to vote.
+
+- **GFQL semantic result cache**: `bind_providers(..., cache=...)` binds a `SemanticCache`, a protocol of `get_many`, `put_many` and `clear` over JSON strings. `MemorySemanticCache` is a thread-safe LRU cache with an entry cap, a byte cap and a time to live. The key is a hash of the provider's `cache_fingerprint()` and the input hash, never the evidence or the API key. The cache stores answers before `min_p`, and never errors or skips. A hit uses no budget and has `cache_hit` true. A bound cache still returns the stored answer when `dedupe=False`. Callable providers take `fingerprint=` to opt in. A chat provider needs an explicit strategy (not `auto`), and `LangChainDecisionProvider` has no fingerprint, so a bound cache raises for both.
+
 ## [0.62.2] - 2026-11-21
 
 ### Docs

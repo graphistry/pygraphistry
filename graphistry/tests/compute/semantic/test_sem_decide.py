@@ -530,7 +530,7 @@ class TestEvidence:
     def test_truncation_touches_only_strings(self, column: object, expected: List[object]) -> None:
         seen: List[object] = []
         decide(pd.DataFrame({"x": column}), Recording(lambda e, q: seen.append(e) or True), evidence_cols=["x"],
-               column_max_chars=2)
+               column_max_chars=2, dedupe=False)
         assert sorted(map(json.dumps, seen)) == sorted(map(json.dumps, expected))
 
     def test_template_truncation_mapping_order_and_canonical_values(self) -> None:

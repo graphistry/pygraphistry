@@ -156,6 +156,7 @@ COMMON_RULES: Dict[str, Rule] = {
     "max_rows": positive_int,
     "column_max_chars": positive_int,
     "overwrite": boolean,
+    "dedupe": boolean,
 }
 SEM_DECIDE_RULES: Dict[str, Rule] = dict(COMMON_RULES, questions=_message_of(_json_questions), min_p=probability,
                                          require_probabilities=probability_requirement)

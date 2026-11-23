@@ -10,13 +10,14 @@ import math
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, wait
-from typing import Callable, Dict, List, Mapping, Optional, Protocol, Sequence, Tuple, Type, TypeVar, Union
+from typing import Callable, Dict, Hashable, List, Mapping, Optional, Protocol, Sequence, Tuple, Type, TypeVar, Union
 
 import numpy as np
 import pandas as pd
 
 from graphistry.compute.gfql.effects import record_effect
-from graphistry.compute.semantic.binding import resolve_provider
+from graphistry.compute.semantic.binding import bound_cache, resolve_provider
+from graphistry.compute.semantic.cache import SemanticCache, cache_key, provider_fingerprint
 from graphistry.compute.semantic.contract import (
     Budget, DecisionProvider, DecisionQuestion, DecisionRequest, DecisionResult, Evidence, GenerationProvider,
     GenerationRequest, GenerationResult, ProviderCapabilities, ResultT, SkippedReason, align_results, canonicalize,
@@ -121,6 +122,104 @@ def _prepare_rows(df: DataFrameT, cols: List[str], template: Optional[str], id_c
         skip_reason=[_skip_reason(position, all_null, max_rows)
                      for position, all_null in enumerate(host[cols].isna().all(axis=1).tolist())],
     )
+
+
+def _subrows(rows: _Rows, keep: Sequence[int]) -> _Rows:
+    return _Rows(request_ids=[rows.request_ids[position] for position in keep],
+                 evidence=[rows.evidence[position] for position in keep],
+                 skip_reason=[rows.skip_reason[position] for position in keep])
+
+
+def _duplicates(rows: _Rows, signatures: Sequence[Hashable]) -> Dict[int, int]:
+    """Position of each active row that repeats an earlier active row's signature -> position of that first row.
+    Rows that are skipped (``max_rows``, ``null_evidence``) never merge."""
+    first: Dict[Hashable, int] = {}
+    duplicates: Dict[int, int] = {}
+    for position, signature in enumerate(signatures):
+        if rows.skip_reason[position] is None:
+            representative = first.setdefault(signature, position)
+            if representative != position:
+                duplicates[position] = representative
+    return duplicates
+
+
+def _copy_of(result: ResultT, request_id: str, representative_id: str) -> ResultT:
+    """The answer of a duplicate row: the representative's result, with the cost, latency and retries counted once."""
+    return dataclasses.replace(
+        result, request_id=request_id, cost_usd=None if result.cost_usd is None else 0.0,
+        latency_ms=None if result.latency_ms is None else 0.0,
+        retry_count=None if result.retry_count is None else 0,
+        extra={**(result.extra or {}), "deduped_from": representative_id})
+
+
+def _bound_cache(provider: Union[DecisionProvider, GenerationProvider]) -> Tuple[Optional[SemanticCache], str]:
+    """The cache bound in this context and the provider's fingerprint; a cache needs a provider that has one."""
+    cache = bound_cache()
+    if cache is None:
+        return None, ""
+    fingerprint = provider_fingerprint(provider)
+    if fingerprint is None:
+        raise ValueError(f"a result cache is bound, but provider {_provider_identity(provider)[0]!r} has no cache "
+                         "fingerprint: its cache_fingerprint() is missing or returns None. Callable providers take "
+                         "fingerprint=...; a chat provider needs an explicit strategy, not 'auto'. Or bind no cache")
+    return cache, fingerprint
+
+
+def _cache_get(cache: SemanticCache, keys: Sequence[str]) -> Dict[str, str]:
+    """Stored payloads for ``keys``. A cache is an optimisation: a failing or malformed cache is a miss."""
+    try:
+        found = cache.get_many(list(keys))
+    except Exception:
+        return {}
+    wanted = set(keys)
+    return {key: value for key, value in found.items() if key in wanted and isinstance(value, str)} \
+        if isinstance(found, Mapping) else {}
+
+
+def _cache_put(cache: SemanticCache, entries: Dict[str, str]) -> None:
+    if entries:
+        try:
+            cache.put_many(entries)
+        except Exception:
+            pass
+
+
+CACHEABLE_UNCERTAIN = ("tie", "refusal")
+
+
+def _cacheable(result: Union[DecisionResult, GenerationResult]) -> bool:
+    """Answers that the same input gives again: ``ok``, and an ``uncertain`` that comes from the answer itself.
+    Errors, skips, ``null_answer`` (can be a passing fault) and ``min_p`` (set by this run) are never cached."""
+    return result.status == "ok" or (result.status == "uncertain" and result.status_reason in CACHEABLE_UNCERTAIN)
+
+
+def _result_payload(result: Union[DecisionResult, GenerationResult]) -> str:
+    """The result as JSON. It holds no row id: ``request_id`` is blank here and set again on load."""
+    fields = {field.name: getattr(result, field.name) for field in dataclasses.fields(result)}  # hygiene-ok: dynamic-attr -- duck-typed host object with no common base
+    fields["request_id"] = ""
+    return json.dumps(_json_ready(fields), sort_keys=True, separators=(",", ":"))
+
+
+def _load_payload(payload: str, result_type: Type[ResultT], **identity: str) -> Optional[ResultT]:
+    """A stored result for the current request, or None when the payload does not fit ``result_type``."""
+    try:
+        fields = json.loads(payload)
+        if not isinstance(fields, dict) or set(fields) != {field.name for field in dataclasses.fields(result_type)}:
+            return None
+        return result_type(**{**fields, **identity})
+    except Exception:
+        return None
+
+
+def _as_cache_hit(result: ResultT) -> ResultT:
+    return dataclasses.replace(result, cost_usd=0.0, latency_ms=0.0, retry_count=0, cache_hit=True,
+                               extra={**(result.extra or {}), "cache_source": "local_cache"})
+
+
+def _collector(store: Dict[Cell, ResultT], cell: Cell) -> Callable[[ResultT], None]:
+    def keep(result: ResultT) -> None:
+        store[cell] = result
+    return keep
 
 
 def _check_existing_columns(names: Sequence[str], df: DataFrameT, overwrite: bool) -> None:
@@ -360,10 +459,12 @@ def _plain_result(result: ResultT, result_type: Type[ResultT]) -> Optional[Resul
 
 def _checked(outcome: _CallOutcome, row: Optional[Dict[str, ResultT]], key: str, result_type: Type[ResultT],
              problems: Callable[[ResultT], List[str]], finish: Callable[[ResultT], ResultT],
-             unanswered: _Unanswered[ResultT], input_hash: str, task_version: str) -> ResultT:
+             unanswered: _Unanswered[ResultT], input_hash: str, task_version: str,
+             keep: Optional[Callable[[ResultT], None]] = None) -> ResultT:
     """The kernel's verdict on one cell. Provider data is untrusted: if reading it fails, or its metadata cannot
     become JSON, the cell is an error built from kernel fields. ``input_hash`` (taken before any call) and
-    ``task_version`` come from the kernel, so a provider cannot change them."""
+    ``task_version`` come from the kernel, so a provider cannot change them. ``keep`` sees each valid result before
+    ``finish`` (so before ``min_p``)."""
     if outcome.skipped is not None:
         return unanswered(status_reason=outcome.skipped, input_hash=input_hash)
     latency_ms: Optional[float] = None
@@ -371,7 +472,10 @@ def _checked(outcome: _CallOutcome, row: Optional[Dict[str, ResultT]], key: str,
     try:
         plain = None if row is None else _plain_result(row[key], result_type)
         if plain is not None and not problems(plain):
-            final = finish(dataclasses.replace(plain, input_hash=input_hash, task_version=task_version))
+            checked = dataclasses.replace(plain, input_hash=input_hash, task_version=task_version)
+            if keep is not None:
+                keep(checked)
+            final = finish(checked)
             if _meta_json_or_none(final) is not None:
                 return final
         elif plain is not None:
@@ -397,7 +501,8 @@ def _with_min_p(question: DecisionQuestion, result: DecisionResult, min_p: Optio
 def _decision_cell(request: DecisionRequest, question: DecisionQuestion, outcome: _CallOutcome,
                    row: Optional[Dict[str, DecisionResult]], identity: Tuple[str, str],
                    capabilities: ProviderCapabilities, min_p: Optional[float], input_hash: str,
-                   require_probabilities: ProbabilityRequirement) -> DecisionResult:
+                   require_probabilities: ProbabilityRequirement,
+                   keep: Optional[Callable[[DecisionResult], None]] = None) -> DecisionResult:
     def finish(found: DecisionResult) -> DecisionResult:
         if require_probabilities is not False and _meta_json_or_none(found) is None:
             return found
@@ -405,7 +510,7 @@ def _decision_cell(request: DecisionRequest, question: DecisionQuestion, outcome
     return _checked(outcome, row, question.id, DecisionResult,
                     lambda found: check_decision_result(request, question, found, capabilities), finish,
                     functools.partial(unanswered_result, request, question, provider=identity[0], model=identity[1]),
-                    input_hash, request.task_version)
+                    input_hash, request.task_version, keep)
 
 
 def _unavailable_answers(identity: Tuple[str, str]) -> Callable[[Sequence[DecisionRequest]], object]:
@@ -417,11 +522,12 @@ def _unavailable_answers(identity: Tuple[str, str]) -> Callable[[Sequence[Decisi
 
 
 def _generation_cell(request: GenerationRequest, outcome: _CallOutcome, row: Optional[Dict[str, GenerationResult]],
-                     identity: Tuple[str, str], input_hash: str) -> GenerationResult:
+                     identity: Tuple[str, str], input_hash: str,
+                     keep: Optional[Callable[[GenerationResult], None]] = None) -> GenerationResult:
     return _checked(outcome, row, "", GenerationResult,
                     lambda found: check_generation_result(request, found), lambda found: found,
                     functools.partial(unanswered_generation_result, request, provider=identity[0], model=identity[1]),
-                    input_hash, request.task_version)
+                    input_hash, request.task_version, keep)
 
 
 def _provider_identity(provider: Union[DecisionProvider, GenerationProvider]) -> Tuple[str, str]:
@@ -520,6 +626,7 @@ def sem_decide(
     require_probabilities: ProbabilityRequirement = False,
     column_max_chars: Optional[int] = None,
     overwrite: bool = False,
+    dedupe: bool = True,
 ) -> DataFrameT:
     """Ask a model typed questions about every row and append one set of result columns per question.
 
@@ -554,7 +661,14 @@ def sem_decide(
         this capability check precedes provider-call budget planning. Answerless uncertainty, errors and skips are preserved.
     :param column_max_chars: truncate each string evidence value to this many characters
     :param overwrite: replace existing output columns instead of raising
+    :param dedupe: ask once for rows that have the same evidence (after ``max_rows`` and null-evidence skips, before
+        ``budget``); a copy gets the answer with ``cost_usd`` and ``latency_ms`` 0 and ``extra["deduped_from"]`` set to
+        the id of the row that was asked. ``dedupe=False`` asks for every row, for example to vote over several answers
     :returns: a copy of ``df`` with the result columns appended
+
+    A cache bound with :func:`~graphistry.compute.semantic.bind_providers` answers repeated inputs without a call;
+    see :class:`~graphistry.compute.semantic.cache.SemanticCache`. A row is served from it only when every question
+    of the row hits.
 
     **Example**
         ::
@@ -566,7 +680,7 @@ def sem_decide(
     """
     started = time.monotonic()
     coerced = coerce_questions(questions)
-    check_params(dict(task_id=task_id, task_version=task_version, overwrite=overwrite,
+    check_params(dict(task_id=task_id, task_version=task_version, overwrite=overwrite, dedupe=dedupe,
                       require_probabilities=require_probabilities),
                  dict(batch_size=batch_size, max_concurrency=max_concurrency, deadline_s=deadline_s,
                       max_rows=max_rows, min_p=min_p, column_max_chars=column_max_chars))
@@ -584,18 +698,51 @@ def sem_decide(
     identity = _provider_identity(resolved)
     _check_question_capabilities(coerced, capabilities)
     rows = _prepare_rows(df, cols, template, id_col, column_max_chars, max_rows)
+    cache, fingerprint = _bound_cache(resolved)
 
-    def request(position: int, chunk: Sequence[DecisionQuestion]) -> DecisionRequest:
-        return DecisionRequest(request_id=rows.request_ids[position], evidence=rows.evidence[position],
+    def request(source: _Rows, position: int, chunk: Sequence[DecisionQuestion]) -> DecisionRequest:
+        return DecisionRequest(request_id=source.request_ids[position], evidence=source.evidence[position],
                                questions=tuple(chunk), task_id=task_id, task_version=task_version)
 
     per_call = capabilities.max_questions_per_request
     hashes = {(position, question.id): compute_decision_hash(evidence, question, task_version)
               for position, evidence in enumerate(rows.evidence) for question in coerced}
+    duplicates = _duplicates(rows, [tuple(hashes[(position, question.id)] for question in coerced)
+                                    for position in range(len(rows.request_ids))]) if dedupe else {}
     deadline_at = None if deadline is None else started + deadline
     run = [resolved]
     unavailable = _unavailable_answers(identity)
     settled_gap = [False]
+
+    def finish_cell(source: _Rows, local: int, position: int, question: DecisionQuestion, outcome: _CallOutcome,
+                    row: Optional[Dict[str, DecisionResult]], keep: Optional[Callable[[DecisionResult], None]] = None
+                    ) -> DecisionResult:
+        """The cell of ``question`` for row ``position`` of the table, which is row ``local`` of ``source``."""
+        return _decision_cell(request(source, local, (question,)), question, outcome, row, identity, capabilities,
+                              threshold, hashes[(position, question.id)], require_probabilities, keep)
+
+    served: Dict[Cell, DecisionResult] = {}
+    keys = {(position, question.id): cache_key(fingerprint, hashes[(position, question.id)])
+            for position in range(len(rows.request_ids)) for question in coerced} if cache is not None else {}
+    if cache is not None:
+        asked = [position for position, reason in enumerate(rows.skip_reason) if reason is None and position not in duplicates]
+        stored = _cache_get(cache, [keys[(position, question.id)] for position in asked for question in coerced])
+        for position in asked:
+            hits: Dict[Cell, DecisionResult] = {}
+            for question in coerced:
+                payload = stored.get(keys[(position, question.id)])
+                loaded = None if payload is None else _load_payload(
+                    payload, DecisionResult, request_id=rows.request_ids[position], question_id=question.id)
+                result = None if loaded is None else finish_cell(rows, position, position, question, _CallOutcome(),
+                                                                 {question.id: loaded})
+                if result is None or result.status not in ("ok", "uncertain"):
+                    break
+                hits[(position, question.id)] = _as_cache_hit(result)
+            else:
+                served.update(hits)
+    served_rows = {position for position, _question in served}
+    send = [position for position in range(len(rows.request_ids)) if position not in duplicates and position not in served_rows]
+    work = _subrows(rows, send)
 
     def prepare(requests_: Sequence[DecisionRequest], admit: Admit) -> bool:
         prepared = _prepared(resolved, requests_, admit, deadline_at)
@@ -610,7 +757,7 @@ def sem_decide(
         return run[0].decide_batch(batch, deadline_s=remaining, budget=call_budget)
 
     cells = _run_rows(
-        rows, lambda positions: [[request(position, coerced[start:start + per_call]) for position in positions]
+        work, lambda positions: [[request(work, position, coerced[start:start + per_call]) for position in positions]
                                  for start in range(0, len(coerced), per_call)],
         invoke,
         result_type=DecisionResult, capabilities=capabilities, batch_size=batch_size,
@@ -619,9 +766,18 @@ def sem_decide(
         estimate=lambda batch: 0.0 if settled_gap[0] else _estimate_cost(run[0], batch),
         local_answers=unavailable if known_probability_gap(resolved, require_probabilities) else None,
         prepare=prepare)
-    grid = {(position, question.id): _decision_cell(request_, question, outcome, row, identity, capabilities,
-                                                    threshold, hashes[(position, question.id)], require_probabilities)
-            for position, request_, outcome, row in cells for question in request_.questions}
+    fresh: Dict[Cell, DecisionResult] = {}
+    grid = {(send[local], question.id): finish_cell(
+                work, local, send[local], question, outcome, row,
+                _collector(fresh, (send[local], question.id)) if cache is not None else None)
+            for local, request_, outcome, row in cells for question in request_.questions}
+    if cache is not None:
+        _cache_put(cache, {keys[cell]: _result_payload(result) for cell, result in fresh.items() if _cacheable(result)})
+    grid.update(served)
+    for position, representative in duplicates.items():
+        for question in coerced:
+            grid[(position, question.id)] = _copy_of(grid[(representative, question.id)], rows.request_ids[position],
+                                                     rows.request_ids[representative])
     return _with_columns(df, _result_columns(coerced, grid, len(rows.request_ids)))
 
 
@@ -644,13 +800,15 @@ def sem_map(
     max_rows: Optional[int] = None,
     column_max_chars: Optional[int] = None,
     overwrite: bool = False,
+    dedupe: bool = True,
 ) -> DataFrameT:
     """Generate one text value per row and append ``out_col`` plus its status, error code and meta columns.
 
     Parameters, row identity, limits and failure handling match :func:`sem_decide`, except that ``batch_size``
     defaults to the provider's ``max_rows_per_request``, else 16; ``instruction`` is the generation instruction
     and ``max_output_tokens`` is passed to the provider as its bound on each generated value. ``budget`` takes
-    ``max_requests`` only: ``max_cost_usd`` raises, since generation providers do not estimate cost.
+    ``max_requests`` only: ``max_cost_usd`` raises, since generation providers do not estimate cost. ``dedupe`` and a
+    bound result cache work as in :func:`sem_decide`; the cache key also holds ``max_output_tokens``.
 
     **Example**
         ::
@@ -661,7 +819,7 @@ def sem_map(
     """
     started = time.monotonic()
     check_params(dict(instruction=instruction, out_col=out_col, task_id=task_id, task_version=task_version,
-                      overwrite=overwrite),
+                      overwrite=overwrite, dedupe=dedupe),
                  dict(max_output_tokens=max_output_tokens, batch_size=batch_size, max_concurrency=max_concurrency,
                       deadline_s=deadline_s, max_rows=max_rows, column_max_chars=column_max_chars))
     cols = evidence_columns(evidence_cols, template)
@@ -676,21 +834,51 @@ def sem_map(
     capabilities = _provider_capabilities(resolved)
     identity = _provider_identity(resolved)
     rows = _prepare_rows(df, cols, template, id_col, column_max_chars, max_rows)
+    cache, fingerprint = _bound_cache(resolved)
 
-    def request(position: int) -> GenerationRequest:
-        return GenerationRequest(request_id=rows.request_ids[position], evidence=rows.evidence[position],
+    def request(source: _Rows, position: int) -> GenerationRequest:
+        return GenerationRequest(request_id=source.request_ids[position], evidence=source.evidence[position],
                                  instruction=instruction, task_id=task_id, task_version=task_version,
                                  max_output_tokens=output_tokens)
 
     hashes = [compute_generation_hash(evidence, instruction, task_version) for evidence in rows.evidence]
+    duplicates = _duplicates(rows, hashes) if dedupe else {}
+
+    def finish_cell(source: _Rows, local: int, position: int, outcome: _CallOutcome,
+                    row: Optional[Dict[str, GenerationResult]],
+                    keep: Optional[Callable[[GenerationResult], None]] = None) -> GenerationResult:
+        return _generation_cell(request(source, local), outcome, row, identity, hashes[position], keep)
+
+    salt = f"max_output_tokens={output_tokens}"
+    keys = [cache_key(fingerprint, input_hash, salt) for input_hash in hashes] if cache is not None else []
+    served: Dict[int, GenerationResult] = {}
+    if cache is not None:
+        asked = [position for position, reason in enumerate(rows.skip_reason) if reason is None and position not in duplicates]
+        stored = _cache_get(cache, [keys[position] for position in asked])
+        for position in asked:
+            payload = stored.get(keys[position])
+            loaded = None if payload is None else _load_payload(payload, GenerationResult, request_id=rows.request_ids[position])
+            result = None if loaded is None else finish_cell(rows, position, position, _CallOutcome(), {"": loaded})
+            if result is not None and result.status in ("ok", "uncertain"):
+                served[position] = _as_cache_hit(result)
+    send = [position for position in range(len(rows.request_ids)) if position not in duplicates and position not in served]
+    work = _subrows(rows, send)
     cells = _run_rows(
-        rows, lambda positions: [[request(position) for position in positions]],
+        work, lambda positions: [[request(work, position) for position in positions]],
         lambda batch, remaining, call_budget: resolved.generate_batch(batch, deadline_s=remaining, budget=call_budget),
         result_type=GenerationResult, capabilities=capabilities, batch_size=batch_size,
         default_batch_size=DEFAULT_MAP_BATCH_SIZE, max_concurrency=max_concurrency, budget=run_budget,
         deadline_at=None if deadline is None else started + deadline, effect_name="sem_map")
-    results = {position: _generation_cell(request_, outcome, row, identity, hashes[position])
-               for position, request_, outcome, row in cells}
+    fresh: Dict[Cell, GenerationResult] = {}
+    results = {send[local]: finish_cell(work, local, send[local], outcome, row,
+                                        _collector(fresh, (send[local], "")) if cache is not None else None)
+               for local, _request, outcome, row in cells}
+    if cache is not None:
+        _cache_put(cache, {keys[position]: _result_payload(result) for (position, _q), result in fresh.items()
+                           if _cacheable(result)})
+    results.update(served)
+    for position, representative in duplicates.items():
+        results[position] = _copy_of(results[representative], rows.request_ids[position], rows.request_ids[representative])
     ordered = [results[position] for position in range(len(rows.request_ids))]
     return _with_columns(df, {
         out_col: np.array([result.value for result in ordered], dtype=object),
