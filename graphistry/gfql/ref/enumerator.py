@@ -9,9 +9,9 @@ from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
 import pandas as pd
 
 try:  # Optional GPU dependency
-    import cudf  # type: ignore
+    import cudf
 except Exception:  # pragma: no cover
-    cudf = None  # type: ignore
+    cudf = None
 
 from graphistry.Plottable import Plottable
 from graphistry.compute.ast import ASTEdge, ASTNode, ASTObject
@@ -197,8 +197,8 @@ def enumerate_chain(
                 # Build adjacency from original edges, respecting direction
                 direction = edge_step.get("direction", "forward")
                 adjacency: Dict[Any, List[Tuple[Any, Any]]] = {}
-                for _, row in edges_df.iterrows():  # type: ignore[assignment]
-                    src, dst, eid = row[edge_src], row[edge_dst], row[edge_id]  # type: ignore[call-overload]
+                for _, row in edges_df.iterrows():
+                    src, dst, eid = row[edge_src], row[edge_dst], row[edge_id]
                     if direction == "reverse":
                         # Reverse: traverse dst -> src
                         adjacency.setdefault(dst, []).append((eid, src))
@@ -363,7 +363,7 @@ def _coerce_ops(ops: Sequence[ASTObject]) -> List[ASTObject]:
 def _to_pandas(df_like: Any) -> pd.DataFrame:
     if isinstance(df_like, pd.DataFrame):
         return df_like.copy()
-    if cudf is not None and isinstance(df_like, cudf.DataFrame):  # type: ignore[attr-defined]
+    if cudf is not None and isinstance(df_like, cudf.DataFrame):
         return df_like.to_pandas().copy()
     if hasattr(df_like, "to_pandas"):
         converted = df_like.to_pandas()

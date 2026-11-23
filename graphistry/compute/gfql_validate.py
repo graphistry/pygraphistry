@@ -227,7 +227,7 @@ def _coerce_non_string_query(
                 wrapped_dict[key] = Chain([value])
             else:
                 wrapped_dict[key] = value
-        out = ASTLet(wrapped_dict)  # type: ignore[arg-type]
+        out = ASTLet(wrapped_dict)
     elif isinstance(out, Chain):
         if where_param:
             if out.where:

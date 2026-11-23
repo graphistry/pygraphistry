@@ -793,7 +793,7 @@ def _build_transformer(source: str) -> _TransformerLike:
             return self._relationship(meta, () if simple else items, direction=direction)
         return _rule
 
-    @v_args(meta=True)  # type: ignore[misc]
+    @v_args(meta=True)
     class _CypherAstBuilder(Transformer):  # type: ignore[valid-type,misc]
         def __default_token__(self, token: Any) -> Any:  # hygiene-ok: explicit-any -- Lark Token dynamic API
 

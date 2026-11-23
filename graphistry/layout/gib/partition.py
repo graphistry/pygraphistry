@@ -62,7 +62,7 @@ def partition(
 
     if engine == Engine.PANDAS:
         try:
-            g2 = g2.compute_igraph(partition_alg, **partition_params, out_col=partition_key)  # type: ignore
+            g2 = g2.compute_igraph(partition_alg, **partition_params, out_col=partition_key)
         except ModuleNotFoundError as exc:
             raise ModuleNotFoundError(
                 "group_in_a_box_layout with the pandas engine requires python-igraph. "

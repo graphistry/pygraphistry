@@ -133,7 +133,7 @@ def time_stats(
 
     if num_rings is None:
         if time_unit is not None:
-            time_dur: np.timedelta64 = time_end - time_start  # type: ignore[assignment]  # numpy stub: datetime64 - datetime64 -> timedelta64
+            time_dur: np.timedelta64 = time_end - time_start  # numpy stub: datetime64 - datetime64 -> timedelta64
             unit_step = unit_to_timedelta(time_unit)
             rounded: np.int64 = (time_dur // unit_step).astype('int')
             num_rings = int(rounded + 1)
@@ -141,7 +141,7 @@ def time_stats(
             num_rings = 10 if len(s) > 1000 else 5
             #print('target_bins', num_rings)
 
-    step_dur_s: np.timedelta64 = ((time_end - time_start) / num_rings)  # type: ignore[assignment, operator]  # numpy stub: timedelta64 / int -> timedelta64
+    step_dur_s: np.timedelta64 = ((time_end - time_start) / num_rings)  # numpy stub: timedelta64 / int -> timedelta64
     #print('step_dur_s', step_dur_s)
     #print('step_dur_s[D]', np.timedelta64(step_dur_s, 'D'))
     #print('time_unit', time_unit)
@@ -187,8 +187,8 @@ def gen_axis(
         
         assert isinstance(offset, pd.DateOffset)
 
-        time_start_timestamp = pd.Timestamp(time_start)  # type:ignore
-        time_end_timestamp = time_start_timestamp + offset  # type:ignore
+        time_start_timestamp = pd.Timestamp(time_start)
+        time_end_timestamp = time_start_timestamp + offset
         #print('adding', time_start, time_start_timestamp, offset)
         
         tf = time_end_timestamp.value - time_start_timestamp.value        
@@ -206,7 +206,7 @@ def gen_axis(
           ) if label is None else label(
               time_start + step_dur * step, step, step_dur
           ),
-          "r": offset_time_to_r(rounded_set_offset * step),  # type:ignore
+          "r": offset_time_to_r(rounded_set_offset * step),
           "internal": True
       }
       for step in range(0, num_rings + 1)

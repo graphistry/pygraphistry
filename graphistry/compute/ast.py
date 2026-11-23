@@ -928,7 +928,7 @@ class ASTLet(ASTObject):
                         chain_ops.append(from_json(op, validate=False))
                     else:
                         chain_ops.append(op)
-                processed_bindings[name] = Chain(chain_ops, validate=False)  # type: ignore
+                processed_bindings[name] = Chain(chain_ops, validate=False)
             elif isinstance(value, dict):
                 # JSON dict - check type and convert if valid
                 if 'type' not in value:
@@ -940,16 +940,16 @@ class ASTLet(ASTObject):
                     # Import Chain here due to circular dependency
                     from graphistry.compute.chain import Chain  # noqa: F401, F811
                     chain_obj = Chain.from_json(value, validate=False)
-                    processed_bindings[name] = chain_obj  # type: ignore
+                    processed_bindings[name] = chain_obj
                 else:
                     # Convert other AST types
                     ast_obj = from_json(value, validate=False)
-                    processed_bindings[name] = ast_obj  # type: ignore
+                    processed_bindings[name] = ast_obj
             else:
                 # Native object - use as-is
                 processed_bindings[name] = value
         
-        self.bindings = processed_bindings  # type: ignore
+        self.bindings = processed_bindings
         
         if validate:
             self.validate()
@@ -1012,7 +1012,7 @@ class ASTLet(ASTObject):
         bindings_json = {}
         for k, v in self.bindings.items():
             if hasattr(v, 'to_json'):
-                bindings_json[k] = v.to_json()  # type: ignore
+                bindings_json[k] = v.to_json()
             else:
                 # Plottable doesn't have to_json
                 raise ValueError(f"Cannot serialize {type(v).__name__} to JSON")
@@ -1047,7 +1047,7 @@ class ASTLet(ASTObject):
                 # Regular AST objects
                 bindings[k] = from_json(v, validate=validate)
         
-        out = cls(bindings=bindings, validate=validate)  # type: ignore
+        out = cls(bindings=bindings, validate=validate)
         return out
     
     def execute(

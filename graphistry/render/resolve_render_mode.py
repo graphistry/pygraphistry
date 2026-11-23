@@ -15,7 +15,7 @@ def resolve_cascaded(render: Union[bool, RenderModes]):
     # => RenderModeConcrete
     if render != "auto":
         assert render in RENDER_MODE_CONCRETE_VALUES
-        return render  # type: ignore
+        return render
 
     if in_ipython():
         return "ipython"
