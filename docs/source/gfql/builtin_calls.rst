@@ -2119,13 +2119,14 @@ process memory:
 
 .. code-block:: python
 
-    from graphistry.compute.semantic import MemorySemanticCache, OpenAIDecisionsProvider, TokenPrices, bind_providers
+    from graphistry.compute.semantic import CallableDecisionProvider, MemorySemanticCache, bind_providers
 
     cache = MemorySemanticCache(max_entries=50_000, ttl_s=900)       # also max_bytes; defaults 10,000 entries, 64 MiB, 1 hour
-    provider = OpenAIDecisionsProvider(api_key=key, model=model_id, prices=TokenPrices(input=in_rate))
-    with bind_providers({"fast": provider}, cache=cache):
-        first = g.sem_decide(questions, "fast", task_id="t", evidence_cols=["name"])    # sends requests
-        again = g.sem_decide(questions, "fast", task_id="t", evidence_cols=["name"])    # sends none
+    provider = CallableDecisionProvider(lambda evidence, q: "inc" in str(evidence).lower(), fingerprint="company-rules-v1")
+    questions = [{"id": "is_company", "kind": "predicate", "text": "Is this a company?"}]
+    with bind_providers({"rules": provider}, cache=cache):
+        first = g.sem_decide(questions, "rules", task_id="t", evidence_cols=["name"])    # calls the provider
+        again = g.sem_decide(questions, "rules", task_id="t", evidence_cols=["name"])    # calls it no more
     cache.stats()          # hits, misses, puts, evictions, expirations, rejected, entries, bytes, hit_rate
 
 A cache key is a hash of the schema version, the provider fingerprint and the input hash. The provider fingerprint comes
