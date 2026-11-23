@@ -58,11 +58,16 @@ POLARS_TEST_FILES=(
     # non-sequence operand) only ever run here
     graphistry/tests/compute/gfql/test_size_nonlist_decline_1985.py
     graphistry/tests/compute/gfql/test_polars_string_predicate_nonstring.py
+    graphistry/tests/compute/gfql/test_polars_categorical_predicates.py
+    graphistry/tests/compute/gfql/cypher/test_string_predicate_nonstring_2335.py
+    graphistry/tests/compute/gfql/cypher/test_string_predicate_families_2335.py
     graphistry/tests/compute/gfql/cypher/test_order_by_null_placement.py
     graphistry/tests/compute/gfql/cypher/test_null_equality_conjunction.py
     graphistry/tests/compute/gfql/cypher/test_missing_relationship_property_2262.py
     # #2318 empty-map patterns are engine-parametrized; polars params only run here
     graphistry/tests/compute/gfql/cypher/test_issue_2318_empty_map_relationship.py
+    # #2368 a projected boolean is not an alias; engine-parametrized, Polars params only run in this lane
+    graphistry/tests/compute/gfql/cypher/test_projected_boolean_is_not_an_alias_2368.py
     # #2363 aggregates over string subscripts are engine-parametrized; Polars params only run in this lane
     graphistry/tests/compute/gfql/cypher/test_aggregate_string_subscript_2363.py
     # #2338 WITH WHERE quantifier scope is engine-parametrized; Polars structured declines run here
@@ -173,6 +178,7 @@ POLARS_TEST_FILES=(
     graphistry/tests/compute/gfql/cypher/test_grouped_aggregate_cross_alias.py
     graphistry/tests/compute/gfql/cypher/test_single_alias_where_2019.py
     graphistry/tests/compute/gfql/cypher/test_in_null_three_valued_2123.py
+    graphistry/tests/compute/gfql/cypher/test_projected_literal_named_like_column_2346.py
     # module-level `importorskip("polars")` files that previously ran in no lane at all
     graphistry/tests/compute/gfql/test_engine_polars_narrow_combine.py
     graphistry/tests/compute/gfql/row/test_alias_prefilter_alignment_2020.py
