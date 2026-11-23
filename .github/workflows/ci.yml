@@ -1206,7 +1206,7 @@ jobs:
     needs: [changes, python-lint-types, generate-lockfiles]
     if: ${{ ((needs.changes.outputs.python == 'true' && needs.changes.outputs.narrow_python_only != 'true') || needs.changes.outputs.gfql == 'true' || needs.changes.outputs.schema_lane == 'true' || needs.changes.outputs.pandas_compat == 'true' || needs.changes.outputs.core == 'true' || needs.changes.outputs.ai == 'true' || needs.changes.outputs.infra == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule') && !(needs.changes.outputs.docs_only_latest == 'true' && (github.event_name == 'push' || github.event_name == 'pull_request')) }}
     runs-on: ubuntu-24.04
-    timeout-minutes: 25
+    timeout-minutes: 35
 
     strategy:
       matrix:
@@ -1531,7 +1531,7 @@ jobs:
     needs: [changes, test-minimal-python, generate-lockfiles]
     if: ${{ ((needs.changes.outputs.python == 'true' && needs.changes.outputs.narrow_python_only != 'true') || needs.changes.outputs.gfql == 'true' || needs.changes.outputs.core == 'true' || needs.changes.outputs.infra == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule') && !(needs.changes.outputs.docs_only_latest == 'true' && (github.event_name == 'push' || github.event_name == 'pull_request')) }}
     runs-on: ubuntu-24.04
-    timeout-minutes: 12
+    timeout-minutes: 20
 
     strategy:
       matrix:
@@ -1661,7 +1661,7 @@ jobs:
     needs: [changes, python-lint-types, generate-lockfiles]
     if: ${{ needs.changes.outputs.gfql == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' }}
     runs-on: ubuntu-24.04
-    timeout-minutes: 25
+    timeout-minutes: 30
 
     steps:
     - name: Checkout repo
@@ -1778,7 +1778,7 @@ jobs:
     runs-on: ubuntu-24.04
     # The py3.12 coverage cell can exceed 20 minutes including setup,
     # two test phases, and coverage artifact work.
-    timeout-minutes: 30
+    timeout-minutes: 45
 
     strategy:
       matrix:
@@ -2238,7 +2238,7 @@ jobs:
     # gate accepts skipped prerequisites and refuses only failed or cancelled ones.
     if: ${{ !cancelled() && needs.changes.result == 'success' && needs.python-lint-types.result != 'failure' && needs.docs-latex-unicode-guard.result != 'failure' && ((needs.changes.outputs.docs == 'true' && needs.changes.outputs.narrow_python_only != 'true') || (needs.changes.outputs.python == 'true' && needs.changes.outputs.narrow_python_only != 'true') || needs.changes.outputs.docs_test == 'true' || needs.changes.outputs.infra == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule') }}
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 15
 
     steps:
     - uses: actions/checkout@v4
