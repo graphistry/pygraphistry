@@ -607,8 +607,8 @@ def chain_let_impl(g: Plottable, dag: ASTLet,
 
                     # Add error information if binding failed
                     if binding_error is not None:
-                        postletbinding_context['error'] = str(binding_error)  # type: ignore
-                        postletbinding_context['error_type'] = type(binding_error).__name__  # type: ignore
+                        postletbinding_context['error'] = str(binding_error)
+                        postletbinding_context['error_type'] = type(binding_error).__name__
 
                     try:
                         policy['postletbinding'](postletbinding_context)
@@ -683,8 +683,8 @@ def chain_let_impl(g: Plottable, dag: ASTLet,
 
             # Add error information if execution failed
             if error is not None:
-                postlet_context['error'] = str(error)  # type: ignore
-                postlet_context['error_type'] = type(error).__name__  # type: ignore
+                postlet_context['error'] = str(error)
+                postlet_context['error_type'] = type(error).__name__
 
             try:
                 policy['postlet'](postlet_context)
@@ -716,8 +716,8 @@ def chain_let_impl(g: Plottable, dag: ASTLet,
 
             # Add error information if execution failed
             if error is not None:
-                context_dict['error'] = str(error)  # type: ignore
-                context_dict['error_type'] = type(error).__name__  # type: ignore
+                context_dict['error'] = str(error)
+                context_dict['error_type'] = type(error).__name__
 
             try:
                 # Policy can only accept (None) or deny (exception)

@@ -70,7 +70,7 @@ class ArrowFileUploader():
         json_extended = {
             'file_type': 'arrow',
             'agent_name': 'pygraphistry',
-            'agent_version': sys.modules['graphistry'].__version__,  # type: ignore
+            'agent_version': sys.modules['graphistry'].__version__,
             **file_opts
         }
 

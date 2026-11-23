@@ -641,6 +641,21 @@ def _value_category(v: Any) -> Optional[str]:
     return None
 
 
+def _case_branch_value_kind(dt: Optional[pl.DataType]) -> Optional[str]:
+    """Coarse Cypher value family for CASE branches; unknown families stay fail-open."""
+    import polars as pl
+
+    if dt is None or dt == pl.Null:
+        return None
+    if dt == pl.Boolean:
+        return "bool"
+    if _dtype_is_int(dt) or _dtype_is_float(dt):
+        return "number"
+    if _dtype_is_stringlike(dt):
+        return "str"
+    return None
+
+
 def _lower_list_literal(items: Sequence[ExprNode], columns: Sequence[str]) -> Optional[pl.Expr]:
     """Lower ``[e0, e1, ...]`` to a per-row list via ``pl.concat_list``, or None to defer.
 
@@ -701,7 +716,7 @@ def lower_expr(node: ExprNode, columns: Sequence[str]) -> Optional[pl.Expr]:
     """Lower a parsed cypher ExprNode to a polars expression, or None to defer."""
     import polars as pl
     from graphistry.compute.gfql.expr_parser import (
-        Identifier, Literal, BinaryOp, UnaryOp, IsNullOp, PropertyAccessExpr, FunctionCall, CaseWhen,
+        Identifier, Literal, BinaryOp, UnaryOp, IsNullOp, PropertyAccessExpr, SubscriptExpr, FunctionCall, CaseWhen,
         ListLiteral,
     )
 
@@ -713,6 +728,17 @@ def lower_expr(node: ExprNode, columns: Sequence[str]) -> Optional[pl.Expr]:
         wf = lower_expr(node.when_false, columns)
         if cond is None or wt is None or wf is None:
             return None
+        true_kind = _case_branch_value_kind(_expr_output_dtype(wt))
+        false_kind = _case_branch_value_kind(_expr_output_dtype(wf))
+        if true_kind is not None and false_kind is not None and true_kind != false_kind:
+            from graphistry.compute.exceptions import ErrorCode, GFQLUnsupportedError
+            raise GFQLUnsupportedError(
+                ErrorCode.E110,
+                "CASE branches return incompatible Cypher value types",
+                field="expression",
+                value=sorted([true_kind, false_kind]),
+                suggestion="Use an explicit cast so both branches have the same value type.",
+            )
         # cast cond to Boolean: a Null-dtype/3-valued WHEN takes the ELSE branch (Cypher,
         # matching pandas); no-op on a real Boolean.
         return pl.when(cond.cast(pl.Boolean)).then(wt).otherwise(wf)
@@ -720,6 +746,23 @@ def lower_expr(node: ExprNode, columns: Sequence[str]) -> Optional[pl.Expr]:
         return _lower_function(node, columns)
     if isinstance(node, ListLiteral):
         return _lower_list_literal(node.items, columns)
+    if isinstance(node, SubscriptExpr) and isinstance(node.value, Identifier):
+        key_node = node.key
+        if isinstance(key_node, Literal) and isinstance(key_node.value, str):
+            key = key_node.value
+        elif isinstance(key_node, BinaryOp) and key_node.op == "+":
+            left_operand = key_node.left
+            right_operand = key_node.right
+            if (
+                isinstance(left_operand, Literal) and isinstance(left_operand.value, str)
+                and isinstance(right_operand, Literal) and isinstance(right_operand.value, str)
+            ):
+                key = left_operand.value + right_operand.value
+            else:
+                return None
+        else:
+            return None
+        return lower_expr(PropertyAccessExpr(node.value, key), columns)
     if isinstance(node, Identifier):
         if node.name in columns:
             return pl.col(node.name)
@@ -757,6 +800,28 @@ def lower_expr(node: ExprNode, columns: Sequence[str]) -> Optional[pl.Expr]:
                 return pl.lit(None)
         return None
     if isinstance(node, BinaryOp):
+        if node.op in {"contains", "starts_with", "ends_with"}:
+            left = lower_expr(node.left, columns)
+            right = lower_expr(node.right, columns)
+            if left is None or right is None:
+                return None
+            left_dtype = _expr_output_dtype(left)
+            right_dtype = _expr_output_dtype(right)
+            if left_dtype is None or right_dtype is None:
+                return None  # unknown dtype: decline rather than answer null
+            if left_dtype in (pl.Categorical, pl.Enum):  # categorical strings match like strings, as in WHERE
+                left, left_dtype = left.cast(pl.String), pl.String()
+            if right_dtype in (pl.Categorical, pl.Enum):
+                right, right_dtype = right.cast(pl.String), pl.String()
+            if left_dtype not in (pl.String, pl.Null) or right_dtype not in (pl.String, pl.Null):
+                return pl.lit(None, dtype=pl.Boolean)
+            if left_dtype == pl.Null or right_dtype == pl.Null:
+                return pl.lit(None, dtype=pl.Boolean)
+            if node.op == "contains":
+                return left.str.contains(right, literal=True)
+            if node.op == "starts_with":
+                return left.str.starts_with(right)
+            return left.str.ends_with(right)
         if node.op == "in" and isinstance(node.right, ListLiteral):
             # x IN [literals] on the row-expression surface (distinct from the WHERE/IsIn
             # predicate path); 3-valued, parity-checked. Non-literal/non-list RHS falls
@@ -788,6 +853,19 @@ def lower_expr(node: ExprNode, columns: Sequence[str]) -> Optional[pl.Expr]:
         # ('PT6M'), so +/- would become string concatenation (silent wrong answer); pandas handles it.
         if node.op in ("+", "-") and (_is_iso_duration_literal(node.left) or _is_iso_duration_literal(node.right)):
             return None
+        if node.op == "^":
+            lhs = lower_expr(node.left, columns)
+            rhs = lower_expr(node.right, columns)
+            if lhs is None or rhs is None:
+                return None
+            ldt, rdt = _expr_output_dtype(lhs), _expr_output_dtype(rhs)
+            if ldt == pl.Boolean or rdt == pl.Boolean or _is_cross_type(ldt, rdt):
+                return None
+            # decline (NIE) unless both operands are numeric (or a null literal): a same-type string pair would
+            # otherwise be cast to Float64 and answer where pandas rejects it.
+            if any(dt is not None and dt != pl.Null and not _dtype_is_numeric(dt) for dt in (ldt, rdt)):
+                return None
+            return lhs.cast(pl.Float64) ** rhs.cast(pl.Float64)
         # decline (NIE): ORDERING two ISO temporal constructor-string literals = lexicographic
         # (wrong across timezones). Only literal-vs-literal ordering declines: =/<> are
         # lexicographically correct, and literal-vs-real-string-column must NOT decline.
@@ -2183,7 +2261,7 @@ def binding_rows_polars(
             seed_ids = sn.select(pl.col(node_id)).drop_nulls()
         # eager by construction (a LazyFrame start_nodes is collected above), but the polars
         # guard narrows to the eager-or-lazy union and cannot express "eager only"
-        if reentry_token_col is None and seed_ids.height != seed_ids.unique().height:  # type: ignore[union-attr]
+        if reentry_token_col is None and seed_ids.height != seed_ids.unique().height:
             seed_row_col = generate_safe_column_name_from(
                 "__gfql_seed_row__", [node_id, *sn.columns]
             )
@@ -2639,7 +2717,7 @@ def binding_rows_polars(
         # its (pre-existing) branches, so inference cannot pick one here; the
         # indexed caller binds cleanly. Narrow just this call rather than widening
         # the finisher back to `Any`.
-        return _finish_binding_rows_polars(  # type: ignore[misc]
+        return _finish_binding_rows_polars(
             g, ops, state, alias_frames, node_id, attach_prop_aliases,
             decline_on_schema_error=True,  # pandas-vs-polars join-key dtype divergence
             attach_prop_columns=attach_prop_columns,
