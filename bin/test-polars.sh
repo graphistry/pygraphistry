@@ -61,8 +61,6 @@ POLARS_TEST_FILES=(
     # #2318 empty-map patterns are engine-parametrized; polars params only run here
     graphistry/tests/compute/gfql/cypher/test_issue_2318_empty_map_relationship.py
     graphistry/tests/compute/gfql/cypher/test_issue_2258_entity_identity_membership.py
-    # #2324 string parameters are engine-parametrized; Polars params only run in this lane
-    graphistry/tests/compute/gfql/cypher/test_string_param_literal_2324.py
     # grouped whole-entity identity is engine-parametrized; pandas runs in core,
     # while Polars only has this explicit lane
     graphistry/tests/compute/gfql/cypher/test_issue_2261_grouped_identity.py
