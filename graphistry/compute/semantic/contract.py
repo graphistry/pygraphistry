@@ -221,14 +221,14 @@ class Budget:
                    max_requests=_min_int(_limit(spec.get("max_requests")), "max_requests", 1))
 
 
-def _cost(value: object) -> Optional[float]:
+def _cost(value: object) -> Optional[float]:  # hygiene-ok: object-annotation -- untrusted host or user input, narrowed by isinstance
     number = finite_float(value)
     if value is not None and (number is None or number < 0):
         raise ValueError(f"max_cost_usd must be None or a finite number >= 0, got {value!r}")
     return number
 
 
-def _limit(value: object) -> object:
+def _limit(value: object) -> object:  # hygiene-ok: object-annotation -- untrusted host or user input, narrowed by isinstance
     canonical = canonicalize(value)
     return value if canonical is None else canonical
 

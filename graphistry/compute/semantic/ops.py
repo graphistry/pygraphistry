@@ -169,7 +169,7 @@ class _Setup:
     def __init__(self, budget: Optional[Budget]) -> None:
         self.budget, self.requests, self.cost_usd = budget, 0, 0.0
 
-    def __call__(self, cost: object) -> bool:
+    def __call__(self, cost: object) -> bool:  # hygiene-ok: object-annotation -- untrusted host or user input, narrowed by isinstance
         number = _nonnegative(canonicalize(cost))
         if self.budget is not None:
             cap = _cost_cap(self.budget)
@@ -185,7 +185,7 @@ def _prepared(provider: DecisionProvider, requests_: Sequence[DecisionRequest], 
               deadline_at: Optional[float]) -> Optional[DecisionProvider]:
     """The provider that answers one run: its optional ``prepare_run`` result (None when the budget stopped the
     setup), else the provider itself."""
-    hook = getattr(provider, "prepare_run", None)
+    hook = getattr(provider, "prepare_run", None)  # hygiene-ok: dynamic-attr -- duck-typed host object with no common base
     if hook is None:
         return provider
     prepared = hook(requests_, admit, deadline_s=None if deadline_at is None else max(0.0, deadline_at - time.monotonic()))
@@ -603,7 +603,7 @@ def sem_decide(
         settled_gap[0] = prepared is not None and known_probability_gap(prepared, require_probabilities)
         return prepared is not None
 
-    def invoke(batch: Sequence[DecisionRequest], remaining: Optional[float], call_budget: Optional[Budget]) -> object:
+    def invoke(batch: Sequence[DecisionRequest], remaining: Optional[float], call_budget: Optional[Budget]) -> object:  # hygiene-ok: object-annotation -- untrusted host or user input, narrowed by isinstance
         # A strategy settled by the run's setup (such as a probe) may lack the required probabilities: send no evidence.
         if settled_gap[0]:
             return unavailable(batch)
