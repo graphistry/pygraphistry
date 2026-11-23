@@ -14,6 +14,7 @@
     "graphistry/compute/gfql/lazy/engine/polars/dtypes.py": 92.0,
     "graphistry/compute/gfql/lazy/engine/polars/hop.py": 87.0,
     "graphistry/compute/gfql/lazy/engine/polars/hop_eager.py": 90.0,
+    "graphistry/compute/gfql/lazy/engine/polars/hop_parquet.py": 90.0,
     "graphistry/compute/gfql/lazy/engine/polars/lowering_context.py": 90.0,
     "graphistry/compute/gfql/lazy/engine/polars/membership.py": 92.0,
     "graphistry/compute/gfql/lazy/engine/polars/nan_clean.py": 90.0,

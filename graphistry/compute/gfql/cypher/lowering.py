@@ -1753,11 +1753,14 @@ def _row_expr_arg(
 ) -> Any:
     param_name = _whole_param_name(expr.text)
     if param_name is not None:
-        return _resolve_literal(
+        value = _resolve_literal(
             ParameterRef(name=param_name, span=expr.span),
             params=params,
             field=field,
         )
+        if isinstance(value, str):
+            return _cypher_literal_expr_text(value)  # a string parameter is a literal, never a column name or expression text
+        return value
     node = _parse_row_expr(
         expr.text,
         params=params,

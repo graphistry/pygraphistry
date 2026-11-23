@@ -4,6 +4,8 @@ Manual-only scripts for local performance checks. A subset runs in CI on GFQL ch
 
 Summary results go into `benchmarks/gfql/RESULTS.md` (raw outputs stay in `plans/`).
 
+The [CPU Parquet hop benchmark](parquet_hop.md) compares public GFQL with and without opt-in, native Polars, and the resident index on matched local files.
+
 ## Hop microbench
 
 Run a small set of hop() scenarios across synthetic graphs.

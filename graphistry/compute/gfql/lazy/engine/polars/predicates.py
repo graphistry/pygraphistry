@@ -363,11 +363,7 @@ def predicate_to_expr(col: str, pred: ASTPredicate, dtype: "Optional[pl.DataType
     Datetime column before lowering a DateValue comparison (else decline)."""
     import polars as pl
 
-    # Categorical-of-string supports string accessors only after decategorization.
-    if dtype in (pl.Categorical, pl.Enum):
-        c = pl.col(col).cast(pl.String)
-    else:
-        c = pl.col(col)
+    c = pl.col(col)
     name = type(pred).__name__
 
     op = getattr(pred, "op", None)
@@ -468,6 +464,9 @@ def predicate_to_expr(col: str, pred: ASTPredicate, dtype: "Optional[pl.DataType
                 expr = (day == c.dt.days_in_month()) & (month == 12)
             return expr.fill_null(False)
         return None
+
+    if dtype in (pl.Categorical, pl.Enum):
+        c = c.cast(pl.String)  # string accessors only: comparisons and membership keep the dictionary compare above
 
     if name == "Contains" and hasattr(pred, "pat") and isinstance(pred.pat, str):
         case = getattr(pred, "case", True)
