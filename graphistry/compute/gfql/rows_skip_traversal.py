@@ -372,14 +372,14 @@ def _ambient_state() -> Tuple[object, ...]:
 def _independent(frame: DataFrameT) -> DataFrameT:
     """A zero-row frame that owns its buffers, so the cache never pins the caller's column memory."""
     if is_polars_df(frame):
-        return frame.clear()  # type: ignore[return-value]  # a zero-row Polars frame keeps the schema and owns no buffers
+        return frame.clear()  # a zero-row Polars frame keeps the schema and owns no buffers
     return frame.copy(deep=True)
 
 
 def _fresh(frame: DataFrameT) -> DataFrameT:
     """A zero-row copy for one query: pandas/cuDF frames are deep copies, immutable Polars frames are shared."""
     if is_polars_df(frame):
-        return frame  # type: ignore[return-value]  # a Polars frame is immutable, so the cached one is safe to share
+        return frame  # a Polars frame is immutable, so the cached one is safe to share
     copied = frame.copy(deep=True)
     if hasattr(copied, "attrs"):
         copied.attrs = {}

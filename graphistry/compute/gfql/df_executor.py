@@ -94,7 +94,7 @@ class DFSamePathExecutor:
         if self.inputs.engine == Engine.CUDF:
             cudf_available = True
             try:
-                import cudf  # type: ignore  # noqa: F401
+                import cudf  # noqa: F401
             except Exception:
                 cudf_available = False
             if not cudf_available:

@@ -367,7 +367,7 @@ register_process_singleton(_gfql_expr_runtime_parser_bundle, "an import-resoluti
 def _gfql_cudf_list_sort_requires_host_bridge() -> bool:
     """cuDF 25.02 can segfault in list-sort pivot internals; bridge to pandas there."""
     try:
-        import cudf  # type: ignore
+        import cudf
     except (ModuleNotFoundError, ImportError):
         return False
     version = str(getattr(cudf, "__version__", ""))

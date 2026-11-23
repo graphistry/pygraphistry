@@ -3,7 +3,7 @@ from abc import ABC, abstractmethod
 import math
 from datetime import date, datetime, time
 from datetime import timezone as py_timezone
-from dateutil import parser as date_parser  # type: ignore[import]
+from dateutil import parser as date_parser  # type: ignore[import-untyped]
 from datetime import tzinfo as py_tzinfo
 import numpy as np
 import pandas as pd

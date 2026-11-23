@@ -151,7 +151,7 @@ def _filtered_positions(
         )
         if coded is not None:
             return coded
-    narrow = frame.select(list(filter_dict))  # type: ignore[operator]
+    narrow = frame.select(list(filter_dict))
     narrow = take_rows(narrow, positions, engine)
     narrow = frame_bindings._with_positions(narrow, marker, positions, engine)
     kept = frame_bindings._filter_frame(narrow, filter_dict, engine)
@@ -233,7 +233,7 @@ def _admits(base_graph: Plottable, ops: Sequence["ASTObject"], engine: Engine) -
 
 
 def _integer_column(frame: DataFrameT, column: str) -> bool:
-    series = frame.get_column(column)  # type: ignore[operator]
+    series = frame.get_column(column)
     return bool(series.dtype.is_integer()) and not series.null_count()
 
 
@@ -450,5 +450,5 @@ def project_array_path_bag(
                 source, rows, column = nodes, bag.node_rows[alias], value
             else:
                 source, rows, column = edges, bag.edge_rows[alias], value
-        columns.append(source.get_column(column).gather(rows).rename(name))  # type: ignore[operator]
+        columns.append(source.get_column(column).gather(rows).rename(name))
     return pl.DataFrame(columns)

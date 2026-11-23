@@ -2239,7 +2239,7 @@ def binding_rows_polars(
             seed_ids = sn.select(pl.col(node_id)).drop_nulls()
         # eager by construction (a LazyFrame start_nodes is collected above), but the polars
         # guard narrows to the eager-or-lazy union and cannot express "eager only"
-        if reentry_token_col is None and seed_ids.height != seed_ids.unique().height:  # type: ignore[union-attr]
+        if reentry_token_col is None and seed_ids.height != seed_ids.unique().height:
             seed_row_col = generate_safe_column_name_from(
                 "__gfql_seed_row__", [node_id, *sn.columns]
             )
@@ -2695,7 +2695,7 @@ def binding_rows_polars(
         # its (pre-existing) branches, so inference cannot pick one here; the
         # indexed caller binds cleanly. Narrow just this call rather than widening
         # the finisher back to `Any`.
-        return _finish_binding_rows_polars(  # type: ignore[misc]
+        return _finish_binding_rows_polars(
             g, ops, state, alias_frames, node_id, attach_prop_aliases,
             decline_on_schema_error=True,  # pandas-vs-polars join-key dtype divergence
             attach_prop_columns=attach_prop_columns,

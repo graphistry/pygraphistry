@@ -669,10 +669,10 @@ def filter_by_dict_polars(df: "PolarsFrameT", filter_dict: "Optional[Dict[str, A
     """Return rows of polars ``df`` matching all entries in ``filter_dict`` via one filter."""
     small = _filter_small_equalities(df, filter_dict)
     if small is not None:
-        return small  # type: ignore[return-value]  # The helper admits only eager frames.
+        return small  # The helper admits only eager frames.
     eager = _filter_eager_equalities(df, filter_dict)
     if eager is not None:
-        return eager  # type: ignore[return-value]  # The helper admits only eager frames.
+        return eager  # The helper admits only eager frames.
     combined = filter_expr_by_dict_polars(df, filter_dict)
     if combined is None:
         return df
