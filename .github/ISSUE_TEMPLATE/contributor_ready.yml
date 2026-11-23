@@ -1,0 +1,50 @@
+name: Contributor-ready task
+description: A scoped task a first-time contributor (or their coding agent) can pick up
+title: "[TASK] "
+labels: ["good-first-issue", "ai-friendly"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Maintainers and reporters: use this form for a task that is ready to be picked up. A contributor claims it by commenting on the issue; see [CONTRIBUTING.md](https://github.com/graphistry/pygraphistry/blob/develop/CONTRIBUTING.md).
+  - type: textarea
+    id: goal
+    attributes:
+      label: Goal
+      description: What changes, in one or two sentences, and why.
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: A checklist a reviewer can verify.
+      placeholder: |
+        - [ ] ...
+        - [ ] A test that fails before the change and passes after
+    validations:
+      required: true
+  - type: textarea
+    id: pointers
+    attributes:
+      label: Where to look
+      description: Files, functions and the existing tests to copy. Name the test file the new test belongs in.
+    validations:
+      required: true
+  - type: dropdown
+    id: engines
+    attributes:
+      label: Engines affected
+      description: Which GFQL engines the change can touch (GPU engines can be left to maintainers).
+      multiple: true
+      options:
+        - pandas
+        - Polars (CPU)
+        - cuDF
+        - polars-gpu
+        - not GFQL
+  - type: input
+    id: size
+    attributes:
+      label: Expected size
+      placeholder: "e.g. one function, about 30 lines plus a test"

@@ -8,6 +8,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [Development]
 <!-- Do Not Erase This Section - Used for tracking unreleased changes -->
 
+### Docs
+
+- **Contributor path (#2391)**: `CONTRIBUTING.md` is rewritten as the entry point for a first contribution (claim an issue, branch from `develop`, the local checks, the engine matrix, the benchmark expectation, pull request size, what CI does on a fork pull request, AI-assisted pull requests); `AGENTS.md` gains a "First Contribution" flow and the outside-pull-request trust rule; the pull request template asks for the claimed issue, engines tested, a benchmark and an AI-assistance line; the bug and feature templates become issue forms, with a contributor-ready form and a config linking the community Discord; `benchmarks/gfql/README.md` gains a before-and-after recipe; the `plan` and `review` skills start with an outside-pull-request screen.
+
 ### New Contributors
 
 - Welcome to new contributor @vikingps (Vikas), who made their first contribution in #2358 (experimental bounded Parquet traversal for GFQL `.hop()`).

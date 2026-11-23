@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Ask a question or talk an idea over (community Discord)
+    url: https://discord.gg/JAnyW3JqCD
+    about: Quick questions, and ideas to discuss before you open an issue. Decisions are recorded in GitHub issues.
+  - name: How to contribute
+    url: https://github.com/graphistry/pygraphistry/blob/develop/CONTRIBUTING.md
+    about: The path from claiming an issue to a reviewed pull request.
