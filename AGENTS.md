@@ -26,7 +26,14 @@ ln -s ../.agents/skills .claude/skills
 
 1. Follow repository docs and tests as source of truth.
 2. Keep edits minimal and verifiable.
-3. Run relevant lint/tests for touched areas.
+3. Run relevant lint/tests for touched areas, and run `./bin/lint.sh` before every push (it is the whole lint gate: ruff plus the type-hygiene and comment-density ratchets; bare `ruff` is not enough).
+4. No dynamic typing in code you add under `graphistry/`: no `hasattr`/`getattr`/`setattr`, no `__module__` or `type(x).__name__` sniffing, no `except AttributeError` probes, no bare `# type: ignore`, no `object` annotations. Use the typed helpers in `graphistry/Engine.py` (`is_series_like`, `is_cudf_series`, `is_polars_series`, `is_polars_df`), `isinstance`, or a Protocol. See `DEVELOP.md` "Type Hygiene Guard".
+
+## Where Issues Go
+
+- File performance issues in [graphistry/pyg-bench](https://github.com/graphistry/pyg-bench), not here: slowdowns, regressions, profiling findings, benchmark results, and proposals whose motivation is speed or memory. Link the pygraphistry code path or PR from the pyg-bench issue.
+- Correctness, API, docs, and engine-support issues stay in pygraphistry. When a perf investigation finds a wrong result, file that bug here and cross-link it.
+- This routing applies only to people with access to the benchmark, TCK and evals repositories; outside contributors have no access, so they file in pygraphistry and a maintainer moves the issue.
 
 ## Release Assistant Reminder
 

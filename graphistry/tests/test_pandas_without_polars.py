@@ -37,8 +37,15 @@ out = g.gfql("MATCH (a) WITH a, a.age AS aa MATCH (a)-[]->(b) RETURN aa, b.id AS
 assert len(out) == 3, out
 g.tree_layout()
 from graphistry.compute.gfql_unified import gfql_clear_caches
+from graphistry.compute.gfql.hop_limits import HopLimits
 gfql_clear_caches()
 assert not any(m == "polars" for m in sys.modules), "polars was imported on a pandas-only path"
+try:
+    g.hop(engine="polars", limits=HopLimits())
+except ImportError as exc:
+    assert 'pip install "graphistry[polars]"' in str(exc), exc
+else:
+    raise AssertionError("limited hop should explain how to install Polars")
 print("OK")
 """
 

@@ -87,7 +87,7 @@ def _coerce_property_value_series(raw: SeriesT) -> SeriesT:
     if hasattr(raw, "to_pandas") and raw.__class__.__module__.startswith("cudf"):
         out_pd = _coerce_property_value_series(cast(SeriesT, raw.to_pandas()))
         try:
-            import cudf  # type: ignore
+            import cudf
             return cast(SeriesT, cudf.Series(out_pd.tolist(), index=raw.index))
         except Exception:
             return cast(SeriesT, out_pd)

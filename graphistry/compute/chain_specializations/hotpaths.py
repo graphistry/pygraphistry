@@ -83,7 +83,7 @@ def _seeded_typed_hop_pandas_cudf(
                 for k, v in ef.items():
                     edges = edges[edges[k] == v]
             if 'cudf' in str(type(edges).__module__):
-                import cudf as _cd  # type: ignore
+                import cudf as _cd
                 endpoint_ids = _cd.concat([edges[src], edges[dst]])
             else:
                 import pandas as _pd
