@@ -74,7 +74,7 @@ class TestOutputs:
         assert {(r.instruction, r.task_id) for call in provider.calls for r in call} == {("Shout", "t")}
 
     def test_a_default_callable_provider_spreads_a_small_run_over_its_threads(self) -> None:
-        provider = RecordingGenerator(delay=0.05)
+        provider = RecordingGenerator(delay=0.1)
         assert provider.capabilities().max_rows_per_request == 1 and provider.capabilities().concurrency_limit == 4
         out = run(pd.DataFrame({"text": [f"t{i}" for i in range(12)]}), provider)
         assert set(out["o__status"]) == {"ok"} and [len(call) for call in provider.calls] == [1] * 12 and provider.peak == 4

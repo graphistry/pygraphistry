@@ -135,7 +135,7 @@ class TestBatching:
         assert all(set(out[f"q{i}__status"]) == {"ok"} for i in range(3))
 
     def test_a_default_callable_provider_spreads_a_small_run_over_its_threads(self) -> None:
-        provider = Recording(delay=0.05)
+        provider = Recording(delay=0.1)
         assert provider.capabilities().max_rows_per_request == 1 and provider.capabilities().concurrency_limit == 4
         out = decide(frame(12), provider)
         assert set(out["p__status"]) == {"ok"} and [len(call) for call in provider.calls] == [1] * 12 and provider.peak == 4

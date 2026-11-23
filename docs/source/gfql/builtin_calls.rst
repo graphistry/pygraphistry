@@ -2066,7 +2066,8 @@ limits, provider-fault handling, remote refusal and the ``engine='auto'`` rule a
     g4 = g.sem_map("Write a short label.", "label", writer, task_id="labels", evidence_cols=["name", "type"])
     g4._nodes[["id", "label", "label__status"]]
 
-**Providers:** ``CallableDecisionProvider`` and ``CallableGenerationProvider`` wrap Python functions; ``OpenAIDecisionsProvider`` calls the public
+**Providers:** ``CallableDecisionProvider`` and ``CallableGenerationProvider`` wrap Python functions (one row is one call by default, so up to
+``concurrency_limit`` rows run at once and the function must be safe to call from several threads); ``OpenAIDecisionsProvider`` calls the public
 `OpenAI Decisions API <https://developers.openai.com/api/docs/guides/decisions>`_ with a caller-supplied model and
 ``TokenPrices``; ``OpenAIChatProvider`` (OpenAI-compatible chat completions: OpenAI, Azure OpenAI, Fireworks, Mistral
 and other hosts) and ``AnthropicMessagesProvider`` ask each question with a one-character code per label and, when
