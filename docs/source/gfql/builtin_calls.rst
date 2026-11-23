@@ -1852,43 +1852,69 @@ Why semantic table operators?
 Quickstart: input, config, output
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-The callable provider plays the model, so these examples run offline. Replace it with a real provider (see `Providers`_).
-All three forms give the same rows.
+The callable provider plays the model, so these examples run offline. Replace it with a real provider
+(see `Providers`_ and `Provider recipes`_). All three forms give the same rows.
 
-*A Plottable method on a GFQL result:*
+*Cypher, then* ``sem_decide`` *(alias the returned columns so that they are plain names):*
 
 .. code-block:: python
 
-    from graphistry.compute.semantic import CallableDecisionProvider, semantic_summary, semantic_trace
+    from graphistry.compute.semantic import (
+        CallableDecisionProvider, semantic_summary, semantic_trace)
 
-    provider = CallableDecisionProvider(lambda evidence, q: evidence["type"] == "company", fingerprint="rules-v1")
-    questions = [{"id": "is_company", "kind": "predicate", "text": "Is this a company?"}]          # config
+    provider = CallableDecisionProvider(
+        lambda evidence, question: evidence["type"] == "company",
+        fingerprint="rules-v1",
+    )
+    questions = [{"id": "is_company", "kind": "predicate", "text": "Is this a company?"}]
 
-    usa = g.gfql([n({"country": "USA"})])                                                          # input: a GFQL subgraph
+    # Input: narrow the graph with Cypher
+    rows = g.gfql("""
+        MATCH (p {country: 'USA'})
+        RETURN p.id AS id, p.type AS type
+    """)
+
+    # Run: ask the typed questions about the rows, under a trace
     with semantic_trace() as runs:
-        out = usa.sem_decide(questions, provider, task_id="quickstart", evidence_cols=["type"])
-    semantic_summary(out._nodes)                                                                   # output: status counts
-    runs[-1]["provider_calls"], runs[-1]["billed_cost_usd"]                                        # output: what the run did
+        out = rows.sem_decide(
+            questions,
+            provider,
+            task_id="quickstart",
+            evidence_cols=["type"],
+        )
+
+    # Output: status counts, and what the run did
+    semantic_summary(out._nodes)
+    runs[-1]["provider_calls"], runs[-1]["billed_cost_usd"]
+
+*The same query as a GFQL chain:*
+
+.. code-block:: python
+
+    from graphistry import n
+
+    usa = g.gfql([n({"country": "USA"})])
+    out = usa.sem_decide(questions, provider, task_id="quickstart", evidence_cols=["type"])
+    out._nodes[["id", "is_company", "is_company__status"]]
 
 *A GFQL* ``call(...)`` *(JSON-serializable: the provider is named by an alias):*
 
 .. code-block:: python
 
+    from graphistry import call, n
     from graphistry.compute.semantic import MemorySemanticCache, bind_providers
 
     with bind_providers({"rules": provider}, cache=MemorySemanticCache()):
-        out = g.gfql([n({"country": "USA"}),
-                      call("sem_decide", {"questions": questions, "provider": "rules",
-                                          "task_id": "quickstart", "evidence_cols": ["type"]})])
+        out = g.gfql([
+            n({"country": "USA"}),
+            call("sem_decide", {
+                "questions": questions,
+                "provider": "rules",
+                "task_id": "quickstart",
+                "evidence_cols": ["type"],
+            }),
+        ])
     out._nodes[["id", "is_company", "is_company__status"]]
-
-*A Cypher query, then* ``sem_decide`` *(alias the returned columns so that they are plain names):*
-
-.. code-block:: python
-
-    rows = g.gfql("MATCH (p {country: 'USA'}) RETURN p.id AS id, p.type AS type")
-    out = rows.sem_decide(questions, provider, task_id="quickstart", evidence_cols=["type"])
-    out._nodes[["id", "is_company"]]
 
 A native Cypher ``CALL`` procedure for the operators is on the roadmap. Until then, use ``g.gfql("MATCH ...").sem_decide(...)``
 or ``call("sem_decide", ...)``. These calls run locally only: ``gfql_remote()`` refuses them before any network request.
@@ -1907,7 +1933,7 @@ Function contracts
               id_col=None, task_version="1", max_output_tokens=None, batch_size=None, max_concurrency=None,
               deadline_s=None, budget=None, max_rows=None, column_max_chars=None, overwrite=False,
               dedupe=True) -> Plottable                                 # adds out_col, out_col__status, ...
-    explain_sem_decide(df, *, questions, provider, task_id, ...)  -> SemanticPlanReport   # same arguments, no provider call
+    explain_sem_decide(df, *, questions, provider, task_id, ...)  -> SemanticPlanReport   # the arguments of sem_decide, minus kind and overwrite; no provider call
     explain_sem_map(df, *, instruction, out_col, provider, task_id, ...) -> SemanticPlanReport
     with bind_providers(providers, *, cache=None): ...                  # alias -> provider; optional SemanticCache
     with semantic_trace() as runs: ...                                  # runs: list of SemanticRunStats
@@ -1927,7 +1953,7 @@ Function contracts
    * - ``sem_map``
      - One generated string for each row. ``budget`` takes ``max_requests`` only.
    * - ``explain_sem_*``
-     - What the run would do. It sends no request and no probe. It raises ``ValueError`` where the run would.
+     - What the run would do. It sends no request and no probe. It raises ``ValueError`` for invalid parameters, but not for a collision with an existing output column.
    * - ``bind_providers``
      - Binds provider aliases and an optional cache for the runs in its block (``contextvars``: bind in the calling thread).
    * - ``semantic_trace``
@@ -2062,7 +2088,7 @@ Answer typed questions per row: ``predicate`` (yes/no), ``choice`` (one of ``opt
      - Meaning
    * - ``q``
      - nullable boolean (predicate), string (choice, score)
-     - The answer. Null unless the status is ``ok``.
+     - The answer. Null when the status is ``error`` or ``skipped``, or when an ``uncertain`` result has no value. An ``uncertain`` result that fell below ``min_p`` keeps its value, so read ``q__status`` first.
    * - ``q__status``
      - string
      - ``ok``, ``uncertain``, ``error`` or ``skipped``.
@@ -2209,7 +2235,7 @@ Providers
      - ``sem_decide``
      - What ``fn`` returns (``probability_kind``)
      - No (``fn`` runs for each row and question)
-     - No
+     - No by default (opt in through ``capabilities``)
      - None
    * - ``CallableGenerationProvider``
      - ``sem_map``
@@ -2240,7 +2266,7 @@ Providers
      - None (value only)
      - No
      - No
-     - ``langchain-core`` (you supply the chat model)
+     - None in graphistry (you supply a LangChain chat model, for example from ``langchain-openai``)
 
 Any object that implements the ``DecisionProvider`` or ``GenerationProvider`` protocol in ``graphistry.compute.semantic`` can be bound.
 A callable provider runs one row for each call by default, so up to ``concurrency_limit`` rows run at once and the function must be safe to
@@ -2273,6 +2299,87 @@ call from several threads. ``OpenAIDecisionsProvider`` calls the public
 ``max_questions_per_request``, so each provider call is one HTTP request and counts once in ``budget.max_requests``. Each question then
 carries the evidence of its own row, so the answers of a row do not depend on which rows share its request, but they can differ from
 one-row answers. Packing cuts the request count and the latency, not the tokens. Packed answers record ``extra.packed_rows``.
+
+Provider recipes
+~~~~~~~~~~~~~~~~
+
+Each recipe builds one provider. Pass it to ``sem_decide`` as in the quickstart, or bind it with
+``bind_providers({"alias": provider})``. Read keys from the environment, and never put a key in a notebook.
+``TokenPrices`` has no defaults: a cost cap needs your prices, and a free local host needs no cost cap.
+
+**OpenAI Decisions API.** Native probabilities, and all the questions of a row in one request.
+``rows_per_request=8`` packs rows into one request: fewer requests, the same tokens.
+
+.. doc-test: skip
+
+.. code-block:: python
+
+    import os
+    from graphistry.compute.semantic import OpenAIDecisionsProvider, TokenPrices
+
+    prices = TokenPrices(input=2.5, cached_input=1.25, output=10.0)  # your USD per 1M tokens
+    provider = OpenAIDecisionsProvider(
+        os.environ["OPENAI_API_KEY"], "<decisions model>", prices=prices, rows_per_request=8)
+
+**OpenRouter.** Chat works for any routed model. A model that returns logprobs gives
+``token_logprob`` probabilities. Use ``strategy="json_schema"`` for a model that does not (the answer
+then has no probability). The Decisions provider needs a route that serves ``/decisions``.
+
+.. doc-test: skip
+
+.. code-block:: python
+
+    import os
+    from graphistry.compute.semantic import OpenAIChatProvider, OpenAIDecisionsProvider
+
+    url, key = "https://openrouter.ai/api/v1", os.environ["OPENROUTER_API_KEY"]
+    chat = OpenAIChatProvider(key, "<vendor>/<model>", base_url=url, strategy="logprobs")
+    native = OpenAIDecisionsProvider(key, "<vendor>/<model>", base_url=url)  # if the route has /decisions
+
+**Anthropic Claude.** Anthropic has no native Decisions endpoint and no token logprobs, so the answers are
+value-only. ``strategy`` is ``"text"``, ``"json_schema"`` or ``"tool"``. ``require_probabilities=True``
+declines these answers, and ``min_p`` turns them into ``uncertain``.
+
+.. doc-test: skip
+
+.. code-block:: python
+
+    import os
+    from graphistry.compute.semantic import AnthropicMessagesProvider
+
+    provider = AnthropicMessagesProvider(
+        os.environ["ANTHROPIC_API_KEY"], "<claude model>", strategy="json_schema")
+
+**Ollama (free, local, no key).** Any placeholder key works. Use ``strategy="logprobs"`` when your
+Ollama build returns logprobs, and ``"json_schema"`` when it does not (no probabilities then).
+
+.. doc-test: skip
+
+.. code-block:: python
+
+    from graphistry.compute.semantic import OpenAIChatProvider
+
+    provider = OpenAIChatProvider(
+        "ollama", "llama3.1", base_url="http://localhost:11434/v1", strategy="logprobs")
+
+**vLLM and SGLang (self-hosted).** ``vllm_choice`` and ``sglang_regex`` constrain the answer to the
+codes (no probabilities). ``"logprobs"`` gives probabilities when the server returns them. A server that
+implements the Decisions API can use ``OpenAIDecisionsProvider`` with its ``base_url``.
+
+.. doc-test: skip
+
+.. code-block:: python
+
+    from graphistry.compute.semantic import OpenAIChatProvider
+
+    vllm = OpenAIChatProvider(
+        "EMPTY", "<model>", base_url="http://localhost:8000/v1", strategy="vllm_choice")
+    sglang = OpenAIChatProvider(
+        "EMPTY", "<model>", base_url="http://localhost:30000/v1", strategy="sglang_regex")
+
+Consumer web subscriptions (Claude Pro and Max, ChatGPT and Codex seats) do not give programmatic API
+keys. For a run with no key and no cost, use **Ollama**, or wrap any local model in a
+``CallableDecisionProvider``.
 
 Repeated inputs
 ~~~~~~~~~~~~~~~
