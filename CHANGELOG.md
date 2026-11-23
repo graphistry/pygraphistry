@@ -14,6 +14,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- **PR hygiene comment workflow** (#2391, draft): `.github/workflows/pr-hygiene.yml` comments on a pull request that does not target `develop`, links no issue, or has an empty Validation section. Comment only: no label and no merge gate; it runs from the base branch with `pull_request_target` so it can comment on fork pull requests, checks nothing out and runs no pull request code.
+
 - **GFQL bounded Parquet hop** — use the experimental `limits=HopLimits(...)` option for finite seeded forward CPU traversal with native Polars scans and late property materialization.
 
 ### Performance

@@ -1,0 +1,78 @@
+name: PR hygiene
+
+# Comments on a pull request when it targets the wrong branch, links no issue, or has an empty Validation section.
+# Comment only: no label, no review state, no status that gates merging.
+#
+# SECURITY MODEL (read before editing):
+# - pull_request_target runs this file from the BASE branch with a token that can comment, because the
+#   plain pull_request token of a fork pull request is read-only and cannot. That is the only reason it is used.
+# - The job never checks out code, never runs anything from the pull request, and installs nothing: its only
+#   inputs are the event payload fields below, read through env vars and treated as data (never expanded
+#   into the shell, never echoed into the comment).
+# - Token: pull-requests: write and nothing else. No secrets are used.
+# - Do not add a checkout, an `uses:` of third-party code, or `${{ github.event.* }}` inside `run:`.
+
+on:
+  pull_request_target:  # zizmor: ignore[dangerous-triggers] -- comment-only job, no checkout, no PR code run; see the security model above
+    types: [opened, edited, reopened, synchronize, ready_for_review]
+
+permissions: {}
+
+concurrency:
+  group: pr-hygiene-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  hygiene:
+    if: github.event.pull_request.user.login != 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    permissions:
+      pull-requests: write
+    steps:
+      - name: Check the pull request and comment
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          set -euo pipefail
+          marker='<!-- pr-hygiene -->'
+          problems=()
+
+          # 1. Base branch: features and fixes target develop.
+          if [ "$BASE_REF" != "develop" ]; then
+            problems+=("This pull request does not target \`develop\`. Features and fixes target \`develop\`; \`master\` is for hotfixes (say why in the description). To change the base, use the Edit button next to the title.")
+          fi
+
+          # 2. A linked issue: a #number or an issue URL outside HTML comments.
+          body_no_comments="$(printf '%s' "$PR_BODY" | sed -e ':a' -e 's/<!--[^>]*-->//g' -e '/<!--/{N;ba' -e '}')"
+          if ! printf '%s' "$body_no_comments" | grep -Eq '(^|[^[:alnum:]])#[0-9]+|/issues/[0-9]+'; then
+            problems+=("No linked issue found. Link the issue you claimed (\`Closes #123\`), or open one first so the change has a place for discussion.")
+          fi
+
+          # 3. Validation: the section needs a ticked box or pasted output.
+          validation="$(printf '%s\n' "$body_no_comments" | awk '/^##[[:space:]]+Validation/{f=1;next} /^##[[:space:]]/{f=0} f')"
+          if ! printf '%s' "$validation" | grep -Eq '\[[xX]\]|```'; then
+            problems+=("The Validation section is empty. Tick what you ran and paste the last lines of its output (\`./bin/lint.sh\`, \`./bin/check-gfql.sh\`); see CONTRIBUTING.md.")
+          fi
+
+          existing="$(gh api "repos/${REPO}/issues/${PR_NUMBER}/comments" --paginate \
+            --jq ".[] | select(.body | startswith(\"${marker}\")) | .id" | head -n 1)"
+
+          if [ "${#problems[@]}" -eq 0 ]; then
+            msg="${marker}"$'\n'"PR hygiene: base branch, linked issue and validation section all look fine. Thanks!"
+            [ -n "$existing" ] || exit 0   # nothing was ever flagged: stay quiet
+          else
+            msg="${marker}"$'\n'"Thanks for the pull request! A few things to fix (this is an automatic comment; it updates when you edit the description):"$'\n'
+            for p in "${problems[@]}"; do msg+=$'\n'"- ${p}"; done
+          fi
+
+          payload="$(jq -n --arg body "$msg" '{body: $body}')"
+          if [ -n "$existing" ]; then
+            printf '%s' "$payload" | gh api -X PATCH "repos/${REPO}/issues/comments/${existing}" --input - >/dev/null
+          else
+            printf '%s' "$payload" | gh api -X POST "repos/${REPO}/issues/${PR_NUMBER}/comments" --input - >/dev/null
+          fi
