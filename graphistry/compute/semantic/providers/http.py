@@ -89,6 +89,15 @@ def evidence_text(evidence: Evidence) -> str:
     return json.dumps(evidence, sort_keys=True, separators=(",", ":"), ensure_ascii=False, default=str)
 
 
+def _error_code(response: requests.Response) -> object:  # hygiene-ok: object-annotation -- untrusted host or user input, narrowed by isinstance
+    try:
+        body = response.json()
+    except ValueError:
+        return None
+    error = body.get("error") if isinstance(body, dict) else None
+    return error.get("code") if isinstance(error, dict) else None
+
+
 def _attempt(session: Optional[HttpPoster], url: str, body: JSONObject, headers: Dict[str, str],
              timeout: float) -> Tuple[Optional[JSONObject], str, bool, Optional[float]]:
     """One POST: ``(payload, failure code, retryable, Retry-After seconds)``; payload is set only on success."""
@@ -112,7 +121,8 @@ def _attempt(session: Optional[HttpPoster], url: str, body: JSONObject, headers:
             delay = finite_float(float(retry_after)) if retry_after is not None else None
         except ValueError:
             delay = None
-        return None, f"http_{status}", status in RETRYABLE_STATUSES or status >= 500, delay
+        code = "content_filter" if status == 400 and _error_code(response) == "content_filter" else f"http_{status}"
+        return None, code, status in RETRYABLE_STATUSES or status >= 500, delay
     try:
         payload = response.json()
     except (ValueError, RecursionError):
@@ -164,6 +174,8 @@ class HttpDecisionProvider(ABC):
 
     Transport failures after retries become ``error`` results with ``error_code`` ``http_<status>``,
     ``transport_error``, ``request_error`` (not retried), ``deadline_exceeded`` or ``invalid_provider_result``.
+    A request the host's content filter rejects (HTTP 400 with error code ``content_filter``) is an ``uncertain``
+    result with reason ``refusal``, like a filtered reply.
     The API key is read only from the constructor and never appears in the body or ``repr``.
 
     :param api_key: API key, sent only in a request header
@@ -246,6 +258,13 @@ class HttpDecisionProvider(ABC):
                 deadline_at=deadline_at, timeout_s=self.timeout_s, max_retries=self.max_retries,
                 backoff_s=self.retry_backoff_s, session=self._session)
         except RequestFailure as failure:
+            if failure.error_code == "content_filter":
+                blocked = ResponseMeta(model=self.model, latency_ms=failure.latency_ms, retries=failure.retry_count,
+                                       cost_usd=None, cached_tokens=None)
+                return [self.answered(request, question, blocked, value=None, distribution=None,
+                                      probability_kind="none", reason="refusal",
+                                      extra={"refusal_source": "request_content_filter"})
+                        for request, question in pairs]
             return [unanswered_result(request, question, provider=self.name, model=self.model,
                                       error_code=failure.error_code, latency_ms=failure.latency_ms,
                                       retry_count=failure.retry_count) for request, question in pairs]
@@ -276,9 +295,10 @@ class HttpDecisionProvider(ABC):
             cache_hit=None if meta.cached_tokens is None else meta.cached_tokens > 0, retry_count=meta.retries,
             status_reason=reason, extra=extra)
 
-    def invalid(self, request: DecisionRequest, question: DecisionQuestion, meta: ResponseMeta) -> DecisionResult:
+    def invalid(self, request: DecisionRequest, question: DecisionQuestion, meta: ResponseMeta,
+                error_code: str = "invalid_provider_result") -> DecisionResult:
         return unanswered_result(request, question, provider=self.name, model=meta.model,
-                                 error_code="invalid_provider_result", latency_ms=meta.latency_ms,
+                                 error_code=error_code, latency_ms=meta.latency_ms,
                                  retry_count=meta.retries)
 
     @abstractmethod
