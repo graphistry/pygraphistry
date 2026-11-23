@@ -32,6 +32,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 - **GFQL semantic plans, traces and safe verdicts**: `explain_sem_decide` and `explain_sem_map` return a `SemanticPlanReport` (rows at each step, planned calls, estimated input cost, rows that a budget would skip) with no provider call. The plan uses the code that the run uses, and it reads a bound cache without changing it (`MemorySemanticCache.peek_many`). `with semantic_trace() as runs:` collects a `SemanticRunStats` for each `sem_decide` or `sem_map` run in the block (funnel counts, status, reason and error histograms, provider and probe calls, retries, billed cost without double counting, peak calls in flight, cached input tokens). `semantic_verdicts` and `semantic_summary` read the status columns, so an `error` or `skipped` row is never counted as `no`.
 
+### Docs
+
+- **GFQL semantic operators device-recall supply-chain notebook**: `demos/gfql/gfql_semantic_procurement.ipynb` triages the 40,532 FDA-classified medical-device recalls of openFDA in five stages: naive scan, flat filter, GFQL filter for designs that three or more firms recalled, three questions per call with `dedupe`, and `min_p` with `sem_map`. Each stage is planned with `explain_sem_decide` and traced with `semantic_trace`, and the chart reads the trace. The labels are the FDA's own root cause and class. It downloads three openFDA files (CC0) into `/tmp` at run time, so no dataset is committed. It answers with a simulated model by default, and it has an opt-in live mode that uses `budget` caps.
+
 ## [0.62.2] - 2026-11-21
 
 ### Docs
