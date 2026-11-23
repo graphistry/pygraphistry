@@ -1828,6 +1828,8 @@ Map node attributes to icons.
 
 **Schema Effects:** Adds icon encoding column.
 
+.. _gfql-semantic-table-operators:
+
 Semantic Table Operators
 ------------------------
 
@@ -1848,6 +1850,31 @@ JSON-serializable. These calls run locally only: ``gfql_remote()`` refuses them 
             "questions": [{"id": "is_company", "kind": "predicate", "text": "Is this a company?"}],
             "provider": "rules", "task_id": "companies", "evidence_cols": ["name"],
         })])
+
+The same call as a Plottable method, with the three question kinds. The callable provider here plays the model, so the
+example runs offline. A runnable offline tour of every operator, provider and limit is in the
+:doc:`demo notebook </notebooks/gfql>` ``GFQL Semantic Operators``.
+
+.. code-block:: python
+
+    from graphistry.compute.semantic import CallableDecisionProvider
+
+    questions = [
+        {"id": "is_company", "kind": "predicate", "text": "Is this a company?"},
+        {"id": "team", "kind": "choice", "text": "Which team owns it?", "options": ["sales", "eng", "other"]},
+        {"id": "risk", "kind": "score", "text": "How risky is it?", "levels": ["low", "medium", "high"]},
+    ]
+
+    def rules(evidence, question):
+        if question.kind == "predicate":
+            return evidence["type"] == "company"
+        if question.kind == "choice":
+            return evidence["department"] if evidence["department"] in question.options else "other"
+        return "high" if evidence["risk_score"] > 6 else "medium" if evidence["risk_score"] > 2 else "low"
+
+    g2 = g.sem_decide(questions, CallableDecisionProvider(rules), task_id="triage",
+                      evidence_cols=["type", "department", "risk_score"])
+    g2._nodes[["id", "is_company", "team", "risk", "risk__status"]]
 
 sem_decide
 ~~~~~~~~~~
@@ -1959,9 +1986,65 @@ is checked from its actual answers; its probes still count against the run's bud
 subclasses are checked from their validated results rather than inferred from their type name.
 No path converts generated confidence or constrained tokens into probabilities.
 
-**Engines:** pandas and cuDF run natively; polars frames run through the off-engine call bridge, so GFQL results
-stay polars. Called directly as ``g.sem_decide(...)`` on a polars-bound graph, the result tables are pandas. Under
-``engine='auto'`` (including the polars GPU route for cuDF graphs), a query that already called a provider and
+The limits and probability checks together, on a provider that reports native probabilities. Rows
+``a`` and ``b`` are answered. Row ``c`` is ``uncertain`` because its probability, 0.8, is below ``min_p``. Row ``d`` is
+``skipped`` by ``max_rows``.
+
+.. code-block:: python
+
+    from graphistry.compute.semantic import CallableDecisionProvider
+
+    def measured(evidence, question):
+        p_true = 0.9 if evidence["type"] == "person" else 0.2
+        return p_true > 0.5, {"true": p_true, "false": 1 - p_true}
+
+    provider = CallableDecisionProvider(measured, probability_kind="native_decision")
+    g3 = g.sem_decide(
+        [{"id": "is_person", "kind": "predicate", "text": "Is this a person?"}], provider,
+        task_id="people", evidence_cols=["type"], batch_size=2, max_rows=3,
+        budget={"max_requests": 2}, min_p=0.85, require_probabilities=True)
+    g3._nodes[["id", "is_person", "is_person__p", "is_person__status"]]
+
+**Engines:** pandas and cuDF run natively. A polars graph run through ``g.gfql([call("sem_decide", ...)])`` uses the
+off-engine call bridge: the call runs on pandas and the result returns to polars through Arrow, so GFQL results stay
+polars. GFQL warns once for each function in a session (``RuntimeWarning``: "has no native polars implementation").
+Called directly as ``g.sem_decide(...)`` on a polars-bound graph, the result tables are pandas.
+
+.. code-block:: python
+
+    import polars as pl
+    from graphistry.compute.semantic import CallableDecisionProvider, bind_providers
+
+    g_pl = graphistry.nodes(pl.from_pandas(nodes[["id", "type"]]), "id").edges(pl.from_pandas(edges[["s", "d"]]), "s", "d")
+    question = [{"id": "is_company", "kind": "predicate", "text": "Is this a company?"}]
+    provider = CallableDecisionProvider(lambda evidence, q: evidence["type"] == "company")
+
+    with bind_providers({"rules": provider}):
+        out = g_pl.gfql([call("sem_decide", {"questions": question, "provider": "rules", "task_id": "t",
+                                             "evidence_cols": ["type"]})], engine="polars")
+    type(out._nodes)        # polars.DataFrame
+    direct = g_pl.sem_decide(question, provider, task_id="t", evidence_cols=["type"])
+    type(direct._nodes)     # pandas.DataFrame
+
+To refuse the bridge, call ``graphistry.compute.gfql.lazy.set_call_mode('strict')`` or set the environment variable
+``GFQL_POLARS_CALL_MODE=strict``. Then ``engine='polars'`` raises ``NotImplementedError`` before any provider call, and
+``engine='auto'`` runs the query on pandas. ``set_call_mode(None)`` restores the default.
+
+.. code-block:: python
+
+    from graphistry.compute.gfql.lazy import set_call_mode
+
+    set_call_mode("strict")
+    try:
+        with bind_providers({"rules": provider}):
+            g_pl.gfql([call("sem_decide", {"questions": question, "provider": "rules", "task_id": "t",
+                                           "evidence_cols": ["type"]})], engine="polars")
+    except NotImplementedError as error:
+        print(error)
+    finally:
+        set_call_mode(None)
+
+Under ``engine='auto'`` (including the polars GPU route for cuDF graphs), a query that already called a provider and
 then reaches a step that engine cannot run raises ``GFQLCallExecutionError`` instead of re-running the whole
 query on another engine; rerun with ``engine='pandas'`` (or ``'cudf'``).
 
@@ -1975,6 +2058,14 @@ parameter except ``questions``, ``min_p`` and ``require_probabilities`` (``batch
 ``{out_col}__status``, ``{out_col}__error_code`` and ``{out_col}__meta`` (no ``confidence`` in the metadata). Engines,
 limits, provider-fault handling, remote refusal and the ``engine='auto'`` rule are the same as for ``sem_decide``.
 
+.. code-block:: python
+
+    from graphistry.compute.semantic import CallableGenerationProvider
+
+    writer = CallableGenerationProvider(lambda evidence, instruction: f"{evidence['name']} ({evidence['type']})")
+    g4 = g.sem_map("Write a short label.", "label", writer, task_id="labels", evidence_cols=["name", "type"])
+    g4._nodes[["id", "label", "label__status"]]
+
 **Providers:** ``CallableDecisionProvider`` and ``CallableGenerationProvider`` wrap Python functions; ``OpenAIDecisionsProvider`` calls the public
 `OpenAI Decisions API <https://developers.openai.com/api/docs/guides/decisions>`_ with a caller-supplied model and
 ``TokenPrices``; ``OpenAIChatProvider`` (OpenAI-compatible chat completions: OpenAI, Azure OpenAI, Fireworks, Mistral
@@ -1983,21 +2074,59 @@ the host returns token logprobs, read a label distribution from the answer token
 ``token_logprob``, conditional on the answer being a code; the codes' share of the answer token's probability is
 ``extra.label_mass``); without logprobs the answer has no distribution. A question whose labels cannot be given
 unambiguous codes is an ``unsupported_question`` error and is not sent. A reply may also echo its code's label
-(``A. yes``). For hosts whose free-text replies cannot be read, ``OpenAIChatProvider(strategy='json_schema')`` or
+(``A. yes``) or be one label alone (``yes``; a predicate also takes ``y`` and ``n``), a leading ``<think>`` or ``<reasoning>`` block is ignored, and a reply that reasons first is read when its last line, after a blank line, is such an answer or when it ends with a code after a single ``answer:`` or ``answer is``. A reply that says ``answer:`` or ``answer is`` more than once, whose marker is followed by anything but a code, or that gives two different answers (including a line before the marker that is a code or a label alone), is not read; it is sent again, up to ``reply_retries`` times. For hosts whose free-text replies cannot be read, ``OpenAIChatProvider(strategy='json_schema')`` or
 ``strategy='tool'`` constrains the answer to the codes (no distribution; ``extra.answer_strategy`` says which), and
 ``strategy='text'`` sends no logprobs fields; ``strategy='auto'`` probes the host once per endpoint, model and
 settings (each probe request counts against the run's budget), keeps the first strategy that works for an hour, and
 ``graphistry.compute.semantic.forget_probes()`` drops kept results. A reply cut off at ``max_answer_tokens`` (default
-16, or 64 for the ``tool`` and ``function`` strategies) before a readable answer is an ``answer_truncated`` error; reasoning models need a higher limit or reasoning turned
+256; output tokens are not part of the cost estimate, so lower it to bound them) before a readable answer is an ``answer_truncated`` error; reasoning models need a higher limit or reasoning turned
 off through ``extra_body``. A request the host's content filter rejects (HTTP 400, error code ``content_filter``) is
 ``uncertain`` with reason ``refusal``, the same as a filtered reply. Servers with the
 OpenAI Decisions API and smaller limits set ``max_questions_per_request``, ``max_choice_options`` and ``max_levels``
 on ``OpenAIDecisionsProvider``. ``OpenAIDecisionsProvider`` sends one request per row by default;
-``rows_per_request=k`` opts in to packing up to ``k`` rows into one request (still at most
-``max_questions_per_request`` questions). Each question then carries its own row's evidence, so a row's answers do
+``rows_per_request=k`` opts in to packing up to ``k`` rows into one request. The rows times the questions of one
+request stay within ``max_questions_per_request``, so each provider call is one HTTP request and counts once in
+``budget.max_requests``. Each question then carries its own row's evidence, so a row's answers do
 not depend on which rows share its request, but they can differ from one-row answers; packing cuts request count and
 latency, not tokens, and packed answers record ``extra.packed_rows``. Any object implementing the
 ``DecisionProvider`` or ``GenerationProvider`` protocol in ``graphistry.compute.semantic`` can be bound.
+
+Defaults to review
+~~~~~~~~~~~~~~~~~~
+
+.. list-table::
+   :header-rows: 1
+   :widths: 28 20 52
+
+   * - Setting
+     - Default
+     - Effect
+   * - ``max_answer_tokens``
+     - 256
+     - Output-token limit of a chat answer. A reply cut off before a readable answer is ``answer_truncated``. Output
+       tokens are not in the cost estimate, so lower the limit to bound them.
+   * - ``reply_retries``
+     - 2
+     - Extra requests for a reply with no readable answer. Each one is billed. ``0`` sends once.
+   * - ``max_retries``, ``timeout_s``
+     - 3, 60
+     - Transport retries and the timeout of one HTTP request, capped by the run deadline.
+   * - ``batch_size``
+     - provider limit, else 32 (16 for ``sem_map``)
+     - Rows per provider call.
+   * - ``rows_per_request``
+     - 1
+     - Row packing of ``OpenAIDecisionsProvider`` is opt in.
+   * - Host probe (``strategy='auto'``)
+     - once per host, kept for 1 hour
+     - Each probe request counts in ``budget.max_requests`` and its estimated cost in ``budget.max_cost_usd``, before
+       any row call is planned. A kept result costs nothing.
+   * - ``budget.max_cost_usd``
+     - none
+     - Caps the estimated input cost of the calls. It does not cap output, retry or tracing charges.
+   * - ``require_probabilities``
+     - ``False``
+     - ``True`` accepts only measured probabilities.
 
 Older and self-hosted chat APIs
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -2014,13 +2143,29 @@ SGLang and vLLM JSON Schema endpoints can use the existing ``json_schema`` strat
 The provider compiles each question's answer codes to the selected constraint. Grammar replies
 must contain one code. JSON and function replies must contain only the ``answer`` field with
 one valid code. Invalid replies become ``invalid_provider_result``; the provider never chooses
-a default answer. These strategies return no probability or distribution, even when the host
+a default answer. Some hosts accept a tool, function or JSON request and still answer in plain text:
+that reply is an ``unsupported_strategy`` error, so choose a strategy the host implements. A host that
+answers HTTP 501 is not asked again: the row returns ``http_501``. These strategies return no probability or distribution, even when the host
 includes logprobs. Metadata records ``answer_strategy`` and, for the new strategies, ``semantic_level``.
 The semantic level describes the selected mechanism; it does not prove that a host enforced a constraint.
 Constraint and logprob fields in ``extra_body`` cannot override the selected strategy.
 
+The OpenAI-compatible, decisions-endpoint and Anthropic providers send a request again when its reply holds
+no readable answer or is cut off, up to two more times (``reply_retries=2``; ``0`` turns this off). The last
+reply is the result. Every request is billed: ``cost_usd`` and ``latency_ms`` are their sums and ``retry_count``
+counts the extra requests. The cost adds the attempts that reported token usage, so it is a lower bound when an attempt
+reports none, and it stays on the result when a later attempt fails or the content filter stops it. Like transport
+retries, they are not part of the cost estimate or ``budget.max_requests``. A reply that stays unread is an error
+result that still reports the billed ``cost_usd``. A refusal, an
+``unsupported_strategy`` reply and an HTTP error are not sent again. The LangChain provider never resends; add
+retries to the chat model you pass in.
+
 Choose a known mechanism directly to avoid probes. For explicit fallback discovery, configure an
-ordered profile. For example::
+ordered profile. For example:
+
+.. doc-test: skip
+
+.. code-block:: python
 
     provider = OpenAIChatProvider(
         key, model, base_url="http://localhost:8000/v1",
@@ -2035,7 +2180,8 @@ Probes use the remaining deadline and the run's budget: in ``sem_decide`` each p
 ``budget.max_requests`` and its estimated cost counts toward ``max_cost_usd``, before any row call is planned.
 A probe the budget cannot cover is not sent, nothing is kept, and every row is skipped for budget. A kept strategy
 costs nothing. A probe that fails on authentication, transport, rate limits or a server error returns that error
-for every row of the run without sending user evidence or probing again.
+for every row of the run without sending user evidence or probing again. HTTP 501 is the exception: like a
+rejected request, it moves the probe to the next rung.
 A real row's failure is returned without resending it through a lower strategy.
 The existing cost estimate includes the selected constraint payload, or the largest profile payload
 before discovery. It estimates input cost and is not a bound on billed spend.
@@ -2050,7 +2196,11 @@ LangChain chat models
 ~~~~~~~~~~~~~~~~~~~~~
 
 ``LangChainDecisionProvider`` wraps a supplied chat model or Runnable. PyGraphistry does not import
-LangChain or add it as a required dependency. Install and configure the model integration separately.::
+LangChain or add it as a required dependency. Install and configure the model integration separately.
+
+.. doc-test: skip
+
+.. code-block:: python
 
     from graphistry.compute.semantic import LangChainDecisionProvider, bind_providers
 
@@ -2062,7 +2212,7 @@ LangChain or add it as a required dependency. Install and configure the model in
 Strategies ``json_schema``, ``function_calling`` and ``json_mode`` pass that method to
 ``with_structured_output(..., include_raw=True)``. ``structured`` uses the model's default structured
 method. ``tool`` uses ``bind_tools`` to request one tool named ``answer``; no tool is executed.
-``text`` validates a code or its matching label echo. Each structured answer must contain exactly
+``text`` validates a code, its matching label echo or a label alone, as the whole reply or as its last line after a blank line. Each structured answer must contain exactly
 one ``answer`` field with a valid code; refusals, unfinished answers and malformed replies do not
 become successful values. All strategies return no probabilities, even when the model exposes logprobs.
 Metadata records the selected strategy and semantic level.
@@ -2098,11 +2248,15 @@ Anthropic structured answers
 ``output_config.format``. ``strategy='tool'`` requests one tool named ``answer`` with the same
 schema. Both validate the returned code and return no distribution or probability. Metadata
 records ``answer_strategy`` and ``semantic_level``. ``strategy='text'`` remains the default.
+These models often write a sentence before the answer code under ``text``. Such a reply is read when it ends
+with the code on its own line after a blank line; one cut off at ``max_answer_tokens`` is ``answer_truncated``.
+``json_schema`` constrains the reply to the code instead, and the schema adds input tokens to every request.
 The selected strategy controls format/tool fields in ``extra_body``; other ``output_config``
 settings are retained. The cost estimate includes the selected schema or tool payload.
 
 Forced tool support depends on the model and thinking settings. An unsupported request retains
-its HTTP error; the provider does not resend it with another strategy. Refusals remain uncertain,
+its HTTP error; the provider does not resend it with another strategy. A host that accepts the request
+but answers in plain text, with no tool call or JSON, returns ``unsupported_strategy``. Refusals remain uncertain,
 and truncated, paused, malformed or conflicting answers become errors. The provider reads tool
 arguments as data and never executes a returned tool call.
 

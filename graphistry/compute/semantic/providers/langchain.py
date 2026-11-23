@@ -9,7 +9,8 @@ from graphistry.compute.semantic.contract import (
     Budget, DecisionQuestion, DecisionRequest, DecisionResult, ExtraValue, ProviderCapabilities, compute_decision_hash,
     finite_float, unanswered_result)
 from graphistry.compute.semantic.providers.chat import (
-    SYSTEM_PROMPT, _answer_field, _json_answer, answer_codes, answer_labels, exact_code_index, letter_prompt, reply_index)
+    SYSTEM_PROMPT, _answer_field, _json_answer, _without_reasoning, answer_codes, answer_labels, exact_code_index,
+    letter_prompt, reply_index)
 from graphistry.compute.semantic.providers.chat_constraints import CONSTRAINT_KEYS, JSON_INSTRUCTION, answer_schema
 from graphistry.compute.semantic.providers.http import TokenPrices, TokenUsage, token_count
 
@@ -278,7 +279,8 @@ class LangChainDecisionProvider:
         elif binding.strategy == "tool":
             index = exact_code_index(_tool_code(raw), codes)
         else:
-            index = None if calls or _field(raw, "invalid_tool_calls") else reply_index(_content(raw), codes, question)
+            text = _without_reasoning(_content(raw))
+            index = None if calls or _field(raw, "invalid_tool_calls") else reply_index(text, codes, question)
         if index is None and reason is None:
             return failure
         return DecisionResult(request_id=request.request_id, question_id=question.id,

@@ -64,6 +64,15 @@ def answer(instance: LangChainDecisionProvider, question: DecisionQuestion = PRE
     return instance.decide_batch([request((question,))], deadline_s=None, budget=None)[0]
 
 
+@pytest.mark.parametrize("content,expected", [("no", False), ("<think>it is fine</think>\nB", False), ("nope", None),
+                                              ("B<think>x</think>", None), ("It is fine.\n\nB", False),
+                                              ("A\n\nB", None), ("It is fine.\nB", None),
+                                              ("It is fine. Answer: B", False), ("The answer is not B", None)])
+def test_text_replies_may_be_a_label_or_follow_a_reasoning_block(content: str, expected: object) -> None:
+    result = answer(LangChainDecisionProvider(FakeModel(Message(content=content)), strategy="text"))
+    assert (result.value, result.error_code) == (expected, None if expected is not None else "invalid_provider_result")
+
+
 @pytest.mark.parametrize("strategy", ["structured", "json_schema", "function_calling", "json_mode", "tool", "text"])
 @pytest.mark.parametrize("question,expected", [(PRED, False), (CHOICE, "tech"), (SCORE, "mid")])
 def test_all_domains_and_strategies_are_value_only(strategy: LangChainStrategy,

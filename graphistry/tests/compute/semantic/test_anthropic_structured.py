@@ -122,6 +122,17 @@ def test_host_errors_are_preserved_without_switching_strategy(status: int) -> No
     assert result.error_code == f"http_{status}" and len(session.posts) == 1
 
 
+@pytest.mark.parametrize("strategy", ["json_schema", "tool"])
+def test_plain_text_where_a_structured_answer_was_requested_is_an_unsupported_strategy(strategy: AnthropicStrategy) -> None:
+    def code(blocks: List[Dict[str, object]], stop: str = "end_turn") -> object:
+        return provider(FakeSession([response(blocks, stop)]), strategy).decide_batch(
+            [request((PRED,))], deadline_s=None, budget=None)[0].error_code
+    assert code([text("A")]) == "unsupported_strategy"
+    assert code([text("A")], "max_tokens") == "answer_truncated"
+    assert code([text("  ")]) == code([]) == code([text('{"answer":"Z"}')]) == "invalid_provider_result"
+    assert code([text("A"), tool({"answer": "A"}, "other")]) == "invalid_provider_result"
+
+
 def test_cost_estimate_includes_the_selected_constraint_payload() -> None:
     req = request((CHOICE,))
     plain = provider(FakeSession([]), "text").estimate_cost_usd([req])

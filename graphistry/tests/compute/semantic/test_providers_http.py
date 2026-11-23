@@ -36,6 +36,7 @@ class TestRetries:
 
     @pytest.mark.parametrize("reply,code", [
         (FakeResponse(400), "http_400"), (requests.HTTPError("404", response=FakeResponse(404)), "http_404"),  # type: ignore[arg-type]
+        (FakeResponse(501), "http_501"),
         (requests.exceptions.MissingSchema("x"), "request_error"), (requests.exceptions.InvalidURL("x"), "request_error"),
         (requests.exceptions.TooManyRedirects("x"), "request_error"), (requests.HTTPError("no response"), "request_error"),
         (FakeResponse(200, text="{not json"), "invalid_provider_result"),

@@ -10,6 +10,7 @@ GFQL Graph queries
    Hop ranges, slices, and labels <../gfql/hop_bounds.ipynb>
    GFQL Validation Fundamentals <../demos/gfql/gfql_validation_fundamentals.ipynb>
    DateTime Filtering Examples <../demos/gfql/temporal_predicates.ipynb>
+   GFQL Semantic Operators <../demos/gfql/gfql_semantic_operators.ipynb>
    GPU Benchmarking <../demos/gfql/benchmark_hops_cpu_gpu.ipynb>
    GFQL Remote mode <../demos/gfql/gfql_remote.ipynb>
    Python Remote mode <../demos/gfql/python_remote.ipynb>
