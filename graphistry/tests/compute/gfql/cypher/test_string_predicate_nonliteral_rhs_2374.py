@@ -196,7 +196,7 @@ def test_a_regex_column_of_many_distinct_patterns_goes_row_by_row_with_the_same_
 @pytest.mark.parametrize("max_patterns", [256, 1])
 def test_an_invalid_regex_in_the_column_is_a_value_error_on_both_regex_paths(monkeypatch, max_patterns):
     monkeypatch.setattr(row_pipeline, "_GFQL_STRING_PREDICATE_MAX_PATTERNS", max_patterns)
-    with pytest.raises(ValueError, match="invalid regex pattern"):
+    with pytest.raises(ValueError, match="(?i)invalid regular expression|invalid regex pattern"):  # the message is ours on the row path and pandas' own when pandas wraps re.error
         _column_form(["abc", "abd"], ["(", "ab"], "regex")
 
 
