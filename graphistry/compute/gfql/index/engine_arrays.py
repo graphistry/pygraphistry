@@ -36,7 +36,7 @@ def array_namespace(engine: Engine) -> Tuple[ArrayNamespace, IndexBackend]:
 
     if engine == Engine.CUDF:
         try:
-            import cupy as cp  # type: ignore
+            import cupy as cp
 
             return cast(ArrayNamespace, cp), "cupy"
         except Exception:  # pragma: no cover - cupy always present with cudf
@@ -166,9 +166,9 @@ def _take_index_rows(
         n_rows = len(df)
         if (index.source_ref is df and index.fingerprint[0] == n_rows
                 and int(positions.shape[0]) > 1):
-            import cudf  # type: ignore[import]
-            from cudf.core.column import as_column  # type: ignore[import]
-            from cudf.core.copy_types import GatherMap  # type: ignore[import]
+            import cudf
+            from cudf.core.column import as_column
+            from cudf.core.copy_types import GatherMap
 
             if isinstance(df, cudf.DataFrame):
                 gather_map = GatherMap.from_column_unchecked(as_column(positions), n_rows, nullify=False)
@@ -194,7 +194,7 @@ def select_by_ids(df: DataFrameT, col: str, ids: ArrayLike, engine: Engine) -> D
         ids_df = pl.DataFrame({col: np.asarray(ids)}).cast({col: df.schema[col]})
         return cast(DataFrameT, df.join(ids_df, on=col, how="semi"))
     if engine == Engine.CUDF:
-        import cudf  # type: ignore
+        import cudf
 
         return cast(DataFrameT, df[df[col].isin(cudf.Series(ids))])
     import numpy as np

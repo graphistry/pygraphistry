@@ -51,7 +51,7 @@ class Startswith(ASTPredicate):  # Inherit from ASTPredicate
 
     def __call__(self, s: SeriesT) -> SeriesT:
         # Handle both pandas and cuDF (engine-specific workarounds as needed)
-        is_cudf = hasattr(s, '__module__') and 'cudf' in s.__module__
+        is_cudf = is_cudf_series(s)  # typed guard from graphistry.Engine, not an attribute probe
         if is_cudf:
             # ... cuDF workaround logic
         else:
