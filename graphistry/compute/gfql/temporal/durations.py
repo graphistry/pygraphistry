@@ -354,7 +354,7 @@ def _fold_duration_between(
     if not include_date:
         return _format_time_only_duration(delta)
 
-    from dateutil.relativedelta import relativedelta
+    from dateutil.relativedelta import relativedelta  # type: ignore[import-untyped]
 
     rel = relativedelta(end_dt, start_dt)
     if rel.years == 0 and rel.months == 0:

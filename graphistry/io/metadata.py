@@ -300,7 +300,7 @@ def deserialize_plottable_metadata(metadata: PlottableMetadata, g: 'Plottable') 
 
                 for key in PLOTTABLE_SIMPLE_ENCODING_BIND_KEYS:
                     if key in encodings and encodings.get(key) is not None:
-                        encode_kwargs[key] = encodings[key]
+                        encode_kwargs[key] = encodings[key]  # type: ignore[literal-required]
 
                 if encode_kwargs:
                     res = res.bind(**encode_kwargs)
