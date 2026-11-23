@@ -578,7 +578,7 @@ def _two_hop_equal_domain_degree_counts(
             filtered_edges.group_by(src_col).len(_TWO_HOP_OUT_COUNT_COL),
             filtered_edges.select((pl.col(src_col) == pl.col(dst_col)).sum().alias(_TWO_HOP_SELF_LOOP_COL)),
         ])
-        counts = (in_counts, out_counts, int(loops.item() or 0))    # polars frames; DataFrameT pins pandas
+        counts = (in_counts, out_counts, int(loops.item() or 0))  # polars frames; DataFrameT pins pandas
     else:
         domain_ids = domain_nodes[node_col].drop_duplicates()
         filtered_edges = edge_domain[edge_domain[src_col].isin(domain_ids) & edge_domain[dst_col].isin(domain_ids)]

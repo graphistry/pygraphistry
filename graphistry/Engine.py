@@ -1007,21 +1007,21 @@ def is_series_like(s: object) -> bool:
 def series_not_null_mask(s: "SeriesT") -> "SeriesT":
     """Non-null boolean mask, engine-aware (polars ``is_not_null`` vs pandas ``notna``)."""
     if is_polars_series(s):
-        return s.is_not_null()    # polars Series, not the pandas alias
+        return s.is_not_null()  # polars Series, not the pandas alias
     return s.notna()
 
 
 def series_filter(s: "SeriesT", mask: "SeriesT") -> "SeriesT":
     """Filter a Series by a boolean mask, engine-aware, dropping the old index (pandas)."""
     if is_polars_series(s):
-        return s.filter(mask)    # polars Series, not the pandas alias
+        return s.filter(mask)  # polars Series, not the pandas alias
     return s[mask].reset_index(drop=True)
 
 
 def frame_filter(df: "DataFrameT", mask: "SeriesT") -> "DataFrameT":
     """Filter a DataFrame's rows by a boolean mask, engine-aware, dropping the old index."""
     if is_polars_df(df):
-        return df.filter(mask)    # polars frame, not the pandas alias
+        return df.filter(mask)  # polars frame, not the pandas alias
     return df.loc[mask].reset_index(drop=True)
 
 
@@ -1047,7 +1047,7 @@ def row_as_mapping(rows: "DataFrameT", row_index: int) -> Mapping[str, Any]:
         # ``.row()`` is eager-only; the guard cannot rule out a LazyFrame, and callers of
         # this helper are always past collection.
         return rows.row(row_index, named=True)
-    return rows.iloc[row_index]    # pandas Series is a str->scalar mapping
+    return rows.iloc[row_index]  # pandas Series is a str->scalar mapping
 
 
 def assign_constant_columns(df: "DataFrameT", values: Dict[str, Any]) -> "DataFrameT":

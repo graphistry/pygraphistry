@@ -918,7 +918,7 @@ def _add_degree_facts(
         hi = int(max(sf.max_val, df_.max_val))
         if eng in POLARS_ENGINES:
             import polars as pl
-            sub = edges.filter(pl.col(type_column) == tv)    # engine seam
+            sub = edges.filter(pl.col(type_column) == tv)  # engine seam
         else:
             sub = edges[edges[type_column] == tv]
         d = build_degree_fact(sub, g._source, g._destination, lo, hi, eng,

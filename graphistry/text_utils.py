@@ -337,7 +337,7 @@ class SearchToGraphMixin(MIXIN_BASE):
 
     @classmethod
     def load_search_instance(self, savepath):
-        from joblib import load     # need to make this onnx or similar
+        from joblib import load  # need to make this onnx or similar
 
         cls = load(savepath)
         cls.build_index()

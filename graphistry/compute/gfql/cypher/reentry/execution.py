@@ -578,7 +578,7 @@ def compiled_query_reentry_state(
 
             aligned_prefix_rows = aligned_prefix_rows.with_columns(
                 pl.Series(REENTRY_ROW_TOKEN_OUTPUT, np.arange(len(aligned_prefix_rows), dtype=np.int64))
-            )    # Polars frame in the engine-generic row carrier.
+            )  # Polars frame in the engine-generic row carrier.
         else:
             aligned_prefix_rows = aligned_prefix_rows.assign(
                 **{REENTRY_ROW_TOKEN_OUTPUT: np.arange(len(aligned_prefix_rows), dtype=np.int64)}
@@ -632,7 +632,7 @@ def compiled_query_reentry_state(
             )
         start_nodes = frame_filter(node_rows, series_not_null_mask(node_rows[row_token_column]))
         if _is_polars_df(start_nodes):
-            start_nodes = start_nodes.sort(row_token_column)    # Polars frame branch.
+            start_nodes = start_nodes.sort(row_token_column)  # Polars frame branch.
         else:
             start_nodes = start_nodes.sort_values(row_token_column).reset_index(drop=True)
         return dispatch_graph, start_nodes

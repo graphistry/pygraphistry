@@ -441,7 +441,7 @@ def _dtype_kind(series: SeriesT) -> str:
     RAISE ``TypeError`` on cudf ``ListDtype`` (measured), which is precisely the
     exotic dtype this module must DECLINE cleanly rather than crash on.
     """
-    return str(series.dtype.kind)    # engine seam: every backend dtype has .kind
+    return str(series.dtype.kind)  # engine seam: every backend dtype has .kind
 
 
 def _column_to_pylist(series: SeriesT, engine: Engine) -> List[PartitionValue]:
@@ -453,8 +453,8 @@ def _column_to_pylist(series: SeriesT, engine: Engine) -> List[PartitionValue]:
     object for a ``to_arrow`` attribute.
     """
     if engine == Engine.CUDF:
-        return list(series.to_arrow().to_pylist())    # engine seam: cudf only
-    return list(series.tolist())    # engine seam: pandas only
+        return list(series.to_arrow().to_pylist())  # engine seam: cudf only
+    return list(series.tolist())  # engine seam: pandas only
 
 
 def _type_column_is_scalar(frame: DataFrameT, type_column: str, engine: Engine) -> bool:

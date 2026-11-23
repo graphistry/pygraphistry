@@ -81,7 +81,7 @@ def _compute_engine_for_offengine_call(engine: Engine, function: str) -> Engine:
     """
     if engine == Engine.POLARS_GPU:
         try:
-            import cudf    # noqa: F401
+            import cudf  # noqa: F401
         except Exception as e:  # cuDF/GPU stack missing
             raise NotImplementedError(
                 f"GFQL engine='polars-gpu' call '{function}' runs on cuDF (on device), but "

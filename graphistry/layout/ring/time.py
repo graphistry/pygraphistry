@@ -133,7 +133,7 @@ def time_stats(
 
     if num_rings is None:
         if time_unit is not None:
-            time_dur: np.timedelta64 = time_end - time_start    # numpy stub: datetime64 - datetime64 -> timedelta64
+            time_dur: np.timedelta64 = time_end - time_start  # numpy stub: datetime64 - datetime64 -> timedelta64
             unit_step = unit_to_timedelta(time_unit)
             rounded: np.int64 = (time_dur // unit_step).astype('int')
             num_rings = int(rounded + 1)
@@ -141,7 +141,7 @@ def time_stats(
             num_rings = 10 if len(s) > 1000 else 5
             #print('target_bins', num_rings)
 
-    step_dur_s: np.timedelta64 = ((time_end - time_start) / num_rings)    # numpy stub: timedelta64 / int -> timedelta64
+    step_dur_s: np.timedelta64 = ((time_end - time_start) / num_rings)  # numpy stub: timedelta64 / int -> timedelta64
     #print('step_dur_s', step_dur_s)
     #print('step_dur_s[D]', np.timedelta64(step_dur_s, 'D'))
     #print('time_unit', time_unit)
