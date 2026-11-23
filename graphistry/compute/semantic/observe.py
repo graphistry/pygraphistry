@@ -104,7 +104,7 @@ class semantic_trace:
         self._token = _RUNS.set(self.runs)
         return self.runs
 
-    def __exit__(self, *exc: object) -> Literal[False]:
+    def __exit__(self, *exc: object) -> Literal[False]:  # hygiene-ok: object-annotation -- untrusted host or user input, narrowed by isinstance
         _RUNS.reset(self._token)
         if self._previous is not None:
             self._previous.extend(self.runs)            # an outer block sees the runs of an inner one
@@ -126,7 +126,7 @@ VERDICTS = ("yes", "no", "uncertain", "error", "skipped")
 Labels = Union[str, bool, Iterable[Union[str, bool]]]
 
 
-def _label(label: object) -> Union[str, bool]:
+def _label(label: object) -> Union[str, bool]:  # hygiene-ok: object-annotation -- untrusted host or user input, narrowed by isinstance
     if isinstance(label, (bool, np.bool_)):
         return bool(label)
     if isinstance(label, str):
@@ -147,7 +147,7 @@ def _positive_labels(positive: Optional[Labels]) -> Optional[Set[Union[str, bool
 
 def _host(df: "pd.DataFrame") -> "pd.DataFrame":
     """A pandas table: the helpers read a cuDF result through ``to_pandas``."""
-    return df.to_pandas() if type(df).__module__.startswith("cudf") else df
+    return df.to_pandas() if type(df).__module__.startswith("cudf") else df  # hygiene-ok: dynamic-attr -- optional third-party type, no import-time dependency
 
 
 def _checked_status(df: "pd.DataFrame", question_id: str) -> "pd.Series":

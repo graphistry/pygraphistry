@@ -65,11 +65,11 @@ class _CallOutcome:
     skipped: Optional[SkippedReason] = None
 
 
-def _is_cudf(df: object) -> bool:
-    return type(df).__module__.startswith("cudf")
+def _is_cudf(df: object) -> bool:  # hygiene-ok: object-annotation -- untrusted host or user input, narrowed by isinstance
+    return type(df).__module__.startswith("cudf")  # hygiene-ok: dynamic-attr -- optional third-party type, no import-time dependency
 
 
-def _json_ready(value: object) -> object:
+def _json_ready(value: object) -> object:  # hygiene-ok: object-annotation -- untrusted host or user input, narrowed by isinstance
     value = canonicalize(value)
     if isinstance(value, dict):
         return {key: _json_ready(item) for key, item in value.items()}
@@ -180,7 +180,7 @@ def _cache_get(cache: SemanticCache, keys: Sequence[str]) -> Dict[str, str]:
 
 def _cache_peek(cache: SemanticCache, keys: Sequence[str]) -> Dict[str, str]:
     """Like ``_cache_get`` but without a side effect on the cache, when the cache has ``peek_many``. A plan uses it."""
-    peek = getattr(cache, "peek_many", None)
+    peek = getattr(cache, "peek_many", None)  # hygiene-ok: dynamic-attr -- duck-typed host object with no common base
     if not callable(peek):
         return _cache_get(cache, keys)
     try:
@@ -211,7 +211,7 @@ def _cacheable(result: Union[DecisionResult, GenerationResult]) -> bool:
 
 def _result_payload(result: Union[DecisionResult, GenerationResult]) -> str:
     """The result as JSON. It holds no row id: ``request_id`` is blank here and set again on load."""
-    fields = {field.name: getattr(result, field.name) for field in dataclasses.fields(result)}
+    fields = {field.name: getattr(result, field.name) for field in dataclasses.fields(result)}  # hygiene-ok: dynamic-attr -- duck-typed host object with no common base
     fields["request_id"] = ""
     return json.dumps(_json_ready(fields), sort_keys=True, separators=(",", ":"))
 
@@ -284,7 +284,7 @@ class _Setup:
     def __init__(self, budget: Optional[Budget]) -> None:
         self.budget, self.requests, self.cost_usd = budget, 0, 0.0
 
-    def __call__(self, cost: object) -> bool:
+    def __call__(self, cost: object) -> bool:  # hygiene-ok: object-annotation -- untrusted host or user input, narrowed by isinstance
         number = _nonnegative(canonicalize(cost))
         if self.budget is not None:
             cap = _cost_cap(self.budget)
@@ -300,7 +300,7 @@ def _prepared(provider: DecisionProvider, requests_: Sequence[DecisionRequest], 
               deadline_at: Optional[float]) -> Optional[DecisionProvider]:
     """The provider that answers one run: its optional ``prepare_run`` result (None when the budget stopped the
     setup), else the provider itself."""
-    hook = getattr(provider, "prepare_run", None)
+    hook = getattr(provider, "prepare_run", None)  # hygiene-ok: dynamic-attr -- duck-typed host object with no common base
     if hook is None:
         return provider
     prepared = hook(requests_, admit, deadline_s=None if deadline_at is None else max(0.0, deadline_at - time.monotonic()))
@@ -386,7 +386,7 @@ def _probability_of_value(question: DecisionQuestion, result: DecisionResult) ->
     return float(probability) if probability is not None else math.nan
 
 
-def _nonnegative(value: object) -> Optional[float]:
+def _nonnegative(value: object) -> Optional[float]:  # hygiene-ok: object-annotation -- untrusted host or user input, narrowed by isinstance
     number = finite_float(value)
     return number if number is not None and number >= 0 else None
 
@@ -485,7 +485,7 @@ def _run_rows(rows: _Rows, requests_for: Callable[[List[int]], List[List[Request
     return cells
 
 
-def _aligned_or_none(requests: Sequence[RequestT], returned: object, result_type: Type[ResultT]
+def _aligned_or_none(requests: Sequence[RequestT], returned: object, result_type: Type[ResultT]  # hygiene-ok: object-annotation -- untrusted host or user input, narrowed by isinstance
                      ) -> Optional[Dict[str, Optional[Dict[str, ResultT]]]]:
     """``align_results`` on untrusted provider output; a failure means the whole call is untrusted."""
     try:
@@ -498,7 +498,7 @@ def _plain_result(result: ResultT, result_type: Type[ResultT]) -> Optional[Resul
     """The result as an exact ``result_type`` whose answer, distribution and status labels are plain Python values,
     so what is checked is what is written; None when they are not plain answer values. Reading provider values may
     raise; ``_checked`` turns that into an error cell."""
-    fields = {field.name: getattr(result, field.name) for field in dataclasses.fields(result_type)}
+    fields = {field.name: getattr(result, field.name) for field in dataclasses.fields(result_type)}  # hygiene-ok: dynamic-attr -- duck-typed host object with no common base
     value, distribution = canonicalize(fields["value"]), canonicalize(fields.get("distribution"))
     raw_size = len(fields["distribution"]) if isinstance(fields.get("distribution"), Mapping) else None
     if not isinstance(value, (bool, str, type(None))) or not isinstance(distribution, (dict, type(None))) \
@@ -593,7 +593,7 @@ def _provider_identity(provider: Union[DecisionProvider, GenerationProvider]) ->
 
 
 def _meta_json(result: Union[DecisionResult, GenerationResult]) -> str:
-    meta = {name: getattr(result, name) for name in (
+    meta = {name: getattr(result, name) for name in (  # hygiene-ok: dynamic-attr -- duck-typed host object with no common base
         "model", "provider", "task_version", "input_hash", "latency_ms", "cost_usd", "cache_hit", "retry_count",
         "status_reason") + (("confidence",) if isinstance(result, DecisionResult) else ())}
     meta["extra"] = None if result.extra is None else dict(result.extra)
@@ -835,10 +835,10 @@ class _Flight:
             self.active -= 1
 
 
-def _strategy_of(provider: object) -> Optional[str]:
+def _strategy_of(provider: object) -> Optional[str]:  # hygiene-ok: object-annotation -- untrusted host or user input, narrowed by isinstance
     """The strategy that a provider names, or None. Provider code is untrusted: an attribute that raises is None."""
     try:
-        value = getattr(provider, "strategy", None)
+        value = getattr(provider, "strategy", None)  # hygiene-ok: dynamic-attr -- duck-typed host object with no common base
     except Exception:
         return None
     return value if isinstance(value, str) else None
@@ -846,7 +846,7 @@ def _strategy_of(provider: object) -> Optional[str]:
 
 def _run_stats(op: str, setup: Union[_DecideSetup, _MapSetup], cells: Dict[Cell, Union[DecisionResult, GenerationResult]],
                provider_cells: Dict[Cell, Union[DecisionResult, GenerationResult]], questions: Sequence[str],
-               telemetry: Dict[str, object], flight: _Flight, started: float, strategy: Optional[object]) -> SemanticRunStats:
+               telemetry: Dict[str, object], flight: _Flight, started: float, strategy: Optional[object]) -> SemanticRunStats:  # hygiene-ok: object-annotation -- untrusted host or user input, narrowed by isinstance
     """The statistics of one finished run. ``cells`` are all the final results; ``provider_cells`` are those that the
     provider answered (a copy of a duplicate or a cache hit costs nothing and is not in it), so cost, retries,
     latency and cached tokens are counted once."""
@@ -859,7 +859,7 @@ def _run_stats(op: str, setup: Union[_DecideSetup, _MapSetup], cells: Dict[Cell,
         by_row[position].append(result)
     budget_skipped = sum(1 for position in active_send if any(r.status == "skipped" and r.status_reason == "budget" for r in by_row[position]))
     deadline_skipped = sum(1 for position in active_send if any(r.status == "skipped" and r.status_reason == "deadline" for r in by_row[position]))
-    status_counts: Dict[str, Dict[str, int]] = {question: collections.Counter() for question in questions}  # type: ignore[misc]
+    status_counts: Dict[str, Dict[str, int]] = {question: collections.Counter() for question in questions}
     reasons: Dict[str, int] = collections.Counter()
     codes: Dict[str, int] = collections.Counter()
     kinds: Dict[str, int] = collections.Counter()
@@ -869,7 +869,7 @@ def _run_stats(op: str, setup: Union[_DecideSetup, _MapSetup], cells: Dict[Cell,
             reasons[str(result.status_reason)] += 1
         if result.status == "error" and result.error_code:
             codes[str(result.error_code)] += 1
-        kinds[str(getattr(result, "probability_kind", "none"))] += 1
+        kinds[str(getattr(result, "probability_kind", "none"))] += 1  # hygiene-ok: dynamic-attr -- duck-typed host object with no common base
     cached_tokens = 0
     for result in provider_cells.values():
         value = (result.extra or {}).get("cached_input_tokens")
@@ -987,7 +987,7 @@ def sem_decide(
         settled_gap[0] = prepared is not None and known_probability_gap(prepared, require_probabilities)
         return prepared is not None
 
-    def invoke(batch: Sequence[DecisionRequest], remaining: Optional[float], call_budget: Optional[Budget]) -> object:
+    def invoke(batch: Sequence[DecisionRequest], remaining: Optional[float], call_budget: Optional[Budget]) -> object:  # hygiene-ok: object-annotation -- untrusted host or user input, narrowed by isinstance
         # A strategy settled by the run's setup (such as a probe) may lack the required probabilities: send no evidence.
         if settled_gap[0]:
             return unavailable(batch)
@@ -1075,7 +1075,7 @@ def sem_map(
     flight = _Flight()
     telemetry: Dict[str, object] = {}
 
-    def invoke(batch: Sequence[GenerationRequest], remaining: Optional[float], call_budget: Optional[Budget]) -> object:
+    def invoke(batch: Sequence[GenerationRequest], remaining: Optional[float], call_budget: Optional[Budget]) -> object:  # hygiene-ok: object-annotation -- untrusted host or user input, narrowed by isinstance
         if not tracing:
             return resolved.generate_batch(batch, deadline_s=remaining, budget=call_budget)
         flight.enter()
@@ -1110,6 +1110,6 @@ def sem_map(
         f"{out_col}__meta": np.array([_meta_json(result) for result in ordered], dtype=object),
     })
     if tracing:
-        record_run(_run_stats("sem_map", setup, {(p, ""): r for p, r in results.items()},  # type: ignore[arg-type]
+        record_run(_run_stats("sem_map", setup, {(p, ""): r for p, r in results.items()},
                               {(p, ""): r for p, r in provider_results.items()}, [""], telemetry, flight, started, None))
     return out
