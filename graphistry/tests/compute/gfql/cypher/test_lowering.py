@@ -14914,7 +14914,12 @@ def test_gfql_executes_top_level_membership_nested_null_propagates_unknown() -> 
 @pytest.mark.parametrize("engine", [None, "cudf"], ids=["pandas", "cudf"])
 def test_gfql_executes_top_level_list_map_nan_comparisons_on_engines(engine: str | None) -> None:
     if engine == "cudf":
-        _require_cudf_runtime()
+        cudf = _require_cudf_runtime()
+        if int(str(cudf.__version__).split(".")[0]) < 26:
+            pytest.skip(
+                "RAPIDS before 26: libcudf 25.02.02 aborts the whole process (SIGABRT) when this case broadcasts a map "
+                "holding NaN after an earlier re-entry test ran in the same process (#2409); 25.04 through 25.12 are untested"
+            )
 
     g = _mk_graph(pd.DataFrame({"id": []}), pd.DataFrame({"s": [], "d": []}))
 

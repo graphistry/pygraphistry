@@ -8,6 +8,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [Development]
 <!-- Do Not Erase This Section - Used for tracking unreleased changes -->
 
+### Tests
+
+- **GFQL tests on legacy RAPIDS 25.02** (#2409): `test_gfql_executes_top_level_list_map_nan_comparisons_on_engines[cudf]` is skipped on cuDF below 26, where libcudf 25.02.02 aborts the whole Python process (SIGABRT) on it after an earlier test in the same process; the rest of `test_lowering.py` now runs to the end on RAPIDS 25.02. RAPIDS 25.04 through 25.12 are untested.
+
 ### New Contributors
 
 - Welcome to new contributor @vikingps (Vikas), who made their first contribution in #2358 (experimental bounded Parquet traversal for GFQL `.hop()`).
