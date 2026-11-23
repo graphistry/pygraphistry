@@ -38,7 +38,7 @@ def resolve_dbscan_engine(
     If 'auto', decide by checking if cuml or sklearn is installed, and if provided, natural type of the dataset. GPU is used if both a GPU dataset and GPU library is installed. Otherwise, CPU library.
     """
     if engine in dbscan_engine_values:
-        return engine  # type: ignore
+        return engine  # type: ignore[return-value, unused-ignore]
     if engine == "umap_learn":
         warnings.warn("engine value 'umap_learn' is deprecated, use engine='cuml' or 'sklearn' instead; defaulting to sklearn")
         return "sklearn"
@@ -412,7 +412,7 @@ class ClusterMixin(MIXIN_BASE):
             
             X_, emb = make_safe_gpu_dataframes(X_, emb, Engine.PANDAS)  
 
-            labels = dbscan_predict_cuml(X_, dbscan)  # type: ignore
+            labels = dbscan_predict_cuml(X_, dbscan)
             #print('after dbscan predict', type(labels))
             if umap and cols is None:
                 df = df.assign(_dbscan=labels, x=emb.x, y=emb.y)  # type: ignore
@@ -422,7 +422,7 @@ class ClusterMixin(MIXIN_BASE):
             if verbose:
                 print(f"Transformed DBSCAN: {len(df[DBSCAN].unique())} clusters")
 
-            return emb, X, y, df  # type: ignore
+            return emb, X, y, df
         else:
             raise Exception("No dbscan model found. Please run `g.dbscan()` first")
 
@@ -437,7 +437,7 @@ class ClusterMixin(MIXIN_BASE):
         kind: str = "nodes",
         return_graph: bool = True,
         verbose: bool = False,
-        ):  # type: ignore
+        ):
         """Transforms a minibatch dataframe to one with a new column '_dbscan' containing the DBSCAN cluster labels on the minibatch and generates a graph with the minibatch and the original graph, with edges between the minibatch and the original graph inferred from the umap embedding or features dataframe. Graph nodes | edges will be colored by '_dbscan' column.
             
             Examples:

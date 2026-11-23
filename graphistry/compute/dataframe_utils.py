@@ -3,9 +3,9 @@ from typing import Any, Optional, Sequence, cast
 import pandas as pd
 
 try:  # Optional GPU dependency
-    import cudf  # type: ignore
+    import cudf
 except Exception:  # pragma: no cover
-    cudf = None  # type: ignore
+    cudf = None
 
 from graphistry.compute.typing import DataFrameT, DomainT, SeriesT
 
@@ -30,7 +30,7 @@ def is_cudf_obj(obj: object) -> bool:
 
 def df_cons(template_df: DataFrameT, data: dict) -> DataFrameT:
     if is_cudf_obj(template_df):
-        return cudf.DataFrame(data)  # type: ignore[call-arg]
+        return cudf.DataFrame(data)
     return pd.DataFrame(data)
 
 
@@ -50,7 +50,7 @@ def concat_frames(frames: Sequence[DataFrameT]) -> Optional[DataFrameT]:
         return non_empty[0]
     first = non_empty[0]
     if first.__class__.__module__.startswith("cudf"):
-        import cudf  # type: ignore
+        import cudf
 
         return cudf.concat(non_empty, ignore_index=True)
     return pd.concat(non_empty, ignore_index=True)
@@ -60,7 +60,7 @@ def series_values(series: SeriesT) -> DomainT:
     if is_cudf_obj(series):
         if isinstance(series, cudf.Index):
             return series.dropna().unique()
-        return cudf.Index(series.dropna().unique())  # type: ignore[call-arg]
+        return cudf.Index(series.dropna().unique())
     if isinstance(series, pd.Index):
         return series.dropna().unique()
     if hasattr(series, "to_pandas"):
@@ -74,7 +74,7 @@ def series_values(series: SeriesT) -> DomainT:
 
 def domain_empty(template: Optional[Any] = None) -> DomainT:
     if is_cudf_obj(template):
-        return cudf.Index([])  # type: ignore[call-arg]
+        return cudf.Index([])
     return pd.Index([])
 
 
@@ -88,11 +88,11 @@ def domain_from_values(values: Any, template: Optional[Any] = None) -> DomainT:
     if is_cudf_obj(values):
         if isinstance(values, cudf.Index):
             return values
-        return cudf.Index(values)  # type: ignore[call-arg]
+        return cudf.Index(values)
     if isinstance(values, pd.Index):
         return values
     if is_cudf_obj(template):
-        return cudf.Index(values)  # type: ignore[call-arg]
+        return cudf.Index(values)
     return pd.Index(values)
 
 

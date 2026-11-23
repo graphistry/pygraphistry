@@ -460,7 +460,7 @@ class GremlinMixin(Plottable):
             try:
                 if self._gremlin_client is None:
                     raise ValueError('Must first set a gremlin client')
-                callback = self._gremlin_client.submitAsync(query)  # type: ignore
+                callback = self._gremlin_client.submitAsync(query)
                 if callback.result() is not None:
                     results = callback.result()
                     logger.debug('results: %s', results)

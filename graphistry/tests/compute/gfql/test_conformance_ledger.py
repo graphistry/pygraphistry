@@ -45,6 +45,7 @@ KNOWN_UNCOVERED: dict[str, str] = {
     # --- logical / categorical combinators (compositional; matrix asserts leaves) ---
     "AllOf": "logical AND-combinator over sub-predicates; compositional, not yet asserted in the matrix. TODO: add a nested-predicate conformance case.",
     "Duplicated": "categorical duplicate-row predicate; not yet asserted for parity/NIE. TODO: add a chain+dag conformance case.",
+    "AlwaysNull": "unknown (null) for every row; emitted by the Cypher lowering for a non-string operand of a string predicate; covered by dedicated tests in test_string_predicate_nonstring_2335.py and test_string_predicate_families_2335.py (not via _predicate_queries).",
 
     # --- string char-class predicates (.str.is*) ---
     "IsNumeric": "str .is_numeric char-class predicate; not yet asserted (native-or-NIE undecided). TODO.",
