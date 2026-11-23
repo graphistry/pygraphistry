@@ -32,7 +32,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Docs
 
-- **GFQL semantic operators offshore shell-company notebook**: `demos/gfql/gfql_semantic_fraud_aml.ipynb` screens the Panama Papers companies of the ICIJ Offshore Leaks database (213,634 companies) in five stages (naive scan, flat filter, GFQL nominee-cluster filter, three questions per call with `dedupe`, `min_p` with `sem_map`) and runs a `MemorySemanticCache` second pass. It downloads the archive into `/tmp` at run time (no dataset is committed; the database is ODbL 1.0 and its contents CC BY-SA), answers with a simulated model by default, and has an opt-in live mode that uses `budget` caps.
+- **GFQL semantic operators offshore shell-company notebook**: `demos/gfql/gfql_semantic_fraud_aml.ipynb` screens the 213,634 Panama Papers companies of the ICIJ Offshore Leaks database in five stages: naive scan, flat filter, GFQL nominee-cluster filter, three questions per call with `dedupe`, and `min_p` with `sem_map`. It then runs a `MemorySemanticCache` second pass. It downloads the archive into `/tmp` at run time, so no dataset is committed (the database is ODbL 1.0 and its contents CC BY-SA). It answers with a simulated model by default, and it has an opt-in live mode that uses `budget` caps.
 
 ## [0.62.2] - 2026-11-21
 
