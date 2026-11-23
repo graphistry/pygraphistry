@@ -95,9 +95,9 @@ def _ratchet(tmp_path, monkeypatch, files, baseline):
     return GUARD.main(["--baseline", str(baseline_path)])  # type: ignore[attr-defined]
 
 
-CLEAN = "def f(value: object) -> bool:\n    return isinstance(value, str)\n"
-ONE_CALL = "def f(value: object) -> bool:\n    return hasattr(value, 'x')\n"
-TWO_CALLS = "def f(value: object) -> bool:\n    return hasattr(value, 'x') and hasattr(value, 'y')\n"
+CLEAN = "def f(value: str) -> bool:\n    return isinstance(value, str)\n"
+ONE_CALL = "def f(value: str) -> bool:\n    return hasattr(value, 'x')\n"
+TWO_CALLS = "def f(value: str) -> bool:\n    return hasattr(value, 'x') and hasattr(value, 'y')\n"
 
 
 def test_a_file_within_its_baseline_passes(tmp_path, monkeypatch):
