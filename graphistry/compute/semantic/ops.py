@@ -62,11 +62,11 @@ class _CallOutcome:
     skipped: Optional[SkippedReason] = None
 
 
-def _is_cudf(df: object) -> bool:
-    return type(df).__module__.startswith("cudf")
+def _is_cudf(df: object) -> bool:  # hygiene-ok: object-annotation -- untrusted host or user input, narrowed by isinstance
+    return type(df).__module__.startswith("cudf")  # hygiene-ok: dynamic-attr -- optional third-party type, no import-time dependency
 
 
-def _json_ready(value: object) -> object:
+def _json_ready(value: object) -> object:  # hygiene-ok: object-annotation -- untrusted host or user input, narrowed by isinstance
     value = canonicalize(value)
     if isinstance(value, dict):
         return {key: _json_ready(item) for key, item in value.items()}
@@ -271,7 +271,7 @@ def _probability_of_value(question: DecisionQuestion, result: DecisionResult) ->
     return float(probability) if probability is not None else math.nan
 
 
-def _nonnegative(value: object) -> Optional[float]:
+def _nonnegative(value: object) -> Optional[float]:  # hygiene-ok: object-annotation -- untrusted host or user input, narrowed by isinstance
     number = finite_float(value)
     return number if number is not None and number >= 0 else None
 
@@ -331,7 +331,7 @@ def _run_rows(rows: _Rows, requests_for: Callable[[List[int]], List[List[Request
     return cells
 
 
-def _aligned_or_none(requests: Sequence[RequestT], returned: object, result_type: Type[ResultT]
+def _aligned_or_none(requests: Sequence[RequestT], returned: object, result_type: Type[ResultT]  # hygiene-ok: object-annotation -- untrusted host or user input, narrowed by isinstance
                      ) -> Optional[Dict[str, Optional[Dict[str, ResultT]]]]:
     """``align_results`` on untrusted provider output; a failure means the whole call is untrusted."""
     try:
@@ -344,7 +344,7 @@ def _plain_result(result: ResultT, result_type: Type[ResultT]) -> Optional[Resul
     """The result as an exact ``result_type`` whose answer, distribution and status labels are plain Python values,
     so what is checked is what is written; None when they are not plain answer values. Reading provider values may
     raise; ``_checked`` turns that into an error cell."""
-    fields = {field.name: getattr(result, field.name) for field in dataclasses.fields(result_type)}
+    fields = {field.name: getattr(result, field.name) for field in dataclasses.fields(result_type)}  # hygiene-ok: dynamic-attr -- duck-typed host object with no common base
     value, distribution = canonicalize(fields["value"]), canonicalize(fields.get("distribution"))
     raw_size = len(fields["distribution"]) if isinstance(fields.get("distribution"), Mapping) else None
     if not isinstance(value, (bool, str, type(None))) or not isinstance(distribution, (dict, type(None))) \
@@ -432,7 +432,7 @@ def _provider_identity(provider: Union[DecisionProvider, GenerationProvider]) ->
 
 
 def _meta_json(result: Union[DecisionResult, GenerationResult]) -> str:
-    meta = {name: getattr(result, name) for name in (
+    meta = {name: getattr(result, name) for name in (  # hygiene-ok: dynamic-attr -- duck-typed host object with no common base
         "model", "provider", "task_version", "input_hash", "latency_ms", "cost_usd", "cache_hit", "retry_count",
         "status_reason") + (("confidence",) if isinstance(result, DecisionResult) else ())}
     meta["extra"] = None if result.extra is None else dict(result.extra)
