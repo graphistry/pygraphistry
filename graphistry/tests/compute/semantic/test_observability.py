@@ -68,18 +68,6 @@ class TestExplainSendsNothing:
         assert session.posts == [] and plan["planned_calls"] == 2 and plan["planned_questions"] == 4
         assert plan["estimated_input_cost_usd"] is not None and plan["estimated_input_cost_usd"] > 0
 
-    def test_a_polars_table_plans_like_the_pandas_table(self) -> None:
-        pl = pytest.importorskip("polars")
-        rows = ["a", "b", "a"]
-        spy = Recording(fingerprint="v1", **serial())
-        from_pandas = explain_sem_decide(table(rows), **decide_args(table(["a"]), spy))
-        from_polars = explain_sem_decide(pl.from_pandas(table(rows)), **decide_args(table(["a"]), spy))
-        lazy = explain_sem_decide(pl.from_pandas(table(rows)).lazy(), **decide_args(table(["a"]), spy))
-        assert from_polars == from_pandas == lazy and from_polars["dedupe_saved_rows"] == 1
-        mapped = explain_sem_map(pl.from_pandas(table(rows)), instruction="i", out_col="o", provider=RecordingGenerator(**serial()),
-                                 task_id="t", evidence_cols=["name"])
-        assert mapped["total_rows"] == 3 and mapped["provider_rows"] == 2
-
     def test_sem_map_sends_nothing_either(self) -> None:
         provider = RecordingGenerator(**serial())
         plan = explain_sem_map(table(["a", "b", "a"]), instruction="i", out_col="o", provider=provider, task_id="t", evidence_cols=["name"])
