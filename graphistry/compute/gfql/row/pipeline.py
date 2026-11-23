@@ -3207,7 +3207,7 @@ class RowPipelineMixin:
         return "{" + ", ".join(parts) + "}"
 
     @staticmethod
-    def _gfql_string_predicate_columnwise_cudf(left: SeriesT, right: SeriesT, op_name: str, expr: str) -> SeriesT:
+    def _gfql_string_predicate_columnwise_cudf(left: SeriesT, right: SeriesT, op_name: str, expr: str) -> SeriesT:  # pragma: no cover - cuDF-only; no cuDF lane in the coverage gate (the cuDF cases run on the GPU lanes)
         """A non-literal right operand on cuDF, entirely on the GPU: null unless both operands are strings.
 
         contains uses the string-pattern column form; starts_with / ends_with compare a per-row slice (bounded by the pattern's
@@ -3239,7 +3239,7 @@ class RowPipelineMixin:
         """A non-literal right operand: null unless both operands are strings.
 
         pandas evaluates row by row; cuDF stays on the GPU; the Polars engines lower it natively in their row pipeline."""
-        if is_cudf_series(left) or is_cudf_series(right):
+        if is_cudf_series(left) or is_cudf_series(right):  # pragma: no cover - cuDF-only; no cuDF lane in the coverage gate
             return RowPipelineMixin._gfql_string_predicate_columnwise_cudf(left, right, op_name, expr)
         if not (isinstance(left, pd.Series) and isinstance(right, pd.Series)):
             raise NotImplementedError(
