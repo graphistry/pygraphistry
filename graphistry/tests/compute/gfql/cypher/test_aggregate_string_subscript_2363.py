@@ -154,6 +154,8 @@ _NAMES_NODES = pd.DataFrame({
 _NAMES_EDGES = pd.DataFrame({"s": [1, 2], "d": [2, 3], "type": ["k1", "k2"]})
 _POLARS = {"polars", "polars-gpu"}
 _NIE = "NotImplementedError"
+# What polars-gpu says when the installed cudf-polars cannot run a plan on the GPU (25.02: group-by and order-by; 26.02: some joins).
+_GPU_DECLINES = ("not fully GPU-executable", "cannot execute this aggregation", "does not yet natively support cypher row op 'order_by'")
 
 
 def _names_graph(engine):
@@ -239,6 +241,6 @@ def test_special_property_names_in_a_subscript(engine, query, pandas_answer, pol
     try:
         rows = _names_rows(engine, query)
     except (NotImplementedError, GFQLUnsupportedError) as exc:
-        assert engine == "polars-gpu" and query.count("count(") == 1 and ("not fully GPU-executable" in str(exc) or "cannot execute this aggregation" in str(exc)), str(exc)
+        assert engine == "polars-gpu" and any(known in str(exc) for known in _GPU_DECLINES), str(exc)
         return
     assert rows == expected
