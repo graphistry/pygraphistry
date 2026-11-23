@@ -278,7 +278,7 @@ def _prepare_filter_dict(
             # Validate predicates for appropriate column types
             from .predicates.numeric import NumericASTPredicate, Between
             from .predicates.is_in import IsIn
-            from .predicates.str import Contains, Startswith, Endswith, Match
+            from .predicates.str import Contains, Startswith, Endswith, Match, string_predicate_raises_on_nonstring
 
             col_dtype = df[resolved_col].dtype
 
@@ -300,8 +300,8 @@ def _prepare_filter_dict(
                     suggestion='Use string predicates like contains() or startswith() for string columns'
                 )
 
-            # Check string predicates on non-string columns
-            if isinstance(resolved_val, (Contains, Startswith, Endswith, Match)) and not _is_string_dtype_safe(col_dtype):
+            # A native string predicate on a non-string column is a typed error; Cypher-lowered ones are null (nonstring='null').
+            if string_predicate_raises_on_nonstring(resolved_val) and not _is_string_dtype_safe(col_dtype):
                 raise GFQLSchemaError(
                     ErrorCode.E302,
                     f'Type mismatch: string predicate used on non-string column "{resolved_col}"',
