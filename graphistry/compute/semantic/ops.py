@@ -860,9 +860,9 @@ def _run_stats(op: str, setup: Union[_DecideSetup, _MapSetup], cells: Dict[Cell,
     budget_skipped = sum(1 for position in active_send if any(r.status == "skipped" and r.status_reason == "budget" for r in by_row[position]))
     deadline_skipped = sum(1 for position in active_send if any(r.status == "skipped" and r.status_reason == "deadline" for r in by_row[position]))
     status_counts: Dict[str, Dict[str, int]] = {question: collections.Counter() for question in questions}  # type: ignore[misc]
-    reasons: "collections.Counter[str]" = collections.Counter()
-    codes: "collections.Counter[str]" = collections.Counter()
-    kinds: "collections.Counter[str]" = collections.Counter()
+    reasons: Dict[str, int] = collections.Counter()
+    codes: Dict[str, int] = collections.Counter()
+    kinds: Dict[str, int] = collections.Counter()
     for (position, question), result in cells.items():
         status_counts[question][result.status] += 1
         if result.status == "uncertain" and result.status_reason:
