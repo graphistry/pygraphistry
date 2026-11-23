@@ -156,13 +156,13 @@ NONSTRING_ERROR = "error"
 NONSTRING_NULL = "null"
 
 
-class _NonStringPolicy:
+class _NonStringPolicy(ASTPredicate):
     """What a string predicate does with a non-string column: raise E302 (native API default) or answer null (Cypher)."""
 
     nonstring: str
 
     def to_json(self, validate: bool = True) -> Dict[str, JSONVal]:
-        data: Dict[str, JSONVal] = super().to_json(validate=validate)  # type: ignore[misc]
+        data: Dict[str, JSONVal] = super().to_json(validate=validate)
         if data.get("nonstring") == NONSTRING_ERROR:
             del data["nonstring"]  # omit the default so existing serialized chains are unchanged
         return data
