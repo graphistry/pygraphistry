@@ -748,7 +748,7 @@ def fullmatch(
     return Fullmatch(pat, case, flags, na)
 
 
-def string_predicate_raises_on_nonstring(pred: object) -> bool:
+def string_predicate_raises_on_nonstring(pred: Union[ASTPredicate, str, int, float, bool, None]) -> bool:
     """The one rule every site shares: Match/Fullmatch always raise E302 on a non-string column;
     Contains/Startswith/Endswith raise unless built with nonstring='null' (what the Cypher lowering sets)."""
     if isinstance(pred, (Match, Fullmatch)):
