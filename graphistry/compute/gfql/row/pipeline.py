@@ -3223,7 +3223,7 @@ class RowPipelineMixin:
             out = (left_str.str.slice_from(starts=starts, stops=left_len) == right_str) & (right_len <= left_len)
         else:
             raise ValueError(f"unsupported row expression predicate op: {op_name} in {expr!r}")
-        return out.where(~(left_str.isna() | right_str.isna()), pd.NA)
+        return out.where(~(left_str.isna() | right_str.isna()))  # null where either side is null; stays a boolean column like the literal path
 
     @staticmethod
     def _gfql_string_predicate_per_row(left: SeriesT, right: SeriesT, op_name: str, expr: str) -> SeriesT:
