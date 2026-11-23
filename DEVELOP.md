@@ -107,7 +107,7 @@ graphistry.__version__
 
 GitHub Actions: See `.github/workflows`
 
-CI runs on every PR and updates them
+CI runs on every pull request from a branch in this repository and updates it. A pull request from a fork waits for a maintainer to approve the workflows before any job runs; see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ### Cypher Surface Growth Guard
 

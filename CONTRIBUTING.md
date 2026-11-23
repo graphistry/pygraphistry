@@ -1,6 +1,6 @@
 # Contribute
 
-Welcome. This page is the whole path from "I found something to fix" to "my pull request is reviewed". Coding agents (Claude Code, Codex, Cursor, Copilot and others) follow the same path: [AGENTS.md](AGENTS.md) has it in imperative form.
+Welcome. This page is the whole path from "I found something to fix" to "my pull request is reviewed". Coding agents (Claude Code, Codex, Cursor, Copilot and others) follow the same path: [AGENTS.md](AGENTS.md) has it in imperative form, and `.agents/skills/contribute/SKILL.md` is the same flow as a skill.
 
 ## Code of conduct
 
@@ -12,11 +12,11 @@ GitHub issues and pull requests are the record: decisions live there so they sta
 
 ## Your first contribution
 
-1. **Pick and claim an issue.** Look for [`good-first-issue`](https://github.com/graphistry/pygraphistry/labels/good-first-issue), [`help wanted`](https://github.com/graphistry/pygraphistry/labels/help%20wanted) or [`ai-friendly`](https://github.com/graphistry/pygraphistry/labels/ai-friendly). Comment on the issue that you are taking it, so two people do not do the same work; for example: "I'd like to take this. Plan: change X in `graphistry/...` and add a test in `graphistry/tests/...`." No issue for your idea? Open one first (the forms ask for what we need) and say what you plan to change. Issue old, or you cannot reproduce it on `develop`? Say so in the comment with the snippet you tried, and ask whether to close it or to add a regression test; a test-only pull request is welcome.
+1. **Pick and claim an issue.** Look for [`good-first-issue`](https://github.com/graphistry/pygraphistry/labels/good-first-issue), [`help wanted`](https://github.com/graphistry/pygraphistry/labels/help%20wanted) or [`ai-friendly`](https://github.com/graphistry/pygraphistry/labels/ai-friendly). Comment on the issue that you are taking it, so two people do not do the same work (one implementation per issue; a claim with no activity for 7 days lapses and anyone may take the issue); for example: "I'd like to take this. Plan: change X in `graphistry/...` and add a test in `graphistry/tests/...`." No issue for your idea? Open one first (the forms ask for what we need) and say what you plan to change. Issue old, or you cannot reproduce it on `develop`? Say so in the comment with the snippet you tried, and ask whether to close it or to add a regression test; a test-only pull request is welcome.
 2. **Branch from `develop`.** The integration branch is `develop`, not `master`. Open your pull request against `develop`. Name the branch `fix/<issue>-<topic>`, `feat/<topic>`, `docs/<topic>` or `infra/<topic>`: `git fetch origin && git switch -c fix/614-short-topic origin/develop`. Working from a fork? Your `origin` is your own copy and its `develop` may be stale: sync the fork on GitHub first, or fetch the main repository instead: `git fetch https://github.com/graphistry/pygraphistry.git develop && git switch -c fix/614-short-topic FETCH_HEAD`.
 3. **Set up.** From a clone: `pip install -e ".[test,polars]"`, then check it worked: `python -c "import graphistry, polars, pytest"`. More detail, Docker and GPU setup are in [DEVELOP.md](DEVELOP.md).
 4. **Check before you push.** `./bin/lint.sh` is the whole lint gate (ruff plus the type-hygiene and comment-density ratchets; bare `ruff` is not enough), `./bin/typecheck.sh` runs mypy, and `./bin/check-gfql.sh` runs lint, types and the GFQL tests on pandas and Polars in one go. While you work, run just your test file (`./bin/pytest.sh path/to/test_file.py`); before you push, run `./bin/check-gfql.sh` for a GFQL change (`--changed` is the fast version: it narrows only the pandas step to the test files you added or changed, and runs the whole GFQL test tree when you changed no test file; the Polars lane always runs in full). Tests are exempt from the type-hygiene rules, not from review.
-5. **Open the pull request.** Fill in the template: the issue it closes, what you ran, which engines. Add a line to `CHANGELOG.md` under `Development`, under the heading that fits: `Added`, `Fixed`, `Changed`, `Docs`, `Tests`, `Infra`, `Performance` or `Breaking`.
+5. **Open the pull request.** Open it as a **draft**, fill in the template (the issue it closes, what you ran, which engines, the test that failed before your change and passes after it), then mark it ready for review when the template is complete. Add a line to `CHANGELOG.md` under `Development`, under the heading that fits: `Added`, `Fixed`, `Changed`, `Docs`, `Tests`, `Infra`, `Performance` or `Breaking`.
 6. **Reviewers amplify.** Once your baseline is shown, maintainers run the wider matrix (more Python versions, GPU engines) and review.
 
 ### GFQL changes: engines
@@ -43,6 +43,10 @@ Smaller is faster to review and to merge. One topic per pull request. As a guide
 ### What CI does on a fork pull request
 
 Workflows on a pull request from a fork wait for a maintainer to approve them, so at first you will see little or nothing run: that is expected, not a failure. Before approving, a maintainer reads the diff. Changes to dependencies (`setup.py`, requirement and lock files), CI (`.github/`), scripts (`bin/`) and agent instruction files (`AGENTS.md`, `.agents/`, `.claude/`, `ai/`) need a stated reason in the description and are reviewed first. Run the local checks above so the first CI run is green.
+
+### What gets reviewed
+
+Opening a pull request does not by itself earn a review; a complete template does. Maintainers may close, without a line-by-line review, a pull request that duplicates an issue someone else claimed, goes beyond its issue, shows no validation output, or changes dependencies, CI, scripts or agent instruction files without a stated reason.
 
 ### AI-assisted pull requests
 

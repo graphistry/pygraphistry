@@ -28,9 +28,24 @@ body:
     id: pointers
     attributes:
       label: Where to look
-      description: Files, functions and the existing tests to copy. Name the test file the new test belongs in.
+      description: The paths in scope (and any out of scope), the functions, and the existing tests to copy. Name the test file the new test belongs in.
     validations:
       required: true
+  - type: input
+    id: failing_test
+    attributes:
+      label: The test that should fail first
+      description: "Name it (`path::test_name`) or describe the case: it fails on `develop` today and passes with the fix."
+    validations:
+      required: true
+  - type: textarea
+    id: checks
+    attributes:
+      label: Checks to run
+      description: Fast first, then the full set before pushing.
+      value: |
+        Fast: `./bin/pytest.sh <the test file>` (GFQL: `./bin/check-gfql.sh --changed`)
+        Full before pushing: `./bin/lint.sh`, `./bin/typecheck.sh`, `./bin/check-gfql.sh`
   - type: dropdown
     id: engines
     attributes:

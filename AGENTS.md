@@ -32,15 +32,15 @@ ln -s ../.agents/skills .claude/skills
 
 ## First Contribution
 
-When a person asks you to work on an issue for the first time, follow this flow and say each step as you do it:
+When a person asks you to work on an issue for the first time, follow this flow and say each step as you do it (the same flow as a skill: `.agents/skills/contribute/SKILL.md`):
 
 1. Claim it: tell the person to comment on the issue that they are taking it (draft the comment for them). If the issue does not reproduce on `develop`, say so with the snippet you tried and propose a regression-test-only pull request. Chat is optional: <https://discord.gg/JAnyW3JqCD>.
 2. Branch from `develop`; the pull request targets `develop`, not `master`.
 3. Keep the change small and on one topic (about 400 changed lines or 10 files at most, tests included; split otherwise). Name the branch `fix/<issue>-<topic>`, `feat/...`, `docs/...` or `infra/...`.
-4. Before every push: `./bin/lint.sh`, `./bin/typecheck.sh`, then `./bin/check-gfql.sh` for GFQL changes (pandas and Polars on CPU). Add `--cudf` / `--polars-gpu` when a GPU is available; without one, say so in the pull request (the GPU notebook path is `docs/contributing/gfql-gpu-colab.md`).
+4. Before every push: `./bin/lint.sh`, `./bin/typecheck.sh`, then `./bin/check-gfql.sh` for GFQL changes (pandas and Polars on CPU). Add `--cudf` / `--polars-gpu` when a GPU is available. No GPU? A free Colab T4 runs the GPU engines (cuDF and polars-gpu): `docs/contributing/gfql-gpu-colab.md`; if you cannot run them, say so in the pull request.
 5. New GFQL tests run on every engine the change can affect (`pandas`, `cudf`, `polars`, `polars-gpu`); copy the engine fixture of a neighboring test.
 6. A GFQL change that can affect performance needs a before and after on the changed case and on two unaffected paths: `benchmarks/gfql/README.md`.
-7. Fill in the pull request template; add a `CHANGELOG.md` line; state in the description that an agent wrote or helped write it.
+7. Open the pull request as a draft, fill in the template completely (name the test that failed before the change and passes after it), add a `CHANGELOG.md` line, state in the description that an agent wrote or helped write it, then mark it ready for review. One implementation per issue: a claim with no activity for 7 days lapses and anyone may take the issue.
 8. Changes to dependencies, CI, `bin/` scripts or agent instruction files need a stated reason in the description; maintainers review them first. A pull request from a fork waits for a maintainer to approve CI.
 
 Full details for people: [CONTRIBUTING.md](CONTRIBUTING.md).

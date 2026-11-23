@@ -11,7 +11,7 @@ Paste the commands you ran and the last lines of their output (not just a tick).
 
 - [ ] `./bin/lint.sh` passes
 - [ ] `./bin/typecheck.sh` passes
-- [ ] Tests for the touched area pass: `./bin/pytest.sh <path>` or `./bin/check-gfql.sh` for GFQL
+- [ ] The test that failed before this change and passes after it (name it: `path::test_name`; a fix or a feature needs one), and the tests for the touched area still pass: `./bin/pytest.sh <path>` or `./bin/check-gfql.sh` for GFQL
 - [ ] `CHANGELOG.md` has a line for this change
 
 ## Engines tested (GFQL changes: `graphistry/compute/`, `graphistry/tests/compute/gfql/`)
