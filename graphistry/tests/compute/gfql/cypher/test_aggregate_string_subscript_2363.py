@@ -100,8 +100,8 @@ def test_cartesian_and_grouped_aggregates_over_subscripts(engine):
     assert single is None or single == [{"v": 3}]
 
 
-# The subscript spelling of a non-entity value (a map, a list, a scalar, null, an UNWIND variable) must answer exactly as
-# it did before the parser rewrote an entity subscript to a property read. Outcomes below were measured on `develop`:
+# The subscript spelling of a non-entity value (a map, a list, a scalar, null, an UNWIND variable) answers exactly as on
+# `develop`; the fix only changes which property columns are materialized for an alias. Outcomes below were measured on `develop`:
 # pandas and cuDF answer or raise GFQLCallExecutionError; the Polars engines decline these WITH/UNWIND/projection row ops.
 _ROWS, _ERR = "rows", "error"
 _NON_ENTITY = [
@@ -115,9 +115,6 @@ _NON_ENTITY = [
     ("WITH 5 AS s RETURN s['name'] AS v", _ERR, None),
     ("WITH 5 AS s RETURN count(s['name']) AS v", _ERR, None),
     ("WITH 'abc' AS s RETURN s['name'] AS v", _ERR, None),
-    # Two outcomes that DO differ from `develop` (both toward the Cypher answer and toward pandas/cuDF agreement):
-    ("WITH [1, 2] AS l RETURN count(l['name']) AS v", _ERR, None),  # develop: pandas answered 0, cuDF raised
-    ("WITH null AS z RETURN count(z['name']) AS v", _ROWS, [{"v": 0}]),  # develop: pandas answered 0, cuDF raised
 ]
 
 
@@ -131,3 +128,117 @@ def test_a_subscript_of_a_non_entity_value_keeps_its_outcome(engine, query, kind
             _run(engine, query)
     else:
         assert _run(engine, query) == expected
+
+
+# Where develop's pandas and cuDF disagree about an aggregate over a non-entity value, each keeps its own answer.
+@pytest.mark.parametrize("query", [
+    "WITH [1, 2] AS l RETURN count(l['name']) AS v",
+    "WITH null AS z RETURN count(z['name']) AS v",
+])
+def test_an_aggregate_over_a_list_or_null_subscript_keeps_each_engines_develop_answer(engine, query):
+    if engine in {"polars", "polars-gpu"}:
+        with pytest.raises(NotImplementedError):
+            _run(engine, query)
+    elif engine == "pandas":
+        assert _run(engine, query) == [{"v": 0}]
+    else:
+        with pytest.raises(GFQLCallExecutionError):
+            _run(engine, query)
+
+
+# Property names that are not plain identifiers, or that collide with identity, relationship ends, aliases or internal columns.
+_NAMES_NODES = pd.DataFrame({
+    "id": [1, 2, 3], "name": ["x", "y", "z"], "type": ["T1", "T2", "T3"], "my name": ["m1", "m2", "m3"], "a.b": [1, 2, 3],
+    "a-b": [4, 5, 6], "1x": [7, 8, 9], "h\u00e9llo": ["u", "v", "w"], "": ["e1", "e2", "e3"], "b": ["B1", "B2", "B3"], "_x": [10, 20, 30],
+})
+_NAMES_EDGES = pd.DataFrame({"s": [1, 2], "d": [2, 3], "type": ["k1", "k2"]})
+_POLARS = {"polars", "polars-gpu"}
+_NIE = "NotImplementedError"
+
+
+def _names_graph(engine):
+    nodes, edges = _NAMES_NODES, _NAMES_EDGES
+    if engine == "cudf":
+        import cudf
+
+        nodes, edges = cudf.from_pandas(nodes), cudf.from_pandas(edges)
+    elif engine in _POLARS:
+        import polars as pl
+
+        nodes, edges = pl.from_pandas(nodes), pl.from_pandas(edges)
+    return graphistry.nodes(nodes, "id").edges(edges, "s", "d")
+
+
+def _v(*values):
+    return [{"v": value} for value in values]
+
+
+def _ret(name):
+    return "MATCH (a) RETURN a['%s'] AS v ORDER BY v" % name
+
+
+def _cnt(name):
+    return "MATCH (a)-[r]->(b) RETURN count(a['%s']) AS v" % name
+
+
+# (query, pandas/cuDF answer, Polars answer). Every RETURN row is the answer `develop` gives, per engine family (they differ
+# from each other on develop for a['b'] and a['__gfql_node_id__']); every count over a[...] raised "AST evaluator
+# unsupported" on pandas/cuDF and declined on Polars before.
+_SPECIAL_NAMES = [
+    (_ret("id"), _v(1, 2, 3), _v(1, 2, 3)),
+    (_ret("type"), _v("T1", "T2", "T3"), _v("T1", "T2", "T3")),
+    (_ret("_x"), _v(10, 20, 30), _v(10, 20, 30)),
+    (_ret("my name"), _v("m1", "m2", "m3"), _v("m1", "m2", "m3")),
+    (_ret("a.b"), _v(1, 2, 3), _v(1, 2, 3)),
+    (_ret("a-b"), _v(4, 5, 6), _v(4, 5, 6)),
+    (_ret("1x"), _v(7, 8, 9), _v(7, 8, 9)),
+    (_ret("h\u00e9llo"), _v("u", "v", "w"), _v("u", "v", "w")),
+    (_ret(""), _v("e1", "e2", "e3"), _v("e1", "e2", "e3")),
+    (_ret("missing"), _v(None, None, None), _v(None, None, None)),
+    (_ret("b"), _v("B1", "B2", "B3"), _v(1, 2, 3)),  # a property named like the bound alias b
+    (_ret("__gfql_node_id__"), _v(None, None, None), _v(True, True, True)),
+    (_ret("__gfql_edge_index_0__"), _v(None, None, None), _v(None, None, None)),
+    (_ret("__gfql_bindings_join__"), _v(None, None, None), _v(None, None, None)),
+    ("MATCH (a)-[r]->(b) RETURN b['b'] AS v ORDER BY v", _v(None, None), _v("B2", "B3")),
+    ("MATCH (a)-[r]->(b) RETURN r['s'] AS v ORDER BY v", _v(1, 2), _v(1, 2)),
+    ("MATCH (a)-[r]->(b) RETURN r['d'] AS v ORDER BY v", _v(2, 3), _v(2, 3)),
+    ("MATCH (a)-[r]->(b) RETURN r['type'] AS v ORDER BY v", _v("k1", "k2"), _v("k1", "k2")),
+    ("MATCH (a)-[r]->(b) RETURN r['__gfql_edge_index_0__'] AS v ORDER BY v", _v(0, 1), _NIE),
+    ("MATCH (a)-[r]->(b) RETURN count(r['s']) AS v", _v(0), _NIE),
+    (_cnt("id"), _v(2), _v(2)),
+    (_cnt("type"), _v(2), _v(2)),
+    (_cnt("_x"), _v(2), _v(2)),
+    (_cnt("my name"), _v(2), _v(2)),
+    (_cnt("a.b"), _v(2), _v(2)),
+    (_cnt("a-b"), _v(2), _v(2)),
+    (_cnt("1x"), _v(2), _v(2)),
+    (_cnt("h\u00e9llo"), _v(2), _v(2)),
+    (_cnt(""), _v(2), _v(2)),
+    (_cnt("b"), _v(2), _v(2)),
+    (_cnt("missing"), _v(0), _NIE),
+    (_cnt("__gfql_node_id__"), _v(0), _v(2)),  # develop's Polars RETURN reads identity for this name; pandas/cuDF do not
+    (_cnt("__gfql_edge_index_0__"), _v(0), _NIE),
+    (_cnt("__gfql_bindings_join__"), _v(0), _NIE),
+]
+
+
+def _names_rows(engine, query):
+    out = _names_graph(engine).gfql(query, engine=engine)._nodes
+    if hasattr(out, "to_pandas"):
+        out = out.to_pandas()
+    return out.to_dict("records")
+
+
+@pytest.mark.parametrize("query,pandas_answer,polars_answer", _SPECIAL_NAMES, ids=[case[0] for case in _SPECIAL_NAMES])
+def test_special_property_names_in_a_subscript(engine, query, pandas_answer, polars_answer):
+    expected = polars_answer if engine in _POLARS else pandas_answer
+    if expected == _NIE:
+        with pytest.raises(NotImplementedError):
+            _names_rows(engine, query)
+        return
+    try:
+        rows = _names_rows(engine, query)
+    except (NotImplementedError, GFQLUnsupportedError) as exc:
+        assert engine == "polars-gpu" and query.count("count(") == 1 and ("not fully GPU-executable" in str(exc) or "cannot execute this aggregation" in str(exc)), str(exc)
+        return
+    assert rows == expected
