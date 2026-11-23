@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING, Any, Callable, Dict, Iterable, List, Literal, 
 
 import pandas as pd
 from graphistry.Engine import (
+    is_cudf_series,
     is_polars_df,
     df_to_engine,
     null_column,
@@ -3198,14 +3199,22 @@ class RowPipelineMixin:
 
     @staticmethod
     def _gfql_string_predicate_per_row(left: SeriesT, right: SeriesT, op_name: str, expr: str) -> SeriesT:
-        """A non-literal right operand: evaluate row by row, null unless both operands are strings (pandas only)."""
-        if not (isinstance(left, pd.Series) and isinstance(right, pd.Series)):
+        """A non-literal right operand: evaluate row by row, null unless both operands are strings.
+
+        pandas evaluates in place; cuDF round-trips the two series through pandas and converts the result back;
+        the Polars engines decline."""
+        on_gpu = is_cudf_series(left) or is_cudf_series(right)
+        if on_gpu:
+            left_pd, right_pd = left.to_pandas(), right.to_pandas()
+        elif isinstance(left, pd.Series) and isinstance(right, pd.Series):
+            left_pd, right_pd = left, right
+        else:
             raise NotImplementedError(
                 f"a non-literal right operand of {op_name} is not supported on this engine in {expr!r}; "
                 f"use engine='pandas' for this query (no silent fallback; parity-or-error by design)"
             )
         values: List[Any] = []
-        for lhs, rhs in zip(left, right):
+        for lhs, rhs in zip(left_pd, right_pd):
             if not (isinstance(lhs, str) and isinstance(rhs, str)):
                 values.append(pd.NA)
                 continue
@@ -3213,7 +3222,12 @@ class RowPipelineMixin:
                 values.append(apply_string_predicate_scalar(lhs, rhs, op_name))
             except re.error as exc:
                 raise ValueError(f"invalid regex pattern in {expr!r}: {exc}") from exc
-        return pd.Series(values, index=left.index, dtype="object")
+        out = pd.Series(values, index=left_pd.index, dtype="object")
+        if on_gpu:
+            import cudf
+
+            return cudf.from_pandas(out.astype("boolean"))
+        return out
 
     def _gfql_eval_string_predicate_expr(
         self,
