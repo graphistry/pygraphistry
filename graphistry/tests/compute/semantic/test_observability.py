@@ -438,6 +438,27 @@ class TestHelpersAfterReview:
         with pytest.warns(UserWarning, match="case and spaces"):
             assert list(semantic_verdicts(df, "u", positive="A")) == ["no", "no"]
 
+    def test_a_choice_column_with_no_answer_at_all_is_not_taken_for_a_predicate(self) -> None:
+        for answers in ([None, None], []):
+            df = pd.DataFrame({"c": pd.Series(answers, dtype=object), "c__status": ["error", "skipped"][:len(answers)]})
+            assert list(semantic_verdicts(df, "c", positive=["a"])) == ["error", "skipped"][:len(answers)]
+            assert list(semantic_verdicts(df, "c")) == ["error", "skipped"][:len(answers)]
+
+    def test_a_pandas_na_status_raises_a_value_error(self) -> None:
+        df = pd.DataFrame({"q": pd.array([True, None], dtype="boolean"), "q__status": pd.array(["ok", None], dtype="string")})
+        with pytest.raises(ValueError, match="unknown status"):
+            semantic_summary(df)
+        with pytest.raises(ValueError, match="unknown status"):
+            semantic_verdicts(df, "q")
+
+    def test_numpy_bool_is_a_positive_label_and_other_types_are_refused(self) -> None:
+        import numpy as np
+        pred = pd.DataFrame({"q": pd.array([True, False], dtype="boolean"), "q__status": ["ok", "ok"]})
+        assert list(semantic_verdicts(pred, "q", positive=np.True_)) == ["yes", "no"]
+        for bad in (1, [1], 3.5):
+            with pytest.raises(ValueError, match="positive must be"):
+                semantic_verdicts(pred, "q", positive=bad)  # type: ignore[arg-type]
+
     def test_a_predicate_in_an_object_column_is_still_a_predicate(self) -> None:
         df = pd.DataFrame({"q": pd.Series([True, False, None], dtype=object), "q__status": ["ok", "ok", "error"]})
         assert list(semantic_verdicts(df, "q")) == ["yes", "no", "error"]

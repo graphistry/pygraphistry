@@ -85,7 +85,7 @@ class semantic_trace:
 
     The value of ``with semantic_trace() as runs`` is a list that gets one :class:`SemanticRunStats` for each run that
     ends, in order. This covers a direct call, ``g.sem_decide`` and ``g.gfql([call("sem_decide", ...)])``. A run that
-    raises before it finishes adds nothing. Blocks nest: a run goes to the innermost block when it ends, and to every outer
+    raises before it finishes adds nothing. Blocks nest. A run goes to the innermost block when it ends, and to each outer
     block when the inner block ends. The trace follows
     ``contextvars`` rules, so it sees the runs of the thread that opens it. A thread that you start yourself does not see
     it unless you start it with ``contextvars.copy_context().run``. Outside a block a run pays nothing for tracing.
@@ -126,12 +126,23 @@ VERDICTS = ("yes", "no", "uncertain", "error", "skipped")
 Labels = Union[str, bool, Iterable[Union[str, bool]]]
 
 
+def _label(label: object) -> Union[str, bool]:
+    if isinstance(label, (bool, np.bool_)):
+        return bool(label)
+    if isinstance(label, str):
+        return label
+    raise ValueError(f"positive must be a label string, True, or a list of them, not {label!r}")
+
+
 def _positive_labels(positive: Optional[Labels]) -> Optional[Set[Union[str, bool]]]:
     if positive is None:
         return None
-    if isinstance(positive, (str, bool)):
-        return {positive}
-    return set(positive)
+    if isinstance(positive, (str, bool, np.bool_)):
+        return {_label(positive)}
+    try:
+        return {_label(label) for label in positive}
+    except TypeError:
+        raise ValueError(f"positive must be a label string, True, or a list of them, not {positive!r}") from None
 
 
 def _host(df: "pd.DataFrame") -> "pd.DataFrame":
@@ -146,16 +157,19 @@ def _checked_status(df: "pd.DataFrame", question_id: str) -> "pd.Series":
     if status_col not in df.columns:
         raise ValueError(f"the table has no status column for question {question_id!r}")
     status = df[status_col].astype(object)
-    unknown = sorted({repr(s) for s in set(status) if s not in STATUSES})
+    unknown = sorted({repr(s) for s in set(status) if not isinstance(s, str) or s not in STATUSES})
     if unknown:
         raise ValueError(f"unknown status values in {status_col!r}: {unknown}")
     return status
 
 
-def _is_predicate_column(value: "pd.Series") -> bool:
+def _is_predicate_column(value: "pd.Series") -> Optional[bool]:
+    """True for a predicate column, False for a choice or score column, None when no row has an answer (then the kind is unknown)."""
     if pd.api.types.is_bool_dtype(value.dtype):
         return True
     answers = value.dropna()
+    if len(answers) == 0:
+        return None
     return value.dtype == object and all(isinstance(v, (bool, np.bool_)) for v in answers)
 
 
@@ -184,16 +198,16 @@ def semantic_verdicts(df: "pd.DataFrame", question_id: str, *, positive: Optiona
     value = df[question_id]
     predicate = _is_predicate_column(value)
     if labels is None:
-        if not predicate:
+        if predicate is False:
             raise ValueError(f"question {question_id!r} is not a predicate: pass positive=... with the labels that count as yes")
         answered = pd.Series(["yes" if v else "no" for v in value.fillna(False).astype(bool)], index=df.index, dtype=object)
     else:
-        if predicate and any(not isinstance(label, bool) for label in labels):
+        if predicate is True and any(not isinstance(label, bool) for label in labels):
             raise ValueError(f"question {question_id!r} is a predicate: positive must be True, not {sorted(map(repr, labels))}")
-        if not predicate and any(not isinstance(label, str) for label in labels):
+        if predicate is False and any(not isinstance(label, str) for label in labels):
             raise ValueError(f"question {question_id!r} is not a predicate: positive must be label strings, not {sorted(map(repr, labels))}")
         seen = {v for v in value[status == "ok"].dropna().astype(object)}
-        if not predicate and seen and not (labels & seen):
+        if predicate is False and seen and not (labels & seen):
             near = {str(label).strip().lower() for label in labels} & {str(v).strip().lower() for v in seen}
             if near:
                 warnings.warn(f"no answer of {question_id!r} equals {sorted(labels)}, but the answers {sorted(seen)} match when case and spaces are ignored", UserWarning, stacklevel=2)

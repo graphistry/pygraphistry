@@ -2257,8 +2257,9 @@ The fields of ``SemanticRunStats``:
      - Summed over the answers that the provider gave. A copy of a duplicate row and a cache hit add nothing, so nothing counts twice.
        ``billed_cost_usd`` is the sum of the ``cost_usd`` of the answers: it does not hold the cost of probe requests
    * - ``estimated_cost_usd``
-     - The estimate of the input cost of the planned calls. It is set only when ``budget`` has ``max_cost_usd`` (the run estimates only
-       then, and a trace adds no provider call); otherwise None
+     - The estimate of the input cost of the planned calls. It is set only when ``budget`` has ``max_cost_usd``, and then the trace calls the
+       provider's ``estimate_cost_usd`` once for each planned call (a run without a cost cap makes no estimate, so a trace does not either);
+       otherwise None
    * - ``wall_ms``, ``peak_in_flight``, ``strategy_used``
      - Time of the run, the most calls in flight at once, and the strategy that the provider settled on (None when it has none)
 
