@@ -125,6 +125,14 @@ class MemorySemanticCache:
                 found[key] = entry[0]
         return found
 
+    def peek_many(self, keys: Sequence[str]) -> Dict[str, str]:
+        """Like ``get_many``, but it changes nothing: no counter, no recency, and an expired entry is left in place.
+        ``explain_sem_decide`` and ``explain_sem_map`` use it, so that a plan does not alter the cache."""
+        with self._lock:
+            now = self._clock()
+            return {key: self._entries[key][0] for key in keys
+                    if key in self._entries and not self._expired(self._entries[key][1], now)}
+
     def put_many(self, entries: Mapping[str, str]) -> None:
         with self._lock:
             now = self._clock()
