@@ -104,7 +104,7 @@ def shown_labels(question: DecisionQuestion) -> List[str]:
     return shown
 
 
-def reply_index(text: object, codes: str, question: DecisionQuestion) -> Optional[int]:
+def reply_index(text: object, codes: str, question: DecisionQuestion) -> Optional[int]:  # hygiene-ok: object-annotation -- untrusted host or user input, narrowed by isinstance
     """The answer index of a reply: a code alone, or a code followed by its own label (``"A. yes"``) when that label
     names no other option (case and a trailing dot are ignored); else None."""
     index = code_index(text, codes)
@@ -127,7 +127,7 @@ def reply_index(text: object, codes: str, question: DecisionQuestion) -> Optiona
     return index if [position for position in range(len(shown)) if names(position)] == [index] else None
 
 
-def code_index(text: object, codes: str) -> Optional[int]:
+def code_index(text: object, codes: str) -> Optional[int]:  # hygiene-ok: object-annotation -- untrusted host or user input, narrowed by isinstance
     """The answer index of a reply or token such as ``"B"``, ``" b"``, ``"B."`` or ``"▁B"``, else None."""
     if not isinstance(text, str):
         return None
@@ -137,11 +137,11 @@ def code_index(text: object, codes: str) -> Optional[int]:
     return codes.index(stripped.upper())
 
 
-def _spelled(token: object) -> str:
+def _spelled(token: object) -> str:  # hygiene-ok: object-annotation -- untrusted host or user input, narrowed by isinstance
     return token.replace("\u2581", " ").replace("\u0120", " ").replace("\u010a", "\n") if isinstance(token, str) else ""
 
 
-def reply_tokens(tokens: object, text: object) -> Optional[List[Dict[str, object]]]:
+def reply_tokens(tokens: object, text: object) -> Optional[List[Dict[str, object]]]:  # hygiene-ok: object-annotation -- untrusted host or user input, narrowed by isinstance
     """The generated tokens that spell the reply: tokens before it, such as reasoning, and special tokens after it,
     such as an end-of-turn marker, are left out."""
     entries = [token for token in tokens if isinstance(token, dict)] if isinstance(tokens, list) else []
@@ -160,7 +160,7 @@ def reply_tokens(tokens: object, text: object) -> Optional[List[Dict[str, object
     return None
 
 
-def answer_alternatives(tokens: object, codes: str, index: int, text: object) -> List[object]:
+def answer_alternatives(tokens: object, codes: str, index: int, text: object) -> List[object]:  # hygiene-ok: object-annotation -- untrusted host or user input, narrowed by isinstance
     """The answer token with its top alternatives: the first token of the tokens that spell the reply, when it spells
     the answer. A bare-code reply whose tokens do not spell it falls back to the last token spelling the answer; a
     reply that echoes its label then has no alternatives."""
@@ -175,7 +175,7 @@ def answer_alternatives(tokens: object, codes: str, index: int, text: object) ->
     return []
 
 
-def _probability(entry: object) -> Optional[float]:
+def _probability(entry: object) -> Optional[float]:  # hygiene-ok: object-annotation -- untrusted host or user input, narrowed by isinstance
     logprob = entry.get("logprob") if isinstance(entry, dict) else None
     if isinstance(logprob, bool) or not isinstance(logprob, (int, float)) or not logprob <= 0:
         return None
@@ -417,7 +417,7 @@ class OpenAIChatProvider(_ChatDecisionProvider):
 
     def probe_key(self) -> Tuple[str, ...]:
         """Every setting that changes what a probe sees; header and body extras are hashed."""
-        def digest(value: object) -> str:
+        def digest(value: object) -> str:  # hygiene-ok: object-annotation -- untrusted host or user input, narrowed by isinstance
             return hashlib.sha256(json.dumps(value, sort_keys=True, default=str).encode("utf-8")).hexdigest()
         return (type(self).__name__, self.base_url, self.model, self.auth_header.lower(), self.max_tokens_field,
                 str(self.max_answer_tokens), str(self.top_logprobs), digest(self.extra_body), digest(self.extra_headers),
@@ -593,7 +593,7 @@ class OpenAIChatProvider(_ChatDecisionProvider):
         return Reply(content, tokens, refused, unfinished)
 
 
-def exact_code_index(text: object, codes: str) -> Optional[int]:
+def exact_code_index(text: object, codes: str) -> Optional[int]:  # hygiene-ok: object-annotation -- untrusted host or user input, narrowed by isinstance
     value = text if isinstance(text, str) else ""
     return codes.index(value) if len(value) == 1 and value in codes else None
 
@@ -617,14 +617,14 @@ def _plain_chat(payload: Mapping[str, object]) -> bool:
     return isinstance(content, str) and content.strip() != "" and choice.get("finish_reason") != "error"
 
 
-def _tool_answer(call: object) -> object:
+def _tool_answer(call: object) -> object:  # hygiene-ok: object-annotation -- untrusted host or user input, narrowed by isinstance
     """The ``answer`` argument of a call to the ``answer`` tool, else None."""
     function = call.get("function") if isinstance(call, dict) else None
     named = isinstance(function, dict) and function.get("name") == "answer"
     return _json_answer(function.get("arguments")) if named and isinstance(function, dict) else None
 
 
-def _json_answer(text: object) -> object:
+def _json_answer(text: object) -> object:  # hygiene-ok: object-annotation -- untrusted host or user input, narrowed by isinstance
     """The ``answer`` field of a JSON object reply, else None."""
     try:
         value = json.loads(text, object_pairs_hook=_unique_keys) if isinstance(text, str) else None
@@ -633,7 +633,7 @@ def _json_answer(text: object) -> object:
     return _answer_field(value)
 
 
-def _answer_field(value: object) -> object:
+def _answer_field(value: object) -> object:  # hygiene-ok: object-annotation -- untrusted host or user input, narrowed by isinstance
     return value.get("answer") if isinstance(value, dict) and set(value) == {"answer"} else None
 
 
