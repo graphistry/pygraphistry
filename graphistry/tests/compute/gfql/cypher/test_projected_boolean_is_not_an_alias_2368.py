@@ -76,6 +76,8 @@ _NO_MATCH = [  # a boolean from a source that has no MATCH alias at all
     "UNWIND [true, false] AS b RETURN keys(b) AS v",
     "WITH true AS b RETURN properties(b) AS v",
     "WITH true AS b RETURN b.name AS v",
+    "UNWIND [true] AS a UNWIND [false] AS b RETURN properties(a) AS v",
+    "UNWIND [true] AS a UNWIND [false] AS b RETURN properties(b) AS v",
 ]
 _DOTTED_READ = "MATCH (n) WITH n, n.flag AS t RETURN t.name AS v"
 
