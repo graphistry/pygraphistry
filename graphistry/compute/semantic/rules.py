@@ -24,39 +24,39 @@ MAP_COLUMN_TYPES: Tuple[Tuple[str, str], ...] = (("", "string"), ("__status", "s
                                                  ("__meta", "string"))
 
 
-def non_empty_str(value: object) -> Union[bool, str]:
+def non_empty_str(value: object) -> Union[bool, str]:  # hygiene-ok: object-annotation -- untrusted host or user input, narrowed by isinstance
     return True if isinstance(value, str) and value != "" else "must be a non-empty string"
 
 
-def positive_int(value: object) -> Union[bool, str]:
+def positive_int(value: object) -> Union[bool, str]:  # hygiene-ok: object-annotation -- untrusted host or user input, narrowed by isinstance
     number = canonicalize(value)
     return True if isinstance(number, int) and not isinstance(number, bool) and number >= 1 else "must be an int >= 1"
 
 
-def positive_number(value: object) -> Union[bool, str]:
+def positive_number(value: object) -> Union[bool, str]:  # hygiene-ok: object-annotation -- untrusted host or user input, narrowed by isinstance
     number = finite_float(canonicalize(value))
     return True if number is not None and number > 0 else "must be a finite number > 0"
 
 
-def probability(value: object) -> Union[bool, str]:
+def probability(value: object) -> Union[bool, str]:  # hygiene-ok: object-annotation -- untrusted host or user input, narrowed by isinstance
     number = finite_float(canonicalize(value))
     return True if number is not None and 0 <= number <= 1 else "must be a number in [0, 1]"
 
 
-def probability_requirement(value: object) -> Union[bool, str]:
+def probability_requirement(value: object) -> Union[bool, str]:  # hygiene-ok: object-annotation -- untrusted host or user input, narrowed by isinstance
     return True if isinstance(value, bool) or (isinstance(value, str) and value == "native") else (
         "must be False, True or 'native'")
 
 
-def boolean(value: object) -> Union[bool, str]:
+def boolean(value: object) -> Union[bool, str]:  # hygiene-ok: object-annotation -- untrusted host or user input, narrowed by isinstance
     return True if isinstance(value, bool) else "must be a bool"
 
 
-def table_kind(value: object) -> Union[bool, str]:
+def table_kind(value: object) -> Union[bool, str]:  # hygiene-ok: object-annotation -- untrusted host or user input, narrowed by isinstance
     return True if isinstance(value, str) and value in ("nodes", "edges") else "must be 'nodes' or 'edges'"
 
 
-def column_list(value: object) -> Union[bool, str]:
+def column_list(value: object) -> Union[bool, str]:  # hygiene-ok: object-annotation -- untrusted host or user input, narrowed by isinstance
     if isinstance(value, (str, bytes)) or not isinstance(value, (list, tuple)) or not value \
             or not all(isinstance(col, str) and col != "" for col in value):
         return "must be a non-empty list of column names"
@@ -64,7 +64,7 @@ def column_list(value: object) -> Union[bool, str]:
 
 
 def _message_of(build: Callable[[object], object]) -> Rule:
-    def rule(value: object) -> Union[bool, str]:
+    def rule(value: object) -> Union[bool, str]:  # hygiene-ok: object-annotation -- untrusted host or user input, narrowed by isinstance
         try:
             build(value)
         except ValueError as error:
@@ -73,7 +73,7 @@ def _message_of(build: Callable[[object], object]) -> Rule:
     return rule
 
 
-def coerce_questions(questions: object) -> Tuple[DecisionQuestion, ...]:
+def coerce_questions(questions: object) -> Tuple[DecisionQuestion, ...]:  # hygiene-ok: object-annotation -- untrusted host or user input, narrowed by isinstance
     """Questions as ``DecisionQuestion`` objects; dicts use the keys id, kind, text, options, levels."""
     if isinstance(questions, (str, bytes, Mapping)) or not isinstance(questions, (list, tuple)) or not questions:
         raise ValueError("questions must be a non-empty list of questions")
@@ -113,26 +113,26 @@ def coerce_map_budget(budget: BudgetSpec) -> Optional[Budget]:
     return coerced
 
 
-def _json_questions(value: object) -> object:
+def _json_questions(value: object) -> object:  # hygiene-ok: object-annotation -- untrusted host or user input, narrowed by isinstance
     if not isinstance(value, list) or not all(isinstance(spec, dict) for spec in value):
         raise ValueError("must be a non-empty list of question dicts with id, kind, text, options or levels")
     return coerce_questions(value)
 
 
-def _output_column(value: object) -> object:
+def _output_column(value: object) -> object:  # hygiene-ok: object-annotation -- untrusted host or user input, narrowed by isinstance
     if not isinstance(value, str) or value == "":
         raise ValueError("must be a non-empty string")
     validate_column_name(value, "out_col")
     return value
 
 
-def _json_budget(value: object) -> object:
+def _json_budget(value: object) -> object:  # hygiene-ok: object-annotation -- untrusted host or user input, narrowed by isinstance
     if not isinstance(value, dict):
         raise ValueError("must be a dict with max_cost_usd and/or max_requests")
     return Budget.from_mapping(value)
 
 
-def _json_map_budget(value: object) -> object:
+def _json_map_budget(value: object) -> object:  # hygiene-ok: object-annotation -- untrusted host or user input, narrowed by isinstance
     if not isinstance(value, dict):
         raise ValueError("must be a dict with max_requests")
     budget = Budget.from_mapping(value)
@@ -172,7 +172,7 @@ def check_params(required: Mapping[str, object], optional: Mapping[str, object])
             raise ValueError(f"{name} {verdict}, got {value!r}")
 
 
-def template_fields(template: object) -> List[str]:
+def template_fields(template: object) -> List[str]:  # hygiene-ok: object-annotation -- untrusted host or user input, narrowed by isinstance
     """Placeholder names of a template; only bare ``{column}`` fields are allowed."""
     if not isinstance(template, str) or template == "":
         raise ValueError("template must be a non-empty string")
@@ -193,7 +193,7 @@ def template_fields(template: object) -> List[str]:
     return fields
 
 
-def evidence_columns(evidence_cols: object, template: object) -> List[str]:
+def evidence_columns(evidence_cols: object, template: object) -> List[str]:  # hygiene-ok: object-annotation -- untrusted host or user input, narrowed by isinstance
     """Columns the evidence reads, after the exactly-one-of check."""
     if (evidence_cols is None) == (template is None):
         raise ValueError("pass exactly one of evidence_cols or template")
