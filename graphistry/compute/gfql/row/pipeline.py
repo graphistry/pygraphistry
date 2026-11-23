@@ -8,7 +8,7 @@ import re
 import warnings
 from functools import lru_cache
 from types import ModuleType
-from typing import TYPE_CHECKING, Any, Callable, Dict, Iterable, List, Literal, Mapping, NoReturn, Optional, Sequence, Tuple, cast
+from typing import TYPE_CHECKING, Any, Callable, Dict, Iterable, List, Literal, Mapping, NoReturn, Optional, Sequence, Set, Tuple, Union, cast
 
 import pandas as pd
 from graphistry.Engine import (
@@ -5672,7 +5672,29 @@ class RowPipelineMixin:
             out_df = pd.DataFrame(projected, index=table_df.index)
         else:
             out_df = table_df.assign(**projected)[list(projected.keys())]
-        return self._gfql_row_table(out_df)
+        out = self._gfql_row_table(out_df)
+        projected_nodes, projected_edges = self._gfql_projected_alias_sets(items)
+        if projected_nodes is not None and projected_edges is not None:
+            out._gfql_rows_node_aliases = projected_nodes
+            out._gfql_rows_edge_aliases = projected_edges
+        return out
+
+    def _gfql_projected_alias_sets(self, items: Sequence[Union[str, Tuple[str, Union[str, int, float, bool, None]]]]) -> Tuple[Optional[Set[str]], Optional[Set[str]]]:
+        """MATCH alias identity after a projection: kept only for outputs that read an alias column unchanged
+        (`WITH n`, `WITH n AS m`); a computed output that reuses an alias name (`WITH n.flag AS n`) is a value."""
+        node_aliases, edge_aliases = self._gfql_rows_node_aliases, self._gfql_rows_edge_aliases
+        if node_aliases is None and edge_aliases is None:
+            return None, None
+        passed: Dict[str, str] = {}
+        for item in items:
+            out_name, expr = (item, item) if isinstance(item, str) else (str(item[0]), item[1])
+            if isinstance(expr, str):
+                passed[out_name] = expr.strip()
+        node_set, edge_set = set(node_aliases or ()), set(edge_aliases or ())
+        return (
+            {name for name, src in passed.items() if src in node_set},
+            {name for name, src in passed.items() if src in edge_set},
+        )
 
     def with_(self, items: List[Any], extend: bool = False) -> "Plottable":
         """Python-safe alias for Cypher WITH-style row projection.

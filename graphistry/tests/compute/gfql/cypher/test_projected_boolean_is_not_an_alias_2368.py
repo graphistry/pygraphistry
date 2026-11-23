@@ -5,7 +5,7 @@ import pandas as pd
 import pytest
 
 import graphistry
-from graphistry.compute.exceptions import GFQLValidationError
+from graphistry.compute.exceptions import GFQLCallExecutionError
 
 
 @pytest.fixture(params=["pandas", "cudf", "polars", "polars-gpu"])
@@ -40,16 +40,20 @@ def _graph(engine):
     return graphistry.nodes(nodes, "id").edges(edges, "s", "d")
 
 
-def _rows(engine, query):
-    """Rows, or None when a Polars engine declines the query (parity-or-error)."""
-    try:
-        out = _graph(engine).gfql(query, engine=engine)._nodes
-    except NotImplementedError:
-        assert engine in {"polars", "polars-gpu"}, "only the Polars engines may decline"
-        return None
+_POLARS = {"polars", "polars-gpu"}
+
+
+def _run(engine, query):
+    out = _graph(engine).gfql(query, engine=engine)._nodes
     if hasattr(out, "to_pandas"):
         out = out.to_pandas()
     return out.to_dict("records")
+
+
+def _expect_value_type_error(engine, query):
+    """pandas and cuDF raise the row-expression type error; the Polars engines decline the `select` row op (NotImplementedError)."""
+    with pytest.raises(NotImplementedError if engine in _POLARS else GFQLCallExecutionError):
+        _run(engine, query)
 
 
 _VALUE_MISUSE = [
@@ -58,35 +62,65 @@ _VALUE_MISUSE = [
     "MATCH (n) WITH n, n.flag AS t RETURN keys(t) AS v",
     "MATCH ()-[r]->() WITH r, r.ok AS t RETURN properties(t) AS v",
 ]
+_SHADOWING = [  # a projected value that reuses an alias name is a value, not the alias
+    "MATCH (n) WITH n.flag AS n RETURN properties(n) AS v",
+    "MATCH (n) WITH n.flag AS n RETURN keys(n) AS v",
+    "MATCH (n) WITH n.flag AS n RETURN n.name AS v",
+    "MATCH (n) WITH n ORDER BY n.id LIMIT 2 WITH n.flag AS n RETURN properties(n) AS v",
+    "MATCH (n) WITH DISTINCT n WITH n.flag AS n RETURN keys(n) AS v",
+    "MATCH (n) WITH n.flag AS n, count(*) AS c RETURN properties(n) AS v",
+    "MATCH ()-[r]->() WITH r.ok AS r RETURN properties(r) AS v",
+]
+_NO_MATCH = [  # a boolean from a source that has no MATCH alias at all
+    "UNWIND [true, false] AS b RETURN properties(b) AS v",
+    "UNWIND [true, false] AS b RETURN keys(b) AS v",
+    "WITH true AS b RETURN properties(b) AS v",
+    "WITH true AS b RETURN b.name AS v",
+]
 _DOTTED_READ = "MATCH (n) WITH n, n.flag AS t RETURN t.name AS v"
 
 
-def _assert_type_error(engine, query):
-    with pytest.raises((GFQLValidationError, NotImplementedError)) as caught:
-        _graph(engine).gfql(query, engine=engine)
-    assert "unsupported-cypher-query" not in str(caught.value), "must be the value type error, not a compiler decline"
-
-
-@pytest.mark.parametrize("query", _VALUE_MISUSE)
+@pytest.mark.parametrize("query", _VALUE_MISUSE + _SHADOWING + _NO_MATCH)
 def test_a_projected_boolean_is_a_type_error_for_entity_functions(engine, query):
-    _assert_type_error(engine, query)
+    _expect_value_type_error(engine, query)
 
 
 def test_a_projected_boolean_is_a_type_error_for_a_dotted_property_read(engine):
-    if engine in {"polars", "polars-gpu"}:
-        pytest.skip("the Polars native lowering answers null for a property of a boolean (separate from #2368, which observed pandas and cuDF)")
-    _assert_type_error(engine, _DOTTED_READ)
+    if engine in _POLARS:
+        pytest.skip("the Polars native lowering answers null for a property of a boolean (issue #2384); #2368 observed pandas and cuDF")
+    _expect_value_type_error(engine, _DOTTED_READ)
 
 
 def test_real_aliases_beside_a_projected_boolean_keep_working(engine):
-    rows = _rows(engine, "MATCH (n) WITH n, n.flag AS t RETURN properties(n) AS v, t AS b")
-    assert rows is None or (sorted(bool(row["b"]) for row in rows) == [False, True] and all("flag" in str(row["v"]) and "n:" not in str(row["v"]) for row in rows))
-    rel = _rows(engine, "MATCH ()-[r]->() WITH r, r.ok AS t RETURN properties(r) AS v, t AS b")
-    assert rel is None or (len(rel) == 1 and bool(rel[0]["b"]) is True and "ok" in str(rel[0]["v"]) and "r:" not in str(rel[0]["v"]))
+    node_query = "MATCH (n) WITH n, n.flag AS t RETURN properties(n) AS v, t AS b"
+    rel_query = "MATCH ()-[r]->() WITH r, r.ok AS t RETURN properties(r) AS v, t AS b"
+    if engine in _POLARS:
+        for query in (node_query, rel_query):
+            with pytest.raises(NotImplementedError):
+                _run(engine, query)
+        return
+    rows = _run(engine, node_query)
+    assert sorted(row["b"] for row in rows) == [False, True]
+    assert sorted(row["v"] for row in rows) == ["{flag: false, name: 'b'}", "{flag: true, name: 'a'}"]
+    rel = _run(engine, rel_query)
+    assert [row["b"] for row in rel] == [True]
+    assert [row["v"] for row in rel] == ["{ok: true}"]
+
+
+def test_a_renamed_alias_is_still_an_alias(engine):
+    query = "MATCH (n) WITH n AS m, n.flag AS t RETURN properties(m) AS v, t AS b"
+    if engine in _POLARS:
+        with pytest.raises(NotImplementedError):
+            _run(engine, query)
+        return
+    rows = _run(engine, query)
+    assert sorted(row["v"] for row in rows) == ["{flag: false, name: 'b'}", "{flag: true, name: 'a'}"]
 
 
 def test_a_map_variable_and_a_plain_alias_are_unchanged(engine):
-    mapped = _rows(engine, "MATCH (n) WITH n, {a: 1} AS m RETURN properties(m) AS v")
-    assert mapped is None or all(row["v"] == "{a: 1}" or row["v"] == {"a": 1} for row in mapped)
-    plain = _rows(engine, "MATCH (n) RETURN properties(n) AS v")
-    assert plain is None or len(plain) == 2
+    if engine in _POLARS:
+        with pytest.raises(NotImplementedError):
+            _run(engine, "MATCH (n) WITH n, {a: 1} AS m RETURN properties(m) AS v")
+        return
+    assert [row["v"] for row in _run(engine, "MATCH (n) WITH n, {a: 1} AS m RETURN properties(m) AS v")] == ["{a: 1}", "{a: 1}"]
+    assert len(_run(engine, "MATCH (n) RETURN properties(n) AS v")) == 2
