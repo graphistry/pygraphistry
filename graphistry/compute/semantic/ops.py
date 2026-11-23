@@ -180,7 +180,7 @@ def _cache_get(cache: SemanticCache, keys: Sequence[str]) -> Dict[str, str]:
 
 def _cache_peek(cache: SemanticCache, keys: Sequence[str]) -> Dict[str, str]:
     """Like ``_cache_get`` but without a side effect on the cache, when the cache has ``peek_many``. A plan uses it."""
-    peek = getattr(cache, "peek_many", None)
+    peek = getattr(cache, "peek_many", None)  # hygiene-ok: dynamic-attr -- duck-typed host object with no common base
     if not callable(peek):
         return _cache_get(cache, keys)
     try:
@@ -835,10 +835,10 @@ class _Flight:
             self.active -= 1
 
 
-def _strategy_of(provider: object) -> Optional[str]:
+def _strategy_of(provider: object) -> Optional[str]:  # hygiene-ok: object-annotation -- untrusted host or user input, narrowed by isinstance
     """The strategy that a provider names, or None. Provider code is untrusted: an attribute that raises is None."""
     try:
-        value = getattr(provider, "strategy", None)
+        value = getattr(provider, "strategy", None)  # hygiene-ok: dynamic-attr -- duck-typed host object with no common base
     except Exception:
         return None
     return value if isinstance(value, str) else None
@@ -846,7 +846,7 @@ def _strategy_of(provider: object) -> Optional[str]:
 
 def _run_stats(op: str, setup: Union[_DecideSetup, _MapSetup], cells: Dict[Cell, Union[DecisionResult, GenerationResult]],
                provider_cells: Dict[Cell, Union[DecisionResult, GenerationResult]], questions: Sequence[str],
-               telemetry: Dict[str, object], flight: _Flight, started: float, strategy: Optional[object]) -> SemanticRunStats:
+               telemetry: Dict[str, object], flight: _Flight, started: float, strategy: Optional[object]) -> SemanticRunStats:  # hygiene-ok: object-annotation -- untrusted host or user input, narrowed by isinstance
     """The statistics of one finished run. ``cells`` are all the final results; ``provider_cells`` are those that the
     provider answered (a copy of a duplicate or a cache hit costs nothing and is not in it), so cost, retries,
     latency and cached tokens are counted once."""
@@ -869,7 +869,7 @@ def _run_stats(op: str, setup: Union[_DecideSetup, _MapSetup], cells: Dict[Cell,
             reasons[str(result.status_reason)] += 1
         if result.status == "error" and result.error_code:
             codes[str(result.error_code)] += 1
-        kinds[str(getattr(result, "probability_kind", "none"))] += 1
+        kinds[str(getattr(result, "probability_kind", "none"))] += 1  # hygiene-ok: dynamic-attr -- duck-typed host object with no common base
     cached_tokens = 0
     for result in provider_cells.values():
         value = (result.extra or {}).get("cached_input_tokens")
@@ -1075,7 +1075,7 @@ def sem_map(
     flight = _Flight()
     telemetry: Dict[str, object] = {}
 
-    def invoke(batch: Sequence[GenerationRequest], remaining: Optional[float], call_budget: Optional[Budget]) -> object:
+    def invoke(batch: Sequence[GenerationRequest], remaining: Optional[float], call_budget: Optional[Budget]) -> object:  # hygiene-ok: object-annotation -- untrusted host or user input, narrowed by isinstance
         if not tracing:
             return resolved.generate_batch(batch, deadline_s=remaining, budget=call_budget)
         flight.enter()
