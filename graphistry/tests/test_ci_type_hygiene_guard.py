@@ -153,6 +153,24 @@ def test_object_in_a_parameter_or_return_annotation_is_flagged(tmp_path):
     assert findings_for(tmp_path, source, "object-annotation") == [4, 4, 4]
 
 
+def test_object_nested_inside_a_container_is_not_flagged(tmp_path):
+    source = (
+        "from typing import Dict, List, Optional\n\n\n"
+        "def f(a: Dict[str, object], b: List[object], c: Optional[Dict[str, object]]) -> Dict[str, object]:\n"
+        "    return a\n"
+    )
+    assert findings_for(tmp_path, source, "object-annotation") == []
+
+
+def test_object_in_a_union_or_pipe_is_flagged(tmp_path):
+    source = (
+        "from typing import Union\n\n\n"
+        "def f(a: Union[int, object], b: 'int | object') -> None:\n"
+        "    return None\n"
+    )
+    assert findings_for(tmp_path, source, "object-annotation") == [4, 4]
+
+
 def test_a_type_guard_returning_function_may_take_object(tmp_path):
     source = (
         "from typing_extensions import TypeGuard\n\n\n"
@@ -174,10 +192,13 @@ def test_object_as_a_base_class_or_value_is_not_an_annotation(tmp_path):
 @pytest.mark.parametrize("expr", [
     "value.__module__",
     "value.__dict__",
-    "type(value).__name__",
-    "value.__class__.__name__",
-    "callable(value)",
     "vars(value)",
+    "type(value).__name__ == 'int'",
+    "value.__class__.__name__ in ('int', 'float')",
+    "{'int': 1}[type(value).__name__]",
+    "{'int': 1}.get(type(value).__name__)",
+    "type(value).__name__.startswith('In')",
+    "value.__class__.__name__.endswith('t')",
 ])
 def test_attribute_and_type_sniffing_forms_are_flagged(tmp_path, expr):
     assert findings_for(tmp_path, "def f(value: int) -> object:\n    return %s\n" % expr) == [2]
@@ -200,6 +221,19 @@ def test_other_exception_handlers_and_names_are_not_flagged(tmp_path):
     assert findings_for(tmp_path, source) == []
 
 
-def test_a_shadowed_callable_is_not_flagged(tmp_path):
-    source = "def callable(x: int) -> bool:\n    return True\n\n\ndef f(value: int) -> bool:\n    return callable(value)\n"
+@pytest.mark.parametrize("expr", [
+    "'bad value of type %s' % type(value).__name__",
+    "'bad value of type %s' % value.__class__.__name__",
+    "f'bad {type(value).__name__}'",
+    "ValueError(type(value).__name__)",
+    "dict(value=type(value).__name__)",
+    "type(value).__name__",
+    "callable(value)",
+])
+def test_a_type_name_used_in_a_message_and_callable_are_not_flagged(tmp_path, expr):
+    assert findings_for(tmp_path, "def f(value: int) -> object:\n    return %s\n" % expr) == []
+
+
+def test_a_shadowed_vars_is_not_flagged(tmp_path):
+    source = "def vars(x: int) -> bool:\n    return True\n\n\ndef f(value: int) -> bool:\n    return vars(value)\n"
     assert findings_for(tmp_path, source) == []

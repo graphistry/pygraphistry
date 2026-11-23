@@ -205,7 +205,7 @@ Typing, same rule: `Any` over a known domain gets the real alias; a new `# type:
 `hygiene-ok` gets restructured (both are for grandfathered debt only); `cast()` to satisfy the
 checker becomes `isinstance` narrowing. The escape hatches the guard counts, each of which is a
 finding when it appears on a line the PR adds: `hasattr`/`getattr`/`setattr`, `__module__`/`__dict__`
-and `type(x).__name__` sniffing, `except AttributeError`, `callable()`/`vars()`, a bare
+and `type(x).__name__` sniffing (when the name is tested), `except AttributeError`, `vars()`, a bare
 `# type: ignore` (no error code), `object` in an annotation (a `TypeGuard`-returning function is
 exempt), `Any`, `cast()` and `# hygiene-ok`. Hygiene-guard "no growth" is not sufficient — a file the PR
 touches should go down.
