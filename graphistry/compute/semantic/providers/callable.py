@@ -20,6 +20,10 @@ class CallableDecisionProvider:
     from ``fn`` fails only that answer (``callable_exception``); the operator rejects answers that break
     the contract (``invalid_provider_result``), such as a distribution while ``probability_kind="none"``.
     ``fn`` may run on up to ``capabilities.concurrency_limit`` threads at once within one operator run (default 4).
+    ``fn`` must be safe to call from several threads; ``concurrency_limit=1`` runs it one row at a time.
+    By default one row is one call, so the threads share the rows (the questions of one row run in order).
+    ``capabilities`` that leave ``max_rows_per_request`` unset put many rows in one call, and a call runs its rows
+    one after another. An explicit ``batch_size`` above 1 is lowered to 1 unless the capabilities have no row limit.
     A predicate distribution needs both ``"true"`` and ``"false"``.
 
     **Example**
@@ -38,7 +42,7 @@ class CallableDecisionProvider:
         self.probability_kind: ProbabilityKind = probability_kind
         self._capabilities = capabilities or ProviderCapabilities(
             supports_native_probabilities=probability_kind == "native_decision", max_questions_per_request=1000,
-            concurrency_limit=4)
+            concurrency_limit=4, max_rows_per_request=1)
 
     def capabilities(self) -> ProviderCapabilities:
         return self._capabilities
@@ -79,6 +83,10 @@ class CallableGenerationProvider:
 
     ``fn`` returns a string, or None for no answer (``uncertain``). An exception fails only that row
     (``callable_exception``); a value that is not a string is ``invalid_provider_result``.
+    ``fn`` may run on up to ``capabilities.concurrency_limit`` threads at once (default 4), so it must be safe to call
+    from several threads; ``concurrency_limit=1`` runs it one row at a time. By default one row is one call.
+    ``capabilities`` that leave ``max_rows_per_request`` unset put many rows in one call, and a call runs its rows one
+    after another. An explicit ``batch_size`` above 1 is lowered to 1 unless the capabilities have no row limit.
     """
 
     def __init__(self, fn: GenerationFn, *, name: str = "callable",
@@ -89,7 +97,7 @@ class CallableGenerationProvider:
         self.name = name
         self.model = model if model is not None else name
         self._capabilities = capabilities or ProviderCapabilities(
-            supports_native_probabilities=False, max_questions_per_request=1, concurrency_limit=4)
+            supports_native_probabilities=False, max_questions_per_request=1, concurrency_limit=4, max_rows_per_request=1)
 
     def capabilities(self) -> ProviderCapabilities:
         return self._capabilities

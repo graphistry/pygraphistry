@@ -134,8 +134,19 @@ class TestBatching:
         assert sorted(provider.question_sets) == [["q0", "q1"], ["q2"]]
         assert all(set(out[f"q{i}__status"]) == {"ok"} for i in range(3))
 
+    def test_a_default_callable_provider_spreads_a_small_run_over_its_threads(self) -> None:
+        provider = Recording(delay=0.1)
+        assert provider.capabilities().max_rows_per_request == 1 and provider.capabilities().concurrency_limit == 4
+        out = decide(frame(12), provider)
+        assert set(out["p__status"]) == {"ok"} and [len(call) for call in provider.calls] == [1] * 12 and provider.peak == 4
+
+    def test_callable_capabilities_without_a_row_limit_still_batch(self) -> None:
+        provider = Recording(capabilities=caps(concurrency_limit=4))
+        decide(frame(40), provider)
+        assert sorted(len(call) for call in provider.calls) == [8, 32]
+
     def test_numpy_parameters(self) -> None:
-        out = decide(frame(5), Recording(), batch_size=np.int64(2), max_rows=np.int64(4),
+        out = decide(frame(5), Recording(capabilities=caps()), batch_size=np.int64(2), max_rows=np.int64(4),
                      budget={"max_requests": np.int64(2)}, min_p=np.float32(0.7))
         assert out["p__status"].tolist() == ["uncertain"] * 4 + ["skipped"] and set(reasons(out)[:4]) == {"min_p"}
 
@@ -453,7 +464,7 @@ class TestLimits:
         assert sorted(provider.request_ids, key=int) == ["0", "1", "2"]
 
     def test_max_requests_and_remaining_limits_reach_the_provider(self) -> None:
-        provider = Recording(delay=0.05)
+        provider = Recording(delay=0.05, capabilities=caps())
         out = decide(frame(10), provider, batch_size=2, max_concurrency=1, deadline_s=5.0, budget={"max_requests": 3})
         assert out["p__status"].tolist() == ["ok"] * 6 + ["skipped"] * 4 and set(reasons(out)[6:]) == {"budget"}
         assert [budget.max_requests for budget in provider.budgets if budget] == [3, 2, 1]

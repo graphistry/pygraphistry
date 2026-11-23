@@ -2001,8 +2001,8 @@ The limits and probability checks together, on a provider that reports native pr
     provider = CallableDecisionProvider(measured, probability_kind="native_decision")
     g3 = g.sem_decide(
         [{"id": "is_person", "kind": "predicate", "text": "Is this a person?"}], provider,
-        task_id="people", evidence_cols=["type"], batch_size=2, max_rows=3,
-        budget={"max_requests": 2}, min_p=0.85, require_probabilities=True)
+        task_id="people", evidence_cols=["type"], batch_size=1, max_rows=3,
+        budget={"max_requests": 3}, min_p=0.85, require_probabilities=True)
     g3._nodes[["id", "is_person", "is_person__p", "is_person__status"]]
 
 **Engines:** pandas and cuDF run natively. A polars graph run through ``g.gfql([call("sem_decide", ...)])`` uses the
@@ -2066,7 +2066,8 @@ limits, provider-fault handling, remote refusal and the ``engine='auto'`` rule a
     g4 = g.sem_map("Write a short label.", "label", writer, task_id="labels", evidence_cols=["name", "type"])
     g4._nodes[["id", "label", "label__status"]]
 
-**Providers:** ``CallableDecisionProvider`` and ``CallableGenerationProvider`` wrap Python functions; ``OpenAIDecisionsProvider`` calls the public
+**Providers:** ``CallableDecisionProvider`` and ``CallableGenerationProvider`` wrap Python functions (one row is one call by default, so up to
+``concurrency_limit`` rows run at once and the function must be safe to call from several threads); ``OpenAIDecisionsProvider`` calls the public
 `OpenAI Decisions API <https://developers.openai.com/api/docs/guides/decisions>`_ with a caller-supplied model and
 ``TokenPrices``; ``OpenAIChatProvider`` (OpenAI-compatible chat completions: OpenAI, Azure OpenAI, Fireworks, Mistral
 and other hosts) and ``AnthropicMessagesProvider`` ask each question with a one-character code per label and, when

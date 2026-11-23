@@ -60,6 +60,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - **GFQL `WITH ... WHERE` quantifier scope**: loop variables in `any`, `all`, `none`, `single`, and list comprehensions now shadow matching MATCH aliases, so `any(n IN [{tags: 'z'}] WHERE n.tags = 'z')` evaluates the local map instead of silently dropping rows.
 - **GFQL Cypher projected literals** (#2346): `RETURN 5 AS v`, `true` and `null` are evaluated as literals even when the node table has a column named `5`, `true` or `null`; the row evaluators used to read that column instead. Interim fix: a column literally named `(5)`, `(true)` or `(null)`, or spelled like a quoted or structured literal, can still collide until the structural fix lands.
 
+- **GFQL callable providers run their rows on all their threads**: `CallableDecisionProvider` and `CallableGenerationProvider` default to one row per call (`max_rows_per_request=1`), so a small run uses up to `concurrency_limit` threads, and `fn` must be safe to call from several threads (`concurrency_limit=1` runs it one row at a time). An explicit `batch_size` above 1 is lowered to 1 unless the capabilities you pass have no row limit. `budget={"max_requests": n}` counts rows for a default callable provider.
+
 ## [0.62.2] - 2026-11-21
 
 ### Docs
