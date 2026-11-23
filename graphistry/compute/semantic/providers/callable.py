@@ -20,6 +20,8 @@ class CallableDecisionProvider:
     from ``fn`` fails only that answer (``callable_exception``); the operator rejects answers that break
     the contract (``invalid_provider_result``), such as a distribution while ``probability_kind="none"``.
     ``fn`` may run on up to ``capabilities.concurrency_limit`` threads at once within one operator run (default 4).
+    By default one row is one call, so those threads share the rows; ``capabilities`` that leave
+    ``max_rows_per_request`` unset put many rows in one call, and a call runs its rows one after another.
     A predicate distribution needs both ``"true"`` and ``"false"``.
 
     **Example**
@@ -38,7 +40,7 @@ class CallableDecisionProvider:
         self.probability_kind: ProbabilityKind = probability_kind
         self._capabilities = capabilities or ProviderCapabilities(
             supports_native_probabilities=probability_kind == "native_decision", max_questions_per_request=1000,
-            concurrency_limit=4)
+            concurrency_limit=4, max_rows_per_request=1)
 
     def capabilities(self) -> ProviderCapabilities:
         return self._capabilities
@@ -89,7 +91,7 @@ class CallableGenerationProvider:
         self.name = name
         self.model = model if model is not None else name
         self._capabilities = capabilities or ProviderCapabilities(
-            supports_native_probabilities=False, max_questions_per_request=1, concurrency_limit=4)
+            supports_native_probabilities=False, max_questions_per_request=1, concurrency_limit=4, max_rows_per_request=1)
 
     def capabilities(self) -> ProviderCapabilities:
         return self._capabilities
