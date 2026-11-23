@@ -55,7 +55,7 @@ def bound_cache() -> Optional[SemanticCache]:
     return _BOUND_CACHE.get()
 
 
-def resolve_provider(provider: object) -> object:
+def resolve_provider(provider: object) -> object:  # hygiene-ok: object-annotation -- untrusted host or user input, narrowed by isinstance
     """The provider object itself, or the provider bound to an alias in the current context."""
     if not isinstance(provider, str):
         return provider
