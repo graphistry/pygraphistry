@@ -996,12 +996,17 @@ def is_polars_series(s: object) -> "TypeGuard[PolarsSeriesT]":
     return s is not None and "polars" in type(s).__module__
 
 
-def is_series_like(s: object) -> bool:
-    """True for a pandas/cuDF Series (``.dropna``) or a polars Series (module check).
+def is_series_like(s: object) -> "TypeGuard[SeriesT]":
+    """True for a pandas, cuDF or polars Series, decided by type.
 
-    Some engine-agnostic callers accept an ``ids`` Series that is pandas under
-    ``engine='pandas'`` and polars under ``engine='polars'``; both are valid."""
-    return hasattr(s, "dropna") or is_polars_series(s)
+    A DataFrame is not a Series even though it has ``.dropna``; a caller that accepts a frame checks for
+    one explicitly. Declared ``TypeGuard[SeriesT]`` (the engine-agnostic Series alias, as the call sites
+    use it) rather than ``bool``, so mypy narrows the checked value; like ``is_polars_series`` it is not
+    ``TypeIs``, so the negative branch is left alone.
+
+    Some engine-agnostic callers accept an ``ids`` Series that is pandas under ``engine='pandas'`` and
+    polars under ``engine='polars'``; both are valid."""
+    return isinstance(s, pd.Series) or is_cudf_series(s) or (s is not None and type(s).__module__.startswith("polars.series"))
 
 
 def series_not_null_mask(s: "SeriesT") -> "SeriesT":
