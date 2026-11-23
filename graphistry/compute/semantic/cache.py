@@ -163,7 +163,8 @@ class MemorySemanticCache:
         removes the entries that have expired. A write of a value larger than ``max_bytes`` removes the old value of
         that key and counts as ``rejected``."""
         with self._lock:
-            for key in [key for key, (_value, written, _size) in self._entries.items() if self._expired(written, self._clock())]:
+            now = self._clock()
+            for key in [key for key, (_value, written, _size) in self._entries.items() if self._expired(written, now)]:
                 self._drop(key)
                 self._counts["expirations"] += 1
             lookups = self._counts["hits"] + self._counts["misses"]
@@ -171,5 +172,6 @@ class MemorySemanticCache:
                     "hit_rate": self._counts["hits"] / lookups if lookups else 0.0}
 
     def __len__(self) -> int:
+        """Entries held, including expired ones that no lookup or ``stats()`` has removed yet."""
         with self._lock:
             return len(self._entries)
