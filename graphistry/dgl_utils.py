@@ -51,7 +51,7 @@ logger = setup_logger(name=__name__)
 # #########################################################################################
 
 
-def convert_to_torch(X_enc: pd.DataFrame, y_enc: Optional[pd.DataFrame]):  # type: ignore
+def convert_to_torch(X_enc: pd.DataFrame, y_enc: Optional[pd.DataFrame]):
     """Convert X and y to torch tensors compatible with DGL ndata/edata.
 
     :param X_enc: DataFrame matrix of values for model matrix
@@ -254,12 +254,12 @@ class DGLGraphMixin(FeatureMixin):
             raise ValueError("Need to have source and destination columns bound, call bind() or edges()")
         
         if 'cudf' not in str(getmodule(self._edges)) and not isinstance(self._edges, pd.DataFrame):
-            raise ValueError("self._edges for DGLGraphMix must be pd.DataFrame/cudf.DataFrame, recieved: %s", type(self._edges))  # type: ignore
-        edf: pd.DataFrame = self._edges  # type: ignore
+            raise ValueError("self._edges for DGLGraphMix must be pd.DataFrame/cudf.DataFrame, recieved: %s", type(self._edges))
+        edf: pd.DataFrame = self._edges
         n_initial = len(edf)
         logger.info(f"Length of edge DataFrame {n_initial}")
 
-        mask : pd.Series[bool] = edf[self._source].isin(nodes) & edf[self._destination].isin(nodes)  # type: ignore
+        mask : pd.Series[bool] = edf[self._source].isin(nodes) & edf[self._destination].isin(nodes)
         # print(f'MASK: length: {len(mask)}')
         # print(f'OG: length: {len(edf)}')
 
@@ -482,7 +482,7 @@ class DGLGraphMixin(FeatureMixin):
         if hasattr(res, "_MASK"):
             if y_edges_resolved is not None:
                 y_edges_resolved = y_edges_resolved[
-                    res._MASK  # type: ignore
+                    res._MASK
                 ]  # automatically prune target using mask
                 # note, edf, ndf, should both have unique indices
 
@@ -507,7 +507,7 @@ class DGLGraphMixin(FeatureMixin):
             if not isinstance(res._edges, pd.DataFrame):
                 if 'cudf' in str(getmodule(res._edges)):
                     warnings.warn("cudf not supported for featurizing edges, converting to pandas")
-                    res = res.edges(res._edges.to_pandas())
+                    res = res.edges(res._edges.to_pandas())  # type: ignore[assignment, unused-ignore]
             res = res._featurize_edges_to_dgl(
                 res,
                 **kwargs_edges

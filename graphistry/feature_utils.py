@@ -69,7 +69,7 @@ if TYPE_CHECKING:
     try:
         from sentence_transformers import SentenceTransformer
     except ImportError:
-        SentenceTransformer = Any  # type:ignore
+        SentenceTransformer = Any
     try:
         from skrub import (
             TableVectorizer,
@@ -121,7 +121,7 @@ def resolve_feature_engine(
         return "skrub"
 
     if feature_engine in feature_engine_concrete_values:
-        return feature_engine
+        return feature_engine  # type: ignore[return-value, unused-ignore]
 
     if feature_engine == "auto":
         has_dependancy_text_, _, _ = lazy_sentence_transformers_import()
@@ -145,7 +145,7 @@ YSymbolic = Optional[Union[List[str], str, pd.DataFrame]]
 def resolve_y(df: Optional[pd.DataFrame], y: YSymbolic) -> pd.DataFrame:
 
     if isinstance(y, pd.DataFrame) or is_cudf_df(y):
-        return y  # type: ignore
+        return y
 
     if df is None:
         raise ValueError("Missing data for featurization")
@@ -166,7 +166,7 @@ XSymbolic = Optional[Union[List[str], str, pd.DataFrame]]
 def resolve_X(df: Optional[pd.DataFrame], X: XSymbolic) -> pd.DataFrame:
 
     if isinstance(X, pd.DataFrame) or is_cudf_df(X):
-        return X  # type: ignore
+        return X
 
     if df is None:
         raise ValueError("Missing data for featurization")
@@ -296,7 +296,7 @@ def remove_internal_namespace_if_present(df: pd.DataFrame) -> pd.DataFrame:
     if (len(df.columns) <= 2):
         df = df.rename(columns={c: c + '_1' for c in df.columns if c in reserved_namespace})
     else:
-        df = df.drop(columns=reserved_namespace, errors="ignore")  # type: ignore
+        df = df.drop(columns=reserved_namespace, errors="ignore")
     return df
 
 
@@ -338,7 +338,7 @@ def group_columns_by_dtypes(df: pd.DataFrame, verbose: bool = True) -> Dict:
     # very useful on large DataFrames, super useful
     # if we use a feature_column type transformer too
     gtypes = df.columns.to_series().groupby(df.dtypes).groups
-    gtypes = {k.name: list(v) for k, v in gtypes.items()}  # type: ignore
+    gtypes = {k.name: list(v) for k, v in gtypes.items()}
     if verbose:
         for k, v in gtypes.items():
             logger.debug(f"{k} has {len(v)} members")
@@ -346,7 +346,7 @@ def group_columns_by_dtypes(df: pd.DataFrame, verbose: bool = True) -> Dict:
 
 
 def set_to_numeric(df: pd.DataFrame, cols: List, fill_value: float = 0.0):
-    df[cols] = pd.to_numeric(df[cols], errors="coerce").fillna(fill_value)  # type: ignore
+    df[cols] = pd.to_numeric(df[cols], errors="coerce").fillna(fill_value)
 
 
 def set_to_datetime(df: pd.DataFrame, cols: List, new_col: str):
@@ -510,10 +510,10 @@ class Embedding:
 
     def transform(self, ids) -> pd.DataFrame:
         mask = self.index.isin(ids)
-        index = self.index[mask]  # type: ignore
+        index = self.index[mask]
         res = self.vectors[mask]
-        res = pd.DataFrame(res, index=index, columns=self.columns)  # type: ignore
-        return res  # type: ignore
+        res = pd.DataFrame(res, index=index, columns=self.columns)
+        return res
 
     def fit_transform(self, n_dim: int):
         self.fit(n_dim)
@@ -989,7 +989,7 @@ def process_dirty_dataframes(
             X_enc = cudf.from_pandas(X_enc)  # pragma: no cover - cudf-only, covered by the GPU run
 
     elif not all_numeric and (not has_skrub or feature_engine in ["pandas", "none"]):
-        numeric_ndf = ndf.select_dtypes(include=[np.number])  # type: ignore
+        numeric_ndf = ndf.select_dtypes(include=[np.number])
         logger.warning("-*-*- DataFrame is not numeric and no skrub, dropping non-numeric")
         X_enc, _, data_encoder, _ = get_numeric_transformers(numeric_ndf, None)
     else:
@@ -1044,7 +1044,7 @@ def process_dirty_dataframes(
         and not has_skrub
     ):
         logger.warning("-*-*- y is not numeric and no skrub, dropping non-numeric")
-        y2 = y.select_dtypes(include=[np.number])  # type: ignore
+        y2 = y.select_dtypes(include=[np.number])
         y_enc, _, _, label_encoder = get_numeric_transformers(y2, None)
     else:
         y_enc, _, label_encoder, _ = get_numeric_transformers(y, None)
@@ -1181,7 +1181,7 @@ def process_nodes_dataframes(
             f"since dependency {import_text_exn} is not met"
         )
 
-    other_df = df.drop(columns=text_cols, errors="ignore")  # type: ignore
+    other_df = df.drop(columns=text_cols, errors="ignore")
 
     X_enc, y_enc, data_encoder, label_encoder = process_dirty_dataframes(
         other_df,
@@ -1240,7 +1240,7 @@ def process_nodes_dataframes(
         scaling_pipeline,
         scaling_pipeline_target,
         text_model,
-        text_cols  # type: ignore
+        text_cols
     )
 class FastMLB:
     def __init__(self, mlb, in_column, out_columns):
@@ -1547,7 +1547,7 @@ def process_edge_dataframes(
 
 def transform_text(
     df: pd.DataFrame,
-    text_model: Union[SentenceTransformer, Pipeline],  # type: ignore
+    text_model: Union[SentenceTransformer, Pipeline],
     text_cols: Union[List, str],
 ) -> pd.DataFrame:
     from sklearn.pipeline import Pipeline
@@ -1582,7 +1582,7 @@ def transform_text(
 
 def transform_dirty(
     df: pd.DataFrame,
-    data_encoder: Union[TableVectorizer, FunctionTransformer],  # type: ignore
+    data_encoder: Union[TableVectorizer, FunctionTransformer],
     name: str = "",
 ) -> pd.DataFrame:
     use_columns = getattr(data_encoder, 'columns_', [])
@@ -1917,7 +1917,7 @@ def reuse_featurization(
 
 def get_matrix_by_column_part(X: pd.DataFrame, column_part: str) -> pd.DataFrame:
     """Get the feature matrix by column part existing in column names."""
-    transformed_columns = X.columns[X.columns.map(lambda x: True if column_part in x else False)]  # type: ignore
+    transformed_columns = X.columns[X.columns.map(lambda x: True if column_part in x else False)]
     return X[transformed_columns] 
 
 def get_matrix_by_column_parts(X: pd.DataFrame, column_parts: Optional[Union[list, str]]) -> pd.DataFrame:
@@ -1926,8 +1926,8 @@ def get_matrix_by_column_parts(X: pd.DataFrame, column_parts: Optional[Union[lis
         return X
     if isinstance(column_parts, str):
         column_parts = [column_parts]
-    res = pd.concat([get_matrix_by_column_part(X, column_part) for column_part in column_parts], axis=1)  # type: ignore
-    res = res.loc[:, ~res.columns.duplicated()]  # type: ignore
+    res = pd.concat([get_matrix_by_column_part(X, column_part) for column_part in column_parts], axis=1)
+    res = res.loc[:, ~res.columns.duplicated()]
     return res
 
 
@@ -2309,9 +2309,9 @@ class FeatureMixin(ComputeMixin):
 
         # This is temporary until cucat release 
         if 'cudf' in str(getmodule(df)):
-            df = df.to_pandas()  # type: ignore
+            df = df.to_pandas()
         if (y is not None) and not y.empty and ('cudf' in str(getmodule(y))):
-            y = y.to_pandas()  # type: ignore
+            y = y.to_pandas()
 
         if kind == "nodes":
             X, y_ = self._transform("_node_encoder", df, y, scaled=scaled)
@@ -2388,14 +2388,14 @@ class FeatureMixin(ComputeMixin):
         """
                 
         if df is None:  # use the original data
-            X, y = (self._node_features_raw, self._node_target_raw) if kind == "nodes" else (self._edge_features_raw, self._edge_target_raw)  # type: ignore
+            X, y = (self._node_features_raw, self._node_target_raw) if kind == "nodes" else (self._edge_features_raw, self._edge_target_raw)
         else:
             result = self.transform(df, y, kind=kind, return_graph=False, scaled=False)
             assert isinstance(result, tuple), "transform with return_graph=False should return tuple"
             X, y = result
 
-        if kind == "nodes" and hasattr(self, "_node_encoder"):  # type: ignore
-            if self._node_encoder is not None:  # type: ignore
+        if kind == "nodes" and hasattr(self, "_node_encoder"):
+            if self._node_encoder is not None:
                 (
                     X,
                     y,
@@ -2415,7 +2415,7 @@ class FeatureMixin(ComputeMixin):
                     strategy=strategy,
                     keep_n_decimals=keep_n_decimals,
                     return_pipeline=True
-                )  # type: ignore
+                )
             else:
                 raise AttributeError(
                     'Please run g.featurize(kind="nodes", *args, **kwargs) '
@@ -2423,8 +2423,7 @@ class FeatureMixin(ComputeMixin):
                 )
 
         elif kind == "edges" and hasattr(self, "_edge_encoder"):
-            # type: ignore
-            if self._edge_encoder is not None:  # type: ignore
+            if self._edge_encoder is not None:
                 (
                     X,
                     y,
@@ -2444,7 +2443,7 @@ class FeatureMixin(ComputeMixin):
                     strategy=strategy,
                     keep_n_decimals=keep_n_decimals,
                     return_pipeline=True
-                )  # type: ignore
+                )
             else:
                 raise AttributeError(
                     'Please run g.featurize(kind="edges", *args, **kwargs) '
@@ -2679,7 +2678,7 @@ class FeatureMixin(ComputeMixin):
             return self
         
         if dbscan:  # this adds columns to the dataframe, will break tests of pure featurization & umap, so set to False in those
-            res = res.dbscan(min_dist=min_dist, min_samples=min_samples, kind=kind, fit_umap_embedding=False, verbose=verbose)
+            res = res.dbscan(min_dist=min_dist, min_samples=min_samples, kind=kind, fit_umap_embedding=False, verbose=verbose)  # type: ignore[attr-defined, unused-ignore]
 
         if not inplace:
             return res

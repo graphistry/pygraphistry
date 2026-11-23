@@ -220,7 +220,7 @@ def build_node_type_segment(
     )
     if engine == Engine.CUDF and isinstance(type_value, str):
         # cupy cannot encode text; registry keys drive lookup, not keys_sorted.
-        import cudf  # type: ignore[import]
+        import cudf
 
         keys = cast(ArrayLike, cudf.Series([type_value]))
     else:
@@ -441,7 +441,7 @@ def _dtype_kind(series: SeriesT) -> str:
     RAISE ``TypeError`` on cudf ``ListDtype`` (measured), which is precisely the
     exotic dtype this module must DECLINE cleanly rather than crash on.
     """
-    return str(series.dtype.kind)  # type: ignore[union-attr]  # engine seam: every backend dtype has .kind
+    return str(series.dtype.kind)    # engine seam: every backend dtype has .kind
 
 
 def _column_to_pylist(series: SeriesT, engine: Engine) -> List[PartitionValue]:
@@ -453,8 +453,8 @@ def _column_to_pylist(series: SeriesT, engine: Engine) -> List[PartitionValue]:
     object for a ``to_arrow`` attribute.
     """
     if engine == Engine.CUDF:
-        return list(series.to_arrow().to_pylist())  # type: ignore[union-attr]  # engine seam: cudf only
-    return list(series.tolist())  # type: ignore[union-attr]  # engine seam: pandas only
+        return list(series.to_arrow().to_pylist())    # engine seam: cudf only
+    return list(series.tolist())    # engine seam: pandas only
 
 
 def _type_column_is_scalar(frame: DataFrameT, type_column: str, engine: Engine) -> bool:
@@ -668,7 +668,7 @@ def build_category_index(
     if column not in frame.columns:
         return None
     try:
-        series = frame.get_column(column)  # type: ignore[operator]
+        series = frame.get_column(column)
     except (AttributeError, KeyError, TypeError, ValueError):
         return None
     dtype = series.dtype
@@ -691,7 +691,7 @@ def build_category_index(
     mapping = pl.DataFrame(
         {column: pl.Series(values, dtype=dtype), "__gfql_code__": list(range(len(values)))}
     )
-    joined = frame.select([column]).join(mapping, on=column, how="left")  # type: ignore[operator]
+    joined = frame.select([column]).join(mapping, on=column, how="left")
     code_series = joined.get_column("__gfql_code__").fill_null(null_code)
     codes = code_series.to_numpy().astype("uint16" if null_code > 254 else "uint8")
     return CategoryIndex(
@@ -770,7 +770,7 @@ def build_temporal_text_fact(
     from graphistry.compute.gfql.temporal.constructors import TEMPORAL_CALL_EXPR_RE
 
     try:
-        schema = frame.schema  # type: ignore[union-attr]
+        schema = frame.schema
     except (AttributeError, TypeError):
         return None
     columns = [str(name) for name, dtype in schema.items() if dtype == pl.String]
@@ -778,7 +778,7 @@ def build_temporal_text_fact(
     verdicts = {}
     if columns:
         try:
-            row = frame.select(  # type: ignore[operator]
+            row = frame.select(
                 [pl.col(column).str.contains(pattern).any().alias(column) for column in columns]
             ).row(0)
         except Exception:

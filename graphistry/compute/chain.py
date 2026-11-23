@@ -1598,8 +1598,8 @@ def _chain_impl(
             }
 
             if error is not None:
-                postchain_context['error'] = str(error)  # type: ignore
-                postchain_context['error_type'] = type(error).__name__  # type: ignore
+                postchain_context['error'] = str(error)
+                postchain_context['error_type'] = type(error).__name__
 
             try:
                 policy['postchain'](postchain_context)
@@ -1626,8 +1626,8 @@ def _chain_impl(
             }
 
             if error is not None:
-                policy_context['error'] = str(error)  # type: ignore
-                policy_context['error_type'] = type(error).__name__  # type: ignore
+                policy_context['error'] = str(error)
+                policy_context['error_type'] = type(error).__name__
 
             try:
                 policy['postload'](policy_context)

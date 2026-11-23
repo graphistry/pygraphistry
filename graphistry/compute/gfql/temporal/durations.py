@@ -354,7 +354,7 @@ def _fold_duration_between(
     if not include_date:
         return _format_time_only_duration(delta)
 
-    from dateutil.relativedelta import relativedelta  # type: ignore[import]
+    from dateutil.relativedelta import relativedelta
 
     rel = relativedelta(end_dt, start_dt)
     if rel.years == 0 and rel.months == 0:
@@ -379,7 +379,7 @@ def _fold_duration_in_months(
     keep_timezone = start_value.tz_suffix is not None and end_value.tz_suffix is not None
     start_dt = _comparable_datetime(start_value, include_date=True, keep_timezone=keep_timezone)
     end_dt = _comparable_datetime(end_value, include_date=True, keep_timezone=keep_timezone)
-    from dateutil.relativedelta import relativedelta  # type: ignore[import]
+    from dateutil.relativedelta import relativedelta
 
     rel = relativedelta(end_dt, start_dt)
     return _format_duration_components(years=rel.years, months=rel.months)

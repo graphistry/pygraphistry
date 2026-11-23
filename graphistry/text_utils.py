@@ -322,7 +322,7 @@ class SearchToGraphMixin(MIXIN_BASE):
             name = f"{g._name}-query:{query}"
         else:
             name = f"query:{query}"
-        g = g.name(name)  # type: ignore
+        g = g.name(name)
         return g
 
     def save_search_instance(self, savepath):
@@ -337,7 +337,7 @@ class SearchToGraphMixin(MIXIN_BASE):
 
     @classmethod
     def load_search_instance(self, savepath):
-        from joblib import load  # type: ignore   # need to make this onnx or similar
+        from joblib import load     # need to make this onnx or similar
 
         cls = load(savepath)
         cls.build_index()

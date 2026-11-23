@@ -367,7 +367,7 @@ register_process_singleton(_gfql_expr_runtime_parser_bundle, "an import-resoluti
 def _gfql_cudf_list_sort_requires_host_bridge() -> bool:
     """cuDF 25.02 can segfault in list-sort pivot internals; bridge to pandas there."""
     try:
-        import cudf  # type: ignore
+        import cudf
     except (ModuleNotFoundError, ImportError):
         return False
     version = str(getattr(cudf, "__version__", ""))
@@ -3321,7 +3321,7 @@ class RowPipelineMixin:
     def _gfql_assign_positional(frame: DataFrameT, **columns: object) -> DataFrameT:
         """``assign`` by position, not label: evaluator series may carry the table's own (gappy) labels."""
         aligned = {
-            name: RowPipelineMixin._gfql_on_table_index(frame, value) if is_series_like(value) else value  # type: ignore[arg-type]
+            name: RowPipelineMixin._gfql_on_table_index(frame, value) if is_series_like(value) else value
             for name, value in columns.items()
         }
         return frame.assign(**aligned)

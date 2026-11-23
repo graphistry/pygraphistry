@@ -361,7 +361,7 @@ def _semi_join_prune_arm_rows_to_base_keys(
         from graphistry.compute.gfql.lazy.engine.polars.membership import is_in_ids
         if len(join_cols) == 1:
             # polars-stub gap: ``is_polars_df`` cannot narrow the eager-or-lazy union.
-            return opt_rows_df.filter(is_in_ids(pl.col(join_cols[0]), joined[join_cols[0]]))  # type: ignore[index,arg-type]
+            return opt_rows_df.filter(is_in_ids(pl.col(join_cols[0]), joined[join_cols[0]]))
         return opt_rows_df.join(joined.select(join_cols).unique(), on=join_cols, how="inner")
     if len(join_cols) == 1:
         return opt_rows_df[opt_rows_df[join_cols[0]].isin(joined[join_cols[0]])]
@@ -406,7 +406,7 @@ def _synthesize_bare_alias_from_prefixed_column(
     if polars:
         import polars as pl
     else:
-        pl = None  # type: ignore[assignment]
+        pl = None
     for alias in opt_only_aliases:
         if alias in joined.columns:
             continue
@@ -2137,7 +2137,7 @@ def _execute_compiled_query_with_reentry_impl(
     if compiled_query.optional_reentry and compiled_query.start_nodes_query is not None:
         result = _apply_optional_reentry_null_fill(
             result,
-            prefix_result=prefix_result,  # type: ignore[possibly-undefined]
+            prefix_result=prefix_result,
             engine=engine,
             empty_result_row=compiled_query.empty_result_row,
             reentry_plan=compiled_query.reentry_plan,

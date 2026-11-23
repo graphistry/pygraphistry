@@ -390,7 +390,7 @@ def df_to_engine(df, engine: Engine, *, validate: Optional[ValidationParam] = No
             # ``pl.from_arrow`` is declared ``DataFrame | Series`` because polars cannot
             # overload it on the pyarrow input type (see polars/convert/general.py); a
             # ``pa.Table`` in always yields a DataFrame, so the Series arm is unreachable here.
-            return _pl_nan_to_null(pl.from_arrow(df))  # type: ignore[arg-type]
+            return _pl_nan_to_null(pl.from_arrow(df))
         pl_validate: ValidationParam = 'strict' if validate is None else validate
         if isinstance(df, pd.DataFrame):
             return _pl_from_pandas(df, validate=pl_validate, warn=warn)
@@ -404,7 +404,7 @@ def df_to_engine(df, engine: Engine, *, validate: Optional[ValidationParam] = No
             import cudf
             if isinstance(df, cudf.DataFrame):
                 # see the pa.Table branch above for the from_arrow union
-                return _pl_nan_to_null(pl.from_arrow(df.to_arrow()))  # type: ignore[arg-type]
+                return _pl_nan_to_null(pl.from_arrow(df.to_arrow()))
         # dask/spark and anything else: route through pandas
         return _pl_from_pandas(df_to_engine(df, Engine.PANDAS), validate=pl_validate, warn=warn)
     raise ValueError(f'Only engines pandas/cudf/dask/polars supported, got: {engine}')
@@ -843,10 +843,10 @@ def safe_concat(
         else:
             engine_val = engine
         if engine_val == Engine.PANDAS:
-            return pd.DataFrame()  # type: ignore
+            return pd.DataFrame()
         elif engine_val == Engine.CUDF:
             import cudf
-            return cudf.DataFrame()  # type: ignore
+            return cudf.DataFrame()
         else:
             raise ValueError(f"Unknown engine: {engine_val}")
 
@@ -1007,21 +1007,21 @@ def is_series_like(s: object) -> bool:
 def series_not_null_mask(s: "SeriesT") -> "SeriesT":
     """Non-null boolean mask, engine-aware (polars ``is_not_null`` vs pandas ``notna``)."""
     if is_polars_series(s):
-        return s.is_not_null()  # type: ignore[return-value]  # polars Series, not the pandas alias
+        return s.is_not_null()    # polars Series, not the pandas alias
     return s.notna()
 
 
 def series_filter(s: "SeriesT", mask: "SeriesT") -> "SeriesT":
     """Filter a Series by a boolean mask, engine-aware, dropping the old index (pandas)."""
     if is_polars_series(s):
-        return s.filter(mask)  # type: ignore[return-value]  # polars Series, not the pandas alias
+        return s.filter(mask)    # polars Series, not the pandas alias
     return s[mask].reset_index(drop=True)
 
 
 def frame_filter(df: "DataFrameT", mask: "SeriesT") -> "DataFrameT":
     """Filter a DataFrame's rows by a boolean mask, engine-aware, dropping the old index."""
     if is_polars_df(df):
-        return df.filter(mask)  # type: ignore[return-value]  # polars frame, not the pandas alias
+        return df.filter(mask)    # polars frame, not the pandas alias
     return df.loc[mask].reset_index(drop=True)
 
 
@@ -1036,7 +1036,7 @@ def ordered_left_join(left: "DataFrameT", right: "DataFrameT", *, on: str) -> "D
     if is_polars_df(left):
         if not is_polars_df(right):
             right = df_to_engine(right, Engine.POLARS)
-        return left.join(right, on=on, how="left", maintain_order="left")  # type: ignore[arg-type,return-value]
+        return left.join(right, on=on, how="left", maintain_order="left")
     return safe_merge(left, right, on=on, how="left")
 
 
@@ -1046,8 +1046,8 @@ def row_as_mapping(rows: "DataFrameT", row_index: int) -> Mapping[str, Any]:
     if is_polars_df(rows):
         # ``.row()`` is eager-only; the guard cannot rule out a LazyFrame, and callers of
         # this helper are always past collection.
-        return rows.row(row_index, named=True)  # type: ignore[union-attr]
-    return rows.iloc[row_index]  # type: ignore[return-value]  # pandas Series is a str->scalar mapping
+        return rows.row(row_index, named=True)
+    return rows.iloc[row_index]    # pandas Series is a str->scalar mapping
 
 
 def assign_constant_columns(df: "DataFrameT", values: Dict[str, Any]) -> "DataFrameT":
@@ -1056,7 +1056,7 @@ def assign_constant_columns(df: "DataFrameT", values: Dict[str, Any]) -> "DataFr
         return df
     if is_polars_df(df):
         import polars as pl
-        return df.with_columns([pl.lit(v).alias(k) for k, v in values.items()])  # type: ignore[return-value]
+        return df.with_columns([pl.lit(v).alias(k) for k, v in values.items()])
     return df.assign(**values)
 
 
@@ -1070,7 +1070,7 @@ def null_column(df: "DataFrameT", name: str, *, dtype_from: str) -> "DataFrameT"
         import polars as pl
 
         source_dtype = df.schema[dtype_from]
-        return df.with_columns(pl.lit(None, dtype=source_dtype).alias(name))  # type: ignore[return-value]
+        return df.with_columns(pl.lit(None, dtype=source_dtype).alias(name))
 
     source = df[dtype_from]
     if is_cudf_series(source):
@@ -1085,7 +1085,7 @@ def null_column(df: "DataFrameT", name: str, *, dtype_from: str) -> "DataFrameT"
 def drop_columns(df: "DataFrameT", cols: Sequence[str]) -> "DataFrameT":
     """Drop columns by name, engine-aware (polars ``drop(list)`` vs pandas ``drop(columns=)``)."""
     if is_polars_df(df):
-        return df.drop(list(cols))  # type: ignore[return-value]
+        return df.drop(list(cols))
     return df.drop(columns=list(cols))
 
 
