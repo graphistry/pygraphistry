@@ -1,0 +1,10 @@
+gfql_semantic_zeek_hunt_sample.json.gz is a subset of the Zeek logs in
+https://github.com/brimdata/zed-sample-data (zeek-json: http.json.gz and conn.json.gz).
+Those logs come from the WRCCDC 2018-03-24 packet capture archives (https://www.wrccdc.org/).
+The data is licensed under the Creative Commons Attribution-ShareAlike 4.0 International
+License: https://creativecommons.org/licenses/by-sa/4.0/
+
+Changes: the notebook gfql_semantic_zeek_hunt.ipynb (BUILD_ZEEK_SAMPLE=1) keeps a subset of
+the web requests and a reduced list of connection pairs, renames fields and converts times to
+milliseconds.
+The sample keeps this licence. The PyGraphistry code in this repository keeps its own licence.
