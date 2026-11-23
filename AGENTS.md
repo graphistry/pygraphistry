@@ -26,7 +26,8 @@ ln -s ../.agents/skills .claude/skills
 
 1. Follow repository docs and tests as source of truth.
 2. Keep edits minimal and verifiable.
-3. Run relevant lint/tests for touched areas.
+3. Run relevant lint/tests for touched areas, and run `./bin/lint.sh` before every push (it is the whole lint gate: ruff plus the type-hygiene and comment-density ratchets; bare `ruff` is not enough).
+4. No dynamic typing in code you add under `graphistry/`: no `hasattr`/`getattr`/`setattr`, no `__module__` or `type(x).__name__` sniffing, no `except AttributeError` probes, no bare `# type: ignore`, no `object` annotations. Use the typed helpers in `graphistry/Engine.py` (`is_series_like`, `is_cudf_series`, `is_polars_series`, `is_polars_df`), `isinstance`, or a Protocol. See `DEVELOP.md` "Type Hygiene Guard".
 
 ## Release Assistant Reminder
 
