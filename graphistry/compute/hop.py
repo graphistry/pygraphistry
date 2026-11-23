@@ -32,7 +32,7 @@ from .dataframe_utils import column_frame, column_values
 from .endpoint_utils import drop_null_endpoint_edges
 from .filter_by_dict import filter_by_dict
 from .gfql.cache_registry import register_process_singleton
-from .gfql.parquet import ParquetHopLimits
+from .gfql.hop_limits import HopLimits
 from .gfql.seed_rediscovery import rediscovered_seed_ids
 from .typing import DataFrameT, DomainT, SeriesT
 from .util import generate_safe_column_name
@@ -210,7 +210,7 @@ def hop(self: Plottable,
     include_zero_hop_seed: bool = False,
     target_wave_front: Optional[DataFrameT] = None,  # chain: limit hits to these for reverse pass
     engine: Union[EngineAbstract, str] = EngineAbstract.AUTO,
-    parquet_limits: Optional[ParquetHopLimits] = None,
+    limits: Optional[HopLimits] = None,
 ) -> Plottable:
     """
     Given a graph and some source nodes, return subgraph of all paths within k-hops from the sources
@@ -237,7 +237,7 @@ def hop(self: Plottable,
     Note: chain() reverse passes set return_as_wave_front=True and use target_wave_front to constrain reachability.
     target_wave_front: Only consider these nodes + self._nodes for reachability
     engine: 'auto', 'pandas', 'cudf' (GPU), 'polars', or 'polars-gpu'
-    parquet_limits: opt in to bounded CPU traversal over bound immutable local Parquet scans
+    limits: experimental hop limits, currently supported for CPU Polars over immutable local Parquet scans
     """
 
     if isinstance(engine, str):
@@ -245,7 +245,9 @@ def hop(self: Plottable,
 
     # Resolve the engine from the ORIGINAL data before coercing, so cuDF input stays cuDF.
     engine_concrete = resolve_engine(engine, self)
-    if parquet_limits is not None:
+    if limits is not None:
+        if not isinstance(limits, HopLimits):
+            raise TypeError("limits must be a HopLimits instance")
         from graphistry.compute.gfql.index import get_index_policy, get_registry
         from graphistry.compute.gfql.lazy.engine.polars.hop_parquet import hop_parquet
 
@@ -261,9 +263,7 @@ def hop(self: Plottable,
             raise NotImplementedError(
                 "Parquet hop supports only plain forward CPU Polars traversal without resident indexes or extra options"
             )
-        if not isinstance(parquet_limits, ParquetHopLimits):
-            raise TypeError("parquet_limits must be a ParquetHopLimits instance")
-        return hop_parquet(self, nodes, hops, parquet_limits)
+        return hop_parquet(self, nodes, hops, limits)
 
     from graphistry.compute.ComputeMixin import _coerce_input_formats  # lazy — avoids circular import
     self = _coerce_input_formats(self, engine_concrete)

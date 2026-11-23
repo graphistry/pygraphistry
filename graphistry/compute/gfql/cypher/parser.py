@@ -247,10 +247,13 @@ order_expr: expr
          | additive "+" multiplicative      -> add_op
          | additive MINUS multiplicative    -> sub_op
 
-?multiplicative: unary
-               | multiplicative "*" unary   -> mul_op
-               | multiplicative "/" unary   -> div_op
-               | multiplicative "%" unary   -> mod_op
+?multiplicative: power_expr
+               | multiplicative "*" power_expr   -> mul_op
+               | multiplicative "/" power_expr   -> div_op
+               | multiplicative "%" power_expr   -> mod_op
+
+?power_expr: unary
+           | power_expr "^" unary   -> pow_op
 
 ?unary: "+" unary                           -> uplus
       | MINUS unary                         -> uminus
@@ -603,8 +606,7 @@ def _parse_number_token(token: str) -> Union[int, float]:
     if lowered.startswith("0o"):
         return sign * int(lowered[2:], 8)
     if any(ch in body for ch in (".", "e", "E")):
-        value = float(token)
-        return 0.0 if value == 0.0 else value
+        return float(token)
     return int(token)
 
 

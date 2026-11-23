@@ -1,4 +1,4 @@
-"""Options and errors for the opt-in CPU Parquet hop path."""
+"""Experimental resource limits for GFQL hop traversal."""
 
 from dataclasses import dataclass
 from math import isfinite
@@ -6,13 +6,13 @@ from threading import Event
 from typing import Optional
 
 
-class ParquetHopLimitError(RuntimeError):
-    """A Parquet hop reached a resource limit before it could return a complete result."""
+class HopLimitError(RuntimeError):
+    """A hop reached a resource limit before it could return a complete result."""
 
 
 @dataclass(frozen=True)
-class ParquetHopLimits:
-    """Cooperative limits for a finite CPU hop over immutable local Parquet scans.
+class HopLimits:
+    """Experimental cooperative limits for a finite hop.
 
     max_nodes counts input seed rows before deduplication, node matches per lookup
     and retained node identities. max_edges counts candidates per hop before
@@ -20,10 +20,12 @@ class ParquetHopLimits:
     additional row to detect overflow. max_result_bytes caps the sum of Polars'
     estimated sizes for the materialized output frames. It is checked after each
     property collection. Timeout and cancellation are checked at operation
-    boundaries. These limits do not cap process RSS or interrupt a running scan.
+    boundaries. These limits do not cap scan I/O or process RSS, or interrupt a
+    running scan.
 
-    Pass direct local Parquet scans with consistent schemas and immutable files
-    throughout the call. GFQL accepts LazyFrames and does not verify provenance.
+    Currently supported for CPU Polars with direct local Parquet scans. Pass
+    consistent schemas and keep the files immutable throughout the call. GFQL
+    accepts LazyFrames and does not verify provenance.
     """
 
     max_nodes: int = 100_000
@@ -43,3 +45,5 @@ class ParquetHopLimits:
         if (isinstance(self.timeout_seconds, bool) or not isfinite(self.timeout_seconds)
                 or self.timeout_seconds <= 0):
             raise ValueError("timeout_seconds must be positive and finite")
+        if self.cancel_event is not None and not isinstance(self.cancel_event, Event):
+            raise TypeError("cancel_event must be a threading.Event")

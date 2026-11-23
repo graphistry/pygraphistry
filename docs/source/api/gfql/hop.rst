@@ -18,16 +18,21 @@ For cross-step constraints, use `g.gfql([...], where=[...])` (or the explicit
 Opt-in CPU hop over local Parquet
 ---------------------------------
 
-Pass a :class:`~graphistry.compute.gfql.parquet.ParquetHopLimits` to use
-streaming Polars scans for an explicitly seeded forward hop. Bind both inputs
-to local Parquet scans and bind an existing edge identity column.
+Pass ``limits=HopLimits(...)`` to use streaming Polars scans for an explicitly
+seeded forward hop. Bind both inputs to local Parquet scans and bind an
+existing edge identity column.
+
+.. note::
+
+   ``limits``, :class:`~graphistry.compute.gfql.hop_limits.HopLimits`` and
+   :class:`~graphistry.compute.gfql.hop_limits.HopLimitError`` are experimental.
 
 .. code-block:: python
 
     import graphistry
     import polars as pl
 
-    from graphistry.compute.gfql.parquet import ParquetHopLimits
+    from graphistry.compute.gfql.hop_limits import HopLimits
 
     graph = (
         graphistry.nodes(pl.scan_parquet("nodes.parquet"), "id")
@@ -36,7 +41,7 @@ to local Parquet scans and bind an existing edge identity column.
     starts = pl.DataFrame({"id": [7, 42]}, schema={"id": pl.Int64})
     subgraph = graph.hop(
         starts, hops=2, engine="polars",
-        parquet_limits=ParquetHopLimits(max_nodes=20_000, max_edges=50_000),
+        limits=HopLimits(max_nodes=20_000, max_edges=50_000),
     )
 
 This path accepts positive finite ``hops`` with the other traversal options at
@@ -61,9 +66,10 @@ public way to verify scan provenance or snapshot consistency. Missing or
 unreadable files can fail when Polars opens them. A same-ID file replacement
 can go undetected. Clustering by endpoint or identity can help native pruning.
 
-The opt-in route requires Polars 1.29 or newer. It raises
-``NotImplementedError`` for unsupported query shapes and index modes. Calls
-without ``parquet_limits`` use ordinary GFQL. This lets callers choose the
+The opt-in route requires the optional CPU Polars backend (version 1.29 or
+newer). Install it with ``pip install "graphistry[polars]"``. It raises
+``NotImplementedError`` for unsupported engines, query shapes and index modes.
+Calls without ``limits`` use ordinary GFQL. This lets callers choose the
 ordinary route when the full graph fits in memory. An explicitly opted-in
 query never retries eagerly after a decline.
 
@@ -77,8 +83,10 @@ Resource checks
   and retained edge identities across hops. A dense hop can be declined even
   if endpoint validation would leave a small result.
 - Filtered scans use a one-row overflow probe. These limits describe row
-  counts for the collected frames. Polars may read or buffer more rows while
-  evaluating the plan.
+  counts for the collected frames and do not bound scan I/O. Polars may read
+  or buffer more rows while evaluating the plan. As later hop frontiers span
+  more of the identity range, even clustered inputs can require scanning most
+  of a file.
 - ``max_result_bytes`` caps the sum of Polars' estimated sizes for the two
   output frames. Each check follows property collection, so a wide value can
   allocate more memory than this limit before the check. The estimate covers
@@ -88,6 +96,11 @@ Resource checks
   and before returning the graph. They cannot interrupt a running Polars
   operation. Use external process isolation for hard enforcement.
 
-Resource declines raise ``ParquetHopLimitError``. Cancellation raises
+Resource declines raise :class:`~graphistry.compute.gfql.hop_limits.HopLimitError`.
+Cancellation raises
 ``concurrent.futures.CancelledError``. A decline or reader failure returns
 no partial graph and leaves the input bindings intact.
+
+.. autoclass:: graphistry.compute.gfql.hop_limits.HopLimits
+
+.. autoclass:: graphistry.compute.gfql.hop_limits.HopLimitError

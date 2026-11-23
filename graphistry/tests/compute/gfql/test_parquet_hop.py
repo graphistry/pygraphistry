@@ -10,7 +10,7 @@ import pytest
 import graphistry
 from graphistry.Plottable import Plottable
 from graphistry.compute.gfql.index import with_index_policy
-from graphistry.compute.gfql.parquet import ParquetHopLimitError, ParquetHopLimits
+from graphistry.compute.gfql.hop_limits import HopLimitError, HopLimits
 from graphistry.compute.gfql.lazy.engine.polars import hop_parquet
 
 if TYPE_CHECKING:
@@ -70,7 +70,7 @@ def test_parquet_hop_matches_public_polars(
     hive_dtype = lazy_graph._edges.collect_schema()["bucket"]
     eager_edges = edges.with_columns(pl.Series("bucket", [i // 4 for i in range(edges.height)], dtype=hive_dtype))
     expected = _graph(nodes, eager_edges).hop(starts, hops=hops, engine="polars")
-    result = lazy_graph.hop(starts, hops=hops, parquet_limits=ParquetHopLimits())
+    result = lazy_graph.hop(starts, hops=hops, limits=HopLimits())
     assert_frame_equal(result._nodes.sort("id"), expected._nodes.sort("id"))
     assert_frame_equal(result._edges.sort("eid"), expected._edges.sort("eid"))
     assert (result._node, result._edge, result._source, result._destination) == ("id", "eid", "src", "dst")
@@ -88,7 +88,7 @@ def test_identity_types(tmp_path: Path, dtype: str, offset: int) -> None:
         "dst": pl.Series([offset + 1], dtype=key_type),
         "eid": pl.Series([2**63], dtype=pl.UInt64),
     })
-    result = _scan_graph(tmp_path, nodes, edges).hop(nodes.head(1), parquet_limits=ParquetHopLimits())
+    result = _scan_graph(tmp_path, nodes, edges).hop(nodes.head(1), limits=HopLimits())
     assert_frame_equal(result._nodes.sort("id"), nodes)
     assert_frame_equal(result._edges, edges)
 
@@ -112,7 +112,7 @@ def test_parquet_plans_filter_and_bound_every_collection(
         return original_collect(frame, *args, **kwargs)
 
     monkeypatch.setattr(pl.LazyFrame, "collect", collect)
-    result = g.hop(nodes.head(1), hops=2, parquet_limits=ParquetHopLimits())
+    result = g.hop(nodes.head(1), hops=2, limits=HopLimits())
     assert result._edges.height == 5
     assert sum("PROJECT 3/4 COLUMNS" in plan for plan in plans) == 2
     assert sum("PROJECT 1/3 COLUMNS" in plan for plan in plans) == 3
@@ -141,7 +141,7 @@ def test_unsupported_opt_in_declines_before_collection(
 
     monkeypatch.setattr(pl.LazyFrame, "collect", unexpected)
     with pytest.raises(NotImplementedError, match="Parquet hop"):
-        g.hop(nodes.head(1), parquet_limits=ParquetHopLimits(), **case)
+        g.hop(nodes.head(1), limits=HopLimits(), **case)
 
 
 def test_missing_seeds_and_existing_reverse_route(tmp_path: Path, frames: tuple["pl.DataFrame", "pl.DataFrame"]) -> None:
@@ -150,7 +150,7 @@ def test_missing_seeds_and_existing_reverse_route(tmp_path: Path, frames: tuple[
     nodes, edges = frames
     g = _scan_graph(tmp_path, nodes, edges)
     with pytest.raises(NotImplementedError, match="explicit seeds"):
-        g.hop(parquet_limits=ParquetHopLimits())
+        g.hop(limits=HopLimits())
     expected = _graph(nodes, edges).hop(nodes.head(1), direction="reverse", engine="polars")
     actual = g.hop(nodes.head(1), direction="reverse", engine="polars")
     assert_frame_equal(actual._nodes.sort("id"), expected._nodes.sort("id"))
@@ -166,8 +166,8 @@ def test_decline_result_instead_of_truncating(
 ) -> None:
     nodes, edges = frames
     g = _scan_graph(tmp_path, nodes, edges)
-    with pytest.raises(ParquetHopLimitError, match=limit):
-        g.hop(nodes.head(1), hops=hops, parquet_limits=ParquetHopLimits(**{limit: value}))
+    with pytest.raises(HopLimitError, match=limit):
+        g.hop(nodes.head(1), hops=hops, limits=HopLimits(**{limit: value}))
     assert isinstance(g._edges, pl.LazyFrame) and isinstance(g._nodes, pl.LazyFrame)
 
 
@@ -188,8 +188,8 @@ def test_identity_contract(tmp_path: Path, frames: tuple["pl.DataFrame", "pl.Dat
     g = _scan_graph(tmp_path, nodes, edges)
     if kind == "edge_binding":
         g = _graph(g._nodes, g._edges.drop("eid"))
-    with pytest.raises((ValueError, ParquetHopLimitError), match="Parquet hop"):
-        g.hop(starts, parquet_limits=ParquetHopLimits())
+    with pytest.raises((ValueError, HopLimitError), match="Parquet hop"):
+        g.hop(starts, limits=HopLimits())
 
 
 @pytest.mark.parametrize("limit_stage", ["before_scan", "during_rehydration", "timeout"])
@@ -214,11 +214,11 @@ def test_cancellation_and_timeout(
     if limit_stage == "timeout":
         times = iter([0.0, 0.0, 1.0])
         monkeypatch.setattr(hop_parquet, "monotonic", lambda: next(times))
-        with pytest.raises(ParquetHopLimitError, match="timeout_seconds"):
-            g.hop(nodes.head(1), parquet_limits=ParquetHopLimits(cancel_event=event, timeout_seconds=0.5))
+        with pytest.raises(HopLimitError, match="timeout_seconds"):
+            g.hop(nodes.head(1), limits=HopLimits(cancel_event=event, timeout_seconds=0.5))
     else:
         with pytest.raises(CancelledError):
-            g.hop(nodes.head(1), parquet_limits=ParquetHopLimits(cancel_event=event))
+            g.hop(nodes.head(1), limits=HopLimits(cancel_event=event))
     assert isinstance(g._edges, pl.LazyFrame) and isinstance(g._nodes, pl.LazyFrame)
 
 
@@ -227,7 +227,7 @@ def test_scan_failure_surfaces_without_a_partial_result(tmp_path: Path, frames: 
     g = _scan_graph(tmp_path, nodes, edges)
     (tmp_path / "edges.parquet").unlink()
     with pytest.raises(FileNotFoundError):
-        g.hop(nodes.head(1), parquet_limits=ParquetHopLimits())
+        g.hop(nodes.head(1), limits=HopLimits())
     assert isinstance(g._edges, pl.LazyFrame)
 
 
@@ -237,7 +237,20 @@ def test_scan_failure_surfaces_without_a_partial_result(tmp_path: Path, frames: 
 ])
 def test_invalid_limits(options: dict[str, int | float]) -> None:
     with pytest.raises(ValueError, match="positive"):
-        ParquetHopLimits(**options)
+        HopLimits(**options)
+
+
+def test_cancel_event_requires_threading_event() -> None:
+    with pytest.raises(TypeError, match="cancel_event must be a threading.Event"):
+        HopLimits(cancel_event=123)
+
+
+def test_invalid_limits_type_takes_precedence_over_unsupported_options(
+    frames: tuple["pl.DataFrame", "pl.DataFrame"],
+) -> None:
+    graph = _graph(*frames)
+    with pytest.raises(TypeError, match="limits must be a HopLimits instance"):
+        graph.hop(frames[0].head(1), limits={}, direction="reverse", engine="pandas")
 
 
 def test_index_policies_decline(tmp_path: Path, frames: tuple["pl.DataFrame", "pl.DataFrame"]) -> None:
@@ -245,18 +258,18 @@ def test_index_policies_decline(tmp_path: Path, frames: tuple["pl.DataFrame", "p
     graph = _scan_graph(tmp_path, nodes, edges)
     for policy in ("auto", "force"):
         with pytest.raises(NotImplementedError, match="without resident indexes"):
-            with_index_policy(graph, policy).hop(nodes.head(1), parquet_limits=ParquetHopLimits())
+            with_index_policy(graph, policy).hop(nodes.head(1), limits=HopLimits())
 
     indexed = _graph(nodes, edges).gfql_index_edges(direction="forward", engine="polars")
     with pytest.raises(NotImplementedError, match="without resident indexes"):
-        indexed.hop(nodes.head(1), parquet_limits=ParquetHopLimits())
+        indexed.hop(nodes.head(1), limits=HopLimits())
     assert indexed.hop(nodes.head(1), engine="polars")._edges.height == 3
 
 
 def test_exact_limits_succeed(tmp_path: Path, frames: tuple["pl.DataFrame", "pl.DataFrame"]) -> None:
     nodes, edges = frames
     graph = _scan_graph(tmp_path, nodes, edges)
-    result = graph.hop(nodes.head(1), parquet_limits=ParquetHopLimits(max_nodes=2, max_edges=3, max_hops=1))
+    result = graph.hop(nodes.head(1), limits=HopLimits(max_nodes=2, max_edges=3, max_hops=1))
     assert result._nodes.height == 2 and result._edges.height == 3
 
 
@@ -273,12 +286,12 @@ def test_result_byte_limit_after_wide_property_collection(tmp_path: Path, proper
         edges = edges.with_columns(pl.lit(payload).alias("payload"))
     starts = nodes.head(1).select("id")
     graph = _scan_graph(tmp_path, nodes, edges)
-    with pytest.raises(ParquetHopLimitError, match=f"max_result_bytes in {property_table[:-1]} rehydration"):
-        graph.hop(starts, parquet_limits=ParquetHopLimits(max_result_bytes=1024))
+    with pytest.raises(HopLimitError, match=f"max_result_bytes in {property_table[:-1]} rehydration"):
+        graph.hop(starts, limits=HopLimits(max_result_bytes=1024))
 
     expected = _graph(nodes, edges).hop(starts, engine="polars")
     exact_bytes = expected._nodes.estimated_size() + expected._edges.estimated_size()
-    actual = graph.hop(starts, parquet_limits=ParquetHopLimits(max_result_bytes=exact_bytes))
+    actual = graph.hop(starts, limits=HopLimits(max_result_bytes=exact_bytes))
     assert_frame_equal(actual._nodes.sort("id"), expected._nodes.sort("id"))
     assert_frame_equal(actual._edges, expected._edges)
 
@@ -291,10 +304,10 @@ def test_high_degree_missing_endpoints_still_count_toward_candidate_limit(tmp_pa
     edges = pl.DataFrame({"eid": range(size), "src": [0] * size, "dst": range(1, size + 1)})
     graph = _scan_graph(tmp_path, nodes, edges)
     starts = nodes.head(1)
-    with pytest.raises(ParquetHopLimitError, match="max_edges in frontier scan"):
-        graph.hop(starts, parquet_limits=ParquetHopLimits(max_edges=size - 1, max_nodes=2))
+    with pytest.raises(HopLimitError, match="max_edges in frontier scan"):
+        graph.hop(starts, limits=HopLimits(max_edges=size - 1, max_nodes=2))
     expected = _graph(nodes, edges).hop(starts, engine="polars")
-    actual = graph.hop(starts, parquet_limits=ParquetHopLimits(max_edges=size, max_nodes=2))
+    actual = graph.hop(starts, limits=HopLimits(max_edges=size, max_nodes=2))
     assert_frame_equal(actual._nodes.sort("id"), expected._nodes.sort("id"))
     assert_frame_equal(actual._edges, expected._edges)
 
@@ -302,8 +315,8 @@ def test_high_degree_missing_endpoints_still_count_toward_candidate_limit(tmp_pa
 def test_seed_limit_counts_rows_before_deduplication(tmp_path: Path, frames: tuple["pl.DataFrame", "pl.DataFrame"]) -> None:
     graph = _scan_graph(tmp_path, *frames)
     starts = pl.DataFrame({"id": [0, 0, 0]})
-    with pytest.raises(ParquetHopLimitError, match="seeds exceeded max_nodes"):
-        graph.hop(starts, parquet_limits=ParquetHopLimits(max_nodes=2))
+    with pytest.raises(HopLimitError, match="seeds exceeded max_nodes"):
+        graph.hop(starts, limits=HopLimits(max_nodes=2))
 
 
 @pytest.mark.parametrize("limit", ["max_nodes", "max_edges"])
@@ -313,7 +326,7 @@ def test_row_limit_reserves_probe_slot(
     graph = _scan_graph(tmp_path, *frames)
     max_slice = (1 << 32) - 1 if pl.get_index_type() == pl.UInt32 else (1 << 63) - 1
     with pytest.raises(ValueError, match="max_nodes and max_edges"):
-        graph.hop(frames[0].head(1), parquet_limits=ParquetHopLimits(**{limit: max_slice}))
+        graph.hop(frames[0].head(1), limits=HopLimits(**{limit: max_slice}))
 
 
 def test_schema_timeout_stops_before_second_schema_read(
@@ -330,8 +343,8 @@ def test_schema_timeout_stops_before_second_schema_read(
     monkeypatch.setattr(pl.LazyFrame, "collect_schema", schema)
     times = iter([0., 0., 1.])
     monkeypatch.setattr(hop_parquet, "monotonic", lambda: next(times))
-    with pytest.raises(ParquetHopLimitError, match="timeout_seconds"):
-        graph.hop(frames[0].head(1), parquet_limits=ParquetHopLimits(timeout_seconds=0.5))
+    with pytest.raises(HopLimitError, match="timeout_seconds"):
+        graph.hop(frames[0].head(1), limits=HopLimits(timeout_seconds=0.5))
     assert len(schema_reads) == 1 and schema_reads[0] is graph._nodes
 
 
@@ -346,7 +359,7 @@ def test_rehydration_rejects_a_missing_selected_identity(
 
     def rehydrate(
         source: "pl.LazyFrame", schema: "pl.Schema", key: str, ids: "pl.Series",
-        limits: ParquetHopLimits, deadline: float,
+        limits: HopLimits, deadline: float,
     ) -> "pl.DataFrame":
         # Reopen the new snapshot so stale reader metadata cannot mask the identity check.
         if key == "eid":
@@ -355,5 +368,5 @@ def test_rehydration_rejects_a_missing_selected_identity(
 
     monkeypatch.setattr(hop_parquet, "_rehydrate", rehydrate)
     with pytest.raises(ValueError, match="stable, unique identities"):
-        graph.hop(nodes.head(1), parquet_limits=ParquetHopLimits())
+        graph.hop(nodes.head(1), limits=HopLimits())
     assert isinstance(graph._nodes, pl.LazyFrame) and isinstance(graph._edges, pl.LazyFrame)

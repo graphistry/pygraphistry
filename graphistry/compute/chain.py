@@ -744,42 +744,14 @@ def _plan_indexed_middle(
     comparable instead of two inline condition chains that drift.
     """
     from .gfql.index.handoff import IndexedBindingsHandoff
-    if not (middle and suffix) or prefix or start_nodes is not None or policy:
+    if prefix or start_nodes is not None or policy:
         return None
-    call = suffix[0]
-    if not isinstance(call, ASTCall) or call.function != "rows":
-        return None
-    if (
-        call.params.get("source") is not None
-        or call.params.get("alias_endpoints") is not None
-        or call.params.get("alias_prefilters")
-        # Serving the bypass SKIPS the canonical traversal, so the suffix runs against the
-        # PRE-traversal graph. That is sound for a bindings table (the path bag already is
-        # the answer) but not for `rows(table="edges")`, which would read the whole edge
-        # table instead of the traversal-narrowed one. Non-default `table` therefore keeps
-        # the scan path, for the same reason `source`/`alias_endpoints` do above. Compared
-        # against "nodes", not None: `rows()` defaults `table` to "nodes" and always emits
-        # it, so an `is None` test would disable the bypass outright — the same trap the
-        # named-middle rewrite's guard documents below.
-        or call.params.get("table", "nodes") != "nodes"
-        or not all(isinstance(op, (ASTNode, ASTEdge)) for op in middle)
-    ):
+    # Alias prefilters are not index-servable.
+    from .gfql.rows_skip_traversal import bindings_rows_call
+    call = bindings_rows_call(middle, suffix)
+    if call is None or call.params.get("alias_prefilters"):
         return None
     plan = serialize_binding_ops(middle)
-    # The bypass is only sound when the rows call actually consumes the WHOLE
-    # middle as binding ops: either it already carries them, or the named-middle
-    # rewrite installs exactly them. A rows call with no binding ops over an
-    # UNNAMED middle instead reads the traversal-narrowed node table, which the
-    # bypass would not produce.
-    if not (
-        call.params.get("binding_ops") == plan
-        or (
-            call.params.get("binding_ops") is None
-            and any(op._name is not None for op in middle
-                    if isinstance(op, (ASTNode, ASTEdge)))
-        )
-    ):
-        return None
 
     engine_concrete = resolve_engine(engine, g)  # type: ignore[arg-type]
     if engine_concrete not in (Engine.PANDAS, Engine.CUDF):
@@ -858,6 +830,9 @@ def _handle_boundary_calls(
     # module-scope import would be a cycle.
     from .gfql.index.handoff import attach_handoff, clear_handoff, read_handoff
     from .gfql.exec_context import attach_row_exec_context, clear_row_exec_context
+    from .gfql.rows_skip_traversal import (
+        may_skip_unread_middle_traversal, named_middle_rows_rewrite_applies, run_without_traversal,
+    )
 
     g_temp = self
     suffix_base_graph = g_temp
@@ -884,95 +859,91 @@ def _handle_boundary_calls(
     )
     served = handoff is not None and handoff.state is not None
 
-    if served:
-        assert handoff is not None  # narrowed by `served`
-        g_temp = attach_handoff(self, handoff)
-        assert handoff.state is not None
-        if handoff.state.edge_template is not None:
-            g_temp = g_temp.edges(handoff.state.edge_template)
-    else:
-        if middle:
-            logger.debug('Executing middle operations: %s', middle)
+    def finish(g_temp: Plottable, suffix: List[ASTObject]) -> Plottable:
+        if suffix:
+            logger.debug('Executing boundary suffix calls: %s', suffix)
+            # #1786: per-execution state rides on an INTERNAL COPY. Without prefix/middle
+            # ops (or a handoff) nothing above rebuilt `g_temp`, so it is still the CALLER's
+            # graph -- assigning here left the WITH re-entry seed on the user's object and
+            # the next, unrelated query was answered against it (silent wrong count).
+            g_temp = attach_row_exec_context(
+                g_temp, start_nodes=start_nodes, rows_base_graph=suffix_base_graph
+            )
+            if named_middle_rows_rewrite_applies(middle, suffix):
+                # ADD binding_ops to the call the caller wrote; do not build a fresh one. The
+                # rewrite's job is to say WHERE the bindings come from, and every other param
+                # on `rows()` is still the caller's — `attach_prop_aliases` (the #1711
+                # projection pushdown) and the advisory `alias_prefilters` both survive into
+                # the binding_ops builder, which is the only place they are read. Rebuilding
+                # threw them away, so merely naming the middle silently attached every alias's
+                # properties. The excluded params above cannot be present here.
+                rows_call = suffix[0]
+                assert isinstance(rows_call, ASTCall)  # narrowed by the rewrite gate
+                prev_params = rows_call.params
+                attach_prop_columns = prev_params.get("attach_prop_columns")
+                if attach_prop_columns is None and suffix_base_graph._nodes is not None:
+                    attach_prop_columns = select_attach_prop_columns(
+                        middle, suffix, list(suffix_base_graph._nodes.columns), suffix_base_graph._node,
+                    )
+                suffix = [rows_fn(
+                    binding_ops=serialize_binding_ops(middle),
+                    alias_prefilters=prev_params.get("alias_prefilters"),
+                    attach_prop_aliases=prev_params.get("attach_prop_aliases"),
+                    attach_prop_columns=attach_prop_columns,
+                )] + list(suffix[1:])
             g_temp = _chain_impl(
                 g_temp,
-                middle,
+                suffix,
                 engine,
                 validate_schema,
                 policy,
                 context,
                 start_nodes
             )
-        if handoff is not None:
-            # attach (not mutate): `g_temp` may still be the caller's graph on
-            # paths where nothing rebuilt it, and this is internal plumbing.
-            g_temp = attach_handoff(g_temp, handoff)
 
-    if suffix:
-        logger.debug('Executing boundary suffix calls: %s', suffix)
-        # #1786: per-execution state rides on an INTERNAL COPY. Without prefix/middle
-        # ops (or a handoff) nothing above rebuilt `g_temp`, so it is still the CALLER's
-        # graph -- assigning here left the WITH re-entry seed on the user's object and
-        # the next, unrelated query was answered against it (silent wrong count).
-        g_temp = attach_row_exec_context(
-            g_temp, start_nodes=start_nodes, rows_base_graph=suffix_base_graph
+        # Each site that attaches the row context also detaches it: the suffix chain has run,
+        # so the context is spent, and a caller who queries THIS result must not inherit it.
+        result = clear_row_exec_context(g_temp)
+        if read_handoff(result) is not None:
+            result = result.bind()
+            clear_handoff(result)
+        return result
+
+    if served:
+        assert handoff is not None  # narrowed by `served`
+        g_temp = attach_handoff(self, handoff)
+        assert handoff.state is not None
+        if handoff.state.edge_template is not None:
+            g_temp = g_temp.edges(handoff.state.edge_template)
+        return finish(g_temp, suffix)
+
+    if not prefix and not policy and may_skip_unread_middle_traversal(g_temp, middle, suffix, engine):
+        if validate_schema:
+            validate_chain_schema(g_temp, middle, collect_all=False)
+        twin_answer = run_without_traversal(
+            g_temp, middle, engine,
+            traverse=lambda empty: _chain_impl(empty, middle, engine, False, None, context, None),
+            run_suffix=lambda twin: finish(attach_handoff(twin, handoff) if handoff is not None else twin, suffix),
         )
-        if (
-            middle
-            and any(op._name is not None for op in middle)
-            and isinstance(suffix[0], ASTCall)
-            and suffix[0].function == "rows"
-            and suffix[0].params.get("binding_ops") is None
-            and suffix[0].params.get("source") is None
-            and suffix[0].params.get("alias_endpoints") is None
-            # A NON-DEFAULT `table` names the table the caller wants. Rewriting that into a
-            # bindings table silently answers a different question — and on an even-length
-            # middle (a path ending on an EDGE, e.g. LDBC IS3's edge lookup) the rewritten
-            # op list is not an alternating node/edge path at all, so it hard-errors. Same
-            # reason `source` and `alias_endpoints` are excluded above.
-            # Tested against `"nodes"` rather than None because `rows()` DEFAULTS table to
-            # "nodes" and always emits it, so `is None` is never true and would disable the
-            # rewrite outright (measured: it breaks the IS6 bindings path). The cost is that
-            # an EXPLICIT `rows(table="nodes")` is indistinguishable from a bare `rows()` at
-            # the params level, so it still rewrites; only a non-default table opts out.
-            and suffix[0].params.get("table", "nodes") == "nodes"
-            and all(isinstance(op, (ASTNode, ASTEdge)) for op in middle)
-        ):
-            # ADD binding_ops to the call the caller wrote; do not build a fresh one. The
-            # rewrite's job is to say WHERE the bindings come from, and every other param
-            # on `rows()` is still the caller's — `attach_prop_aliases` (the #1711
-            # projection pushdown) and the advisory `alias_prefilters` both survive into
-            # the binding_ops builder, which is the only place they are read. Rebuilding
-            # threw them away, so merely naming the middle silently attached every alias's
-            # properties. The excluded params above cannot be present here.
-            prev_params = suffix[0].params
-            attach_prop_columns = prev_params.get("attach_prop_columns")
-            if attach_prop_columns is None and suffix_base_graph._nodes is not None:
-                attach_prop_columns = select_attach_prop_columns(
-                    middle, suffix, list(suffix_base_graph._nodes.columns), suffix_base_graph._node,
-                )
-            suffix = [rows_fn(
-                binding_ops=serialize_binding_ops(middle),
-                alias_prefilters=prev_params.get("alias_prefilters"),
-                attach_prop_aliases=prev_params.get("attach_prop_aliases"),
-                attach_prop_columns=attach_prop_columns,
-            )] + list(suffix[1:])
+        if twin_answer is not None:
+            return twin_answer
+
+    if middle:
+        logger.debug('Executing middle operations: %s', middle)
         g_temp = _chain_impl(
             g_temp,
-            suffix,
+            middle,
             engine,
             validate_schema,
             policy,
             context,
             start_nodes
         )
-
-    # Each site that attaches the row context also detaches it: the suffix chain has run,
-    # so the context is spent, and a caller who queries THIS result must not inherit it.
-    result = clear_row_exec_context(g_temp)
-    if read_handoff(result) is not None:
-        result = result.bind()
-        clear_handoff(result)
-    return result
+    if handoff is not None:
+        # attach (not mutate): `g_temp` may still be the caller's graph on
+        # paths where nothing rebuilt it, and this is internal plumbing.
+        g_temp = attach_handoff(g_temp, handoff)
+    return finish(g_temp, suffix)
 
 
 def _chain_otel_attrs(

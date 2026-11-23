@@ -21,7 +21,7 @@ from graphistry.Plottable import Plottable
 from graphistry.compute.gfql.index import gfql_index_edges
 import polars as pl
 
-from graphistry.compute.gfql.parquet import ParquetHopLimits
+from graphistry.compute.gfql.hop_limits import HopLimits
 
 
 def proc_io() -> dict[str, int]:
@@ -39,6 +39,25 @@ def measure(fn: Callable[[], _T]) -> tuple[_T, dict[str, float | int]]:
     after = proc_io()
     return data, {**{key: after[key] - before[key] for key in ("read_bytes", "write_bytes", "rchar")},
                   "seconds": seconds, "process_high_water_rss_mib": resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024}
+
+
+def parquet_files(path: Path) -> list[Path]:
+    if not path.is_dir():
+        return [path]
+    files = sorted(file for file in path.rglob("*.parquet") if file.is_file())
+    if not files:
+        raise ValueError(f"No Parquet files found under {path}")
+    return files
+
+
+def scan_parquet(path: Path) -> pl.LazyFrame:
+    if path.is_dir():
+        return pl.scan_parquet(parquet_files(path), hive_partitioning=True)
+    return pl.scan_parquet(path)
+
+
+def parquet_bytes(path: Path) -> int:
+    return sum(file.stat().st_size for file in parquet_files(path))
 
 
 def prepare(args: argparse.Namespace) -> None:
@@ -75,24 +94,24 @@ def prepare(args: argparse.Namespace) -> None:
             raise ValueError("Use a new --data directory when building a clustered layout")
 
         def cluster() -> None:
-            pl.scan_parquet(original_edges).sort("src").sink_parquet(
+            scan_parquet(original_edges).sort("src").sink_parquet(
                 edges_path, row_group_size=args.row_group_size, compression="zstd",
             )
 
         _, report["cluster_build"] = measure(cluster)
-    report.update(nodes=str(nodes_path), edges=str(edges_path), source_edge_bytes=original_edges.stat().st_size,
-                  layout_edge_bytes=edges_path.stat().st_size, node_bytes=nodes_path.stat().st_size)
+    source_edge_bytes = parquet_bytes(original_edges)
+    report.update(nodes=str(nodes_path), edges=str(edges_path), source_edge_bytes=source_edge_bytes,
+                  layout_edge_bytes=parquet_bytes(edges_path) if args.cluster else source_edge_bytes,
+                  node_bytes=parquet_bytes(nodes_path))
     print(json.dumps(report), flush=True)
 
 
 def digest(nodes: pl.DataFrame, edges: pl.DataFrame) -> str:
-    import io
-
     h = hashlib.sha256()
     for frame, key in ((nodes, "id"), (edges, "edge_id")):
-        output = io.BytesIO()
-        frame.sort(key).rechunk().write_ipc(output)
-        h.update(output.getvalue())
+        schema = [(name, str(dtype)) for name, dtype in frame.schema.items()]
+        h.update(json.dumps([frame.height, schema]).encode())
+        h.update(frame.sort(key).hash_rows().to_numpy().astype("<u8", copy=False).tobytes())
     return h.hexdigest()
 
 
@@ -161,7 +180,7 @@ def _bounded_query(
 
     def timed_rehydrate(
         source: pl.LazyFrame, schema: pl.Schema, key: str, ids: pl.Series,
-        limits: ParquetHopLimits, deadline: float,
+        limits: HopLimits, deadline: float,
     ) -> pl.DataFrame:
         nonlocal rehydrate_seconds
         start = perf_counter()
@@ -173,7 +192,7 @@ def _bounded_query(
         nonlocal rehydrate_seconds
         rehydrate_seconds = 0.
         with patch.object(hop_parquet, "_rehydrate", timed_rehydrate):
-            out = graph.hop(seeds, hops=args.hops, engine="polars", parquet_limits=ParquetHopLimits(
+            out = graph.hop(seeds, hops=args.hops, engine="polars", limits=HopLimits(
                 timeout_seconds=args.timeout, max_edges=args.max_edges, max_nodes=args.max_nodes,
             ))
         return out._nodes, out._edges, rehydrate_seconds
@@ -189,13 +208,13 @@ def worker(args: argparse.Namespace) -> None:
     route, cache = args.worker
     cold_advice = None
     if cache == "cold-advised":
-        for path in (args.nodes, args.edges):
+        for path in [*parquet_files(args.nodes), *parquet_files(args.edges)]:
             with path.open("rb") as source:
                 os.posix_fadvise(source.fileno(), 0, 0, os.POSIX_FADV_DONTNEED)
         cold_advice = True
 
     def bind() -> tuple[pl.LazyFrame, pl.LazyFrame, Plottable]:
-        nodes, edges = pl.scan_parquet(args.nodes), pl.scan_parquet(args.edges)
+        nodes, edges = scan_parquet(args.nodes), scan_parquet(args.edges)
         return nodes, edges, graphistry.nodes(nodes, "id").edges(edges, "src", "dst", "edge_id")
 
     (nodes, edges, g), setup = measure(bind)
@@ -234,8 +253,8 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--data", type=Path, required=True, help="Scratch directory for generated files")
     parser.add_argument("--snap-gzip", type=Path, help="Local small SNAP edge list, kept in raw orientation")
-    parser.add_argument("--nodes", type=Path, help="Existing node Parquet with id")
-    parser.add_argument("--edges", type=Path, help="Existing edge Parquet with src, dst, edge_id")
+    parser.add_argument("--nodes", type=Path, help="Existing node Parquet file or directory with id")
+    parser.add_argument("--edges", type=Path, help="Existing edge Parquet file or directory with src, dst, edge_id")
     parser.add_argument("--row-group-size", type=int, default=16_384)
     parser.add_argument("--synthetic-edges", type=int, default=1_000_000)
     parser.add_argument("--cluster", action="store_true")
@@ -275,6 +294,7 @@ def main() -> None:
     setup = json.loads(subprocess.check_output([*base, *sys.argv[1:], "--prepare"], env=env, text=True))
     print(json.dumps({
         **setup, "polars": pl.__version__, "graphistry": graphistry.__version__, "threads": int(env["POLARS_MAX_THREADS"]),
+        "digest_algorithm": "polars-hash-rows-sha256-v1",
         "hops": args.hops, "seeds": args.seeds, "row_group_size": args.row_group_size, "command": sys.argv[1:],
     }), flush=True)
     source = ["--data", str(args.data), "--nodes", setup["nodes"], "--edges", setup["edges"]]

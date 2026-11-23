@@ -27,7 +27,7 @@ if TYPE_CHECKING:
     from graphistry.compute.gfql.index.handoff import IndexedBindingsHandoff
     from graphistry.compute.gfql.index.policy import IndexPolicy
     from graphistry.compute.gfql.index.registry import GfqlIndexRegistry
-    from graphistry.compute.gfql.parquet import ParquetHopLimits
+    from graphistry.compute.gfql.hop_limits import HopLimits
     import polars as pl
     try:
         from umap import UMAP
@@ -442,7 +442,7 @@ class Plottable(Protocol):
         ...
 
     def hop(self,
-        nodes: Optional[Union[pd.DataFrame, "pl.DataFrame"]] = None,
+        nodes: Optional[Union["DataFrameT", "pl.DataFrame"]] = None,
         hops: Optional[int] = 1,
         *,
         min_hops: Optional[int] = None,
@@ -464,7 +464,7 @@ class Plottable(Protocol):
         include_zero_hop_seed: bool = False,
         target_wave_front: Optional[pd.DataFrame] = None,
         engine: EngineAbstractType = 'auto',
-        parquet_limits: Optional["ParquetHopLimits"] = None,
+        limits: Optional["HopLimits"] = None,
     ) -> 'Plottable':
         ...
 

@@ -21,14 +21,16 @@ Use a fresh scratch directory for each build. The small SNAP importer uses
 the endpoint list in its recorded direction, assigns edge IDs by input row
 and creates deterministic synthetic properties. It loads the source edge
 list into memory during ingestion. For larger inputs, pass existing local
-`--nodes` and `--edges` Parquet files. The optional clustering step writes a
+`--nodes` and `--edges` Parquet files or directories. Directory inputs scan
+all nested `*.parquet` files with Hive partitioning enabled. Their byte totals
+and cache advice cover those same files. The optional clustering step writes a
 second edge file sorted by source. `--row-group-size` sets the Parquet write
 granularity for ingestion and clustering. For existing files it leaves the
 stored row groups intact.
 
 All timed methods share the same files and seeds in each run. The eager control
 calls public `.hop()` without opt-in. The bounded route calls public `.hop()`
-with `ParquetHopLimits`. The native control builds equivalent membership and
+with `limits=HopLimits(...)`. The native control builds equivalent membership and
 range expressions with public Polars APIs and uses an independent traversal
 loop. It omits the feature's row guards and uses the same endpoint checks,
 NaN-to-null property normalization and complete output requirements. The
@@ -43,8 +45,9 @@ advisory. Physical reads and writes are kernel process counters. The RSS field
 is process high-water memory through the named phase, including any prior setup
 and warmup in that worker. Index and input setup I/O appear in those phase
 records. Query time includes property rehydration. The bounded and native
-routes report separate rehydration time. Full sorted output-frame digests are
-computed outside the timed phase. Different digests fail the run. Failed
+routes report separate rehydration time. Digests cover both output schemas and
+the values of all rows sorted by identity, outside the timed phase. Compare
+digests within the same Polars version and digest algorithm. Different digests fail the run. Failed
 attempts remain in the JSONL. When both lazy routes are requested, the
 benchmark requires every bounded and native attempt to complete. Eager and
 resident-index allocation failures remain visible in the attempt records.

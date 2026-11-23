@@ -27,14 +27,15 @@ permissions:
   contents: read
 
 concurrency:
-  # Keep each develop push independent. PR/manual runs (including PRs whose
-  # head branch is develop) still use the branch-based group and may cancel
-  # stale runs; master push behavior is unchanged.
+  # Keep each develop push independent. Other runs share a branch-based group
+  # that includes the event name, so a PR whose head branch is named master or
+  # develop cannot cancel (or be cancelled by) a push or scheduled run on that
+  # branch.
   group: >-
     ${{
     github.event_name == 'push' && github.ref == 'refs/heads/develop'
     && format('{0}-develop-push-{1}', github.workflow, github.sha)
-    || format('{0}-{1}-{2}', github.workflow,
+    || format('{0}-{1}-{2}-{3}', github.workflow, github.event_name,
        github.event.pull_request.head.repo.full_name || github.repository,
        github.head_ref || github.ref_name)
     }}
@@ -1721,7 +1722,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        mode: [polars-point-rows, point-rows, native-fast, polars-single-node, polars-seeded, polars-plain, index-hop, indexed-kernel, polars-bindings-select, cypher-fast, cross-alias-or, binding-limit, all-off]
+        mode: [polars-point-rows, point-rows, native-fast, polars-single-node, polars-seeded, polars-plain, index-hop, indexed-kernel, polars-bindings-select, cypher-fast, cross-alias-or, binding-limit, bindings-skip-traversal, all-off]
 
     steps:
 
@@ -2273,3 +2274,59 @@ jobs:
         docker run --rm -v "$(pwd)/README.md:/workdir/README.md:ro" -v "$(pwd)/.markdownlint.yaml:/workdir/.markdownlint.yaml:ro" ghcr.io/igorshubovych/markdownlint-cli:v0.37.0 README.md
 
   
+
+  ci-required:
+    # The single required status check for develop and master. It reports on
+    # every event, fails if any job it needs failed or was cancelled, and passes
+    # when each needed job succeeded or was skipped. Add every new job to
+    # `needs` below so it is covered. No matrix, checkout, or installs.
+    if: ${{ always() }}
+    needs:
+      - changes
+      - no-plans-in-repo
+      - schema-artifacts
+      - generate-lockfiles
+      - check-rtd-lockfile
+      - check-spark-lockfile
+      - tck-gfql
+      - gfql-benchmarks
+      - python-lint-types
+      - python-pyright
+      - cypher-frontend-strict-typing
+      - cypher-frontend-differential-parity
+      - gpu-gate-audit
+      - cypher-frontend-surface-guard
+      - test-networkx-scipy-policy
+      - test-minimal-python
+      - cypher-frontend-ci-gates
+      - test-minimal-python-rest
+      - test-gfql-core
+      - changed-line-coverage
+      - test-pandas-compat
+      - test-pandas-compat-gfql
+      - test-core-python
+      - test-graphviz
+      - gfql-route-manifest
+      - gfql-routes-off
+      - test-polars
+      - test-core-umap
+      - test-full-ai
+      - test-dgl-cpu
+      - test-spark
+      - test-neo4j
+      - test-build
+      - docs-latex-unicode-guard
+      - test-docs
+      - test-readme
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    env:
+      NEEDS_JSON: ${{ toJson(needs) }}
+    steps:
+    - name: Fail if the run was cancelled
+      if: ${{ cancelled() }}
+      run: exit 1
+    - name: Require every needed job to have succeeded or been skipped
+      run: |
+        echo "$NEEDS_JSON" | jq -r 'to_entries[] | "\(.value.result)\t\(.key)"' | sort
+        echo "$NEEDS_JSON" | jq -e 'all(.[]; .result == "success" or .result == "skipped")' > /dev/null
