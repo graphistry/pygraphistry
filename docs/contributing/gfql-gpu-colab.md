@@ -2,7 +2,7 @@
 
 GFQL has two GPU engines, cuDF (`engine="cudf"`) and polars-gpu (`engine="polars-gpu"`). The CPU engines (pandas and Polars) are required for a pull request; the GPU engines are recommended. If you cannot run them, say so in the pull request and maintainers cover them. This page is for when you can.
 
-The tests pick an engine through two environment variables: `TEST_CUDF=1` enables the cuDF cases and `TEST_POLARS_GPU=1` the polars-gpu cases (without them those cases skip). `./bin/check-gfql.sh --cudf --polars-gpu` sets them for you.
+The tests pick an engine through two environment variables: `TEST_CUDF=1` enables the cuDF cases and `TEST_POLARS_GPU=1` the polars-gpu cases (a GPU case skips when the engine cannot be imported, and the cases that read these variables skip when they are unset). `./bin/check-gfql.sh --cudf --polars-gpu` sets them for you.
 
 ## You have a GPU
 
