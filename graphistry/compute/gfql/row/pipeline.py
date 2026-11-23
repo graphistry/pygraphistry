@@ -3333,13 +3333,13 @@ class RowPipelineMixin:
 
     @staticmethod
     def _gfql_is_empty_series(value: object) -> bool:
-        return is_series_like(value) and len(value) == 0  # type: ignore[arg-type]
+        return is_series_like(value) and len(value) == 0
 
     @staticmethod
     def _gfql_assign_positional(frame: DataFrameT, **columns: object) -> DataFrameT:
         """``assign`` by position, not label: evaluator series may carry the table's own (gappy) labels."""
         aligned = {
-            name: RowPipelineMixin._gfql_on_table_index(frame, value) if is_series_like(value) else value  # type: ignore[arg-type]
+            name: RowPipelineMixin._gfql_on_table_index(frame, value) if is_series_like(value) else value
             for name, value in columns.items()
         }
         return frame.assign(**aligned)
