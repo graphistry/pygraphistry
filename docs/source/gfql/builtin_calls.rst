@@ -1859,6 +1859,7 @@ All three forms give the same rows.
 
 .. code-block:: python
 
+    from graphistry import n
     from graphistry.compute.semantic import CallableDecisionProvider, semantic_summary, semantic_trace
 
     provider = CallableDecisionProvider(lambda evidence, q: evidence["type"] == "company", fingerprint="rules-v1")
@@ -1874,6 +1875,7 @@ All three forms give the same rows.
 
 .. code-block:: python
 
+    from graphistry import call, n
     from graphistry.compute.semantic import MemorySemanticCache, bind_providers
 
     with bind_providers({"rules": provider}, cache=MemorySemanticCache()):
@@ -1907,7 +1909,7 @@ Function contracts
               id_col=None, task_version="1", max_output_tokens=None, batch_size=None, max_concurrency=None,
               deadline_s=None, budget=None, max_rows=None, column_max_chars=None, overwrite=False,
               dedupe=True) -> Plottable                                 # adds out_col, out_col__status, ...
-    explain_sem_decide(df, *, questions, provider, task_id, ...)  -> SemanticPlanReport   # same arguments, no provider call
+    explain_sem_decide(df, *, questions, provider, task_id, ...)  -> SemanticPlanReport   # the arguments of sem_decide, minus kind and overwrite; no provider call
     explain_sem_map(df, *, instruction, out_col, provider, task_id, ...) -> SemanticPlanReport
     with bind_providers(providers, *, cache=None): ...                  # alias -> provider; optional SemanticCache
     with semantic_trace() as runs: ...                                  # runs: list of SemanticRunStats
@@ -1927,7 +1929,7 @@ Function contracts
    * - ``sem_map``
      - One generated string for each row. ``budget`` takes ``max_requests`` only.
    * - ``explain_sem_*``
-     - What the run would do. It sends no request and no probe. It raises ``ValueError`` where the run would.
+     - What the run would do. It sends no request and no probe. It raises ``ValueError`` for invalid parameters, but not for a collision with an existing output column.
    * - ``bind_providers``
      - Binds provider aliases and an optional cache for the runs in its block (``contextvars``: bind in the calling thread).
    * - ``semantic_trace``
@@ -2062,7 +2064,7 @@ Answer typed questions per row: ``predicate`` (yes/no), ``choice`` (one of ``opt
      - Meaning
    * - ``q``
      - nullable boolean (predicate), string (choice, score)
-     - The answer. Null unless the status is ``ok``.
+     - The answer. Null when the status is ``error`` or ``skipped``, or when an ``uncertain`` result has no value. An ``uncertain`` result that fell below ``min_p`` keeps its value, so read ``q__status`` first.
    * - ``q__status``
      - string
      - ``ok``, ``uncertain``, ``error`` or ``skipped``.
@@ -2209,7 +2211,7 @@ Providers
      - ``sem_decide``
      - What ``fn`` returns (``probability_kind``)
      - No (``fn`` runs for each row and question)
-     - No
+     - No by default (opt in through ``capabilities``)
      - None
    * - ``CallableGenerationProvider``
      - ``sem_map``
@@ -2240,7 +2242,7 @@ Providers
      - None (value only)
      - No
      - No
-     - ``langchain-core`` (you supply the chat model)
+     - None in graphistry (you supply a LangChain chat model, for example from ``langchain-openai``)
 
 Any object that implements the ``DecisionProvider`` or ``GenerationProvider`` protocol in ``graphistry.compute.semantic`` can be bound.
 A callable provider runs one row for each call by default, so up to ``concurrency_limit`` rows run at once and the function must be safe to
