@@ -1385,20 +1385,52 @@ def test_results_carry_no_twin_provenance(engine):
 
 
 @pytest.mark.route_engaged(ROUTE)
-def test_concurrent_served_queries_leave_process_warning_state_untouched():
+def test_concurrent_served_queries_leave_process_warning_state_untouched(monkeypatch):
+    """The served path must never edit process-wide warning state (catch_warnings is not thread-safe).
+
+    Compares no global snapshot (pandas, pytest or another thread legitimately edit the filters under
+    load, which made the old before/after comparison flaky): it records who calls the filter editors and
+    fails only on a call that comes from graphistry's own code.
+    """
     import concurrent.futures as futures
+    import sys
+    import threading
     import warnings
 
     from graphistry.compute.gfql_unified import gfql_clear_caches
 
+    callers = []
+    guard = threading.Lock()
+
+    def spy(real):
+        def wrapper(*args, **kwargs):
+            filename = sys._getframe(1).f_code.co_filename.replace("\\", "/")
+            with guard:
+                callers.append(filename)
+            return real(*args, **kwargs)
+
+        return wrapper
+
+    for name in ("simplefilter", "filterwarnings", "resetwarnings"):
+        monkeypatch.setattr(warnings, name, spy(getattr(warnings, name)))
+    real_enter = warnings.catch_warnings.__enter__
+
+    def enter(self):
+        with guard:
+            callers.append(sys._getframe(1).f_code.co_filename.replace("\\", "/"))
+        return real_enter(self)
+
+    monkeypatch.setattr(warnings.catch_warnings, "__enter__", enter)
+    show, show_impl = warnings.showwarning, warnings._showwarnmsg_impl
+
     gfql_clear_caches()
     g = graph("pandas")
     query = SHAPES["seeded_undirected_edge_alias"][0]
-    filters, show, show_impl = list(warnings.filters), warnings.showwarning, warnings._showwarnmsg_impl
     for _ in range(2):
         with futures.ThreadPoolExecutor(8) as pool:
             list(pool.map(lambda _i: _run(g, query, "pandas"), range(24)))
-    assert list(warnings.filters) == filters
+    own = sorted({name for name in callers if "/graphistry/" in name and "/graphistry/tests/" not in name})
+    assert own == [], f"served queries edited the process warning state from {own}"
     assert warnings.showwarning is show and warnings._showwarnmsg_impl is show_impl
 
 

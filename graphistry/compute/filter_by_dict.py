@@ -145,7 +145,7 @@ def _label_series_contains(series: Any, label: str) -> Any:
     if hasattr(series, "to_pandas") and series.__class__.__module__.startswith("cudf"):
         mask_pd = series.to_pandas().apply(lambda value: label in _normalize_labels_cell(value))
         try:
-            import cudf  # type: ignore
+            import cudf
             return cudf.Series(mask_pd.tolist(), index=series.index, dtype="bool")
         except Exception:
             return mask_pd

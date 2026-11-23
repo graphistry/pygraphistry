@@ -299,8 +299,8 @@ def deserialize_plottable_metadata(metadata: PlottableMetadata, g: 'Plottable') 
                 encode_kwargs: Dict[str, str] = {}
 
                 for key in PLOTTABLE_SIMPLE_ENCODING_BIND_KEYS:
-                    if key in encodings and encodings.get(key) is not None:  # type: ignore[misc]
-                        encode_kwargs[key] = encodings[key]  # type: ignore[literal-required, typeddict-item]
+                    if key in encodings and encodings.get(key) is not None:
+                        encode_kwargs[key] = encodings[key]  # type: ignore[literal-required]
 
                 if encode_kwargs:
                     res = res.bind(**encode_kwargs)
@@ -308,7 +308,7 @@ def deserialize_plottable_metadata(metadata: PlottableMetadata, g: 'Plottable') 
                 # Complex encodings (direct assignment)
                 if 'complex_encodings' in encodings:
                     res = copy.copy(res)
-                    complex_encs: ComplexEncodingsDict = encodings['complex_encodings']  # type: ignore[typeddict-item]
+                    complex_encs: ComplexEncodingsDict = encodings['complex_encodings']
                     res._complex_encodings = complex_encs
 
         except Exception as e:
@@ -319,9 +319,9 @@ def deserialize_plottable_metadata(metadata: PlottableMetadata, g: 'Plottable') 
             meta: MetadataDict = metadata['metadata']
             if isinstance(meta, dict):
                 if 'name' in meta and meta.get('name') is not None:
-                    res = res.name(meta['name'])  # type: ignore[typeddict-item]
+                    res = res.name(meta['name'])
                 if 'description' in meta and meta.get('description') is not None:
-                    res = res.description(meta['description'])  # type: ignore[typeddict-item]
+                    res = res.description(meta['description'])
         except Exception as e:
             warnings.warn(f"Failed to hydrate name/description from metadata: {e}", UserWarning, stacklevel=2)
 

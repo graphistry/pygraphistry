@@ -53,7 +53,7 @@ def _pandas_row_table_has_lossy_object_values(df: Any) -> bool:
 
 def _attach_to_pandas_shim(df: pd.DataFrame) -> pd.DataFrame:
     if not hasattr(df, "to_pandas"):
-        df.to_pandas = lambda df=df: df  # type: ignore[attr-defined]
+        df.to_pandas = lambda df=df: df
     return df
 
 
