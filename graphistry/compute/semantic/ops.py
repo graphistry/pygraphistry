@@ -22,17 +22,20 @@ from graphistry.compute.semantic.contract import (
     GenerationRequest, GenerationResult, ProviderCapabilities, ResultT, SkippedReason, align_results, canonicalize,
     check_decision_result, check_generation_result, compute_decision_hash, compute_generation_hash, finite_float,
     unanswered_generation_result, unanswered_result)
+from graphistry.compute.semantic.probability import enforce_probability, known_probability_gap
 from graphistry.compute.semantic.rules import (
-    DECISION_COLUMN_TYPES, MAP_COLUMN_TYPES, BudgetSpec, QuestionLike, check_params, coerce_budget, coerce_questions,
-    decision_columns, evidence_columns)
+    DECISION_COLUMN_TYPES, MAP_COLUMN_TYPES, BudgetSpec, ProbabilityRequirement, QuestionLike, check_params,
+    coerce_budget, coerce_map_budget, coerce_questions, decision_columns, evidence_columns)
 from graphistry.compute.typing import DataFrameT
 
 
 DEFAULT_DECIDE_BATCH_SIZE = 32
 DEFAULT_MAP_BATCH_SIZE = 16
+COST_SLACK = 1e-9
 Cell = Tuple[int, str]
 RequestT = TypeVar("RequestT", DecisionRequest, GenerationRequest)
 Invoke = Callable[[Sequence[RequestT], Optional[float], Optional[Budget]], object]
+Admit = Callable[[object], bool]
 UnansweredT = TypeVar("UnansweredT", DecisionResult, GenerationResult, covariant=True)
 
 
@@ -147,11 +150,74 @@ def _check_question_capabilities(questions: Sequence[DecisionQuestion], capabili
             raise ValueError(f"question {question.id!r} has more than {limit} {labels}")
 
 
-def _plan_calls(calls: int, budget: Optional[Budget]) -> List[Optional[Budget]]:
-    """The remaining budget handed to each call the budget allows; later calls are skipped (``budget``)."""
-    if budget is None or budget.max_requests is None:
-        return [budget] * calls
-    return [Budget(max_requests=budget.max_requests - index) for index in range(min(calls, budget.max_requests))]
+def _estimate_cost(provider: DecisionProvider, batch: Sequence[DecisionRequest]) -> Optional[float]:
+    """Provider code is untrusted: a failing or invalid estimate means "cannot estimate"."""
+    try:
+        return _nonnegative(canonicalize(provider.estimate_cost_usd(batch)))
+    except Exception:
+        return None
+
+
+def _cost_cap(budget: Budget) -> Optional[float]:
+    return None if budget.max_cost_usd is None else budget.max_cost_usd * (1 + COST_SLACK) + COST_SLACK
+
+
+class _Setup:
+    """Admits the setup requests a provider sends before a run's calls (host probes) against the run's budget, as
+    ``admit(estimated_cost)``; each admitted request counts as one request."""
+
+    def __init__(self, budget: Optional[Budget]) -> None:
+        self.budget, self.requests, self.cost_usd = budget, 0, 0.0
+
+    def __call__(self, cost: object) -> bool:  # hygiene-ok: object-annotation -- untrusted host or user input, narrowed by isinstance
+        number = _nonnegative(canonicalize(cost))
+        if self.budget is not None:
+            cap = _cost_cap(self.budget)
+            if (self.budget.max_requests is not None and self.requests >= self.budget.max_requests) \
+                    or (cap is not None and (number is None or self.cost_usd + number > cap)):
+                return False
+        self.requests += 1
+        self.cost_usd += number or 0.0
+        return True
+
+
+def _prepared(provider: DecisionProvider, requests_: Sequence[DecisionRequest], admit: Admit,
+              deadline_at: Optional[float]) -> Optional[DecisionProvider]:
+    """The provider that answers one run: its optional ``prepare_run`` result (None when the budget stopped the
+    setup), else the provider itself."""
+    hook = getattr(provider, "prepare_run", None)  # hygiene-ok: dynamic-attr -- duck-typed host object with no common base
+    if hook is None:
+        return provider
+    prepared = hook(requests_, admit, deadline_s=None if deadline_at is None else max(0.0, deadline_at - time.monotonic()))
+    if prepared is not None and not isinstance(prepared, DecisionProvider):
+        raise TypeError("prepare_run must return a DecisionProvider or None")
+    return prepared
+
+
+def _plan_calls(batches: Sequence[Sequence[RequestT]], budget: Optional[Budget],
+                estimate: Optional[Callable[[Sequence[RequestT]], Optional[float]]],
+                setup: Optional[_Setup] = None) -> List[Optional[Budget]]:
+    """The remaining budget handed to each call the budget allows, in order; later calls are skipped (``budget``).
+
+    Each call reserves its estimated cost before submission, so which calls run never depends on completion order.
+    Setup requests already admitted are charged first.
+    """
+    if budget is None:
+        return [None] * len(batches)
+    max_cost, max_requests = budget.max_cost_usd, budget.max_requests
+    cap = _cost_cap(budget)
+    plans: List[Optional[Budget]] = []
+    spent, reserved = (0, 0.0) if setup is None else (setup.requests, setup.cost_usd)
+    for index, batch in enumerate(batches):
+        if max_requests is not None and spent + index >= max_requests:
+            break
+        cost = None if cap is None or estimate is None else estimate(batch)
+        if cap is not None and (cost is None or reserved + cost > cap):
+            break
+        plans.append(Budget(max_cost_usd=None if max_cost is None else max(0.0, max_cost - reserved),
+                            max_requests=None if max_requests is None else max_requests - spent - index))
+        reserved += cost or 0.0
+    return plans
 
 
 def _call_provider(invoke: Invoke[RequestT], batch: Sequence[RequestT], remaining_s: Optional[float],
@@ -216,9 +282,16 @@ RequestOutcomes = List[Tuple[int, RequestT, _CallOutcome, Optional[Dict[str, Res
 def _run_rows(rows: _Rows, requests_for: Callable[[List[int]], List[List[RequestT]]], invoke: Invoke[RequestT], *,
               result_type: Type[ResultT], capabilities: ProviderCapabilities, batch_size: Optional[int],
               default_batch_size: int, max_concurrency: Optional[int], budget: Optional[Budget],
-              deadline_at: Optional[float], effect_name: str) -> RequestOutcomes[RequestT, ResultT]:
+              deadline_at: Optional[float], effect_name: str,
+              estimate: Optional[Callable[[Sequence[RequestT]], Optional[float]]] = None,
+              local_answers: Optional[Callable[[Sequence[RequestT]], object]] = None,
+              prepare: Optional[Callable[[Sequence[RequestT], Admit], bool]] = None
+              ) -> RequestOutcomes[RequestT, ResultT]:
     """The row driver: batch the attempted rows, run the calls under the limits, align each provider return, and
-    return ``(position, request, outcome, aligned results of that request)`` for every request, sent or not."""
+    return ``(position, request, outcome, aligned results of that request)`` for every request, sent or not.
+    ``local_answers`` answers every call without the provider, before any budget planning. ``prepare`` runs once
+    before planning when there are calls; its admitted setup requests are charged to the budget, False skips every
+    call (``budget``) and raising makes every call a ``provider_exception``."""
     size = batch_size or capabilities.max_rows_per_request or default_batch_size
     if capabilities.max_rows_per_request is not None:
         size = min(size, capabilities.max_rows_per_request)
@@ -226,7 +299,26 @@ def _run_rows(rows: _Rows, requests_for: Callable[[List[int]], List[List[Request
     calls = [requests for first in range(0, len(attempted), size)
              for requests in requests_for(attempted[first:first + size])]
     threads = max(1, min(capabilities.concurrency_limit, max_concurrency or capabilities.concurrency_limit, len(calls)))
-    outcomes = _execute(calls, _plan_calls(len(calls), budget), invoke, deadline_at, threads, effect_name)
+    if local_answers is not None:
+        expired = deadline_at is not None and time.monotonic() >= deadline_at
+        outcomes = [_CallOutcome(skipped="deadline") if expired else _CallOutcome(returned=local_answers(batch))
+                    for batch in calls]
+    else:
+        if budget is not None and budget.max_cost_usd is not None and calls \
+                and (estimate is None or estimate(calls[0]) is None):
+            raise ValueError("budget.max_cost_usd is set but the provider cannot estimate cost; give the provider "
+                             "prices it can estimate with, or drop the cost cap")
+        setup = _Setup(budget)
+        try:
+            ready: Optional[bool] = prepare is None or not calls or prepare(
+                [request for requests in calls for request in requests], setup)
+        except Exception:
+            ready = None
+        if setup.requests:
+            record_effect(effect_name)
+        outcomes = [_CallOutcome(raised=True)] * len(calls) if ready is None else _execute(
+            calls, _plan_calls(calls, budget, estimate, setup) if ready else [], invoke, deadline_at, threads,
+            effect_name)
     never_sent = [(requests, _CallOutcome(skipped=reason)) for position, reason in enumerate(rows.skip_reason)
                   if reason is not None for requests in requests_for([position])]
     position_of = {request_id: position for position, request_id in enumerate(rows.request_ids)}
@@ -304,12 +396,24 @@ def _with_min_p(question: DecisionQuestion, result: DecisionResult, min_p: Optio
 
 def _decision_cell(request: DecisionRequest, question: DecisionQuestion, outcome: _CallOutcome,
                    row: Optional[Dict[str, DecisionResult]], identity: Tuple[str, str],
-                   capabilities: ProviderCapabilities, min_p: Optional[float], input_hash: str) -> DecisionResult:
+                   capabilities: ProviderCapabilities, min_p: Optional[float], input_hash: str,
+                   require_probabilities: ProbabilityRequirement) -> DecisionResult:
+    def finish(found: DecisionResult) -> DecisionResult:
+        if require_probabilities is not False and _meta_json_or_none(found) is None:
+            return found
+        return _with_min_p(question, enforce_probability(question, found, require_probabilities), min_p)
     return _checked(outcome, row, question.id, DecisionResult,
-                    lambda found: check_decision_result(request, question, found, capabilities),
-                    lambda found: _with_min_p(question, found, min_p),
+                    lambda found: check_decision_result(request, question, found, capabilities), finish,
                     functools.partial(unanswered_result, request, question, provider=identity[0], model=identity[1]),
                     input_hash, request.task_version)
+
+
+def _unavailable_answers(identity: Tuple[str, str]) -> Callable[[Sequence[DecisionRequest]], object]:
+    """Unbilled ``probabilities_unavailable`` answers for a provider known not to report the required kind."""
+    return lambda batch: [dataclasses.replace(
+        unanswered_result(request_, question, provider=identity[0], model=identity[1],
+                          error_code="probabilities_unavailable", latency_ms=0.0, retry_count=0), cost_usd=0.0)
+        for request_ in batch for question in request_.questions]
 
 
 def _generation_cell(request: GenerationRequest, outcome: _CallOutcome, row: Optional[Dict[str, GenerationResult]],
@@ -413,6 +517,7 @@ def sem_decide(
     budget: BudgetSpec = None,
     max_rows: Optional[int] = None,
     min_p: Optional[float] = None,
+    require_probabilities: ProbabilityRequirement = False,
     column_max_chars: Optional[int] = None,
     overwrite: bool = False,
 ) -> DataFrameT:
@@ -438,9 +543,15 @@ def sem_decide(
     :param max_concurrency: upper bound on concurrent provider calls within this run
     :param deadline_s: seconds for the whole run; unfinished rows become ``skipped`` (calls already sent are
         abandoned, not cancelled: they may still finish, and keep the process alive, in the background)
-    :param budget: ``Budget`` or dict with ``max_requests`` (provider calls)
+    :param budget: ``Budget`` or dict with ``max_cost_usd`` (summed provider estimates; a provider that cannot
+        estimate raises) and/or ``max_requests`` (provider calls); host probes a provider sends for the run count
+        against both
     :param max_rows: rows at positions >= ``max_rows`` are ``skipped``, never dropped
     :param min_p: ``ok`` answers whose ``q__p`` is below this (or undefined) become ``uncertain``
+    :param require_probabilities: False preserves default behavior; True requires native or token-logprob p for
+        each successful value; "native" requires native-decision p. Missing required p is probabilities_unavailable.
+        Known incompatible shipped chat configurations fail locally without sending evidence or reserving cost;
+        this capability check precedes provider-call budget planning. Answerless uncertainty, errors and skips are preserved.
     :param column_max_chars: truncate each string evidence value to this many characters
     :param overwrite: replace existing output columns instead of raising
     :returns: a copy of ``df`` with the result columns appended
@@ -455,7 +566,8 @@ def sem_decide(
     """
     started = time.monotonic()
     coerced = coerce_questions(questions)
-    check_params(dict(task_id=task_id, task_version=task_version, overwrite=overwrite),
+    check_params(dict(task_id=task_id, task_version=task_version, overwrite=overwrite,
+                      require_probabilities=require_probabilities),
                  dict(batch_size=batch_size, max_concurrency=max_concurrency, deadline_s=deadline_s,
                       max_rows=max_rows, min_p=min_p, column_max_chars=column_max_chars))
     cols = evidence_columns(evidence_cols, template)
@@ -480,15 +592,35 @@ def sem_decide(
     per_call = capabilities.max_questions_per_request
     hashes = {(position, question.id): compute_decision_hash(evidence, question, task_version)
               for position, evidence in enumerate(rows.evidence) for question in coerced}
+    deadline_at = None if deadline is None else started + deadline
+    run = [resolved]
+    unavailable = _unavailable_answers(identity)
+    settled_gap = [False]
+
+    def prepare(requests_: Sequence[DecisionRequest], admit: Admit) -> bool:
+        prepared = _prepared(resolved, requests_, admit, deadline_at)
+        run[0] = prepared or resolved
+        settled_gap[0] = prepared is not None and known_probability_gap(prepared, require_probabilities)
+        return prepared is not None
+
+    def invoke(batch: Sequence[DecisionRequest], remaining: Optional[float], call_budget: Optional[Budget]) -> object:  # hygiene-ok: object-annotation -- untrusted host or user input, narrowed by isinstance
+        # A strategy settled by the run's setup (such as a probe) may lack the required probabilities: send no evidence.
+        if settled_gap[0]:
+            return unavailable(batch)
+        return run[0].decide_batch(batch, deadline_s=remaining, budget=call_budget)
+
     cells = _run_rows(
         rows, lambda positions: [[request(position, coerced[start:start + per_call]) for position in positions]
                                  for start in range(0, len(coerced), per_call)],
-        lambda batch, remaining, call_budget: resolved.decide_batch(batch, deadline_s=remaining, budget=call_budget),
+        invoke,
         result_type=DecisionResult, capabilities=capabilities, batch_size=batch_size,
         default_batch_size=DEFAULT_DECIDE_BATCH_SIZE, max_concurrency=max_concurrency, budget=run_budget,
-        deadline_at=None if deadline is None else started + deadline, effect_name="sem_decide")
+        deadline_at=deadline_at, effect_name="sem_decide",
+        estimate=lambda batch: 0.0 if settled_gap[0] else _estimate_cost(run[0], batch),
+        local_answers=unavailable if known_probability_gap(resolved, require_probabilities) else None,
+        prepare=prepare)
     grid = {(position, question.id): _decision_cell(request_, question, outcome, row, identity, capabilities,
-                                                    threshold, hashes[(position, question.id)])
+                                                    threshold, hashes[(position, question.id)], require_probabilities)
             for position, request_, outcome, row in cells for question in request_.questions}
     return _with_columns(df, _result_columns(coerced, grid, len(rows.request_ids)))
 
@@ -517,7 +649,8 @@ def sem_map(
 
     Parameters, row identity, limits and failure handling match :func:`sem_decide`, except that ``batch_size``
     defaults to the provider's ``max_rows_per_request``, else 16; ``instruction`` is the generation instruction
-    and ``max_output_tokens`` is passed to the provider as its bound on each generated value.
+    and ``max_output_tokens`` is passed to the provider as its bound on each generated value. ``budget`` takes
+    ``max_requests`` only: ``max_cost_usd`` raises, since generation providers do not estimate cost.
 
     **Example**
         ::
@@ -532,7 +665,7 @@ def sem_map(
                  dict(max_output_tokens=max_output_tokens, batch_size=batch_size, max_concurrency=max_concurrency,
                       deadline_s=deadline_s, max_rows=max_rows, column_max_chars=column_max_chars))
     cols = evidence_columns(evidence_cols, template)
-    run_budget = coerce_budget(budget)
+    run_budget = coerce_map_budget(budget)
     deadline = None if deadline_s is None else float(deadline_s)
     output_tokens = None if max_output_tokens is None else int(max_output_tokens)
     _check_existing_columns([out_col + suffix for suffix, _ in MAP_COLUMN_TYPES], df, overwrite)

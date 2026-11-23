@@ -172,6 +172,7 @@ class SemQuestion(TypedDict, total=False):
 
 class SemBudget(TypedDict, total=False):
     """Run limits for semantic calls."""
+    max_cost_usd: float
     max_requests: int
 
 
@@ -197,6 +198,7 @@ class SemDecideParams(SemCommonParams, total=False):
     """Parameters for sem_decide."""
     questions: List[SemQuestion]
     min_p: float
+    require_probabilities: Union[bool, Literal["native"]]
 
 
 class SemMapParams(SemCommonParams, total=False):

@@ -43,6 +43,9 @@ class CallableDecisionProvider:
     def capabilities(self) -> ProviderCapabilities:
         return self._capabilities
 
+    def estimate_cost_usd(self, requests: Sequence[DecisionRequest]) -> Optional[float]:
+        return 0.0
+
     def decide_batch(self, requests: Sequence[DecisionRequest], *, deadline_s: Optional[float],
                      budget: Optional[Budget]) -> List[DecisionResult]:
         return [self._decide_one(request, question) for request in requests for question in request.questions]

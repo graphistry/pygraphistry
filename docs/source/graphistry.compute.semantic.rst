@@ -14,3 +14,10 @@ graphistry.compute.semantic.contract module
 .. automodule:: graphistry.compute.semantic.contract
    :members:
    :show-inheritance:
+
+graphistry.compute.semantic.providers.http module
+-------------------------------------------------
+
+.. automodule:: graphistry.compute.semantic.providers.http
+   :members:
+   :show-inheritance:

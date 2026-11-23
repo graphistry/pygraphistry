@@ -2,7 +2,6 @@ import os
 from typing import Dict, List, Tuple
 
 import pandas as pd
-import pytest
 
 import graphistry
 from graphistry import call
