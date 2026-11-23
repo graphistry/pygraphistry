@@ -16,6 +16,12 @@ Checks:
   plottable-attr-write  `param.attr = ...` onto a parameter annotated as a Plottable
   vocab-str-param       closed-vocabulary parameter (table/kind/direction/how/mode/
                         engine) annotated as plain `str` rather than a `Literal[...]`
+  dynamic-attr          call to the builtin `hasattr` / `getattr` / `setattr`: a duck-typed
+                        probe mypy cannot narrow. Use the typed helpers in
+                        graphistry/Engine.py (is_series_like, is_cudf_series,
+                        is_polars_series, is_polars_df), `isinstance`, or a Protocol.
+                        A `setattr` already reported as plottable-setattr is not
+                        counted again.
 
 Enforcement is a **per-file count ratchet**: a file may not gain findings relative
 to the committed baseline, and a file absent from the baseline must have zero.
@@ -62,7 +68,10 @@ CHECKS = (
     "plottable-setattr",
     "plottable-attr-write",
     "vocab-str-param",
+    "dynamic-attr",
 )
+
+DYNAMIC_ATTR_BUILTINS = frozenset(["hasattr", "getattr", "setattr"])
 
 # Unsubscripted forms of these lose the element type. Abstract shapes
 # (Callable/Iterable/Sequence/...) are deliberately excluded: bare `Callable` is
@@ -198,6 +207,24 @@ def nested_node_ids(func: FuncDef) -> Set[int]:
     return nested
 
 
+def rebound_builtin_names(tree: ast.AST) -> Set[str]:
+    """Names of the probed builtins that the file defines or imports itself (a local
+    `def getattr`, `getattr = ...`, `import x as hasattr`, a parameter named so), which
+    are then not the builtin and are not flagged."""
+    names: Set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            names.add(node.name)
+        elif isinstance(node, ast.Name) and isinstance(node.ctx, (ast.Store, ast.Del)):
+            names.add(node.id)
+        elif isinstance(node, ast.arg):
+            names.add(node.arg)
+        elif isinstance(node, (ast.Import, ast.ImportFrom)):
+            for alias in node.names:
+                names.add((alias.asname or alias.name).split(".")[0])
+    return names & DYNAMIC_ATTR_BUILTINS
+
+
 def analyze_file(path: str) -> List[Finding]:
     with open(path, "r", encoding="utf-8") as handle:
         source = handle.read()
@@ -209,6 +236,7 @@ def analyze_file(path: str) -> List[Finding]:
     relpath = rel(path)
     skip = suppressed_lines(source)
     findings: List[Finding] = []
+    plottable_setattr_calls: Set[int] = set()
 
     def emit(check: str, line: int, message: str) -> None:
         if line not in skip:
@@ -290,6 +318,8 @@ def analyze_file(path: str) -> List[Finding]:
             if target is None or check is None:
                 continue
             if root_name(target) in plottable_params:
+                if isinstance(sub, ast.Call):
+                    plottable_setattr_calls.add(id(sub))
                 emit(check, sub.lineno,
                      "%s writes onto `%s`, a caller-owned Plottable parameter of `%s()`; "
                      "return a new object or thread a per-execution cache (see issue #1825)"
@@ -311,6 +341,21 @@ def analyze_file(path: str) -> List[Finding]:
             emit("explicit-cast", node.lineno,
                  "`cast(...)`; prefer engine-agnostic SeriesT/DataFrameT plus a localized "
                  "`# type: ignore` over `Any` + call-site casts")
+
+    # --- class 6: duck-typed attribute probes ------------------------------
+    rebound = rebound_builtin_names(tree)
+    for node in ast.walk(tree):
+        if (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id in DYNAMIC_ATTR_BUILTINS
+            and node.func.id not in rebound
+            and id(node) not in plottable_setattr_calls
+        ):
+            emit("dynamic-attr", node.lineno,
+                 "`%s(...)` is an untyped attribute probe; use a typed helper from "
+                 "graphistry/Engine.py (is_series_like, is_cudf_series, is_polars_series, "
+                 "is_polars_df), `isinstance`, or a Protocol" % node.func.id)
 
     return findings
 
