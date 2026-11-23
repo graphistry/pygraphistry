@@ -39,7 +39,7 @@ NativeShortestPathCache = Dict[Hashable, Any]
 
 
 def _build_igraph_shortest_path_state(step_pairs: Any, *, directed: bool) -> IgraphShortestPathState:
-    import igraph as ig  # type: ignore[import]
+    import igraph as ig
 
     sp_frm = list(step_pairs[WALK_FROM_COL])
     sp_to = list(step_pairs[WALK_TO_COL])
@@ -162,8 +162,8 @@ def cugraph_shortest_path_distances(
     Returns a cuDF DataFrame with __sp_source__, __sp_target__, __sp_hops__.
     Unreachable, under-min-hops, or over-max-hops pairs get __sp_hops__ = None.
     """
-    import cudf  # type: ignore[import]
-    import cugraph  # type: ignore[import]
+    import cudf
+    import cugraph
 
     def _build_graph() -> Any:
         edges_gdf = cudf.DataFrame({

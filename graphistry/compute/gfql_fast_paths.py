@@ -578,7 +578,7 @@ def _two_hop_equal_domain_degree_counts(
             filtered_edges.group_by(src_col).len(_TWO_HOP_OUT_COUNT_COL),
             filtered_edges.select((pl.col(src_col) == pl.col(dst_col)).sum().alias(_TWO_HOP_SELF_LOOP_COL)),
         ])
-        counts = (in_counts, out_counts, int(loops.item() or 0))  # type: ignore[assignment]  # polars frames; DataFrameT pins pandas
+        counts = (in_counts, out_counts, int(loops.item() or 0))  # polars frames; DataFrameT pins pandas
     else:
         domain_ids = domain_nodes[node_col].drop_duplicates()
         filtered_edges = edge_domain[edge_domain[src_col].isin(domain_ids) & edge_domain[dst_col].isin(domain_ids)]
@@ -2233,26 +2233,26 @@ def _has_edge_destination_disambiguated_nodes(
     if engine in POLARS_ENGINES:
         import polars as pl
         tbl_dup = bool(_lazy_collect(
-            nodes.lazy()  # type: ignore[union-attr]
+            nodes.lazy()
             .select(pl.col(node_col).is_duplicated().any())
         ).item())
         if not tbl_dup:
             return None
-        start_ids = start_nodes.lazy().select(node_col).unique()  # type: ignore[union-attr]
+        start_ids = start_nodes.lazy().select(node_col).unique()
         cand_ids = (
-            edges.lazy()  # type: ignore[union-attr]
+            edges.lazy()
             .join(start_ids, left_on=src_col, right_on=node_col, how="semi")
             .select(pl.col(dst_col).alias(node_col))
             .unique()
         )
         cand_dup = bool(_lazy_collect(
-            nodes.lazy()  # type: ignore[union-attr]
+            nodes.lazy()
             .join(cand_ids, on=node_col, how="semi")
             .select(pl.col(node_col).is_duplicated().any())
         ).item())
         if not cand_dup:
             return None
-        return nodes.filter(pl.col(label_col).fill_null(False).cast(pl.Boolean))  # type: ignore[union-attr]
+        return nodes.filter(pl.col(label_col).fill_null(False).cast(pl.Boolean))
     if not bool(nodes[node_col].duplicated(keep=False).any()):
         return None
     start_ids = start_nodes[node_col].drop_duplicates()
@@ -3325,18 +3325,18 @@ def _seeded_typed_hop_bag_rows(
         return dst_rows
     if is_polars:
         import polars as pl
-        keys = edges.select(pl.col(to_col).alias(_SEEDED_BAG_KEY))  # type: ignore[union-attr]
-        keyed = dst_rows.with_columns(pl.col(node).alias(_SEEDED_BAG_KEY))  # type: ignore[union-attr]
-        return keys.join(keyed, on=_SEEDED_BAG_KEY, how="inner").drop(_SEEDED_BAG_KEY)  # type: ignore[no-any-return]
-    keys = edges[[to_col]].rename(columns={to_col: _SEEDED_BAG_KEY}).reset_index(drop=True)  # type: ignore[union-attr]
+        keys = edges.select(pl.col(to_col).alias(_SEEDED_BAG_KEY))
+        keyed = dst_rows.with_columns(pl.col(node).alias(_SEEDED_BAG_KEY))
+        return keys.join(keyed, on=_SEEDED_BAG_KEY, how="inner").drop(_SEEDED_BAG_KEY)
+    keys = edges[[to_col]].rename(columns={to_col: _SEEDED_BAG_KEY}).reset_index(drop=True)
     joined = keys.merge(dst_rows, left_on=_SEEDED_BAG_KEY, right_on=node, how="inner")
-    return joined.drop(columns=[_SEEDED_BAG_KEY]).reset_index(drop=True)  # type: ignore[no-any-return]
+    return joined.drop(columns=[_SEEDED_BAG_KEY]).reset_index(drop=True)
 
 
 def _seed_rows_have_duplicate_id(seed_rows: DataFrameT, node: str, *, is_polars: bool) -> bool:
     """Whether the matched seed rows retain more than one binding row per ID."""
     if is_polars:
-        return bool(seed_rows.get_column(node).is_duplicated().any())  # type: ignore[union-attr]
+        return bool(seed_rows.get_column(node).is_duplicated().any())
     return bool(seed_rows[node].duplicated().any())
 
 
