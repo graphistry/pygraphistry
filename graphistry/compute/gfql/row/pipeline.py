@@ -6381,7 +6381,7 @@ class RowPipelineMixin:
         null_mask = self._gfql_null_mask(out_df, out_df[tmp_col])
         if not list_like and hasattr(null_mask, "all") and bool(null_mask.all()):
             empty_df = out_df.iloc[0:0].drop(columns=[tmp_col]).assign(**{as_clean: out_df.iloc[0:0][tmp_col]})
-            return self._gfql_row_table(empty_df)
+            return self._gfql_unwound_row_table(empty_df, as_clean)
         if list_like:
             row_col = self._gfql_fresh_col_name(out_df.columns, "__gfql_unwind_row__")
             len_col = self._gfql_fresh_col_name(out_df.columns, "__gfql_unwind_len__")
@@ -6399,7 +6399,19 @@ class RowPipelineMixin:
             out_df = out_df.drop(columns=[row_col, len_col, pos_col])
         out_df = out_df.assign(**{as_clean: out_df[tmp_col]})
         out_df = out_df.drop(columns=[tmp_col])
-        return self._gfql_row_table(out_df)
+        return self._gfql_unwound_row_table(out_df, as_clean)
+
+    def _gfql_unwound_row_table(self, out_df: DataFrameT, unwound: str) -> "Plottable":
+        """Row table after UNWIND. When alias identity is not carried (no MATCH before it), the unwound column is a value:
+        keep the column-value inference for every other column and exclude this one."""
+        out = self._gfql_row_table(out_df)
+        if self._gfql_rows_node_aliases is None and self._gfql_rows_edge_aliases is None:
+            out._gfql_rows_node_aliases = {
+                col for col in out_df.columns
+                if col != unwound and isinstance(col, str) and RowPipelineMixin._gfql_series_bool_like(out_df[col])
+            }
+            out._gfql_rows_edge_aliases = set()
+        return out
 
     def group_by(
         self,

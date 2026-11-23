@@ -316,9 +316,6 @@ def rows(
         table_df = _restore_alias_shadowed_user_column(ctx, table_df, table, source)
 
     out = row_table(ctx, table_df)
-    if source is None and out._gfql_rows_node_aliases is None and out._gfql_rows_edge_aliases is None:
-        out._gfql_rows_node_aliases = set()  # a plain table read has no MATCH aliases; its boolean columns are values
-        out._gfql_rows_edge_aliases = set()
     if source is not None:
         if table == "nodes":
             aliases = set(out._gfql_rows_node_aliases or ())

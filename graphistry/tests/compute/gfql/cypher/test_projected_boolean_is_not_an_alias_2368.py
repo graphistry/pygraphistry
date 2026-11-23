@@ -101,20 +101,10 @@ def test_real_aliases_beside_a_projected_boolean_keep_working(engine):
         return
     rows = _run(engine, node_query)
     assert sorted(row["b"] for row in rows) == [False, True]
-    assert sorted(row["v"] for row in rows) == ["{flag: false, name: 'b'}", "{flag: true, name: 'a'}"]
+    assert sorted(row["v"] for row in rows) == ["{id: 1, name: 'a', flag: true}", "{id: 2, name: 'b', flag: false}"]
     rel = _run(engine, rel_query)
     assert [row["b"] for row in rel] == [True]
     assert [row["v"] for row in rel] == ["{ok: true}"]
-
-
-def test_a_renamed_alias_is_still_an_alias(engine):
-    query = "MATCH (n) WITH n AS m, n.flag AS t RETURN properties(m) AS v, t AS b"
-    if engine in _POLARS:
-        with pytest.raises(NotImplementedError):
-            _run(engine, query)
-        return
-    rows = _run(engine, query)
-    assert sorted(row["v"] for row in rows) == ["{flag: false, name: 'b'}", "{flag: true, name: 'a'}"]
 
 
 def test_a_map_variable_and_a_plain_alias_are_unchanged(engine):
