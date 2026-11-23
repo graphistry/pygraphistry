@@ -30,6 +30,8 @@ POLARS_TEST_FILES=(
     graphistry/tests/compute/gfql/test_temporal_membership_1949.py
     graphistry/tests/test_plotterbase_optional_deps.py
     graphistry/tests/compute/test_polars.py
+    # explain_sem_* read a Polars table (the result of g.gfql(...) on a Polars graph)
+    graphistry/tests/compute/semantic/test_explain_polars.py
     # cache-coverage lock: its static scans run everywhere, but the functional pin for the
     # polars single-alias lowering memo can only execute where polars is installed
     graphistry/tests/compute/gfql/test_clear_caches_covers_every_cache.py
