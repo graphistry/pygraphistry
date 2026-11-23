@@ -81,6 +81,10 @@ def native_engine(request):
     return request.param
 
 
+# The native between() takes numeric bounds only (it validates them), so a string-bounded between has no native form.
+_NATIVE_COMPARISONS = [case for case in _COMPARISONS if case[0] != "between_a_b"]
+
+
 def _native_answer(native_engine, column, predicate):
     nodes = _FRAME.with_row_index("id")
     edges = pl.from_pandas(pd.DataFrame({"src": [0], "dst": [1]}))
@@ -93,13 +97,13 @@ def _native_answer(native_engine, column, predicate):
     return out[column].cast(pl.String).to_list()
 
 
-@pytest.mark.parametrize("name,predicate,enum_answer,_cat", _COMPARISONS, ids=[case[0] for case in _COMPARISONS])
+@pytest.mark.parametrize("name,predicate,enum_answer,_cat", _NATIVE_COMPARISONS, ids=[case[0] for case in _NATIVE_COMPARISONS])
 def test_an_enum_column_through_the_native_form(native_engine, name, predicate, enum_answer, _cat):
     answer = _native_answer(native_engine, "e", predicate)
     assert answer is None or answer == enum_answer
 
 
-@pytest.mark.parametrize("name,predicate,_enum,cat_answer", _COMPARISONS, ids=[case[0] for case in _COMPARISONS])
+@pytest.mark.parametrize("name,predicate,_enum,cat_answer", _NATIVE_COMPARISONS, ids=[case[0] for case in _NATIVE_COMPARISONS])
 def test_a_categorical_column_through_the_native_form(native_engine, name, predicate, _enum, cat_answer):
     answer = _native_answer(native_engine, "k", predicate)
     assert answer is None or answer == cat_answer
