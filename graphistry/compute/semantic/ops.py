@@ -859,7 +859,7 @@ def _run_stats(op: str, setup: Union[_DecideSetup, _MapSetup], cells: Dict[Cell,
         by_row[position].append(result)
     budget_skipped = sum(1 for position in active_send if any(r.status == "skipped" and r.status_reason == "budget" for r in by_row[position]))
     deadline_skipped = sum(1 for position in active_send if any(r.status == "skipped" and r.status_reason == "deadline" for r in by_row[position]))
-    status_counts: Dict[str, Dict[str, int]] = {question: collections.Counter() for question in questions}  # type: ignore[misc]
+    status_counts: Dict[str, Dict[str, int]] = {question: collections.Counter() for question in questions}
     reasons: Dict[str, int] = collections.Counter()
     codes: Dict[str, int] = collections.Counter()
     kinds: Dict[str, int] = collections.Counter()
@@ -1110,6 +1110,6 @@ def sem_map(
         f"{out_col}__meta": np.array([_meta_json(result) for result in ordered], dtype=object),
     })
     if tracing:
-        record_run(_run_stats("sem_map", setup, {(p, ""): r for p, r in results.items()},  # type: ignore[arg-type]
+        record_run(_run_stats("sem_map", setup, {(p, ""): r for p, r in results.items()},
                               {(p, ""): r for p, r in provider_results.items()}, [""], telemetry, flight, started, None))
     return out
