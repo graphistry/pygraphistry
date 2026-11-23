@@ -5,6 +5,7 @@ import pandas as pd
 import pytest
 
 import graphistry
+from graphistry.compute.exceptions import GFQLUnsupportedError
 
 
 @pytest.fixture(params=["pandas", "cudf", "polars", "polars-gpu"])
@@ -47,6 +48,16 @@ def _rows(engine, query, value):
     return out.to_dict("records")
 
 
+def _agg_rows(engine, query, value):
+    """Rows of an aggregating query. The one decline today: polars-gpu on an executor without GPU group-by (cudf-polars 25.02)
+    raises GFQLUnsupportedError; that error, for that engine, is returned as None and nothing else is tolerated."""
+    try:
+        return _rows(engine, query, value)
+    except GFQLUnsupportedError as exc:
+        assert engine == "polars-gpu" and "cannot execute this aggregation" in str(exc), str(exc)
+        return None
+
+
 # A string equal to a column name or to expression text must stay a string, never a column or an expression.
 _VALUES = [
     "x", "name", "n.id", "it's", "a b", "",
@@ -69,15 +80,15 @@ def test_with_then_return_carries_the_string(engine, value):
 
 @pytest.mark.parametrize("value", _VALUES)
 def test_aggregates_and_grouping_over_a_string_parameter(engine, value):
-    count = _rows(engine, "MATCH (n) RETURN count($v) AS c", value)
-    assert count == [{"c": 2}]
-    grouped = _rows(engine, "MATCH (n) RETURN $v AS v, count(*) AS c", value)
-    assert grouped == [{"v": value, "c": 2}]
+    count = _agg_rows(engine, "MATCH (n) RETURN count($v) AS c", value)
+    assert count is None or count == [{"c": 2}]
+    grouped = _agg_rows(engine, "MATCH (n) RETURN $v AS v, count(*) AS c", value)
+    assert grouped is None or grouped == [{"v": value, "c": 2}]
 
 
 def test_collect_of_a_string_parameter(engine):
-    rows = _rows(engine, "MATCH (n) RETURN collect($v) AS c", "x")
-    assert len(rows) == 1 and list(rows[0]["c"]) == ["x", "x"]  # Polars returns the list as an array
+    rows = _agg_rows(engine, "MATCH (n) RETURN collect($v) AS c", "x")
+    assert rows is None or len(rows) == 1 and list(rows[0]["c"]) == ["x", "x"]  # Polars returns the list as an array
 
 
 @pytest.mark.parametrize("value", _VALUES)
