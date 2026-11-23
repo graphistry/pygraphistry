@@ -2162,6 +2162,99 @@ What the cache holds, and what a hit looks like:
 To keep answers in Redis or a database, write a class with ``get_many(keys)`` (a mapping of the keys it holds to JSON
 strings), ``put_many(entries)`` and ``clear()``, and bind an instance for each tenant.
 
+Plans, traces and safe verdicts
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Three tools show what a run will do, what it did, and which rows the model answered.
+
+**A plan** is what a run would do, with no provider call. ``explain_sem_decide`` and ``explain_sem_map`` take the arguments of
+``sem_decide`` and ``sem_map`` and return a ``SemanticPlanReport``. The plan is built by the code that the run uses, so it is
+what the run does. It sends no answer request and no probe. It reads the provider's limits and cost estimate, and it reads a
+bound cache without changing it (it uses ``peek_many`` when the cache has it, as ``MemorySemanticCache`` does).
+
+**A trace** is what a run did. ``with semantic_trace() as runs:`` gives a list. Each ``sem_decide`` or ``sem_map`` run in the
+block, direct or through ``g.gfql([call(...)])``, adds one ``SemanticRunStats``. Blocks nest. The trace follows ``contextvars``
+rules, so a thread that you start yourself sees it only when you start it with ``contextvars.copy_context().run``. Outside a block
+a run does no tracing work.
+
+**A verdict** says whether the model answered. ``semantic_verdicts`` turns the columns of one question into ``yes``, ``no``,
+``uncertain``, ``error`` or ``skipped``. Only an ``ok`` row is ``yes`` or ``no``. ``~out["q"]`` and ``out["q"] == "label"`` both
+count an ``error`` or ``skipped`` row as ``no``, and a report that does this shows a row as safe when the model never answered it.
+``semantic_summary`` counts the statuses of every question, with an ``unanswered`` column.
+
+.. code-block:: python
+
+    from graphistry.compute.semantic import (
+        CallableDecisionProvider, explain_sem_decide, semantic_summary, semantic_trace, semantic_verdicts)
+
+    provider = CallableDecisionProvider(lambda evidence, q: "inc" in str(evidence).lower(), fingerprint="company-rules-v1")
+    questions = [{"id": "is_company", "kind": "predicate", "text": "Is this a company?"}]
+
+    plan = explain_sem_decide(g._nodes, questions=questions, provider=provider, task_id="t", evidence_cols=["name"])
+    plan["planned_calls"], plan["dedupe_saved_rows"], plan["estimated_input_cost_usd"]
+
+    with semantic_trace() as runs:
+        g2 = g.sem_decide(questions, provider, task_id="t", evidence_cols=["name"])
+    runs[0]["provider_calls"], runs[0]["billed_cost_usd"]
+    semantic_verdicts(g2._nodes, "is_company").value_counts()
+    semantic_summary(g2._nodes)
+
+The fields of ``SemanticPlanReport`` (rows are rows of the table):
+
+.. list-table::
+   :header-rows: 1
+   :widths: 30 70
+
+   * - Field
+     - Meaning
+   * - ``total_rows``, ``null_evidence_rows``, ``max_rows_skipped``, ``active_rows``
+     - Rows, rows with no evidence, rows beyond ``max_rows``, and the rest
+   * - ``dedupe``, ``unique_rows``, ``dedupe_saved_rows``
+     - Whether ``dedupe`` is on, the distinct active rows, and the rows that a copy answers
+   * - ``cache_bound``, ``cache_hits``, ``cache_misses``
+     - Whether a cache is bound, and the distinct rows that it answers or does not answer (``sem_decide``: every question must hit)
+   * - ``provider_rows``
+     - The rows that reach the provider
+   * - ``effective_batch_size``, ``effective_concurrency``
+     - Rows in a call, and the calls that run at once
+   * - ``planned_calls``, ``calls_within_budget``, ``planned_questions``
+     - Provider calls, the calls that ``budget`` allows, and the answers that are asked for. A provider that is known to lack the
+       required probabilities plans no call
+   * - ``estimated_input_cost_usd``
+     - The estimate of the input cost of the planned calls, or None when the provider cannot estimate (``sem_map`` never does)
+   * - ``budget_max_cost_usd``, ``budget_max_requests``, ``would_budget_skip_rows``
+     - The limits, and the rows that they would skip. A cost cap on a provider that cannot estimate cost raises ``ValueError``,
+       as it does in a run
+   * - ``provider``, ``model``, ``strategy``, ``known_probability_gap``
+     - Who answers, the configured strategy (None when the provider has none), and whether the provider is known to lack the
+       required probabilities
+
+The fields of ``SemanticRunStats``:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 30 70
+
+   * - Field
+     - Meaning
+   * - ``total_rows``, ``null_evidence_rows``, ``max_rows_skipped``, ``active_rows``, ``deduped_rows``, ``cache_hits``, ``provider_rows``
+     - The funnel, in rows
+   * - ``budget_skipped_rows``, ``deadline_skipped_rows``
+     - Provider rows that a budget or a deadline stopped
+   * - ``status_counts``
+     - For each question, the number of rows for each status (``sem_map`` uses the key ``""``)
+   * - ``uncertain_reasons``, ``error_codes``, ``probability_kind_counts``
+     - Histograms over the answers of all questions
+   * - ``provider_calls``, ``probe_calls``, ``retries``
+     - Calls that reached the provider, setup requests such as host probes, and extra requests that the provider made
+   * - ``billed_cost_usd``, ``provider_latency_ms_sum``, ``cached_input_tokens``
+     - Summed over the answers that the provider gave. A copy of a duplicate row and a cache hit add nothing, so nothing counts twice.
+       ``billed_cost_usd`` is the sum of the ``cost_usd`` of the answers: it does not hold the cost of probe requests
+   * - ``estimated_cost_usd``
+     - The estimate of the input cost of the planned calls, or None
+   * - ``wall_ms``, ``peak_in_flight``, ``strategy_used``
+     - Time of the run, the most calls in flight at once, and the strategy that the provider settled on (None when it has none)
+
 Defaults to review
 ~~~~~~~~~~~~~~~~~~
 
