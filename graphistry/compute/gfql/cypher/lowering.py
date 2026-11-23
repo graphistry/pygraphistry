@@ -1785,10 +1785,8 @@ def _row_expr_arg(
     # only where every engine provably agrees — see expr_const_fold, criterion (E).
     folded = fold_constants(rewritten)
     rendered = _render_expr_node(folded)
-    if isinstance(folded, ExprLiteral) and not isinstance(folded.value, (str, list, tuple, dict)):
-        # A bare number, boolean or null renders to text that a column may share
-        # (`5`, `true`, `null`); row evaluators read such text as that column first.
-        # Parentheses keep it an expression, so the literal is evaluated.
+    if isinstance(folded, ExprLiteral) and not isinstance(folded.value, str):
+        # Bare number/bool/null text can equal a column name; parentheses keep it an expression.
         return f"({rendered})"
     return rendered
 
