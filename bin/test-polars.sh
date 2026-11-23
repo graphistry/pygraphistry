@@ -34,6 +34,7 @@ POLARS_TEST_FILES=(
     # polars single-alias lowering memo can only execute where polars is installed
     graphistry/tests/compute/gfql/test_clear_caches_covers_every_cache.py
     graphistry/tests/compute/gfql/test_engine_polars_hop.py
+    graphistry/tests/compute/gfql/test_parquet_hop.py
     graphistry/tests/compute/gfql/test_engine_polars_chain.py
     graphistry/tests/compute/gfql/test_engine_polars_row_pipeline.py
     graphistry/tests/compute/gfql/test_engine_polars_binding_rows.py
