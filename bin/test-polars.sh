@@ -34,6 +34,7 @@ POLARS_TEST_FILES=(
     # polars single-alias lowering memo can only execute where polars is installed
     graphistry/tests/compute/gfql/test_clear_caches_covers_every_cache.py
     graphistry/tests/compute/gfql/test_engine_polars_hop.py
+    graphistry/tests/compute/gfql/test_parquet_hop.py
     graphistry/tests/compute/gfql/test_engine_polars_chain.py
     graphistry/tests/compute/gfql/test_engine_polars_row_pipeline.py
     graphistry/tests/compute/gfql/test_engine_polars_binding_rows.py
@@ -67,6 +68,8 @@ POLARS_TEST_FILES=(
     graphistry/tests/compute/gfql/cypher/test_issue_2258_entity_identity_membership.py
     # #2336 subscript parity is engine-parametrized; Polars native lowering only runs here
     graphistry/tests/compute/gfql/cypher/test_subscript_property_parity_2336.py
+    # #2324 string parameters are engine-parametrized; Polars params only run in this lane
+    graphistry/tests/compute/gfql/cypher/test_string_param_literal_2324.py
     # #2333 entity metadata is engine-parametrized; pandas/cuDF run in core and the
     # structured Polars declines only run in this lane
     graphistry/tests/compute/gfql/cypher/test_entity_metadata_multi_alias_2333.py
