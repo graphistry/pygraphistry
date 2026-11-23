@@ -433,9 +433,10 @@ def draw_chart(results, source, simulated, flat_rows, hub_rows, positives, path=
     ax.scatter(recall, y, marker="D", s=85, color="white", edgecolor="#222", zorder=3, label="recall")
     for yi, row, p, r in zip(y, rows, precision, recall):
         text = "not measured" if np.isnan(row["precision"]) else (f"{p:.0f}% precise\n{row['uncertain_pct']:.0f}% to review"
-                                                                 + (f"\n+{row['in_queue']:,} queued" if row["in_queue"] else ""))
+                                                                 + (f"\n+{row['in_queue']:,} queued" if row.get("in_queue") else ""))
         ax.text(max(p, 0 if np.isnan(r) else r) + 3, yi, text, va="center", ha="left", fontsize=10.5, fontweight="bold", linespacing=1.05)
     ax.set_xlim(0, 185)
+    ax.set_ylim(-1.0, len(rows) - 0.35)
     ax.set_xticks([0, 25, 50, 75, 100])
     ax.set_xticklabels([f"{t}%" for t in (0, 25, 50, 75, 100)], fontsize=10.5)
     ax.set_title(f"Quality: precision of the class_I list ({tag})", fontsize=13, loc="left", fontweight="bold")
