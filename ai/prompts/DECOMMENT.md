@@ -306,7 +306,7 @@ encodings[encoding_key] = node_bindings[server_key]  # type: ignore[literal-requ
 ```python
 # Note: PyGraphistry #793 fixed in PR #798 - bindings now update correctly after UMAP
 # The defensive validation workaround is no longer needed
-if hasattr(g, '_source') and g._source:
+if g._source:
     # ...
 ```
 

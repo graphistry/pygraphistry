@@ -145,6 +145,9 @@ that keep coming back in code review, so a reviewer does not have to.
 | `plottable-setattr` | `setattr()` onto a parameter annotated as a `Plottable` |
 | `plottable-attr-write` | `param.attr = ...` onto a parameter annotated as a `Plottable` |
 | `vocab-str-param` | a closed-vocabulary parameter (`table`, `kind`, `direction`, `how`, `mode`, `engine`) annotated as plain `str` |
+| `dynamic-attr` | a call to the builtin `hasattr`, `getattr` (two or three arguments) or `setattr`: an untyped attribute probe mypy cannot narrow. A `setattr` already reported as `plottable-setattr` is counted once, there. A method named `.getattr()` and a file that defines its own `getattr` are not flagged. Also counted: `.__module__` / `.__dict__` access, `type(x).__name__` / `x.__class__.__name__` when the name is tested (compared, used as a lookup key, matched on, or prefix-tested; passing it to an error message or log is not counted), `vars()` and `except AttributeError`. Use `isinstance`, the typed guards in `graphistry/Engine.py`, or a `Protocol` instead |
+| `bare-type-ignore` | a `# type: ignore` comment with no error code, which silences every error on its line. Write `# type: ignore[code]`, or fix the typing |
+| `object-annotation` | `object` as a whole parameter or return annotation, or a member of a top-level `Optional` / `Union` / `|` (accepts anything, narrows nothing); `Dict[str, object]` and other nested uses are not counted. Use the real type, a `Protocol` or a `TypeVar`; a function that returns a `TypeGuard` / `TypeIs` is exempt |
 
 Enforcement is a **per-file count ratchet** against
 `bin/ci/ci_type_hygiene_baseline.json`: a file may not gain findings, and a file
@@ -156,6 +159,15 @@ moved code is not.
 ./bin/ci/ci_type_hygiene_guard.py --report    # totals per check
 ./bin/ci/ci_type_hygiene_guard.py --list plottable-setattr
 ./bin/ci/ci_type_hygiene_guard.py --strict    # show files that improved; time to retighten
+```
+
+Instead of `hasattr` / `getattr` / `setattr`, use the typed helpers in `graphistry/Engine.py`
+(`is_series_like`, `is_cudf_series`, `is_polars_series`, `is_polars_df`), `isinstance`, or a
+`Protocol`, so mypy can narrow the value. `__module__` string sniffing is not part of the check
+and stays a review item. Suppress a probe only when no typed form exists:
+
+```python
+if hasattr(frame, "to_pandas"):  # hygiene-ok: dynamic-attr -- third-party frame with no common base
 ```
 
 When a finding is genuinely correct, annotate that line and say why:
@@ -229,6 +241,7 @@ last rule class on that stack still enforced only by human review.
 moving into a docstring — so they read docstrings too. Tests are exempt from
 `comment-block` and `issue-rationale` (a test may explain its oracle) but not
 from `perf-claim`: measurement belongs in pyg-bench wherever it is written.
+Performance issues are filed in pyg-bench as well; see `AGENTS.md` "Where Issues Go". This routing applies only to people with access to the benchmark, TCK and evals repositories; outside contributors have no access, so they file in pygraphistry and a maintainer moves the issue.
 
 The line limit is 127, so a constraint that genuinely cannot be expressed by a
 name or a test fits on one line. `regress` and `A/B` count only next to
