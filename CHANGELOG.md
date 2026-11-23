@@ -8,6 +8,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [Development]
 <!-- Do Not Erase This Section - Used for tracking unreleased changes -->
 
+### New Contributors
+
+- Welcome to new contributor @vikingps (Vikas), who made their first contribution in #2358 (experimental bounded Parquet traversal for GFQL `.hop()`).
+
 ### Added
 
 - **GFQL bounded Parquet hop** — use the experimental `limits=HopLimits(...)` option for finite seeded forward CPU traversal with native Polars scans and late property materialization.
@@ -27,6 +31,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ### Fixed
 
 - **GFQL Cypher string predicates over non-strings** (#2335): `STARTS WITH`, `ENDS WITH`, and `CONTAINS` in Cypher now give openCypher null when either operand is not a string (a numeric, boolean, or mixed-value cell is null, never coerced to text), in both `WHERE` and `RETURN`, and a categorical column of strings matches like strings. The native chain API is unchanged: `contains()`, `startswith()`, `endswith()`, `match()`, and `fullmatch()` on a non-string column still raise the typed `E302` error. The string predicates gain an optional `nonstring` field (`'error'` by default, `'null'` for Cypher), omitted from JSON at its default so existing serialized chains are unchanged.
+- **GFQL Cypher projected booleans are not aliases**: a boolean value projected in a `WITH` (`WITH n, n.flag AS t`) is no longer read as a node or relationship alias by `properties(t)`, `keys(t)` or a dotted property read `t.name` on pandas and cuDF; those raise the type error instead of answering with the node's properties (including a leaked `n: true` key) or `{}`. Alias identity now comes from the alias names the row frame carries, not from a column being boolean (#2368).
 - **GFQL Cypher aggregates over a string subscript**: `count(a['name'])`, `sum(a['w'])` and `avg(...)` over a node alias in a pattern such as `MATCH (a)-[r]->(b)` now answer like the dotted spelling (`a.name`); they raised `unsupported row expression: AST evaluator unsupported` because the planner only materialized node properties for the dotted spelling. The planner now materializes the property column for a constant string subscript (`a['name']`) exactly as for `a.name`; nothing else about how a subscript is parsed or evaluated changes (#2363).
 - **GFQL Cypher string parameters**: a whole-expression string parameter such as `RETURN $v` or `count($v)` is a string value in every row expression position, on every engine that runs the query. It raised `unsupported token in row expression` on pandas and cuDF, and a string equal to a column name (`'name'`) or to expression text (`'n.id'`) silently returned the column or the evaluated expression instead of the string (#2324).
 - **GFQL exponentiation operator**: `^` now follows TCK power precedence, returns float values on pandas, cuDF, and Polars, and promotes the six numeric-precedence scenarios from expression debt.
