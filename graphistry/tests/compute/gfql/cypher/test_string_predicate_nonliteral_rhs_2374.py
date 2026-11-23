@@ -47,11 +47,11 @@ def _graph(engine):
 
 
 def _rows(engine, query):
-    """Rows with nulls as None, or None when a non-pandas engine declines the query (parity-or-error)."""
+    """Rows with nulls as None, or None when a Polars engine declines the query (parity-or-error)."""
     try:
         out = _graph(engine).gfql(query, engine=engine)._nodes
     except NotImplementedError:
-        assert engine != "pandas", "pandas must answer"
+        assert engine not in ("pandas", "cudf"), "pandas and cudf must answer"
         return None
     if hasattr(out, "to_pandas"):
         out = out.to_pandas()
