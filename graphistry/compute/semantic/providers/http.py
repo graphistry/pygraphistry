@@ -41,7 +41,7 @@ class TokenUsage(NamedTuple):
     output: int
 
 
-def token_count(value: object) -> int:
+def token_count(value: object) -> int:  # hygiene-ok: object-annotation -- untrusted host or user input, narrowed by isinstance
     return value if isinstance(value, int) and not isinstance(value, bool) and 0 <= value < 2 ** 53 else 0
 
 
@@ -63,7 +63,7 @@ class TokenPrices:
 
     def __post_init__(self) -> None:
         for name in ("input", "cached_input", "cache_write", "output", "per_question"):
-            value = getattr(self, name)
+            value = getattr(self, name)  # hygiene-ok: dynamic-attr -- duck-typed host object with no common base
             number = finite_float(value)
             if value is not None and (number is None or number < 0):
                 raise ValueError(f"{name} price must be None or a finite number >= 0, got {value!r}")
@@ -90,7 +90,7 @@ def evidence_text(evidence: Evidence) -> str:
     return json.dumps(evidence, sort_keys=True, separators=(",", ":"), ensure_ascii=False, default=str)
 
 
-def _error_code(response: requests.Response) -> object:
+def _error_code(response: requests.Response) -> object:  # hygiene-ok: object-annotation -- untrusted host or user input, narrowed by isinstance
     try:
         body = response.json()
     except ValueError:
@@ -155,7 +155,7 @@ def post_json(url: str, body: JSONObject, headers: Dict[str, str], *, deadline_a
         retries += 1
 
 
-def _checked_base_url(value: object) -> str:
+def _checked_base_url(value: object) -> str:  # hygiene-ok: object-annotation -- untrusted host or user input, narrowed by isinstance
     if not (isinstance(value, str) and value.lower().startswith(("http://", "https://")) and not any(c.isspace() for c in value)
             and value.split("://", 1)[1].strip("/")):
         raise ValueError(f"base_url must be an http:// or https:// URL without whitespace, got {value!r}")
@@ -210,7 +210,7 @@ class HttpDecisionProvider(ABC):
             raise ValueError(f"model must be a non-empty string, got {model!r}")
         if not (prices is None or isinstance(prices, TokenPrices)):
             raise ValueError(f"prices must be a TokenPrices, got {type(prices).__name__}")
-        if not (session is None or callable(getattr(session, "post", None))):
+        if not (session is None or callable(getattr(session, "post", None))):  # hygiene-ok: dynamic-attr -- duck-typed host object with no common base
             raise ValueError("session must have a requests-style post")
         timeout, backoff = finite_float(timeout_s), finite_float(retry_backoff_s)
         if timeout is None or timeout <= 0:

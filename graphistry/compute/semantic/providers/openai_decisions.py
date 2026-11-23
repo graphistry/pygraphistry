@@ -35,12 +35,12 @@ def packed_instructions(request: DecisionRequest, question: DecisionQuestion) ->
     return f"{question.text}\n\nRecord:\n{evidence_text(request.evidence)}"
 
 
-def _probability(entry: object) -> Optional[float]:
+def _probability(entry: object) -> Optional[float]:  # hygiene-ok: object-annotation -- untrusted host or user input, narrowed by isinstance
     number = finite_float(entry.get("probability")) if isinstance(entry, dict) else None
     return number if number is not None and 0.0 <= number <= 1.0 else None
 
 
-def _keyed_probabilities(entries: object, key_of: Callable[[Dict[str, object]], Optional[str]]
+def _keyed_probabilities(entries: object, key_of: Callable[[Dict[str, object]], Optional[str]]  # hygiene-ok: object-annotation -- untrusted host or user input, narrowed by isinstance
                          ) -> Optional[Dict[str, float]]:
     """Probabilities by label, ``{}`` for a missing or empty list, None when any entry is malformed or repeated."""
     if entries is None or entries == []:
