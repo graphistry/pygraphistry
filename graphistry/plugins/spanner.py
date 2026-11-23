@@ -337,7 +337,7 @@ class SpannerMixin(Plottable):
         edges_df = self.get_edges_df(json_data)
 
         # TODO(tcook): add more error handling here if nodes or edges are empty
-        return self.nodes(nodes_df, 'identifier').edges(edges_df, 'source', 'destination')  # type: ignore
+        return self.nodes(nodes_df, 'identifier').edges(edges_df, 'source', 'destination')
 
     def spanner_gql_to_df(self, query: str) -> pd.DataFrame:
         """Execute GQL/SQL query and return results as DataFrame.

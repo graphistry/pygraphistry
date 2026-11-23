@@ -248,7 +248,7 @@ class GraphistryClient(AuthManagerProtocol):
             self.api_token(token)
             self.session._is_authenticated = True
             self._maybe_switch_org(org_name or self.session.org_name)
-            arrow_uploader.token = None  # type: ignore[assignment]
+            arrow_uploader.token = None  # type: ignore[assignment, unused-ignore]
             return token
 
         except (Exception, TokenExpireException) as e:  # required to log on

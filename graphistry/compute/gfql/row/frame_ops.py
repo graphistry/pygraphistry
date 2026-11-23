@@ -312,7 +312,7 @@ def rows(
             import polars as pl
             table_df = table_df.filter(pl.col(source).fill_null(False).cast(pl.Boolean))
         else:
-            table_df = table_df.loc[_alias_true_mask(table_df, source)]  # type: ignore[union-attr]
+            table_df = table_df.loc[_alias_true_mask(table_df, source)]
         table_df = _restore_alias_shadowed_user_column(ctx, table_df, table, source)
 
     out = row_table(ctx, table_df)

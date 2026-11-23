@@ -125,7 +125,7 @@ def is_legacy_cuml():
 def resolve_umap_engine(engine: UMAPEngine) -> UMAPEngineConcrete:
     
     if engine in umap_engine_values:
-        return engine  # type: ignore
+        return engine  # type: ignore[return-value, unused-ignore]
     if engine == 'auto':
         has_cuml_dependancy_, cuml_msg, _ = lazy_cuml_import()
         if has_cuml_dependancy_:
@@ -227,7 +227,7 @@ def umap_graph_to_weighted_edges(umap_graph, engine: UMAPEngineConcrete, is_lega
     import cudf
 
     try:
-        import cupy  # type: ignore[import-not-found]
+        import cupy
     except Exception:  # pragma: no cover
         cupy = None
 
@@ -357,7 +357,7 @@ class UMAPMixin(MIXIN_BASE):
                     "repulsion_strength": repulsion_strength,
                     "negative_sample_rate": negative_sample_rate,
                     "n_components": n_components,
-                    **({"metric": metric} if engine_resolved == UMAP_LEARN else {}),  # type: ignore
+                    **({"metric": metric} if engine_resolved == UMAP_LEARN else {}),
                     **umap_kwargs
                 }
             )
@@ -469,10 +469,10 @@ class UMAPMixin(MIXIN_BASE):
 
         engine = umap_model_to_engine(self._umap)
 
-        if engine == CUML and is_legacy_cuml():  # type: ignore
+        if engine == CUML and is_legacy_cuml():
             from cuml.neighbors import NearestNeighbors
 
-            knn = NearestNeighbors(n_neighbors=self._n_neighbors)  # type: ignore
+            knn = NearestNeighbors(n_neighbors=self._n_neighbors)
             cc = self._umap.fit(X, y, knn_graph=knn, **umap_fit_kwargs)
             knn.fit(cc.embedding_)
             self._umap.graph_ = knn.kneighbors_graph(cc.embedding_)
@@ -587,9 +587,9 @@ class UMAPMixin(MIXIN_BASE):
         if y_ is None:
             # Create empty DataFrame to maintain consistent return type
             y_ = pd.DataFrame(index=X.index)
-        X, y_ = make_safe_umap_gpu_dataframes(X, y_, engine)  # type: ignore
+        X, y_ = make_safe_umap_gpu_dataframes(X, y_, engine)
         assert self._umap is not None, 'Expected self._umap to be initialized'
-        emb = self._umap.transform(X, **umap_transform_kwargs)  # type: ignore
+        emb = self._umap.transform(X, **umap_transform_kwargs)
         emb = self._bundle_embedding(emb, index=df.index)
         if return_graph and kind == 'nodes':
             emb, _ = make_safe_umap_gpu_dataframes(emb, None, engine)  # for now so we don't have to touch infer_edges, force to pandas
@@ -945,7 +945,7 @@ class UMAPMixin(MIXIN_BASE):
             index = res._nodes.index
             if res._node is None:
                 logger.debug("-Writing new node name")
-                res = res.nodes(  # type: ignore
+                res = res.nodes(  # type: ignore[assignment, unused-ignore]
                     res._nodes.reset_index(drop=True)
                     .reset_index()
                     .rename(columns={"index": config.IMPLICIT_NODE_ID}),
@@ -966,7 +966,7 @@ class UMAPMixin(MIXIN_BASE):
                 X_,
                 y_,
                 res,
-            ) = res.featurize_or_get_nodes_dataframe_if_X_is_None(  # type: ignore
+            ) = res.featurize_or_get_nodes_dataframe_if_X_is_None(  # type: ignore[assignment, unused-ignore]
                 **featurize_kwargs
             )
 
@@ -980,7 +980,7 @@ class UMAPMixin(MIXIN_BASE):
 
             index_to_nodes_dict = dict(zip(range(len(nodes)), nodes))
 
-            X_, y_ = make_safe_umap_gpu_dataframes(X_, y_, engine_resolved)  # type: ignore
+            X_, y_ = make_safe_umap_gpu_dataframes(X_, y_, engine_resolved)
 
             res = res._process_umap(
                 res, X_, y_, kind, memoize, featurize_kwargs, **umap_kwargs_combined
@@ -993,7 +993,7 @@ class UMAPMixin(MIXIN_BASE):
             # TODO user-guidable edge merge policies like upsert?
             res._weighted_edges_df_from_nodes = (
                 prune_weighted_edges_df_and_relabel_nodes(
-                    res._weighted_edges_df,  # type: ignore
+                    res._weighted_edges_df,
                     scale=scale,
                     index_to_nodes_dict=index_to_nodes_dict,
                 )
@@ -1005,7 +1005,7 @@ class UMAPMixin(MIXIN_BASE):
                 X_,
                 y_,
                 res,
-            ) = res.featurize_or_get_edges_dataframe_if_X_is_None(  # type: ignore
+            ) = res.featurize_or_get_edges_dataframe_if_X_is_None(  # type: ignore[assignment, unused-ignore]
                 **featurize_kwargs
             )
 
@@ -1014,7 +1014,7 @@ class UMAPMixin(MIXIN_BASE):
                 raise ValueError(_EMPTY_FEATURES_ERROR_MSG)
 
             # add the safe coercion here
-            X_, y_ = make_safe_umap_gpu_dataframes(X_, y_, engine_resolved)  # type: ignore
+            X_, y_ = make_safe_umap_gpu_dataframes(X_, y_, engine_resolved)
 
             res = res._process_umap(
                 res, X_, y_, kind, memoize, featurize_kwargs, **umap_kwargs_combined
@@ -1025,7 +1025,7 @@ class UMAPMixin(MIXIN_BASE):
             res._edge_embedding = res._xy
             res._weighted_edges_df_from_edges = (
                 prune_weighted_edges_df_and_relabel_nodes(
-                    res._weighted_edges_df,  # type: ignore
+                    res._weighted_edges_df,
                     scale=scale,
                     index_to_nodes_dict=None,
                 )
@@ -1059,11 +1059,11 @@ class UMAPMixin(MIXIN_BASE):
             res, kind, encode_position, encode_weight, play
         )  # noqa: E501
 
-        if engine_resolved == CUML and is_legacy_cuml():  # type: ignore
+        if engine_resolved == CUML and is_legacy_cuml():
             res = res.prune_self_edges()
 
         if dbscan:
-            res = res.dbscan(min_dist=min_dist, kind=kind, fit_umap_embedding=True)  # type: ignore
+            res = res.dbscan(min_dist=min_dist, kind=kind, fit_umap_embedding=True)  # type: ignore[attr-defined, unused-ignore]
 
         if not inplace:
             return res

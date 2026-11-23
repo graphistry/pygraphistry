@@ -8,7 +8,7 @@ import re
 import warnings
 from functools import lru_cache
 from types import ModuleType
-from typing import TYPE_CHECKING, Any, Callable, Dict, Iterable, List, Literal, Mapping, NoReturn, Optional, Sequence, Tuple, cast
+from typing import TYPE_CHECKING, Any, Callable, Dict, Iterable, List, Literal, Mapping, NoReturn, Optional, Sequence, Set, Tuple, Union, cast
 
 import pandas as pd
 from graphistry.Engine import (
@@ -23,7 +23,12 @@ from graphistry.Engine import (
     s_to_numeric,
     safe_map_series,
 )
-from graphistry.compute.exceptions import ErrorCode, GFQLTypeError, GFQLValidationError
+from graphistry.compute.exceptions import (
+    ErrorCode,
+    GFQLTypeError,
+    GFQLUnsupportedError,
+    GFQLValidationError,
+)
 from graphistry.compute.dataframe_utils import (
     concat_frames,
     domain_diff,
@@ -33,6 +38,7 @@ from graphistry.compute.dataframe_utils import (
 )
 from graphistry.compute.gfql.call.support import AggSpec
 from graphistry.compute.gfql.row import frame_ops as row_frame_ops
+from graphistry.compute.predicates.str import _str_ops_series
 from graphistry.compute.gfql.row.prefilter import AliasPrefilters
 from graphistry.compute.typing import DataFrameT, SeriesT
 from graphistry.utils.json import JSONVal
@@ -362,7 +368,7 @@ register_process_singleton(_gfql_expr_runtime_parser_bundle, "an import-resoluti
 def _gfql_cudf_list_sort_requires_host_bridge() -> bool:
     """cuDF 25.02 can segfault in list-sort pivot internals; bridge to pandas there."""
     try:
-        import cudf  # type: ignore
+        import cudf
     except (ModuleNotFoundError, ImportError):
         return False
     version = str(getattr(cudf, "__version__", ""))
@@ -489,6 +495,15 @@ class RowPipelineMixin:
         prefix = f"{alias}."
         return any(isinstance(col, str) and col.startswith(prefix) for col in table_df.columns)
 
+    def _gfql_alias_marker_like(self, table_df: DataFrameT, name: str) -> bool:
+        """A boolean column that is a MATCH alias marker, not a boolean value projected by a WITH."""
+        if not RowPipelineMixin._gfql_series_bool_like(table_df[name]):
+            return False
+        node_aliases, edge_aliases = self._gfql_rows_node_aliases, self._gfql_rows_edge_aliases
+        if node_aliases is None and edge_aliases is None:
+            return True  # alias identity is not carried on this frame: keep the column-value inference
+        return name in set(node_aliases or ()) | set(edge_aliases or ())
+
     def _gfql_node_id_column(self) -> Optional[str]:
         node_id = self._node
         if node_id is not None:
@@ -497,6 +512,15 @@ class RowPipelineMixin:
         if base_graph is None:
             return None
         return cast(Optional[str], base_graph._node)
+
+    def _gfql_edge_id_column(self) -> Optional[str]:
+        edge_id = self._edge
+        if edge_id is not None:
+            return edge_id
+        base_graph = self._gfql_base_graph()
+        if base_graph is None:
+            return None
+        return base_graph._edge
 
     def _gfql_base_graph(self, *, fallback_to_self: bool = False) -> Any:
         base_graph = self._gfql_rows_base_graph
@@ -1351,7 +1375,7 @@ class RowPipelineMixin:
                         return True, table_df[restore_col]
                     if (
                         alias_name in table_df.columns
-                        and RowPipelineMixin._gfql_series_bool_like(table_df[alias_name])
+                        and self._gfql_alias_marker_like(table_df, alias_name)
                     ):
                         self._gfql_report_absent_property(f"{alias_name}.{node.property}")
                         return True, self._gfql_broadcast_scalar(table_df, pd.NA)
@@ -1381,7 +1405,7 @@ class RowPipelineMixin:
                     (node.value.quoted or "." not in alias_name)
                     and alias_name in table_df.columns
                     and has_bound_graph_table
-                    and RowPipelineMixin._gfql_series_bool_like(table_df[alias_name])
+                    and self._gfql_alias_marker_like(table_df, alias_name)
                 ):
                     alias_mask = table_df[alias_name]
                     if node.property == NODE_IDENTITY_COLUMN:
@@ -1430,7 +1454,13 @@ class RowPipelineMixin:
             if node.op == "+":
                 return True, operand
             if node.op == "-":
-                return True, 0 - operand
+                # floats negate directly (keeps -0.0); `0 - x` keeps boolean operands arithmetic
+                is_float = (
+                    pd.api.types.is_float_dtype(operand.dtype)
+                    if is_series_like(operand)
+                    else isinstance(operand, numbers.Real) and not isinstance(operand, numbers.Integral)
+                )
+                return True, (-operand if is_float else 0 - operand)
             if node.op == "not":
                 bool_out = self._gfql_eval_boolean_op(table_df, operand, _GFQL_MISSING_BOOL_OPERAND, "not")
                 if bool_out is None:
@@ -1591,6 +1621,35 @@ class RowPipelineMixin:
                 if left is None or right is None:
                     return True, None
                 return True, left * right
+            if op == "^":
+                if left is None or right is None:
+                    return True, None
+                left_is_series = is_series_like(left)
+                right_is_series = is_series_like(right)
+                if (left_is_series and RowPipelineMixin._gfql_series_bool_like(left)) or (
+                    right_is_series and RowPipelineMixin._gfql_series_bool_like(right)
+                ):
+                    return False, None
+                if isinstance(left, bool) or isinstance(right, bool):
+                    return False, None
+                left_kind = RowPipelineMixin._gfql_cypher_numeric_kind(left)
+                right_kind = RowPipelineMixin._gfql_cypher_numeric_kind(right)
+                if left_kind is None or right_kind is None:
+                    return False, None
+                if left_is_series:
+                    right_series = (
+                        right
+                        if right_is_series
+                        else self._gfql_broadcast_scalar(table_df, right)
+                    )
+                    # IEEE power turns a null operand into 1.0 (1 ** NaN, NaN ** 0); Cypher requires null.
+                    null_mask = self._gfql_null_mask(table_df, left) | self._gfql_null_mask(table_df, right_series)
+                    return True, (left.astype(float) ** right_series.astype(float)).where(~null_mask)
+                if right_is_series:
+                    out = self._gfql_broadcast_scalar(table_df, float(left)) ** right.astype(float)
+                    return True, out.where(~self._gfql_null_mask(table_df, right))
+                scalar_power = pd.Series([float(left)], dtype="float64") ** float(right)
+                return True, float(scalar_power.iloc[0])
             if op == "/":
                 if left is None or right is None:
                     return True, None
@@ -1646,7 +1705,11 @@ class RowPipelineMixin:
                 source_alias_name = alias_names[0]
                 source_alias = source_alias_name
                 source_table_df = table_df
-                entity_id = (self._node if fn == "__node_keys__" else self._edge)
+                entity_id = (
+                    self._gfql_node_id_column()
+                    if fn == "__node_keys__"
+                    else self._gfql_edge_id_column()
+                )
                 prefixed_id_col = f"{source_alias_name}.{entity_id}" if entity_id else None
                 if prefixed_id_col is not None and prefixed_id_col in table_df.columns:
                     prefix = f"{source_alias_name}."
@@ -1722,7 +1785,7 @@ class RowPipelineMixin:
                 if len(node.args) != 1 or not isinstance(node.args[0], Identifier):
                     return False, None
                 alias_name = node.args[0].name
-                node_id = self._node
+                node_id = self._gfql_node_id_column()
                 if node_id is None:
                     return False, None
                 alias_id_col = f"{alias_name}.{node_id}"
@@ -1730,7 +1793,7 @@ class RowPipelineMixin:
                     out = table_df[alias_id_col]
                 elif node_id in table_df.columns and (
                     alias_name == node_id
-                    or (alias_name in table_df.columns and RowPipelineMixin._gfql_series_bool_like(table_df[alias_name]))
+                    or (alias_name in table_df.columns and self._gfql_alias_marker_like(table_df, alias_name))
                 ):
                     out = table_df[node_id]
                 else:
@@ -1757,7 +1820,11 @@ class RowPipelineMixin:
                 source_table_df = table_df
                 # On bindings-row tables, prefer alias.{id} even when a same-name
                 # marker column exists for the alias.
-                entity_id = (self._node if fn == "__node_entity__" else self._edge)
+                entity_id = (
+                    self._gfql_node_id_column()
+                    if fn == "__node_entity__"
+                    else self._gfql_edge_id_column()
+                )
                 id_col = f"{source_alias_name}.{entity_id}" if entity_id else None
                 if id_col is not None and id_col in table_df.columns:
                     prefix = f"{source_alias_name}."
@@ -1800,7 +1867,7 @@ class RowPipelineMixin:
                     and alias_name in table_df.columns
                     and node_id is not None
                     and node_id in table_df.columns
-                    and RowPipelineMixin._gfql_series_bool_like(table_df[alias_name])
+                    and self._gfql_alias_marker_like(table_df, alias_name)
                 ):
                     out = format_node_labels_text(
                         table_df,
@@ -1822,7 +1889,7 @@ class RowPipelineMixin:
                     and alias_name in table_df.columns
                     and "type" in table_df.columns
                     and any(col in table_df.columns for col in edge_like_cols)
-                    and RowPipelineMixin._gfql_series_bool_like(table_df[alias_name])
+                    and self._gfql_alias_marker_like(table_df, alias_name)
                 ):
                     null_mask = self._gfql_null_mask(table_df, table_df[alias_name])
                     out = table_df["type"]
@@ -1834,7 +1901,7 @@ class RowPipelineMixin:
                 if (
                     "." not in alias_name
                     and alias_name in table_df.columns
-                    and RowPipelineMixin._gfql_series_bool_like(table_df[alias_name])
+                    and self._gfql_alias_marker_like(table_df, alias_name)
                 ):
                     edge_like_cols = {"s", "d", "src", "dst", "edge_id"}
                     table_name = "edges" if any(col in table_df.columns for col in edge_like_cols) else "nodes"
@@ -1922,6 +1989,24 @@ class RowPipelineMixin:
                 inner = values[0]
                 if is_null_scalar(inner):
                     return True, None
+                if (
+                    is_series_like(inner)
+                    and not RowPipelineMixin._gfql_series_is_mapping_like(inner)
+                    and not RowPipelineMixin._gfql_series_is_entity_text_like(inner)
+                ):
+                    arg = node.args[0]
+                    if isinstance(arg, Identifier) and (
+                        RowPipelineMixin._gfql_has_bindings_alias_prefix(table_df, arg.name)
+                        or (arg.name in table_df.columns and self._gfql_alias_marker_like(table_df, arg.name))
+                    ):  # only a real alias (binding-row group or boolean marker) may be rebuilt as an entity
+                        for entity_fn in ("__node_entity__", "__edge_entity__"):
+                            ok, entity = self._gfql_eval_expr_ast_values(
+                                table_df,
+                                FunctionCall(entity_fn, (arg,)),
+                            )
+                            if ok and entity is not None:
+                                inner = entity
+                                break
                 if isinstance(inner, Mapping):
                     return True, RowPipelineMixin._gfql_format_cypher_map_scalar(inner)
                 return True, self._gfql_eval_entity_graph_fn(table_df, inner, "properties", "ast properties()")
@@ -2256,6 +2341,22 @@ class RowPipelineMixin:
             cond_mask = self._gfql_bool_mask(table_df, cond_value)
             cond_null = self._gfql_null_mask(table_df, cond_value)
             cond_true = cond_mask & ~cond_null
+            true_kind = self._gfql_case_branch_value_kind(true_value)
+            false_kind = self._gfql_case_branch_value_kind(false_value)
+            is_pandas = resolve_engine(EngineAbstract.AUTO, table_df) == Engine.PANDAS
+            if (
+                not is_pandas
+                and true_kind is not None
+                and false_kind is not None
+                and true_kind != false_kind
+            ):
+                raise GFQLUnsupportedError(
+                    ErrorCode.E110,
+                    "CASE branches return incompatible Cypher value types",
+                    field="expression",
+                    value=sorted([true_kind, false_kind]),
+                    suggestion="Use an explicit cast so both branches have the same value type.",
+                )
             try:
                 return True, true_value.where(cond_true, false_value)
             except TypeError:  # pragma: no cover - cuDF-only (.where mixed-dtype); no cuDF lane in the coverage gate (validated on dgx)
@@ -2478,8 +2579,32 @@ class RowPipelineMixin:
             if isinstance(key_value, str):
                 if (
                     isinstance(node.value, Identifier)
+                    and (node.value.quoted or "." not in node.value.name)
                     and node.value.name in table_df.columns
-                    and RowPipelineMixin._gfql_series_bool_like(table_df[node.value.name])
+                    and key_value in table_df.columns
+                    and key_value != node.value.name
+                    and (
+                        (self._node is not None and self._node in table_df.columns)
+                        or (self._edge is not None and self._edge in table_df.columns)
+                        or RowPipelineMixin._gfql_table_has_graph_shape(table_df)
+                    )
+                    and self._gfql_alias_marker_like(table_df, node.value.name)
+                ):
+                    # Same guards and alias mask as the dotted property path: a map- or list-valued column is not an alias.
+                    column_value = table_df[key_value]
+                    if is_series_like(column_value):
+                        column_value = self._gfql_mask_fill(column_value, table_df[node.value.name] != True, None)  # noqa: E712
+                    return True, column_value
+                if isinstance(node.value, Identifier):
+                    ok, value = self._gfql_binding_row_property_subscript(
+                        table_df, node.value.name, key_value
+                    )
+                    if ok:
+                        return True, value
+                if (
+                    isinstance(node.value, Identifier)
+                    and node.value.name in table_df.columns
+                    and self._gfql_alias_marker_like(table_df, node.value.name)
                     and RowPipelineMixin._gfql_table_has_graph_shape(table_df)
                 ):
                     entity_value = self._gfql_format_entity_series(
@@ -2700,6 +2825,12 @@ class RowPipelineMixin:
         fn: str,
         expr: str,
     ) -> Any:
+        if (
+            fn == "properties"
+            and is_series_like(value)
+            and RowPipelineMixin._gfql_series_is_mapping_like(value)
+        ):
+            return value.copy()
         if hasattr(value, "astype"):
             null_mask = self._gfql_null_mask(table_df, value)
             if RowPipelineMixin._gfql_series_is_entity_text_like(value):
@@ -2801,6 +2932,37 @@ class RowPipelineMixin:
         raise ValueError(
             f"unsupported row expression: property access requires a graph element alias, entity value, or map in {expr!r}"
         )
+
+    def _gfql_binding_row_property_subscript(
+        self, table_df: DataFrameT, alias_name: str, key_value: str
+    ) -> Tuple[bool, Optional[SeriesT]]:
+        """Resolve constant-string subscripts against one binding-row alias view."""
+        node_id = self._gfql_node_id_column()
+        edge_id = self._gfql_edge_id_column()
+        if node_id is not None and f"{alias_name}.{node_id}" in table_df.columns:
+            entity_id = node_id
+        elif edge_id is not None and f"{alias_name}.{edge_id}" in table_df.columns:
+            entity_id = edge_id
+        else:
+            return False, None
+
+        prefix = f"{alias_name}."
+        alias_columns = [
+            column for column in table_df.columns
+            if isinstance(column, str) and column.startswith(prefix)
+        ]
+        source = table_df[alias_columns].copy().rename(
+            columns={column: column[len(prefix):] for column in alias_columns}
+        )
+        if key_value in source.columns:
+            out = source[key_value]
+        else:
+            self._gfql_report_absent_property(f"{alias_name}.{key_value}")
+            out = self._gfql_broadcast_scalar(source, None)
+        null_mask = self._gfql_null_mask(source, source[entity_id])
+        if is_series_like(out):
+            out = self._gfql_mask_fill(out, null_mask, None)
+        return True, out
 
     @staticmethod
     def _gfql_series_holds_no_typed_cell(series: SeriesT) -> bool:
@@ -2989,6 +3151,43 @@ class RowPipelineMixin:
         return len(values) > 0 and all(RowPipelineMixin._gfql_scalar_numeric_non_bool(v) for v in values)
 
     @staticmethod
+    def _gfql_case_branch_value_kind(series: SeriesT) -> Optional[str]:
+        """Classify CASE branch values by Cypher family; all-null/unknown is not a family."""
+        if not is_series_like(series):
+            if isinstance(series, bool):
+                return "bool"
+            if RowPipelineMixin._gfql_scalar_numeric_non_bool(series):
+                return "number"
+            return "str" if isinstance(series, str) else None
+        try:
+            null_mask = series.isna()
+            non_null = ~null_mask
+            if not bool(non_null.any()):
+                return None
+            dtype = series.dtype
+            if pd.api.types.is_bool_dtype(dtype):
+                return "bool"
+            if pd.api.types.is_numeric_dtype(dtype):
+                return "number"
+            if pd.api.types.is_object_dtype(dtype) and isinstance(series, pd.Series):
+                sample = series.dropna().head(128)
+                values = RowPipelineMixin._gfql_series_to_pylist(sample)
+                if not values:
+                    return None
+                if all(isinstance(value, bool) for value in values):
+                    return "bool"
+                if all(RowPipelineMixin._gfql_scalar_numeric_non_bool(value) for value in values):
+                    return "number"
+                if all(isinstance(value, str) for value in values):
+                    return "str"
+                return "mixed"
+            if pd.api.types.is_string_dtype(dtype):
+                return "str"
+            return None  # temporal/decimal/categorical/list dtypes are not a family here: fail open like Polars
+        except (TypeError, ValueError):
+            return None
+
+    @staticmethod
     def _gfql_format_cypher_scalar_literal(value: Any) -> str:
         if value is None or is_null_scalar(value):
             return "null"
@@ -3024,6 +3223,16 @@ class RowPipelineMixin:
             left_null = self._gfql_null_mask(table_df, left_series)
             right_null = self._gfql_null_mask(table_df, right)
             any_null = left_null | right_null
+            decoded = _str_ops_series(left_series)  # decodes categorical strings; None for non-string columns
+            if decoded is None or not isinstance(right, str):
+                return None
+            left_series = decoded
+            if (
+                isinstance(left_series, pd.Series)
+                and pd.api.types.is_object_dtype(left_series.dtype)
+                and pd.api.types.infer_dtype(left_series, skipna=True) != "string"  # an all-string column skips the per-cell pass
+            ):
+                any_null = any_null | (~left_series.map(lambda cell: isinstance(cell, str)) & ~left_null)  # a non-string cell is null, never stringified
             left_txt = left_series.astype(str)
             needle = str(right)
 
@@ -3046,6 +3255,13 @@ class RowPipelineMixin:
             return out
 
         if is_null_scalar(left) or is_null_scalar(right):
+            return None
+        if is_series_like(left):
+            if not pd.api.types.is_string_dtype(left.dtype):
+                return None
+        elif not isinstance(left, str):
+            return None
+        if not isinstance(right, str):
             return None
         left_txt = str(left)
         right_txt = str(right)
@@ -3070,6 +3286,12 @@ class RowPipelineMixin:
             out = s_cons(Engine.CUDF)(repeated_nan, nan_as_null=False)
             if hasattr(out, "name"):
                 out.name = tmp_col
+            return out
+
+        # cuDF's scalar assign reuses the first zero it saw (0.0 == -0.0), losing the sign; build the column explicitly.
+        if engine == Engine.CUDF and isinstance(value, float) and value == 0.0:  # pragma: no cover - cuDF-only; no cuDF lane in the coverage gate
+            out = s_cons(Engine.CUDF)(np.full(len(table_df), value, dtype="float64"), index=table_df.index)
+            out.name = tmp_col
             return out
 
         # Treat list/map literals as scalar row values by explicit broadcasting.
@@ -3120,13 +3342,13 @@ class RowPipelineMixin:
 
     @staticmethod
     def _gfql_is_empty_series(value: object) -> bool:
-        return is_series_like(value) and len(value) == 0  # type: ignore[arg-type]
+        return is_series_like(value) and len(value) == 0
 
     @staticmethod
     def _gfql_assign_positional(frame: DataFrameT, **columns: object) -> DataFrameT:
         """``assign`` by position, not label: evaluator series may carry the table's own (gappy) labels."""
         aligned = {
-            name: RowPipelineMixin._gfql_on_table_index(frame, value) if is_series_like(value) else value  # type: ignore[arg-type]
+            name: RowPipelineMixin._gfql_on_table_index(frame, value) if is_series_like(value) else value
             for name, value in columns.items()
         }
         return frame.assign(**aligned)
@@ -5468,7 +5690,29 @@ class RowPipelineMixin:
             out_df = pd.DataFrame(projected, index=table_df.index)
         else:
             out_df = table_df.assign(**projected)[list(projected.keys())]
-        return self._gfql_row_table(out_df)
+        out = self._gfql_row_table(out_df)
+        projected_nodes, projected_edges = self._gfql_projected_alias_sets(items)
+        if projected_nodes is not None and projected_edges is not None:
+            out._gfql_rows_node_aliases = projected_nodes
+            out._gfql_rows_edge_aliases = projected_edges
+        return out
+
+    def _gfql_projected_alias_sets(self, items: Sequence[Union[str, Tuple[str, Union[str, int, float, bool, None]]]]) -> Tuple[Optional[Set[str]], Optional[Set[str]]]:
+        """MATCH alias identity after a projection: kept only for outputs that read an alias column unchanged
+        (`WITH n`, `WITH n AS m`); a computed output that reuses an alias name (`WITH n.flag AS n`) is a value."""
+        node_aliases, edge_aliases = self._gfql_rows_node_aliases, self._gfql_rows_edge_aliases
+        if node_aliases is None and edge_aliases is None:
+            return None, None
+        passed: Dict[str, str] = {}
+        for item in items:
+            out_name, expr = (item, item) if isinstance(item, str) else (str(item[0]), item[1])
+            if isinstance(expr, str):
+                passed[out_name] = expr.strip()
+        node_set, edge_set = set(node_aliases or ()), set(edge_aliases or ())
+        return (
+            {name for name, src in passed.items() if src in node_set},
+            {name for name, src in passed.items() if src in edge_set},
+        )
 
     def with_(self, items: List[Any], extend: bool = False) -> "Plottable":
         """Python-safe alias for Cypher WITH-style row projection.
@@ -6155,7 +6399,7 @@ class RowPipelineMixin:
         null_mask = self._gfql_null_mask(out_df, out_df[tmp_col])
         if not list_like and hasattr(null_mask, "all") and bool(null_mask.all()):
             empty_df = out_df.iloc[0:0].drop(columns=[tmp_col]).assign(**{as_clean: out_df.iloc[0:0][tmp_col]})
-            return self._gfql_row_table(empty_df)
+            return self._gfql_unwound_row_table(empty_df, as_clean)
         if list_like:
             row_col = self._gfql_fresh_col_name(out_df.columns, "__gfql_unwind_row__")
             len_col = self._gfql_fresh_col_name(out_df.columns, "__gfql_unwind_len__")
@@ -6173,7 +6417,19 @@ class RowPipelineMixin:
             out_df = out_df.drop(columns=[row_col, len_col, pos_col])
         out_df = out_df.assign(**{as_clean: out_df[tmp_col]})
         out_df = out_df.drop(columns=[tmp_col])
-        return self._gfql_row_table(out_df)
+        return self._gfql_unwound_row_table(out_df, as_clean)
+
+    def _gfql_unwound_row_table(self, out_df: DataFrameT, unwound: str) -> "Plottable":
+        """Row table after UNWIND. When alias identity is not carried (no MATCH before it), the unwound column is a value:
+        keep the column-value inference for every other column and exclude this one."""
+        out = self._gfql_row_table(out_df)
+        if self._gfql_rows_node_aliases is None and self._gfql_rows_edge_aliases is None:
+            out._gfql_rows_node_aliases = {
+                col for col in out_df.columns
+                if col != unwound and isinstance(col, str) and RowPipelineMixin._gfql_series_bool_like(out_df[col])
+            }
+            out._gfql_rows_edge_aliases = set()
+        return out
 
     def group_by(
         self,
