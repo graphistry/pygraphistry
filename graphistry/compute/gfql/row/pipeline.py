@@ -3315,7 +3315,7 @@ class RowPipelineMixin:
 
     @staticmethod
     def _gfql_is_empty_series(value: object) -> bool:
-        return is_series_like(value) and len(value) == 0  # type: ignore[arg-type]
+        return is_series_like(value) and len(value) == 0
 
     @staticmethod
     def _gfql_assign_positional(frame: DataFrameT, **columns: object) -> DataFrameT:
