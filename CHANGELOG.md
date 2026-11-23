@@ -21,6 +21,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- **GFQL Cypher string parameters**: a whole-expression string parameter such as `RETURN $v` or `count($v)` is a string value in every row expression position, on every engine that runs the query. It raised `unsupported token in row expression` on pandas and cuDF, and a string equal to a column name (`'name'`) or to expression text (`'n.id'`) silently returned the column or the evaluated expression instead of the string (#2324).
 - **GFQL exponentiation operator**: `^` now follows TCK power precedence, returns float values on pandas, cuDF, and Polars, and promotes the six numeric-precedence scenarios from expression debt.
 - **GFQL mixed-type CASE branches**: pandas preserves per-row mixed Cypher values, while Polars and cuDF decline incompatible boolean/string/number branches with structured E110 instead of silently coercing (#2330). Numeric int/float branches retain common-type behavior.
 - **GFQL signed-zero literals**: adjacent and explicit unary-minus forms preserve the sign of floating-point zero, including `RETURN -0.0` and `RETURN - 0.0` (#2334).
