@@ -136,6 +136,7 @@ def test_a_regex_with_a_column_pattern_is_answered_by_pandas_and_declined_by_nam
 def test_the_column_pattern_result_has_the_literal_operand_result_dtype(engine):
     if engine in _POLARS:
         pytest.skip("the Polars engines return a Polars Boolean column on both paths")
-    literal = _graph(engine).gfql("MATCH (n) RETURN n.id AS i, n.name STARTS WITH 'abc' AS v ORDER BY i", engine=engine)._nodes
+    # both results contain a null (pre is null on one row), so they are compared like for like
+    literal = _graph(engine).gfql("MATCH (n) RETURN n.id AS i, n.pre STARTS WITH 'a' AS v ORDER BY i", engine=engine)._nodes
     column = _graph(engine).gfql("MATCH (n) RETURN n.id AS i, n.name STARTS WITH n.pre AS v ORDER BY i", engine=engine)._nodes
     assert str(column["v"].dtype) == str(literal["v"].dtype)
