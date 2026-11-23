@@ -262,8 +262,8 @@ def _coerce(value: Any, expected_type: Type[T]) -> Optional[T]:
             return float(value)            # type: ignore[return-value]
         if expected_type is list or expected_type is dict:
             if isinstance(value, expected_type):
-                return value               # type: ignore[return-value]
-            return json.loads(value)       # type: ignore[return-value]
+                return value
+            return json.loads(value)
         raise ValueError(f"Unsupported type: {expected_type.__name__}")
     except Exception as e:
         util.warn(f"Could not cast {value!r} to {expected_type.__name__}: {e}")

@@ -17,12 +17,12 @@ try:
     from sklearn.covariance import EllipticEnvelope
     from sklearn.svm import OneClassSVM
 except:
-    matplotlib = None  # type: ignore
-    plt = None  # type: ignore
-    np = None  # type: ignore
-    neighbors = None  # type: ignore
-    EllipticEnvelope = None  # type: ignore
-    OneClassSVM = None  # type: ignore
+    matplotlib = None
+    plt = None
+    np = None
+    neighbors = None
+    EllipticEnvelope = None
+    OneClassSVM = None
 
 
 logger = setup_logger(__name__)
@@ -136,7 +136,7 @@ def plot_outliers(
     # Plot the results (= shape of the data points cloud)
     plt.figure(1, figsize=figsize)  # two clusters
     plt.title(f"Outlier detection: {name}")
-    plt.scatter(embedding[:, 0], embedding[:, 1], color="black", s=22, alpha=0.75)  # type: ignore
+    plt.scatter(embedding[:, 0], embedding[:, 1], color="black", s=22, alpha=0.75)
     bbox_args = dict(boxstyle="round", fc="0.8")
     arrow_args = dict(arrowstyle="->")
     plt.annotate(

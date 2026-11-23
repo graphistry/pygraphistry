@@ -85,6 +85,7 @@ DIFFERENTIAL_CORPUS = [
     "MATCH (n) WHERE n.x = 1 AND (n.y = 2 AND n.z = 3) RETURN n",
     "MATCH (n) WHERE n.x IN [1, 2, 3] RETURN n",
     "MATCH (n) WHERE n.x + 1 > n.y * 2 RETURN n",
+    "MATCH (n) WHERE n.x ^ 2 + n.y * 3 > 8 RETURN n",
     "MATCH (n) WHERE NOT (n)-[:BLOCKED]->() RETURN n",
     # RETURN / projection
     "MATCH (n) RETURN DISTINCT n.city AS city",

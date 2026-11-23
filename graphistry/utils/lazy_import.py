@@ -10,7 +10,7 @@ def lazy_cudf_import():
         # scoped, not global: a bare filterwarnings here mutes every later warning in the process
         with warnings.catch_warnings():
             warnings.filterwarnings("ignore")
-            import cudf  # type: ignore
+            import cudf
 
         # cudf >= 26.02 removed DataFrame.from_pandas() and Series.from_pandas().
         # Restore them so existing call sites keep working across RAPIDS versions.
@@ -31,7 +31,7 @@ def lazy_cuml_import():
     try:
         with warnings.catch_warnings():
             warnings.filterwarnings("ignore")
-            import cuml  # type: ignore
+            import cuml
 
         return True, "ok", cuml
     except ModuleNotFoundError as e:

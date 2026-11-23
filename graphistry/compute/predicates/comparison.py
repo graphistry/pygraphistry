@@ -227,10 +227,10 @@ class _StringAllowingComparisonMixin:
     surfaces every comparison-with-string-literal Cypher query.
     """
 
-    def _normalize_value(self, val):  # type: ignore[no-untyped-def]
+    def _normalize_value(self, val):
         if is_string(val):
             return val
-        return super()._normalize_value(val)  # type: ignore[misc]
+        return super()._normalize_value(val)
 
     def _validate_fields(self) -> None:
         from graphistry.compute.exceptions import ErrorCode, GFQLTypeError

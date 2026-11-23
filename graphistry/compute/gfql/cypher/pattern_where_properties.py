@@ -13,7 +13,9 @@ from graphistry.compute.gfql.expr_parser import (
     ExprNode,
     GFQLExprParseError,
     Identifier,
+    Literal,
     PropertyAccessExpr,
+    SubscriptExpr,
     walk_expr_nodes,
 )
 from graphistry.compute.exceptions import GFQLValidationError
@@ -45,6 +47,15 @@ def expr_property_access_node_aliases(
 
     def _visit(node: ExprNode) -> None:
         if isinstance(node, PropertyAccessExpr) and isinstance(node.value, Identifier):
+            root = node.value.name.split(".", 1)[0]
+            if root in alias_targets:
+                aliases.add(root)
+        elif (
+            isinstance(node, SubscriptExpr)
+            and isinstance(node.value, Identifier)
+            and isinstance(node.key, Literal)
+            and isinstance(node.key.value, str)
+        ):  # `alias['name']` reads the same property column as `alias.name`: materialize it the same way
             root = node.value.name.split(".", 1)[0]
             if root in alias_targets:
                 aliases.add(root)
@@ -80,6 +91,15 @@ def expr_property_access_columns(
             root = node.value.name.split(".", 1)[0]
             if root in alias_targets:
                 accessed.add((root, node.property))
+        elif (
+            isinstance(node, SubscriptExpr)
+            and isinstance(node.value, Identifier)
+            and isinstance(node.key, Literal)
+            and isinstance(node.key.value, str)
+        ):
+            root = node.value.name.split(".", 1)[0]
+            if root in alias_targets:
+                accessed.add((root, node.key.value))
 
     walk_expr_nodes(node, enter=_visit)
     return accessed

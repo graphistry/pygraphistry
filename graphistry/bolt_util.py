@@ -123,14 +123,14 @@ def bolt_graph_to_nodes_dataframe(graph) -> pd.DataFrame:
 # Knowing a col is all-spatial, flatten into primitive cols
 def flatten_spatial_col(df : pd.DataFrame, col : str) -> pd.DataFrame:  # noqa: C901
 
-    out_df : pd.DataFrame = df.copy(deep=False)  # type: ignore
+    out_df : pd.DataFrame = df.copy(deep=False)
 
     ####
 
     for prop in ['x', 'y', 'z', 'srid', 'longtitude', 'latitude', 'height']:
         try:
             # v4.x + v5.x
-            s = df[col].apply(lambda v: getattr(v, prop, None))  # type: ignore
+            s = df[col].apply(lambda v: getattr(v, prop, None))
             if len(s.dropna()) > 0:
                 out_df[f'{col}_{prop}'] = s
         except:
@@ -220,22 +220,22 @@ def get_mod(v):
 def flatten_spatial(df : pd.DataFrame, col) -> pd.DataFrame:
 
     #4.x
-    any_spatial4 = (df[col].apply(get_mod) == 'neo4j.spatial').any()  # type: ignore
+    any_spatial4 = (df[col].apply(get_mod) == 'neo4j.spatial').any()
 
     #5.x
-    any_spatial5 = (df[col].apply(get_mod) == 'neo4j._spatial').any()  # type: ignore
+    any_spatial5 = (df[col].apply(get_mod) == 'neo4j._spatial').any()
     if not any_spatial4 and not any_spatial5:
         return df
 
-    with_vals : pd.Series = df[col].dropna()  # type: ignore
-    if len(with_vals) == 0:  # type: ignore
+    with_vals : pd.Series = df[col].dropna()
+    if len(with_vals) == 0:
         return df
 
-    out_df : pd.DataFrame = df.copy(deep=False)  # type: ignore
+    out_df : pd.DataFrame = df.copy(deep=False)
 
-    t0 = with_vals[0]  # type: ignore
+    t0 = with_vals[0]
     try:
-        all_t0 = (with_vals.apply(lambda s: s.__class__) == t0.__class__).all()  # type: ignore
+        all_t0 = (with_vals.apply(lambda s: s.__class__) == t0.__class__).all()
     except:
         all_t0 = False
 
@@ -248,7 +248,7 @@ def flatten_spatial(df : pd.DataFrame, col) -> pd.DataFrame:
 
 
 def neo_df_to_pd_df(df: pd.DataFrame) -> pd.DataFrame:
-    out_df : pd.DataFrame = df.copy(deep=False)  # type: ignore
+    out_df : pd.DataFrame = df.copy(deep=False)
     for col in df.columns:
         if df[col].dtype.name == 'object':
             out_df[col] = df[col].apply(neo_val_to_pd_val)

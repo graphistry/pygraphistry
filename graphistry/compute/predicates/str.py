@@ -1,10 +1,11 @@
-from typing import Any, Optional, Tuple, Union, cast
+from typing import Any, Dict, Optional, Tuple, Union, cast
 import re
 
 import pandas as pd
 
 from .ASTPredicate import ASTPredicate
 from graphistry.compute.typing import SeriesT
+from graphistry.utils.json import JSONVal
 
 
 def _series_supports_str_ops(s: Any) -> bool:
@@ -74,7 +75,7 @@ def _nonstring_null_result(s: Any, na: Optional[bool]) -> Any:
     is_cudf = hasattr(s, '__module__') and 'cudf' in s.__module__
     if is_cudf:  # pragma: no cover - cuDF-only; the changed-line-coverage gate has no cuDF lane (validated on dgx)
         import cudf
-        out = cudf.Series([fill] * n)
+        out = cudf.Series([fill] * n, dtype='bool')  # an untyped all-null list is a string column that a boolean mask cannot AND
         try:
             out.index = s.index
         except Exception:
@@ -151,20 +152,49 @@ def _pandas_handle_na(
     return result
 
 
-class Contains(ASTPredicate):
+NONSTRING_ERROR = "error"
+NONSTRING_NULL = "null"
+
+
+class _NonStringPolicy(ASTPredicate):
+    """What a string predicate does with a non-string column: raise E302 (native API default) or answer null (Cypher)."""
+
+    nonstring: str
+
+    def to_json(self, validate: bool = True) -> Dict[str, JSONVal]:
+        data: Dict[str, JSONVal] = super().to_json(validate=validate)
+        if data.get("nonstring") == NONSTRING_ERROR:
+            del data["nonstring"]  # omit the default so existing serialized chains are unchanged
+        return data
+
+    def _validate_nonstring(self) -> None:
+        from graphistry.compute.exceptions import ErrorCode, GFQLTypeError
+
+        if self.nonstring not in (NONSTRING_ERROR, NONSTRING_NULL):
+            raise GFQLTypeError(
+                ErrorCode.E201,
+                "nonstring must be 'error' or 'null'",
+                field="nonstring",
+                value=str(self.nonstring)
+            )
+
+
+class Contains(_NonStringPolicy, ASTPredicate):
     def __init__(
         self,
         pat: str,
         case: bool = True,
         flags: int = 0,
         na: Optional[bool] = None,
-        regex: bool = True
+        regex: bool = True,
+        nonstring: str = NONSTRING_ERROR
     ) -> None:
         self.pat = pat
         self.case = case
         self.flags = flags
         self.na = na
         self.regex = regex
+        self.nonstring = nonstring
 
     def __call__(self, s: SeriesT) -> SeriesT:
         s_str = _str_ops_series(s)
@@ -250,18 +280,21 @@ class Contains(ASTPredicate):
                 value=type(self.regex).__name__
             )
 
+        self._validate_nonstring()
+
 
 def contains(
     pat: str,
     case: bool = True,
     flags: int = 0,
     na: Optional[bool] = None,
-    regex: bool = True
+    regex: bool = True,
+    nonstring: str = NONSTRING_ERROR
 ) -> Contains:
     """
     Return whether a given pattern or regex is contained within a string
     """
-    return Contains(pat, case, flags, na, regex)
+    return Contains(pat, case, flags, na, regex, nonstring)
 
 
 class NeverMatch(ASTPredicate):
@@ -270,21 +303,41 @@ class NeverMatch(ASTPredicate):
         return null_mask & ~null_mask
 
 
+class AlwaysNull(ASTPredicate):
+    """Unknown (null) for every row: the result of a string predicate over a non-string value."""
+
+    def __call__(self, s: SeriesT) -> SeriesT:
+        from graphistry.Engine import is_cudf_series, is_polars_series
+        if is_polars_series(s):
+            import polars as pl
+            return pl.Series([None] * len(s), dtype=pl.Boolean)
+        if is_cudf_series(s):  # pragma: no cover - cuDF-only; validated on GPU hosts
+            import cudf
+            return cudf.Series([None] * len(s), dtype='bool')
+        return pd.Series([pd.NA] * len(s), index=s.index, dtype='boolean')
+
+
 def never_match() -> NeverMatch:
     return NeverMatch()
 
 
-class _BoundaryStringPredicate(ASTPredicate):
+def always_null() -> AlwaysNull:
+    return AlwaysNull()
+
+
+class _BoundaryStringPredicate(_NonStringPolicy, ASTPredicate):
     def __init__(
         self,
         pat: Union[str, tuple],
         case: bool = True,
-        na: Optional[bool] = None
+        na: Optional[bool] = None,
+        nonstring: str = NONSTRING_ERROR
     ) -> None:
         # Convert list to tuple for JSON deserialization compatibility
         self.pat = tuple(pat) if isinstance(pat, list) else pat
         self.case = case
         self.na = na
+        self.nonstring = nonstring
 
     def _match_boundary(self, s: SeriesT, pat: Union[str, tuple]) -> SeriesT:
         raise NotImplementedError
@@ -390,6 +443,8 @@ class _BoundaryStringPredicate(ASTPredicate):
                 value=type(self.na).__name__
             )
 
+        self._validate_nonstring()
+
 
 class Startswith(_BoundaryStringPredicate):
     def _match_boundary(self, s: SeriesT, pat: Union[str, tuple]) -> SeriesT:
@@ -399,7 +454,8 @@ class Startswith(_BoundaryStringPredicate):
 def startswith(
     pat: Union[str, tuple],
     case: bool = True,
-    na: Optional[bool] = None
+    na: Optional[bool] = None,
+    nonstring: str = NONSTRING_ERROR
 ) -> Startswith:
     """
     Return whether a given pattern or tuple of patterns is at the start of a string.
@@ -417,7 +473,7 @@ def startswith(
     >>> n({"filename": startswith(("test_", "demo_"))})
     >>> n({"filename": startswith(("TEST", "DEMO"), case=False)})
     """
-    return Startswith(pat, case, na)
+    return Startswith(pat, case, na, nonstring)
 
 
 class Endswith(_BoundaryStringPredicate):
@@ -428,7 +484,8 @@ class Endswith(_BoundaryStringPredicate):
 def endswith(
     pat: Union[str, tuple],
     case: bool = True,
-    na: Optional[bool] = None
+    na: Optional[bool] = None,
+    nonstring: str = NONSTRING_ERROR
 ) -> Endswith:
     """
     Return whether a given pattern or tuple of patterns is at the end of a string.
@@ -446,7 +503,7 @@ def endswith(
     >>> n({"filename": endswith((".txt", ".csv"))})
     >>> n({"filename": endswith((".TXT", ".CSV"), case=False)})
     """
-    return Endswith(pat, case, na)
+    return Endswith(pat, case, na, nonstring)
 
 
 class _RegexStringPredicate(ASTPredicate):
@@ -689,6 +746,16 @@ def fullmatch(
         >>> n({"id": fullmatch(r"[A-Z]{3}-\\d{4}", flags=re.IGNORECASE)})
     """
     return Fullmatch(pat, case, flags, na)
+
+
+def string_predicate_raises_on_nonstring(pred: Union[ASTPredicate, str, int, float, bool, None]) -> bool:
+    """The one rule every site shares: Match/Fullmatch always raise E302 on a non-string column;
+    Contains/Startswith/Endswith raise unless built with nonstring='null' (what the Cypher lowering sets)."""
+    if isinstance(pred, (Match, Fullmatch)):
+        return True
+    if isinstance(pred, (Contains, Startswith, Endswith)):
+        return pred.nonstring != NONSTRING_NULL
+    return False
 
 
 class _CallablePredicate(ASTPredicate):
