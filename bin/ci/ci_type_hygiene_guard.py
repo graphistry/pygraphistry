@@ -22,6 +22,17 @@ Checks:
                         is_polars_series, is_polars_df), `isinstance`, or a Protocol.
                         A `setattr` already reported as plottable-setattr is not
                         counted again.
+                        Also counted: `.__module__` / `.__dict__` access,
+                        `type(x).__name__` / `x.__class__.__name__` when the name is tested
+                        (a comparison, a lookup key, a match subject, a `startswith`/`endswith`
+                        receiver; not a message or log argument), `vars()` and
+                        `except AttributeError` (type-sniffing by another name).
+  bare-type-ignore      a `# type: ignore` comment without an error code, which silences every
+                        error on the line; write `# type: ignore[code]` (and prefer fixing it)
+  object-annotation     `object` in a parameter or return annotation, which accepts anything and
+                        narrows to nothing; use the real type, a Protocol or a TypeVar. A function
+                        that returns a `TypeGuard`/`TypeIs` is exempt (its argument is the thing
+                        being tested).
 
 Enforcement is a **per-file count ratchet**: a file may not gain findings relative
 to the committed baseline, and a file absent from the baseline must have zero.
@@ -43,8 +54,11 @@ from __future__ import annotations
 import argparse
 import ast
 import json
+import io
 import os
+import re
 import sys
+import tokenize
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Sequence, Set, Tuple, Union
 
@@ -69,9 +83,14 @@ CHECKS = (
     "plottable-attr-write",
     "vocab-str-param",
     "dynamic-attr",
+    "bare-type-ignore",
+    "object-annotation",
 )
 
-DYNAMIC_ATTR_BUILTINS = frozenset(["hasattr", "getattr", "setattr"])
+DYNAMIC_ATTR_BUILTINS = frozenset(["hasattr", "getattr", "setattr", "vars"])
+BARE_TYPE_IGNORE_RE = re.compile(r"#\s*type:\s*ignore(?!\s*\[)")
+DYNAMIC_ATTR_ATTRIBUTES = frozenset(["__module__", "__dict__"])
+TYPE_GUARD_NAMES = frozenset(["TypeGuard", "TypeIs"])
 
 # Unsubscripted forms of these lose the element type. Abstract shapes
 # (Callable/Iterable/Sequence/...) are deliberately excluded: bare `Callable` is
@@ -132,6 +151,45 @@ def unwrap_annotation(node: Optional[ast.expr]) -> Optional[ast.expr]:
         except SyntaxError:
             return None
     return node
+
+
+def type_name_is_tested(node: ast.Attribute, parent: Optional[ast.AST]) -> bool:
+    """True when a type's name is compared, used as a lookup key, matched on, or prefix-tested (not just reported)."""
+    if isinstance(parent, ast.Compare):
+        return True
+    if isinstance(parent, ast.Subscript):
+        return parent.value is not node
+    if type(parent).__name__ == "Index":  # Python 3.8 wraps a subscript key in ast.Index
+        return True
+    if isinstance(parent, ast.Call) and isinstance(parent.func, ast.Attribute):
+        return parent.func.attr in ("get", "pop", "setdefault") and node in parent.args
+    if isinstance(parent, ast.Attribute):
+        return parent.value is node and parent.attr in ("startswith", "endswith")
+    return type(parent).__name__ == "Match" and parent.subject is node  # type: ignore[attr-defined]
+
+
+def top_level_object_names(node: ast.expr) -> Set[int]:
+    """ids of `object` Name nodes that are the whole annotation or a member of an Optional/Union/`|` at the top."""
+    found: Set[int] = set()
+
+    def visit(n: ast.expr) -> None:
+        if isinstance(n, ast.Name) and n.id == "object":
+            found.add(id(n))
+        elif isinstance(n, ast.BinOp) and isinstance(n.op, ast.BitOr):
+            visit(n.left)
+            visit(n.right)
+        elif isinstance(n, ast.Subscript):
+            base = n.value
+            base_name = base.id if isinstance(base, ast.Name) else base.attr if isinstance(base, ast.Attribute) else None
+            if base_name in ("Optional", "Union"):
+                inner = n.slice
+                if type(inner).__name__ == "Index":
+                    inner = inner.value  # type: ignore[attr-defined]
+                for member in (inner.elts if isinstance(inner, ast.Tuple) else [inner]):
+                    visit(member)
+
+    visit(node)
+    return found
 
 
 def annotation_idents(node: Optional[ast.expr]) -> Set[str]:
@@ -262,10 +320,12 @@ def analyze_file(path: str) -> List[Finding]:
         # --- classes 3a / 4 / 5: annotation shape -------------------------
         slots: List[Tuple[str, Optional[ast.expr], int]] = list(params)
         slots.append(("return", func.returns, func.lineno))
+        returns_type_guard = bool(annotation_idents(func.returns) & TYPE_GUARD_NAMES)
         for name, ann, line in slots:
             resolved = unwrap_annotation(ann)
             if resolved is not None:
                 bases = subscript_bases(resolved)
+                top_objects = top_level_object_names(resolved)
                 for sub in ast.walk(resolved):
                     if not isinstance(sub, (ast.Name, ast.Attribute)) or id(sub) in bases:
                         continue
@@ -280,6 +340,11 @@ def analyze_file(path: str) -> List[Finding]:
                         emit("bare-generic", sub_line,
                              "bare `%s` in the annotation of `%s` in `%s()`; parameterize it "
                              "as `%s[...]`" % (ident, name, func.name, ident))
+                    elif ident == "object" and id(sub) in top_objects and not returns_type_guard:
+                        emit("object-annotation", sub_line,
+                             "`object` in the annotation of `%s` in `%s()`; use the real type, a "
+                             "Protocol or a TypeVar (a TypeGuard-returning function is exempt)"
+                             % (name, func.name))
             if name in VOCAB_PARAM_NAMES and is_plain_str(ann):
                 emit("vocab-str-param", line,
                      "`%s: str` in `%s()` names a closed vocabulary; use a `Literal[...]` alias"
@@ -356,6 +421,45 @@ def analyze_file(path: str) -> List[Finding]:
                  "`%s(...)` is an untyped attribute probe; use a typed helper from "
                  "graphistry/Engine.py (is_series_like, is_cudf_series, is_polars_series, "
                  "is_polars_df), `isinstance`, or a Protocol" % node.func.id)
+
+    parents: Dict[int, ast.AST] = {}
+    for parent in ast.walk(tree):
+        for child in ast.iter_child_nodes(parent):
+            parents[id(child)] = parent
+
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Attribute):
+            sniffed = None
+            if node.attr in DYNAMIC_ATTR_ATTRIBUTES:
+                sniffed = "`.%s`" % node.attr
+            elif node.attr == "__name__" and (
+                (isinstance(node.value, ast.Call) and isinstance(node.value.func, ast.Name) and node.value.func.id == "type")
+                or (isinstance(node.value, ast.Attribute) and node.value.attr == "__class__")
+            ) and type_name_is_tested(node, parents.get(id(node))):
+                sniffed = "a type-name comparison (`type(x).__name__` / `x.__class__.__name__`)"
+            if sniffed is not None:
+                emit("dynamic-attr", node.lineno,
+                     "%s sniffs a value's type by attribute; use `isinstance`, a typed guard from "
+                     "graphistry/Engine.py, or a Protocol" % sniffed)
+        elif isinstance(node, ast.ExceptHandler) and node.type is not None:
+            caught = node.type.elts if isinstance(node.type, ast.Tuple) else [node.type]
+            if any(isinstance(c, ast.Name) and c.id == "AttributeError" for c in caught):
+                emit("dynamic-attr", node.lineno,
+                     "`except AttributeError` probes for an attribute by failing; check the type "
+                     "(`isinstance`, a typed guard or a Protocol) instead")
+
+    # --- class 7: bare `# type: ignore` -----------------------------------
+    try:
+        comment_tokens = [
+            tok for tok in tokenize.generate_tokens(io.StringIO(source).readline) if tok.type == tokenize.COMMENT
+        ]
+    except (tokenize.TokenError, IndentationError):
+        comment_tokens = []
+    for tok in comment_tokens:
+        if BARE_TYPE_IGNORE_RE.match(tok.string):
+            emit("bare-type-ignore", tok.start[0],
+                 "`# type: ignore` without an error code silences every error on the line; "
+                 "write `# type: ignore[code]`, or fix the typing")
 
     return findings
 
