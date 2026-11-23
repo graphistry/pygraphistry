@@ -176,7 +176,7 @@ def _apply_persist_axis_defaults(g: Plottable) -> None:
         g._url_params = merged
 
 
-def _refuse_semantic_calls(payload: object) -> None:
+def _refuse_semantic_calls(payload: object) -> None:  # hygiene-ok: object-annotation -- untrusted host or user input, narrowed by isinstance
     """Semantic calls need a locally bound provider, so a query that holds one is refused before upload; the walk
     follows only query structure (chains, let bindings), never call parameters."""
     from graphistry.compute.semantic.gfql_support import SEMANTIC_CALLS
