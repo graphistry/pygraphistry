@@ -125,7 +125,7 @@ def is_legacy_cuml():
 def resolve_umap_engine(engine: UMAPEngine) -> UMAPEngineConcrete:
     
     if engine in umap_engine_values:
-        return engine  # type: ignore
+        return engine
     if engine == 'auto':
         has_cuml_dependancy_, cuml_msg, _ = lazy_cuml_import()
         if has_cuml_dependancy_:
@@ -945,7 +945,7 @@ class UMAPMixin(MIXIN_BASE):
             index = res._nodes.index
             if res._node is None:
                 logger.debug("-Writing new node name")
-                res = res.nodes(  # type: ignore
+                res = res.nodes(
                     res._nodes.reset_index(drop=True)
                     .reset_index()
                     .rename(columns={"index": config.IMPLICIT_NODE_ID}),
@@ -966,7 +966,7 @@ class UMAPMixin(MIXIN_BASE):
                 X_,
                 y_,
                 res,
-            ) = res.featurize_or_get_nodes_dataframe_if_X_is_None(  # type: ignore
+            ) = res.featurize_or_get_nodes_dataframe_if_X_is_None(
                 **featurize_kwargs
             )
 
@@ -1005,7 +1005,7 @@ class UMAPMixin(MIXIN_BASE):
                 X_,
                 y_,
                 res,
-            ) = res.featurize_or_get_edges_dataframe_if_X_is_None(  # type: ignore
+            ) = res.featurize_or_get_edges_dataframe_if_X_is_None(
                 **featurize_kwargs
             )
 
@@ -1063,7 +1063,7 @@ class UMAPMixin(MIXIN_BASE):
             res = res.prune_self_edges()
 
         if dbscan:
-            res = res.dbscan(min_dist=min_dist, kind=kind, fit_umap_embedding=True)  # type: ignore
+            res = res.dbscan(min_dist=min_dist, kind=kind, fit_umap_embedding=True)
 
         if not inplace:
             return res

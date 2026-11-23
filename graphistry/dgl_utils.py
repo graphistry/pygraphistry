@@ -507,7 +507,7 @@ class DGLGraphMixin(FeatureMixin):
             if not isinstance(res._edges, pd.DataFrame):
                 if 'cudf' in str(getmodule(res._edges)):
                     warnings.warn("cudf not supported for featurizing edges, converting to pandas")
-                    res = res.edges(res._edges.to_pandas())  # type: ignore
+                    res = res.edges(res._edges.to_pandas())
             res = res._featurize_edges_to_dgl(
                 res,
                 **kwargs_edges

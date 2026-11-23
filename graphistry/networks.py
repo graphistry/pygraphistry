@@ -237,7 +237,7 @@ class HeteroEmbed(Module):  # type: ignore
             logger.info(f"--Using node features of shape {str(node_features.shape)}")  # type: ignore
         hidden = None
         if node_features is not None:
-            hidden = self.node_features.shape[-1]  # type: ignore
+            hidden = self.node_features.shape[-1]
         self.rgcn = RGCNEmbed(d, num_nodes, num_rels, hidden, device=device)
         self.relational_embedding = nn.Parameter(torch.Tensor(num_rels, d))
 

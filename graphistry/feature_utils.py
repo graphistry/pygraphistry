@@ -121,7 +121,7 @@ def resolve_feature_engine(
         return "skrub"
 
     if feature_engine in feature_engine_concrete_values:
-        return feature_engine  # type: ignore
+        return feature_engine
 
     if feature_engine == "auto":
         has_dependancy_text_, _, _ = lazy_sentence_transformers_import()
@@ -2679,7 +2679,7 @@ class FeatureMixin(ComputeMixin):
             return self
         
         if dbscan:  # this adds columns to the dataframe, will break tests of pure featurization & umap, so set to False in those
-            res = res.dbscan(min_dist=min_dist, min_samples=min_samples, kind=kind, fit_umap_embedding=False, verbose=verbose)  # type: ignore
+            res = res.dbscan(min_dist=min_dist, min_samples=min_samples, kind=kind, fit_umap_embedding=False, verbose=verbose)
 
         if not inplace:
             return res

@@ -38,7 +38,7 @@ def resolve_dbscan_engine(
     If 'auto', decide by checking if cuml or sklearn is installed, and if provided, natural type of the dataset. GPU is used if both a GPU dataset and GPU library is installed. Otherwise, CPU library.
     """
     if engine in dbscan_engine_values:
-        return engine  # type: ignore
+        return engine
     if engine == "umap_learn":
         warnings.warn("engine value 'umap_learn' is deprecated, use engine='cuml' or 'sklearn' instead; defaulting to sklearn")
         return "sklearn"
