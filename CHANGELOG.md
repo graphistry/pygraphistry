@@ -30,6 +30,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 - **GFQL semantic result cache**: `bind_providers(..., cache=...)` binds a `SemanticCache`, a protocol of `get_many`, `put_many` and `clear` over JSON strings. `MemorySemanticCache` is a thread-safe LRU cache with an entry cap, a byte cap and a time to live. The key is a hash of the provider's `cache_fingerprint()` and the input hash, never the evidence or the API key. The cache stores answers before `min_p`, and never errors or skips. A hit uses no budget and has `cache_hit` true. A bound cache still returns the stored answer when `dedupe=False`. Callable providers take `fingerprint=` to opt in. A chat provider needs an explicit strategy (not `auto`), and `LangChainDecisionProvider` has no fingerprint, so a bound cache raises for both.
 
+- **GFQL Cypher string parameters**: a whole-expression string parameter such as `RETURN $v` or `count($v)` is a string value in every row expression position, on every engine that runs the query. It raised `unsupported token in row expression` on pandas and cuDF, and a string equal to a column name (`'name'`) or to expression text (`'n.id'`) silently returned the column or the evaluated expression instead of the string (#2324).
+
 ## [0.62.2] - 2026-11-21
 
 ### Docs
