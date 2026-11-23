@@ -159,8 +159,9 @@ def _bound_cache(provider: Union[DecisionProvider, GenerationProvider]) -> Tuple
         return None, ""
     fingerprint = provider_fingerprint(provider)
     if fingerprint is None:
-        raise ValueError(f"a result cache is bound, but provider {_provider_identity(provider)[0]!r} has no "
-                         "cache_fingerprint(); give it one (callable providers take fingerprint=...) or bind no cache")
+        raise ValueError(f"a result cache is bound, but provider {_provider_identity(provider)[0]!r} has no cache "
+                         "fingerprint: its cache_fingerprint() is missing or returns None. Callable providers take "
+                         "fingerprint=...; a chat provider needs an explicit strategy, not 'auto'. Or bind no cache")
     return cache, fingerprint
 
 
@@ -193,7 +194,9 @@ def _cacheable(result: Union[DecisionResult, GenerationResult]) -> bool:
 
 
 def _result_payload(result: Union[DecisionResult, GenerationResult]) -> str:
+    """The result as JSON. It holds no row id: ``request_id`` is blank here and set again on load."""
     fields = {field.name: getattr(result, field.name) for field in dataclasses.fields(result)}
+    fields["request_id"] = ""
     return json.dumps(_json_ready(fields), sort_keys=True, separators=(",", ":"))
 
 

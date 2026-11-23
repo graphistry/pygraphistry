@@ -14,7 +14,7 @@ from graphistry.compute.semantic import (
     sem_decide, sem_map)
 from graphistry.compute.semantic import binding, cache as cache_module
 from graphistry.compute.semantic.cache import cache_key, provider_fingerprint
-from graphistry.compute.semantic.contract import DecisionRequest
+from graphistry.compute.semantic.contract import DecisionQuestion, DecisionRequest, compute_decision_hash, compute_generation_hash
 from graphistry.tests.compute.semantic.semantic_test_utils import (
     C, P, Recording, RecordingGenerator, Scripted, full_answer, result)
 
@@ -112,6 +112,21 @@ class TestDedupe:
         sem_map(df, instruction="i", out_col="o", provider=provider, task_id="t", evidence_cols=["name"], dedupe=False)
         assert len([r for call_ in provider.calls for r in call_]) == 3
 
+    def test_every_row_keeps_the_input_hash_of_its_own_evidence(self) -> None:
+        names = ["a", "a", None, "b", "c", "b"]  # a duplicate and a null-evidence skip come before unique rows
+        question = DecisionQuestion.from_mapping(P)
+        expected = [compute_decision_hash({"name": name}, question, "1") for name in names]
+        for cache in (None, MemorySemanticCache()):
+            for _ in range(2 if cache is not None else 1):
+                with bind_providers({}, cache=cache):
+                    out = decide(repeated(names), versioned(), max_rows=5)  # type: ignore[arg-type]
+                got = [m["input_hash"] for m in meta(out)]
+                assert [h for i, h in enumerate(got) if i not in (2, 5)] == [h for i, h in enumerate(expected) if i not in (2, 5)]
+                assert out["p__status"].tolist()[2] == "skipped" and out["p__status"].tolist()[5] == "skipped"
+        generated = sem_map(repeated(["a", "a", "b"]), instruction="i", out_col="o", provider=RecordingGenerator(), task_id="t",
+                            evidence_cols=["name"])
+        assert [m["input_hash"] for m in meta(generated, "o")] == [compute_generation_hash({"name": n}, "i", "1") for n in "aab"]
+
     def test_dedupe_must_be_a_bool(self) -> None:
         with pytest.raises(ValueError, match="dedupe"):
             decide(repeated(["a"]), Recording(), dedupe="no")
@@ -181,6 +196,24 @@ class TestMemorySemanticCache:
         assert cache.get_many(["a"]) == {}
         stats = cache.stats()
         assert stats["expirations"] == 1 and stats["entries"] == 0 and stats["bytes"] == 0
+
+    def test_an_entry_is_gone_at_exactly_its_time_to_live(self) -> None:
+        clock = Clock()
+        cache = MemorySemanticCache(ttl_s=60, clock=clock)
+        cache.put_many({"a": "1"})
+        clock.now += 60
+        assert cache.get_many(["a"]) == {}
+
+    def test_stats_drop_expired_entries_and_an_oversize_rewrite_drops_the_old_value(self) -> None:
+        clock = Clock()
+        cache = MemorySemanticCache(max_bytes=20, ttl_s=60, clock=clock)
+        cache.put_many({"a": "1", "b": "2"})
+        clock.now += 61
+        stats = cache.stats()
+        assert stats["entries"] == 0 and stats["bytes"] == 0 and stats["expirations"] == 2
+        cache.put_many({"k": "v"})
+        cache.put_many({"k": "x" * 40})
+        assert cache.get_many(["k"]) == {} and cache.stats()["rejected"] == 1 and len(cache) == 0
 
     def test_a_write_starts_a_new_life_and_none_never_expires(self) -> None:
         clock = Clock()
@@ -409,11 +442,16 @@ class TestCacheInDecide:
             out = self.run(cache, provider, repeated(["a"]))
             assert provider.request_ids == ["0"] and out["p"].tolist() == [True]
 
-    def test_keys_and_values_do_not_hold_the_evidence_or_a_key(self) -> None:
+    def test_keys_and_values_do_not_hold_the_evidence_or_a_row_id(self) -> None:
         cache = MemorySemanticCache()
-        self.run(cache, versioned(), repeated(["secret-evidence"]))
+        df = repeated(["secret-evidence"]).assign(rid=["tenantX-user-1"])
+        self.run(cache, versioned(), df, id_col="rid")
+        assert len(cache) == 1
         for key, entry in cache._entries.items():
-            assert len(key) == 64 and set(key) <= set("0123456789abcdef") and "secret-evidence" not in entry[0]
+            assert len(key) == 64 and set(key) <= set("0123456789abcdef")
+            assert "secret-evidence" not in entry[0] and "tenantX" not in entry[0]
+        again = self.run(cache, versioned(), df.assign(rid=["other-id"]), id_col="rid")
+        assert meta(again)[0]["cache_hit"] is True
 
     def test_binding_rules(self) -> None:
         outer, inner = MemorySemanticCache(), MemorySemanticCache()
@@ -505,6 +543,12 @@ class TestFingerprints:
         for change in (dict(rows_per_request=4), dict(model="n"), dict(max_choice_options=9)):
             assert self.http(OpenAIDecisionsProvider, **change) != packed, change
         assert self.http(OpenAIChatProvider) != self.http(OpenAIDecisionsProvider)
+
+    def test_a_chat_provider_that_settles_its_strategy_by_probe_has_no_fingerprint(self) -> None:
+        assert OpenAIChatProvider("k", "m", strategy="auto").cache_fingerprint() is None
+        assert OpenAIChatProvider("k", "m", strategy="text").cache_fingerprint() is not None
+        with bind_providers({}, cache=MemorySemanticCache()), pytest.raises(ValueError, match="explicit strategy"):
+            decide(repeated(["a"]), OpenAIChatProvider("k", "m", strategy="auto"))
 
     def test_callable_providers_have_one_only_when_given(self) -> None:
         assert CallableDecisionProvider(lambda e, q: True).cache_fingerprint() is None

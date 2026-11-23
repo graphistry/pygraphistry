@@ -240,7 +240,7 @@ class HttpDecisionProvider(ABC):
         """Settings, besides the model and the URL, that can change an answer; subclasses extend this."""
         return {}
 
-    def cache_fingerprint(self) -> str:
+    def cache_fingerprint(self) -> Optional[str]:
         """A digest of what this provider's answers depend on: its class, name, model, base URL and
         ``answer_settings()``. It never holds the API key or the headers. Result caches key on it."""
         return fingerprint_of({"class": type(self).__name__, "name": self.name, "model": self.model,

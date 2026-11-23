@@ -2107,8 +2107,10 @@ Two mechanisms stop the same input from being sent twice.
 the first row of each group goes to the provider. Each other row gets a copy of the answer with ``cost_usd`` 0,
 ``latency_ms`` 0, ``retry_count`` 0 and ``extra.deduped_from`` set to the id of the row that was asked. The sum of
 ``cost_usd`` over the output is therefore the money that was spent, and ``budget.max_requests`` counts only real calls.
-Pass ``dedupe=False`` when you want an answer for every row, for example to vote over several answers from a model that
-is not deterministic.
+A failed call fails every row that shares it, so one failure can give an error to many rows. This changes the default:
+before ``dedupe``, a table with repeated evidence sent every row. Pass ``dedupe=False`` when you want an answer for every
+row, for example to vote over several answers from a model that is not deterministic. A bound result cache (below) still
+returns the stored answer for a repeated input, so do not bind a cache for a vote.
 
 **The result cache** works between calls. ``bind_providers(..., cache=cache)`` gives every ``sem_decide`` and
 ``sem_map`` run inside the block a ``SemanticCache``. There is no default cache and no module-level state: you create the
@@ -2129,10 +2131,19 @@ process memory:
 A cache key is a hash of the schema version, the provider fingerprint and the input hash. The provider fingerprint comes
 from ``provider.cache_fingerprint()``. For the HTTP providers it covers the class, name, model, base URL and the settings
 that shape an answer (strategy, ``max_answer_tokens``, ``extra_body``, ``rows_per_request`` and similar). It never covers the
-API key or the headers. A callable provider has a fingerprint only when you pass ``fingerprint="..."``, so change that text
-when your function changes. If a cache is bound and the provider has no fingerprint, the run raises ``ValueError`` before
-any call. The ``sem_map`` key also covers ``max_output_tokens``. A key never holds evidence, and a stored answer never
-holds evidence, keys or tenant names.
+API key or the headers.
+
+- A callable provider has a fingerprint only when you pass ``fingerprint="..."``. Change that text when your function
+  changes.
+- An ``OpenAIChatProvider`` with ``strategy="auto"`` has none, because a probe settles the strategy after the cache
+  lookup. Choose an explicit strategy.
+- If a cache is bound and the provider has no fingerprint, the run raises ``ValueError`` before any call.
+- The ``sem_map`` key also covers ``max_output_tokens``. The key does not cover ``task_id`` or the row id, so a custom
+  provider must not use them to shape an answer.
+
+A key and a stored answer hold no evidence, no API key, no tenant name and no row id. They hold the input hash, which is a
+hash of the evidence. A new library version that changes a prompt does not change the key, so clear an external cache
+after an upgrade.
 
 What the cache holds, and what a hit looks like:
 
@@ -2141,7 +2152,8 @@ What the cache holds, and what a hit looks like:
   stores ``error``, ``skipped``, ``null_answer`` or ``min_p`` results.
 - A hit runs through the same checks as a provider reply, and runs before ``budget`` is planned, so it uses none of the
   budget and sends no request. It has ``cost_usd`` 0, ``latency_ms`` 0, ``retry_count`` 0, ``cache_hit`` true and
-  ``extra.cache_source`` ``local_cache``. A stored answer that fails the checks is a miss.
+  ``extra.cache_source`` ``local_cache``. A duplicate row of a hit also has ``extra.deduped_from``. A stored answer that
+  fails the checks is a miss.
 - ``sem_decide`` serves a row from the cache only when every question of the row hits. A stored answer is assumed to not
   depend on the other questions that share its call.
 - A cache that raises, or that returns data of the wrong shape, counts as a miss. A cache never fails a run.

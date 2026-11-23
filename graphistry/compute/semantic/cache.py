@@ -159,8 +159,13 @@ class MemorySemanticCache:
 
     def stats(self) -> Dict[str, Union[int, float]]:
         """Counters since creation (``hits``, ``misses``, ``puts``, ``evictions``, ``expirations``, ``rejected``) and the
-        current ``entries`` and ``bytes``; ``hit_rate`` is hits over lookups, 0.0 before the first lookup."""
+        current ``entries`` and ``bytes``; ``hit_rate`` is hits over lookups, 0.0 before the first lookup. It first
+        removes the entries that have expired. A write of a value larger than ``max_bytes`` removes the old value of
+        that key and counts as ``rejected``."""
         with self._lock:
+            for key in [key for key, (_value, written, _size) in self._entries.items() if self._expired(written, self._clock())]:
+                self._drop(key)
+                self._counts["expirations"] += 1
             lookups = self._counts["hits"] + self._counts["misses"]
             return {**self._counts, "entries": len(self._entries), "bytes": self._bytes,
                     "hit_rate": self._counts["hits"] / lookups if lookups else 0.0}

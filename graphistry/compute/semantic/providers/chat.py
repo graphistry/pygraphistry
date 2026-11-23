@@ -456,6 +456,11 @@ class OpenAIChatProvider(_ChatDecisionProvider):
         self.strategy_in_use: Strategy = "logprobs" if strategy == "auto" else strategy
         self.run_failure: Optional[RequestFailure] = None
 
+    def cache_fingerprint(self) -> Optional[str]:
+        """None for ``strategy="auto"``: the strategy is settled by a probe after the cache lookup, so answers from
+        different settled strategies would share a key. Choose an explicit strategy to use a result cache."""
+        return None if self.strategy == "auto" else super().cache_fingerprint()
+
     def answer_settings(self) -> Dict[str, object]:
         return {**super().answer_settings(), "strategy": self.strategy, "top_logprobs": self.top_logprobs,
                 "max_tokens_field": self.max_tokens_field, "probe_strategies": list(self.probe_strategies)}
