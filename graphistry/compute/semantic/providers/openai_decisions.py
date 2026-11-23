@@ -143,6 +143,11 @@ class OpenAIDecisionsProvider(HttpDecisionProvider):
         self.max_levels = max_levels
         self.rows_per_request = rows_per_request
 
+    def answer_settings(self) -> Dict[str, object]:
+        return {**super().answer_settings(), "rows_per_request": self.rows_per_request,
+                "max_questions_per_request": self.max_questions_per_request,
+                "max_choice_options": self.max_choice_options, "max_levels": self.max_levels}
+
     def capabilities(self) -> ProviderCapabilities:
         # One planned call must be one HTTP request, so a call's rows x questions never exceed the request limit.
         rows = min(self.rows_per_request, self.max_questions_per_request)

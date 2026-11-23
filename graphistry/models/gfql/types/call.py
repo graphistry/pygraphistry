@@ -192,6 +192,7 @@ class SemCommonParams(TypedDict, total=False):
     max_rows: int
     column_max_chars: int
     overwrite: bool
+    dedupe: bool
 
 
 class SemDecideParams(SemCommonParams, total=False):

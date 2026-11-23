@@ -73,11 +73,17 @@ class TestOutputs:
             ["<t>alpha</t>", "<t>beta</t>", "<t>gamma</t>", "<t>delta</t>", "<t>zeta</t>"])
         assert {(r.instruction, r.task_id) for call in provider.calls for r in call} == {("Shout", "t")}
 
+    def test_a_default_callable_provider_spreads_a_small_run_over_its_threads(self) -> None:
+        provider = RecordingGenerator(delay=0.1)
+        assert provider.capabilities().max_rows_per_request == 1 and provider.capabilities().concurrency_limit == 4
+        out = run(pd.DataFrame({"text": [f"t{i}" for i in range(12)]}), provider)
+        assert set(out["o__status"]) == {"ok"} and [len(call) for call in provider.calls] == [1] * 12 and provider.peak == 4
+
     def test_batch_invariance_and_defaults(self) -> None:
         frames = [run(frame(), RecordingGenerator(shout), batch_size=size).drop(columns=["o__meta"]) for size in (1, 4, None)]
         pd.testing.assert_frame_equal(frames[0], frames[1])
         pd.testing.assert_frame_equal(frames[0], frames[2])
-        provider = RecordingGenerator()
+        provider = RecordingGenerator(capabilities=caps())
         run(pd.DataFrame({"text": [f"t{i}" for i in range(40)]}), provider)
         assert sorted(len(call) for call in provider.calls) == [8, 16, 16]
         limited = RecordingGenerator(capabilities=caps(max_rows_per_request=3))
