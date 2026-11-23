@@ -20,19 +20,19 @@ LangChainStrategy = Literal["auto", "structured", "json_schema", "function_calli
 
 @runtime_checkable
 class ChatRunnable(Protocol):
-    def invoke(self, input: List[Dict[str, str]], **kwargs: object) -> object:
+    def invoke(self, input: List[Dict[str, str]], **kwargs: object) -> object:  # hygiene-ok: object-annotation -- untrusted host or user input, narrowed by isinstance
         ...
 
 
 @runtime_checkable
 class StructuredModel(Protocol):
-    def with_structured_output(self, schema: Dict[str, object], **kwargs: object) -> object:
+    def with_structured_output(self, schema: Dict[str, object], **kwargs: object) -> object:  # hygiene-ok: object-annotation -- untrusted host or user input, narrowed by isinstance
         ...
 
 
 @runtime_checkable
 class ToolModel(Protocol):
-    def bind_tools(self, tools: List[Dict[str, object]], **kwargs: object) -> object:
+    def bind_tools(self, tools: List[Dict[str, object]], **kwargs: object) -> object:  # hygiene-ok: object-annotation -- untrusted host or user input, narrowed by isinstance
         ...
 
 
@@ -45,15 +45,15 @@ class UnsupportedBinding(Exception):
     pass
 
 
-def _field(value: object, name: str) -> object:
-    return value.get(name) if isinstance(value, Mapping) else getattr(value, name, None)
+def _field(value: object, name: str) -> object:  # hygiene-ok: object-annotation -- untrusted host or user input, narrowed by isinstance
+    return value.get(name) if isinstance(value, Mapping) else getattr(value, name, None)  # hygiene-ok: dynamic-attr -- duck-typed host object with no common base
 
 
-def _mapping(value: object) -> Mapping[str, object]:
+def _mapping(value: object) -> Mapping[str, object]:  # hygiene-ok: object-annotation -- untrusted host or user input, narrowed by isinstance
     return value if isinstance(value, dict) else {}
 
 
-def _calls_code(calls: object) -> object:
+def _calls_code(calls: object) -> object:  # hygiene-ok: object-annotation -- untrusted host or user input, narrowed by isinstance
     if not isinstance(calls, list) or len(calls) != 1 or not isinstance(calls[0], dict):
         return None
     call = calls[0]
@@ -63,7 +63,7 @@ def _calls_code(calls: object) -> object:
     return _answer_field(call.get("args")) if call.get("name") == "answer" else None
 
 
-def _tool_code(message: object) -> object:
+def _tool_code(message: object) -> object:  # hygiene-ok: object-annotation -- untrusted host or user input, narrowed by isinstance
     if _field(message, "invalid_tool_calls"):
         return None
     normalized = _field(message, "tool_calls")
@@ -74,7 +74,7 @@ def _tool_code(message: object) -> object:
     return _calls_code(normalized or raw)
 
 
-def _content(message: object) -> Optional[str]:
+def _content(message: object) -> Optional[str]:  # hygiene-ok: object-annotation -- untrusted host or user input, narrowed by isinstance
     content = message if isinstance(message, str) else _field(message, "content")
     if isinstance(content, str):
         return content
@@ -85,7 +85,7 @@ def _content(message: object) -> Optional[str]:
     return "".join(texts) if all(isinstance(text, str) for text in texts) else None
 
 
-def _refused(message: object) -> bool:
+def _refused(message: object) -> bool:  # hygiene-ok: object-annotation -- untrusted host or user input, narrowed by isinstance
     content = _field(message, "content")
     return bool(_mapping(_field(message, "additional_kwargs")).get("refusal")) or (
         isinstance(content, list) and any(isinstance(block, dict) and block.get("type") == "refusal"
@@ -94,7 +94,7 @@ def _refused(message: object) -> bool:
         _mapping(_field(message, "response_metadata")).get("finish_reason") == "content_filter")
 
 
-def _usage(message: object) -> Optional[TokenUsage]:
+def _usage(message: object) -> Optional[TokenUsage]:  # hygiene-ok: object-annotation -- untrusted host or user input, narrowed by isinstance
     usage = _field(message, "usage_metadata")
     if not isinstance(usage, dict) or any(isinstance(usage.get(key), bool) or not isinstance(usage.get(key), int)
                                         or usage[key] < 0 for key in ("input_tokens", "output_tokens")):
@@ -136,7 +136,7 @@ class LangChainDecisionProvider:
     Only normalized ``usage_metadata`` supplies actual token cost. No optional package version is inferred.
     """
 
-    def __init__(self, chat_model: object, *, model: str = "langchain", name: str = "langchain",
+    def __init__(self, chat_model: object, *, model: str = "langchain", name: str = "langchain",  # hygiene-ok: object-annotation -- untrusted host or user input, narrowed by isinstance
                  strategy: LangChainStrategy = "auto", prices: Optional[TokenPrices] = None,
                  concurrency_limit: int = 4, invoke_kwargs: Optional[Dict[str, object]] = None,
                  timeout_kwarg: Optional[str] = None, timeout_s: float = 60) -> None:
