@@ -228,7 +228,9 @@ def test_a_python_re_column_is_matched_in_one_row_pass_with_no_per_pattern_vecto
         raise AssertionError("an object column is matched by the row pass")
 
     monkeypatch.setattr(row_pipeline, "apply_string_predicate_series", refuse)
-    assert [bool(v) for v in _column_form(["abc", "abd", "xyz"], ["ab.", "ab.", "q"], "regex")] == [True, True, False]
+    left, right = pd.Series(["abc", "abd", "xyz"], dtype=object), pd.Series(["ab.", "ab.", "q"], dtype=object)  # a plain Series is Arrow-backed on pandas 3
+    result = row_pipeline.RowPipelineMixin._gfql_string_predicate_columns(left, right, "regex", "x")
+    assert [bool(v) for v in result] == [True, True, False]
 
 
 def test_a_regex_column_keeps_the_index_and_the_row_order():
