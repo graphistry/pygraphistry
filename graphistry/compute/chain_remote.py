@@ -42,6 +42,7 @@ from graphistry.otel import inject_trace_headers
 
 class CompiledProcedureCallLike(Protocol):
     procedure: str
+    backend: str
     call_params: Optional[Dict[str, Any]]
 
 
@@ -258,6 +259,14 @@ def chain_remote_generic(
             )
         if not _is_compiled_query_shape(compiled):
             raise TypeError(f"Unexpected compiled Cypher type: {type(compiled)}")
+        if compiled.procedure_call is not None and compiled.procedure_call.backend == "semantic":
+            raise GFQLUnsupportedError(
+                ErrorCode.E110,
+                f"Semantic calls ({compiled.procedure_call.procedure}) run locally only; use g.gfql(...) with bind_providers",
+                field="function",
+                value=compiled.procedure_call.procedure,
+                suggestion="Run the query locally with g.gfql(...); remote execution has no provider binding",
+            )
         if compiled.graph_bindings or compiled.use_ref:
             chain_json = _compiled_to_let_json(compiled)
             is_let = True

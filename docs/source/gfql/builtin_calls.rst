@@ -1849,32 +1849,65 @@ Why semantic table operators?
   ``budget`` and ``deadline_s`` stop a run. ``explain_sem_decide`` plans a run without a provider call, and ``semantic_trace()``
   reports what a run did.
 
-Quickstart: input, config, output
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Quickstart: one Cypher query
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 The callable provider plays the model, so these examples run offline. Replace it with a real provider
-(see `Providers`_ and `Provider recipes`_). All three forms give the same rows.
+(see `Providers`_ and `Provider recipes`_). Bind providers and a cache outside the query, so the query and its
+``params`` stay plain, JSON-safe values.
 
-*Cypher, then* ``sem_decide`` *(alias the returned columns so that they are plain names):*
+*One query narrows the graph and asks the model about the rows that remain:*
 
 .. code-block:: python
 
     from graphistry.compute.semantic import (
-        CallableDecisionProvider, semantic_summary, semantic_trace)
+        CallableDecisionProvider, MemorySemanticCache, bind_providers, semantic_trace)
 
     provider = CallableDecisionProvider(
         lambda evidence, question: evidence["type"] == "company",
         fingerprint="rules-v1",
     )
-    questions = [{"id": "is_company", "kind": "predicate", "text": "Is this a company?"}]
 
-    # Input: narrow the graph with Cypher
+    with bind_providers({"default": provider}, cache=MemorySemanticCache()), semantic_trace() as runs:
+        out = g.gfql("""
+            MATCH (p {country: 'USA'})
+            WITH p.id AS id, p.type AS type
+            CALL graphistry.sem_decide({
+                question: $question,
+                evidence: ['type'],
+                max_usd: $max_usd
+            }) YIELD verdict, score, status
+            WHERE verdict AND status = 'ok'
+            RETURN id, type, score, status
+            ORDER BY id
+        """, params={"question": "Is this a company?", "max_usd": 0.50})
+
+    out._nodes
+    runs[-1]["provider_calls"], runs[-1]["billed_cost_usd"]
+
+*The same question as a WHERE term.* The structural terms run first. One batched model call then sees only the rows
+that remain:
+
+.. code-block:: python
+
+    with bind_providers({"default": provider}):
+        out = g.gfql("""
+            MATCH (p {country: 'USA'})
+            WHERE p.type <> 'person' AND sem_decide($question, {type: p.type})
+            RETURN p.id AS id
+        """, params={"question": "Is this a company?"})
+
+*Fluent form: Cypher, then* ``sem_decide`` *(alias the returned columns so that they are plain names):*
+
+.. code-block:: python
+
+    from graphistry.compute.semantic import semantic_summary
+
+    questions = [{"id": "is_company", "kind": "predicate", "text": "Is this a company?"}]
     rows = g.gfql("""
         MATCH (p {country: 'USA'})
         RETURN p.id AS id, p.type AS type
     """)
-
-    # Run: ask the typed questions about the rows, under a trace
     with semantic_trace() as runs:
         out = rows.sem_decide(
             questions,
@@ -1882,10 +1915,7 @@ The callable provider plays the model, so these examples run offline. Replace it
             task_id="quickstart",
             evidence_cols=["type"],
         )
-
-    # Output: status counts, and what the run did
     semantic_summary(out._nodes)
-    runs[-1]["provider_calls"], runs[-1]["billed_cost_usd"]
 
 *The same query as a GFQL chain:*
 
@@ -1916,9 +1946,63 @@ The callable provider plays the model, so these examples run offline. Replace it
         ])
     out._nodes[["id", "is_company", "is_company__status"]]
 
-A native Cypher ``CALL`` procedure for the operators is on the roadmap. Until then, use ``g.gfql("MATCH ...").sem_decide(...)``
-or ``call("sem_decide", ...)``. These calls run locally only: ``gfql_remote()`` refuses them before any network request.
+These calls run locally only: ``gfql_remote()`` refuses them before any network request.
 Every input row is kept, in order and with its index, and a provider failure becomes a per-row ``error`` result, not an exception.
+
+Cypher ``CALL`` reference
+~~~~~~~~~~~~~~~~~~~~~~~~~
+
+``CALL graphistry.sem_decide({...}) YIELD ...`` and ``CALL graphistry.sem_map({...}) YIELD ...`` read the rows of the
+clause before them. Put ``WITH ... AS name`` before the ``CALL`` so that the columns have plain names. Without a
+``MATCH``, the ``CALL`` reads the node table of the graph. The ``CALL`` keeps every upstream column and adds the yielded
+ones. ``WHERE`` (after ``YIELD``), ``WITH``, ``RETURN``, ``DISTINCT``, ``ORDER BY``, ``SKIP`` and ``LIMIT`` work after it.
+One query holds one semantic ``CALL``. The ``CALL`` runs the same operator as ``g.sem_decide`` and ``g.sem_map``, so
+``dedupe``, the cache, ``budget`` and ``semantic_trace()`` work in the same way.
+
+Pass the options as a map. A ``$param`` can stand for the whole map, for one value, or for one list. A missing ``$param``,
+an unknown key, a wrong type, a column that is not in scope and an unknown ``YIELD`` name all raise an error.
+
+.. list-table::
+   :header-rows: 1
+   :widths: 24 76
+
+   * - Option
+     - Meaning
+   * - ``question``
+     - ``sem_decide``: the question text. It asks one predicate. Add ``options: [...]`` for a choice or ``levels: [...]`` for a score.
+   * - ``questions``
+     - ``sem_decide``: a list of ``{id, kind, text}`` maps, instead of ``question``.
+   * - ``instruction``
+     - ``sem_map``: the generation instruction. ``out_col`` names the column (default ``result``).
+   * - ``evidence`` or ``template``
+     - The columns sent to the model, or a text with ``{column}`` placeholders. Give exactly one.
+   * - ``provider``
+     - An alias bound with ``bind_providers`` (default ``default``).
+   * - ``max_usd``, ``max_requests``
+     - Limits for the run (``budget``). ``sem_map`` takes ``max_requests`` only.
+   * - ``min_p``, ``require_probabilities``
+     - Probability rules for ``sem_decide``, as for the method.
+   * - ``fail_on_incomplete``
+     - ``sem_decide``: raise when a row ends ``error``, ``skipped`` (except empty evidence) or ``uncertain`` (without ``min_p``). Default ``false``. The ``WHERE sem_decide(...)`` form sets it to ``true``, so a provider error is not a silent "no match"; give ``fail_on_incomplete: false`` in its options to drop such rows.
+   * - ``task_id``, ``batch_size``, ``max_concurrency``, ``deadline_s``, ``max_rows``, ``dedupe``, ``id_col``, ``column_max_chars``
+     - The same as the keyword arguments of the method.
+
+``sem_decide`` with ``question`` yields ``verdict`` (the answer), ``score`` (the probability of that answer) and ``status``
+(``ok``, ``uncertain``, ``error`` or ``skipped``). Use ``out_col``, ``score_col`` and ``status_col`` to rename them, or
+``YIELD verdict AS is_inc``. ``distribution``, ``probability_kind``, ``error_code`` and ``meta`` are also available. With
+``questions``, the yielded names are ``<id>``, ``<id>__p``, ``<id>__status`` and so on. ``sem_map`` yields ``<out_col>``,
+``status``, ``error_code`` and ``meta``.
+
+A ``CALL`` runs after ``MATCH ... WITH ...`` (or alone, on the node table). It does not follow a ``MATCH`` directly, and
+``MATCH``, ``USE`` and ``GRAPH`` bindings after or around it raise an error. Name every column that the ``CALL`` reads with
+``AS``. A column that has the name of an output column (for example ``verdict``) raises an error: rename it with ``AS``.
+Polars rows reach the operator as pandas, as with ``g.sem_decide``. ``call_mode='strict'`` declines this bridge, as it
+declines ``call("sem_decide", ...)``.
+
+``WHERE sem_decide(question, {name: expression, ...}[, {options}])`` is short for the ``CALL`` form. It must be a top-level
+``AND`` term of the ``WHERE`` of one ``MATCH ... WHERE ... RETURN`` query. A ``sem_decide`` term under ``OR``, ``XOR`` or
+``NOT``, an aggregating ``RETURN``, a ``RETURN`` of a whole node and an ``ORDER BY`` that is not a ``RETURN`` column raise an
+error that points to the ``CALL`` form. The other ``AND`` terms can use ``OR`` and ``NOT``. An answer below ``min_p`` is ``uncertain``, and its row keeps the value. The ``WHERE sem_decide(...)`` form passes only ``ok`` rows. In the ``CALL`` form, add ``AND status = 'ok'`` to the ``WHERE`` after ``YIELD``.
 
 Function contracts
 ~~~~~~~~~~~~~~~~~~

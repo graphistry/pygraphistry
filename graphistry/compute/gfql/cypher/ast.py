@@ -115,12 +115,16 @@ class CypherYieldItem:
     span: SourceSpan
 
 
+SEMANTIC_PROCEDURES = frozenset({"graphistry.sem_decide", "graphistry.sem_map"})
+
+
 @dataclass(frozen=True)
 class CallClause:
     procedure: str
     args: Tuple[ExpressionText, ...]
     yield_items: Tuple[CypherYieldItem, ...]
     span: SourceSpan
+    where: Optional[ExpressionText] = None
 
 
 WhereOp = Literal[
@@ -328,6 +332,9 @@ class CypherQuery:
     reentry_unwinds: Tuple[UnwindClause, ...] = ()
     graph_bindings: Tuple[GraphBinding, ...] = ()
     use: Optional[UseClause] = None
+    # A semantic CALL splits the query: clauses before it become this prefix query.
+    semantic_prefix: Optional["CypherQuery"] = None
+    call_inputs: Tuple[str, ...] = ()
     return_is_reentry_carry: bool = False
 
     @property
