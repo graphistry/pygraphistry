@@ -76,6 +76,7 @@ from .lowering_context import (
     SCHEMA as _SCHEMA,
     NODE_ID as _NODE_ID,
     COLUMNS_NAN_FREE as _COLUMNS_NAN_FREE,
+    VALUE_COLUMNS as _VALUE_COLUMNS,
 )
 from graphistry.compute.gfql.same_path_types import NODE_IDENTITY_COLUMN as _NODE_ID_TOKEN
 from graphistry.compute.gfql.identifiers import (
@@ -712,6 +713,11 @@ def _lower_in(left: pl.Expr, items: Sequence[ExprNode], columns: Sequence[str]) 
     return pl.when(left.is_null()).then(pl.lit(None, dtype=pl.Boolean)).otherwise(member_expr.is_in(values))
 
 
+class PropertyOfValueError(ValueError):
+    """A dotted property read of a projected non-entity value; the polars chain wraps it as pandas'
+    ``execute_call`` wraps the same ValueError."""
+
+
 def lower_expr(node: ExprNode, columns: Sequence[str]) -> Optional[pl.Expr]:
     """Lower a parsed cypher ExprNode to a polars expression, or None to defer."""
     import polars as pl
@@ -776,6 +782,14 @@ def lower_expr(node: ExprNode, columns: Sequence[str]) -> Optional[pl.Expr]:
         return None
     if isinstance(node, PropertyAccessExpr):
         if isinstance(node.value, Identifier):
+            value_has_values = _VALUE_COLUMNS.get().get(node.value.name)
+            if value_has_values is not None and not any(col.startswith(f"{node.value.name}.") for col in columns):
+                if not value_has_values:
+                    return pl.lit(None)  # a property of null is null
+                raise PropertyOfValueError(  # same type error as the pandas row evaluator
+                    "unsupported row expression: property access requires a graph element alias, entity value, "
+                    f"or map in {'ast property access .' + node.property!r}"
+                )
             if (
                 node.value.name == node.property
                 and shadow_restore_column(node.value.name) not in columns
@@ -1356,11 +1370,31 @@ _LowerT = TypeVar("_LowerT")
 
 
 def _lower_with_schema(table: "pl.DataFrame", fn: Callable[[], _LowerT],
-                       node_id: Optional[str] = None) -> _LowerT:
+                       node_id: Optional[str] = None, g: Optional[Plottable] = None) -> _LowerT:
     """Run a lowering callable with the table schema published to ``_SCHEMA`` (float-operand
-    inference for the NaN guard) and the graph node-id column published to ``_NODE_ID`` (bare
-    ``__gfql_node_id__`` identity-sentinel resolution)."""
-    return _lower_with_schema_map(dict(table.schema), fn, node_id=node_id)
+    inference for the NaN guard), the graph node-id column published to ``_NODE_ID`` (bare
+    ``__gfql_node_id__`` identity-sentinel resolution) and, given the row frame ``g``, its
+    projected Boolean value columns published to ``_VALUE_COLUMNS``."""
+    value_token = _VALUE_COLUMNS.set(_projected_value_columns(g, table) if g is not None else {})
+    try:
+        return _lower_with_schema_map(dict(table.schema), fn, node_id=node_id)
+    finally:
+        _VALUE_COLUMNS.reset(value_token)
+
+
+def _projected_value_columns(g: Plottable, table: "pl.DataFrame") -> Dict[str, bool]:
+    """Boolean columns that are not a carried MATCH alias (pandas ``_gfql_alias_marker_like``),
+    each mapped to whether it holds a non-null value."""
+    import polars as pl
+    node_aliases, edge_aliases = g._gfql_rows_node_aliases, g._gfql_rows_edge_aliases
+    if (node_aliases is None and edge_aliases is None) or not isinstance(table, pl.DataFrame):
+        return {}
+    aliases = set(node_aliases or ()) | set(edge_aliases or ())
+    return {
+        name: table.get_column(name).null_count() < table.height
+        for name, dtype in table.schema.items()
+        if dtype == pl.Boolean and name not in aliases
+    }
 
 
 def _lower_with_schema_map(schema: "Mapping[str, pl.DataType]", fn: Callable[[], _LowerT],
@@ -1550,11 +1584,11 @@ def _project_polars(g: Plottable, items: Sequence[SelectItem], extend: bool) -> 
     """Shared body of ``select_polars`` / ``with_columns_polars``; None if any item isn't
     lowerable (honest NIE, no pandas bridge)."""
     table = _active_table(g)
-    exprs = _lower_with_schema(table, lambda: lower_select_items(items, list(table.columns)), node_id=g._node)
+    exprs = _lower_with_schema(table, lambda: lower_select_items(items, list(table.columns)), node_id=g._node, g=g)
     if exprs is None:
         return None
     out = None if extend else _lower_with_schema(
-        table, lambda: _project_eager_columns(table, items, exprs), node_id=g._node,
+        table, lambda: _project_eager_columns(table, items, exprs), node_id=g._node, g=g,
     )
     if out is None:
         out = table.with_columns(exprs) if extend else _project_preserving_height(table, exprs)
@@ -1642,7 +1676,7 @@ def where_rows_polars(
     if expr is not None:
         if not isinstance(expr, str):
             return None
-        lowered = _lower_with_schema(table, lambda: lower_expr_str(expr, columns), node_id=g._node)
+        lowered = _lower_with_schema(table, lambda: lower_expr_str(expr, columns), node_id=g._node, g=g)
         if lowered is None:
             return None
         preds.append(lowered)
@@ -1698,7 +1732,7 @@ def order_by_polars(g: Plottable, keys: Sequence[OrderKey]) -> Optional[Plottabl
     """Native polars sort; None if any key isn't lowerable OR holds list-like values whose
     legacy ordering semantics a plain sort can't reproduce (see the sniff helper)."""
     table = _active_table(g)
-    lowered = _lower_with_schema(table, lambda: lower_order_by_keys(keys, list(table.columns)), node_id=g._node)
+    lowered = _lower_with_schema(table, lambda: lower_order_by_keys(keys, list(table.columns)), node_id=g._node, g=g)
     if lowered is None:
         return None
     exprs, descending = lowered
@@ -1937,7 +1971,7 @@ def group_by_polars(
         expr = spec[2] if len(spec) == 3 else None
         if isinstance(expr, str) and expr not in cols and not (func.lower() == "count" and expr == "*"):
             source_expr = expr
-            operand = _lower_with_schema(table, lambda: lower_expr_str(source_expr, cols), node_id=g._node)
+            operand = _lower_with_schema(table, lambda: lower_expr_str(source_expr, cols), node_id=g._node, g=g)
             if operand is None:
                 _group_by_decline()
                 return None
@@ -2052,7 +2086,7 @@ def select_extend_polars(g: Plottable, items: Sequence[SelectItem]) -> Optional[
     the bindings-path aggregate lowering (pre-aggregation group keys / agg args),
     so it is required for binding-row queries (#1709). None → NIE."""
     table = _active_table(g)
-    exprs = _lower_with_schema(table, lambda: lower_select_items(items, list(table.columns)), node_id=g._node)
+    exprs = _lower_with_schema(table, lambda: lower_select_items(items, list(table.columns)), node_id=g._node, g=g)
     if exprs is None:
         return None
     out = table.with_columns(exprs)

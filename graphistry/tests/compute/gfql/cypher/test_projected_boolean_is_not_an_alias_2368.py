@@ -79,7 +79,10 @@ _NO_MATCH = [  # a boolean from a source that has no MATCH alias at all
     "UNWIND [true] AS a UNWIND [false] AS b RETURN properties(a) AS v",
     "UNWIND [true] AS a UNWIND [false] AS b RETURN properties(b) AS v",
 ]
-_DOTTED_READ = "MATCH (n) WITH n, n.flag AS t RETURN t.name AS v"
+_DOTTED_READS = [
+    "MATCH (n) WITH n, n.flag AS t RETURN t.name AS v",
+    "MATCH (n) WITH n.flag AS t RETURN t.name AS v",
+]
 
 
 @pytest.mark.parametrize("query", _VALUE_MISUSE + _SHADOWING + _NO_MATCH)
@@ -87,10 +90,27 @@ def test_a_projected_boolean_is_a_type_error_for_entity_functions(engine, query)
     _expect_value_type_error(engine, query)
 
 
-def test_a_projected_boolean_is_a_type_error_for_a_dotted_property_read(engine):
-    if engine in _POLARS:
-        pytest.skip("the Polars native lowering answers null for a property of a boolean (issue #2384); #2368 observed pandas and cuDF")
-    _expect_value_type_error(engine, _DOTTED_READ)
+@pytest.mark.parametrize("query", _DOTTED_READS)
+def test_a_projected_boolean_is_a_type_error_for_a_dotted_property_read(engine, query):
+    """Every engine, Polars lowering included, raises the row-expression type error (#2384)."""
+    with pytest.raises(GFQLCallExecutionError, match="property access requires a graph element alias, entity value, or map"):
+        _run(engine, query)
+
+
+def test_a_dotted_property_read_of_an_all_null_projected_boolean_is_null(engine):
+    nodes = pd.DataFrame({"id": [1, 2], "name": ["a", "b"], "flag": pd.array([None, None], dtype="boolean")})
+    if engine == "cudf":
+        import cudf
+
+        nodes = cudf.from_pandas(nodes)
+    elif engine in _POLARS:
+        import polars as pl
+
+        nodes = pl.from_pandas(nodes)
+    out = graphistry.nodes(nodes, "id").gfql("MATCH (n) WITH n, n.flag AS t RETURN t.name AS v", engine=engine)._nodes
+    if hasattr(out, "to_pandas"):
+        out = out.to_pandas()
+    assert out["v"].isna().all() and len(out) == 2
 
 
 def test_real_aliases_beside_a_projected_boolean_keep_working(engine):
