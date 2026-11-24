@@ -42,6 +42,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - **GFQL multi-alias entity metadata**: `keys(n)`/`properties(n)` and `keys(r)`/`properties(r)` over multi-alias binding rows now use the selected entity's own properties instead of internal binding columns. Engines that do not yet support the expression keep their structured unsupported-query decline.
 - **GFQL `WITH ... WHERE` quantifier scope**: loop variables in `any`, `all`, `none`, `single`, and list comprehensions now shadow matching MATCH aliases, so `any(n IN [{tags: 'z'}] WHERE n.tags = 'z')` evaluates the local map instead of silently dropping rows.
 - **GFQL Cypher projected literals** (#2346): `RETURN 5 AS v`, `true` and `null` are evaluated as literals even when the node table has a column named `5`, `true` or `null`; the row evaluators used to read that column instead. Interim fix: a column literally named `(5)`, `(true)` or `(null)`, or spelled like a quoted or structured literal, can still collide until the structural fix lands.
+- **register() with username and personal key**: `register(username=..., personal_key_id=..., personal_key_secret=...)` now logs in with the personal key instead of raising a missing-password error. A username with only part of a personal key still raises (#453).
 
 ## [0.62.2] - 2026-11-21
 
