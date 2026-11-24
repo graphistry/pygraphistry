@@ -10,6 +10,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- **GFQL Cypher semantic operators**: `CALL graphistry.sem_decide({question: $q, evidence: ['text']}) YIELD verdict, score, status` and `CALL graphistry.sem_map({instruction: ..., out_col: ...}) YIELD ...` run the semantic table operators inside one Cypher query, after `MATCH ... WITH ...` or on the node table. `$param` values fill the options map, `YIELD ... WHERE` filters, the upstream columns stay, and `WHERE ... AND sem_decide(question, {name: expr})` asks one batched question about the rows that pass the structural terms. Providers and caches stay bound with `bind_providers`. Unsupported positions (`OR`, `NOT`, nested, aggregating `RETURN`) raise an error that points to the `CALL` form.
 - **GFQL probability requirements**: `sem_decide(require_probabilities=True)` requires measured native or token-logprob probabilities; `"native"` requires native decisions. Missing required probabilities become explicit per-answer errors, and known incompatible chat configurations fail locally without sending evidence. The default remains unchanged.
 
 - **GFQL LangChain decisions**: optional adapter for supplied chat models and Runnables, with locally selected structured, tool and text strategies, validated value-only answers, and no runtime fallback resend.
