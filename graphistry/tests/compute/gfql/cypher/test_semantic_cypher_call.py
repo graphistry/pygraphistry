@@ -373,6 +373,76 @@ class TestWaveTwoFixes:
         assert "extra" not in first.columns and "extra" in second.columns
 
 
+class TestWaveThreeFixes:
+
+    def flaky(self) -> Recording:
+        def answer(evidence: object, question: object) -> object:
+            if "web" in str(evidence):
+                raise RuntimeError("provider down")
+            return "inc" in str(evidence)
+        return Recording(answer)
+
+    LIFTED = "MATCH (a) WHERE sem_decide('x', {t: a.text}) RETURN a.id AS id ORDER BY id"
+
+    @pytest.mark.parametrize("engine", ENGINES)
+    def test_a_provider_error_is_not_a_silent_no_match_in_the_lifted_where(self, engine: str) -> None:
+        with pytest.raises(GFQLValidationError, match="without an answer"):
+            run(self.LIFTED, engine, self.flaky())
+
+    def test_the_lifted_where_can_opt_out_and_the_call_form_shows_the_status(self) -> None:
+        out = run("MATCH (a) WHERE sem_decide('x', {t: a.text}, {fail_on_incomplete: false}) RETURN a.id AS id ORDER BY id", provider=self.flaky())
+        assert out["id"].tolist() == [3, 5]
+        call = run("MATCH (a) WITH a.id AS id, a.text AS text CALL graphistry.sem_decide({question: 'x', evidence: ['text']}) "
+                   "YIELD verdict, status RETURN id, status ORDER BY id", provider=self.flaky())
+        assert call["status"].tolist()[0] == "error"
+
+    def test_a_budget_stop_is_not_a_silent_no_match_either(self) -> None:
+        with pytest.raises(GFQLValidationError, match="without an answer"):
+            run("MATCH (a) WHERE sem_decide('x', {t: a.text}, {max_requests: 1}) RETURN a.id AS id")
+
+    def test_empty_evidence_and_a_requested_min_p_are_not_failures(self) -> None:
+        table = NODES.assign(text=[None, "db", "lib inc", "tool", "lib inc"])
+        with bind_providers({"default": TestWaveTwoFixes.native(TestWaveTwoFixes(), {True: 0.6, False: 0.9})}):
+            out = rows(graphistry.nodes(table, "id").gfql(
+                "MATCH (a) WHERE sem_decide('x', {t: a.text}, {min_p: 0.8}) RETURN a.id AS id ORDER BY id"))
+        assert out["id"].tolist() == [2, 4]
+
+    def test_fail_on_incomplete_must_be_a_boolean(self) -> None:
+        assert "true or false" in TestRejected.error(
+            "MATCH (a) WITH a.id AS id, a.text AS text CALL graphistry.sem_decide({question: 'x', evidence: ['text'], fail_on_incomplete: 'yes'}) YIELD verdict RETURN id")
+
+    @pytest.mark.parametrize("extra", ["out_col: 'v', score_col: 'v'", "status_col: 'verdict'"])
+    def test_colliding_output_names_are_rejected(self, extra: str) -> None:
+        assert "different columns" in TestRejected.error(
+            f"MATCH (a) WITH a.id AS id, a.text AS text CALL graphistry.sem_decide({{question: 'x', evidence: ['text'], {extra}}}) YIELD verdict RETURN id")
+
+    def test_levels_and_options_together_are_rejected(self) -> None:
+        assert "cannot be given together" in TestRejected.error(
+            "MATCH (a) WITH a.id AS id, a.text AS text CALL graphistry.sem_decide({question: 'x', evidence: ['text'], levels: ['a', 'b'], options: ['p', 'q']}) YIELD verdict RETURN id")
+
+    def test_standalone_yield_where_with_non_identifier_column_names(self) -> None:
+        table = NODES.rename(columns={"tier": "my col"})
+        with bind_providers({"default": inc()}):
+            out = rows(graphistry.nodes(table, "id").gfql(
+                "CALL graphistry.sem_decide({question: 'inc?', evidence: ['text']}) YIELD verdict WHERE verdict RETURN id ORDER BY id"))
+        assert out["id"].tolist() == [1, 3, 5]
+
+    def test_standalone_with_a_non_string_column_label(self) -> None:
+        table = NODES.copy()
+        table[5] = 1
+        with bind_providers({"default": inc()}):
+            out = rows(graphistry.nodes(table, "id").gfql(
+                "CALL graphistry.sem_decide({question: 'inc?', evidence: ['text']}) YIELD verdict RETURN id, verdict ORDER BY id"))
+        assert out["verdict"].tolist() == [True, False, True, False, True]
+
+    def test_the_procedure_name_may_have_spaces_around_the_dot(self) -> None:
+        out = run("CALL graphistry . sem_decide({question: 'inc?', evidence: ['text']}) YIELD verdict RETURN id, verdict ORDER BY id")
+        assert out["verdict"].tolist() == [True, False, True, False, True]
+
+    def test_lifted_order_by_an_unaliased_expression_is_rejected_clearly(self) -> None:
+        assert "named with AS" in TestRejected.error("MATCH (a) WHERE sem_decide('x', {t: a.text}) RETURN a.id ORDER BY a.id DESC")
+
+
 class TestRejected:
 
     @staticmethod

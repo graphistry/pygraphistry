@@ -213,6 +213,8 @@ def lift_semantic_where(
     )
     parts = [f"question: {args[0]}", "evidence: [" + ", ".join(f"'{name}'" for name in names) + "]"]
     parts += [f"{key}: {value}" for key, value in options]
+    if "fail_on_incomplete" not in {key for key, _ in options}:
+        parts.append("fail_on_incomplete: true")
     call = CallClause(
         procedure="graphistry.sem_decide",
         args=(ExpressionText(text="{" + ", ".join(parts) + "}", span=atom_span),),
@@ -240,6 +242,8 @@ def lift_semantic_where(
                 name = by_text[text]
             else:
                 fail(f"ORDER BY after WHERE sem_decide(...) must name a RETURN column. {_FORM}", entry.span)
+            if not name.isidentifier():
+                fail(f"ORDER BY after WHERE sem_decide(...) needs RETURN columns named with AS. {_FORM}", entry.span)
             ordered.append(replace(entry, expression=ExpressionText(text=name, span=entry.expression.span)))
         order = replace(final.order_by, items=tuple(ordered))
     final_return = replace(
