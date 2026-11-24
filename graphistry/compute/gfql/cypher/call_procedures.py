@@ -578,6 +578,12 @@ def compile_cypher_call(
         from graphistry.compute.gfql.cypher.semantic_call import compile_semantic_call
 
         return compile_semantic_call(call, carried=carried, params=params)
+    if call.where is not None:
+        raise _unsupported_call(
+            "YIELD ... WHERE is supported for graphistry.sem_decide and graphistry.sem_map only; use WITH ... WHERE after the CALL",
+            call=call,
+            value=call.procedure,
+        )
     definition = _resolve_procedure_definition(call)
     call_params = _normalize_call_params(definition, call, params=params)
 

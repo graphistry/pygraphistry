@@ -7828,83 +7828,6 @@ def lower_cypher_query(
     return compiled.chain
 
 
-def _compile_semantic_call_query(
-    query: CypherQuery,
-    *,
-    params: Optional[CypherParams] = None,
-) -> CompiledCypherQuery:
-    """Compile ``<prefix> CALL graphistry.sem_* [YIELD ..] [WHERE ..] <row clauses>``.
-
-    The prefix query makes the input rows at run time; the row clauses after the CALL run on its result.
-    """
-    from graphistry.compute.gfql.cypher.semantic_call import with_prefix
-
-    call = query.call
-    assert call is not None
-    if query.matches or query.where is not None or query.reentry_matches:
-        raise _unsupported(
-            f"CALL {call.procedure} must be followed by YIELD/WHERE/WITH/UNWIND/RETURN clauses only; "
-            "put MATCH before the CALL",
-            field="call", value=call.procedure, line=call.span.line, column=call.span.column,
-        )
-    if query.graph_bindings or query.use is not None or (
-        query.semantic_prefix is not None and query.semantic_prefix.use is not None
-    ):
-        raise _unsupported(
-            f"CALL {call.procedure} does not support USE or GRAPH bindings yet",
-            field="call", value=call.procedure, line=call.span.line, column=call.span.column,
-        )
-    prefix: Optional[CompiledCypherQuery] = None
-    if query.semantic_prefix is not None:
-        compiled_prefix = compile_cypher_query(query.semantic_prefix, params=params)
-        if not isinstance(compiled_prefix, CompiledCypherQuery) or compiled_prefix.procedure_call is not None:
-            raise _unsupported(
-                f"CALL {call.procedure} needs a plain MATCH ... WITH/RETURN query before it",
-                field="call", value=call.procedure, line=call.span.line, column=call.span.column,
-            )
-        prefix = compiled_prefix
-    compiled_call = with_prefix(
-        compile_cypher_call(call, params=params, carried=query.call_inputs), prefix,
-    )
-    sequence = tuple(query.row_sequence)
-    names = tuple(query.call_inputs) + tuple(output.output_name for output in compiled_call.output_columns)
-    if call.where is not None:
-        if not query.call_inputs:
-            raise _unsupported(
-                f"YIELD ... WHERE after a standalone CALL {call.procedure} is not supported; "
-                "put the filter in a following WITH ... WHERE",
-                field="call", value=call.procedure, line=call.span.line, column=call.span.column,
-            )
-        carried_items = tuple(
-            ReturnItem(expression=ExpressionText(text=name, span=call.span), alias=None, span=call.span)
-            for name in names
-        )
-        sequence = (
-            ProjectionStage(
-                clause=ReturnClause(items=carried_items, distinct=False, kind="with", span=call.span),
-                where=call.where, order_by=None, skip=None, limit=None, span=call.span,
-            ),
-        ) + sequence
-    initial = set(names)
-    is_bare = (
-        call.where is None
-        and len(sequence) == 1
-        and isinstance(sequence[0], ProjectionStage)
-        and len(sequence[0].clause.items) == 1
-        and sequence[0].clause.items[0].expression.text == "*"
-        and sequence[0].order_by is None and sequence[0].skip is None and sequence[0].limit is None
-    )
-    if is_bare:
-        return CompiledCypherQuery(Chain([]), seed_rows=False, procedure_call=compiled_call)
-    return _lower_row_only_sequence_with_scope(
-        replace(query, row_sequence=sequence),
-        params=params,
-        initial_row_columns=initial,
-        seed_rows=False,
-        procedure_call=compiled_call,
-    )
-
-
 def _compile_call_query(
     query: CypherQuery,
     *,
@@ -7913,12 +7836,9 @@ def _compile_call_query(
     if query.call is None:
         raise ValueError("Expected query.call for Cypher CALL compilation")
     if query.call.procedure in SEMANTIC_PROCEDURES:
-        return _compile_semantic_call_query(query, params=params)
-    if query.call.where is not None:
-        raise _unsupported(
-            "YIELD ... WHERE is supported for graphistry.sem_decide and graphistry.sem_map only; use WITH ... WHERE after the CALL",
-            field="call", value=query.call.procedure, line=query.call.where.span.line, column=query.call.where.span.column,
-        )
+        from graphistry.compute.gfql.cypher.semantic_call import compile_semantic_call_query
+
+        return compile_semantic_call_query(query, params=params)
     if query.matches or query.where is not None or query.reentry_matches or any(
         where_clause is not None for where_clause in query.reentry_wheres
     ):
@@ -9505,16 +9425,10 @@ def compile_cypher_query(
     elif isinstance(query, CypherGraphQuery):
         _reject_excessive_match_clauses(query.constructor.matches)
 
-    if (
-        isinstance(query, CypherQuery)
-        and query.call is not None
-        and query.call.procedure in SEMANTIC_PROCEDURES
-        and query.semantic_prefix is None
-        and not query.call_inputs
-        and node_columns is not None
-    ):
-        # A standalone semantic CALL reads the node table: its columns are the rows' columns.
-        query = replace(query, call_inputs=tuple(node_columns))
+    if isinstance(query, CypherQuery) and node_columns is not None:
+        from graphistry.compute.gfql.cypher.semantic_call import with_standalone_columns
+
+        query = with_standalone_columns(query, node_columns)
 
     prepass_bound_ir = FrontendBinder().bind(query, PlanContext(), strict_name_resolution=True)
     prepass_context = _build_bound_lowering_context(bound_ir=prepass_bound_ir, params=params)
