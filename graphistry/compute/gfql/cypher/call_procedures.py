@@ -86,6 +86,7 @@ class CompiledCypherProcedureCall:
     # Semantic CALL only: the query that makes the input rows, and the columns it carries.
     prefix: Optional["CompiledCypherQuery"] = None
     carried_columns: Tuple[str, ...] = ()
+    fail_on_incomplete: bool = False
 
 
 def _unsupported_call(message: str, *, call: CallClause, value: Any) -> GFQLValidationError:

@@ -1982,6 +1982,8 @@ an unknown key, a wrong type, a column that is not in scope and an unknown ``YIE
      - Limits for the run (``budget``). ``sem_map`` takes ``max_requests`` only.
    * - ``min_p``, ``require_probabilities``
      - Probability rules for ``sem_decide``, as for the method.
+   * - ``fail_on_incomplete``
+     - ``sem_decide``: raise when a row ends ``error``, ``skipped`` (except empty evidence) or ``uncertain`` (without ``min_p``). Default ``false``. The ``WHERE sem_decide(...)`` form sets it to ``true``, so a provider error is not a silent "no match"; give ``fail_on_incomplete: false`` in its options to drop such rows.
    * - ``task_id``, ``batch_size``, ``max_concurrency``, ``deadline_s``, ``max_rows``, ``dedupe``, ``id_col``, ``column_max_chars``
      - The same as the keyword arguments of the method.
 

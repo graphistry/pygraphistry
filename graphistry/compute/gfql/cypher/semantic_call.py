@@ -40,7 +40,7 @@ _COMMON_KEYS = frozenset({
 })
 _DECIDE_KEYS = _COMMON_KEYS | frozenset({
     "question", "questions", "kind", "options", "levels", "evidence", "out_col", "score_col", "status_col",
-    "min_p", "require_probabilities", "max_usd", "max_requests",
+    "min_p", "require_probabilities", "max_usd", "max_requests", "fail_on_incomplete",
 })
 _MAP_KEYS = _COMMON_KEYS | frozenset({
     "question", "instruction", "out_col", "evidence", "max_output_tokens", "max_requests",
@@ -154,6 +154,8 @@ def _decide_questions(call: CallClause, options: Mapping[str, OptionValue]) -> T
                 raise _fail(call, f"CALL option {banned!r} applies to 'question', not to a 'questions' list", key=banned)
         return list(questions), ""
     qid = _text(call, options, "out_col", "verdict")
+    if "levels" in options and "options" in options:
+        raise _fail(call, "CALL options 'levels' (a score) and 'options' (a choice) cannot be given together", key="levels")
     question: Dict[str, OptionValue] = {"id": qid, "text": _text(call, options, "question")}
     if "levels" in options:
         question["kind"], question["levels"] = options.get("kind", "score"), options["levels"]
@@ -184,6 +186,8 @@ def _available(call: CallClause, options: Mapping[str, OptionValue], ids: Sequen
     if sugar_id:
         score = _text(call, options, "score_col", "score")
         status = _text(call, options, "status_col", "status")
+        if len({sugar_id, score, status}) < 3:
+            raise _fail(call, "CALL options 'out_col', 'score_col' and 'status_col' must name three different columns", key="out_col")
         rename = {"value": sugar_id, "score": score, "status": status}
         names = {rename.get(kind, kind): sugar_id + suffix for suffix, kind in _DECIDE_SUFFIXES}
         return names, (sugar_id, score, status)
@@ -214,6 +218,33 @@ def _yield_columns(
                         suggestion="Rename it with AS.")
         seen[output] = source
     return tuple((available[source], output) for source, output in chosen)
+
+
+def _flag(call: CallClause, options: Mapping[str, OptionValue], key: str) -> bool:
+    value = options.get(key, False)
+    if not isinstance(value, bool):
+        raise _fail(call, f"CALL option {key!r} must be true or false", value=str(value), key=key)
+    return value
+
+
+def _incomplete_rows(frame: DataFrameT, compiled_call: "CompiledCypherProcedureCall") -> int:
+    """Rows that have no answer for a reason other than empty evidence or a min_p the caller asked for."""
+    params = compiled_call.call_params
+    questions = params.get("questions")
+    if not isinstance(questions, list):
+        return 0
+    evidence = params.get("evidence_cols")
+    empty = frame[list(evidence)].isna().all(axis=1) if isinstance(evidence, list) and evidence else None
+    bad = None
+    for question in questions:
+        status = frame[str(question["id"]) + "__status"]
+        flagged = status.isin(["error", "skipped"])
+        if empty is not None:
+            flagged = flagged & ~(empty & (status == "skipped"))
+        if "min_p" not in params:
+            flagged = flagged | (status == "uncertain")
+        bad = flagged if bad is None else (bad | flagged)
+    return 0 if bad is None else int(bad.sum())
 
 
 def _written_columns(kernel: Mapping[str, OptionValue]) -> List[str]:
@@ -293,6 +324,7 @@ def compile_semantic_call(
         call_function=function,
         call_params=kernel,
         carried_columns=tuple(carried),
+        fail_on_incomplete=_flag(call, options, "fail_on_incomplete"),
         line=call.span.line,
         column=call.span.column,
     )
@@ -354,13 +386,24 @@ def execute_semantic_call(
             value=compiled_call.procedure, suggestion="Project columns with WITH before the CALL.", language="cypher",
         )
     assert rows._nodes is not None
-    carried = [str(col) for col in rows._nodes.columns]
+    carried = list(rows._nodes.columns)
     clash = [out.output_name for out in compiled_call.output_columns if out.output_name in carried]
     if clash:
         raise GFQLValidationError(
             ErrorCode.E108, f"YIELD name {clash[0]!r} is already a column of the clause before the CALL",
             field="yield", value=clash[0], suggestion="Rename it with AS.", language="cypher",
         )
+    if compiled_call.fail_on_incomplete:
+        unanswered = _incomplete_rows(frame, compiled_call)
+        if unanswered:
+            raise GFQLValidationError(
+                ErrorCode.E108,
+                f"{compiled_call.procedure} left {unanswered} row(s) without an answer (error, skipped or uncertain), "
+                "and the WHERE term would drop them without a trace",
+                field="call", value=unanswered,
+                suggestion="Read status with CALL ... YIELD verdict, status, or set fail_on_incomplete: false to drop them.",
+                language="cypher",
+            )
     sources = [out.source_name for out in compiled_call.output_columns]
     renames = {out.source_name: out.output_name for out in compiled_call.output_columns
                if out.source_name != out.output_name}
@@ -438,7 +481,8 @@ def compile_semantic_call_query(
                 field="call", value=call.procedure, line=call.span.line, column=call.span.column,
             )
         carried_items = tuple(
-            ReturnItem(expression=ExpressionText(text=name, span=call.span), alias=None, span=call.span)
+            ReturnItem(expression=ExpressionText(text=name if name.isidentifier() else f"`{name}`", span=call.span),
+                       alias=None if name.isidentifier() else name, span=call.span)
             for name in names
         )
         sequence = (
