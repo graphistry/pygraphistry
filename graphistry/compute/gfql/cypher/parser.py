@@ -9,13 +9,15 @@ import ast as pyast
 from dataclasses import dataclass, replace
 from functools import lru_cache
 import re
-from typing import Any, Callable, List, Literal, NoReturn, Optional, Protocol, Sequence, Tuple, Type, Union, cast
+from typing import TYPE_CHECKING, Any, Callable, List, Literal, NoReturn, Optional, Protocol, Sequence, Tuple, Type, Union, cast
 
 from graphistry.compute.exceptions import ErrorCode, GFQLSyntaxError, GFQLValidationError
+from graphistry.compute.gfql.cypher.semantic_where import QueryItem, lift_semantic_where
 from graphistry.compute.gfql.identifiers import parse_cypher_backtick_identifier
 from graphistry.compute.gfql.cypher.ast import (
     BooleanExpr,
     CallClause,
+    SEMANTIC_PROCEDURES,
     CypherGraphQuery,
     CypherLiteral,
     CypherPropertyValue,
@@ -48,6 +50,9 @@ from graphistry.compute.gfql.cypher.ast import (
     WherePatternPredicate,
     WherePredicate,
 )
+
+if TYPE_CHECKING:
+    from lark.tree import Meta
 
 
 # ---------------------------------------------------------------------------
@@ -175,7 +180,7 @@ where_rhs: property_ref
          | value
 
 unwind_clause: "UNWIND"i unwind_expr "AS"i NAME
-call_clause: "CALL"i qualified_name call_invocation? yield_clause?
+call_clause: "CALL"i qualified_name call_invocation? yield_clause? with_where_clause?
 call_invocation: "(" [call_args] ")"
 call_args: call_arg ("," call_arg)*
 call_arg: expr
@@ -1530,8 +1535,11 @@ def _build_transformer(source: str) -> _TransformerLike:
             procedure_item = cast(_ExpressionSlice, items[0])
             call_args: Tuple[_ExpressionSlice, ...] = ()
             yield_items: Tuple[CypherYieldItem, ...] = ()
+            call_where: Optional[ExpressionText] = None
             for item in items[1:]:
-                if isinstance(item, tuple) and all(isinstance(arg, _ExpressionSlice) for arg in item):
+                if isinstance(item, ExpressionText):
+                    call_where = item
+                elif isinstance(item, tuple) and all(isinstance(arg, _ExpressionSlice) for arg in item):
                     call_args = cast(Tuple[_ExpressionSlice, ...], item)
                 elif isinstance(item, tuple) and all(isinstance(yield_item, CypherYieldItem) for yield_item in item):
                     yield_items = cast(Tuple[CypherYieldItem, ...], item)
@@ -1543,6 +1551,7 @@ def _build_transformer(source: str) -> _TransformerLike:
                 ),
                 yield_items=yield_items,
                 span=_span_from_meta(meta),
+                where=call_where,
             )
 
         def alias(self, meta: Any, items: Sequence[Any]) -> str:
@@ -1694,7 +1703,64 @@ def _build_transformer(source: str) -> _TransformerLike:
                 raise _to_syntax_error("Invalid query item", line=meta.line, column=meta.column)
             return items[0]
 
+        def _semantic_split(self, meta: "Meta", items: Sequence[QueryItem]) -> Optional[CypherQuery]:
+            """Split ``<prefix> CALL graphistry.sem_* <suffix>`` into a prefix query and a call-first suffix query."""
+            sem_positions = [
+                idx for idx, item in enumerate(items)
+                if isinstance(item, CallClause) and item.procedure in SEMANTIC_PROCEDURES
+            ]
+            if not sem_positions or sem_positions[0] == 0:
+                return None
+            call = items[sem_positions[0]]
+            assert isinstance(call, CallClause)
+            prefix_items = list(items[:sem_positions[0]])
+            last = prefix_items[-1]
+            if not isinstance(last, ProjectionStage):
+                raise _to_syntax_error(
+                    f"CALL {call.procedure} must follow a WITH or RETURN clause (project the columns it reads, "
+                    "for example MATCH ... WITH n.id AS id, n.text AS text CALL ...)",
+                    line=call.span.line,
+                    column=call.span.column,
+                )
+            names = tuple(
+                item.alias or item.expression.text for item in last.clause.items
+            )
+            if any(name == "*" or not name.isidentifier() for name in names):
+                raise _to_syntax_error(
+                    f"CALL {call.procedure} needs the preceding {last.clause.kind.upper()} to name every column "
+                    "with a plain name (use AS); * and expressions without an alias are not supported",
+                    line=last.span.line,
+                    column=last.span.column,
+                )
+            if last.clause.kind == "with":
+                synthetic_clause = ReturnClause(
+                    items=tuple(
+                        ReturnItem(expression=ExpressionText(text=name, span=last.span), alias=None, span=last.span)
+                        for name in names
+                    ),
+                    distinct=False,
+                    kind="return",
+                    span=last.span,
+                )
+                prefix_items.append(
+                    ProjectionStage(
+                        clause=synthetic_clause, where=None, order_by=None, skip=None, limit=None, span=last.span
+                    )
+                )
+            prefix_query = self.query_body(meta, prefix_items)
+            suffix_query = self.query_body(meta, list(items[sem_positions[0]:]))
+            return replace(suffix_query, semantic_prefix=prefix_query, call_inputs=names)
+
         def query_body(self, meta: Any, items: Sequence[Any]) -> CypherQuery:
+            def fail(message: str, span: SourceSpan) -> NoReturn:
+                raise _to_unsupported(message, line=span.line, column=span.column)
+
+            lifted = lift_semantic_where(items, lift_predicates=_lift_and_spine_predicates, fail=fail)
+            if lifted is not None:
+                items = lifted
+            split = self._semantic_split(meta, items)
+            if split is not None:
+                return split
             # The grammar bundles WHERE onto its MATCH clause (there is no
             # standalone WHERE item), so this state machine consumes
             # ``MatchClause.where`` directly -- see the MATCH branch below.

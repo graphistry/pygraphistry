@@ -36,11 +36,11 @@ QUESTION_KEYS = frozenset({"id", "kind", "text", "options", "levels"})
 BUDGET_KEYS = frozenset({"max_cost_usd", "max_requests"})
 
 
-def _is_member(value: object, allowed: Sequence[str]) -> bool:
+def _is_member(value: object, allowed: Sequence[str]) -> bool:  # hygiene-ok: object-annotation -- untrusted host or user input, narrowed by isinstance
     return isinstance(value, str) and value in allowed
 
 
-def finite_float(value: object) -> Optional[float]:
+def finite_float(value: object) -> Optional[float]:  # hygiene-ok: object-annotation -- untrusted host or user input, narrowed by isinstance
     """The value as a float if it is a real, finite int or float (bools excluded), else None."""
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         return None
@@ -51,7 +51,7 @@ def finite_float(value: object) -> Optional[float]:
     return as_float if math.isfinite(as_float) else None
 
 
-def _min_int(value: object, field_name: str, minimum: int, optional: bool = True) -> Optional[int]:
+def _min_int(value: object, field_name: str, minimum: int, optional: bool = True) -> Optional[int]:  # hygiene-ok: object-annotation -- untrusted host or user input, narrowed by isinstance
     if value is None and optional:
         return None
     if isinstance(value, int) and not isinstance(value, bool) and value >= minimum:
@@ -59,7 +59,7 @@ def _min_int(value: object, field_name: str, minimum: int, optional: bool = True
     raise ValueError(f"{field_name} must be an int >= {minimum}, got {value!r}")
 
 
-def _text(value: object, field_name: str) -> str:
+def _text(value: object, field_name: str) -> str:  # hygiene-ok: object-annotation -- untrusted host or user input, narrowed by isinstance
     if not isinstance(value, str) or value == "":
         raise ValueError(f"{field_name} must be a non-empty string, got {value!r}")
     return value
@@ -72,14 +72,14 @@ def _known_keys(spec: Mapping[str, object], allowed: FrozenSet[str], what: str) 
     return spec
 
 
-def _question_kind(value: object, question_id: object) -> QuestionKind:
+def _question_kind(value: object, question_id: object) -> QuestionKind:  # hygiene-ok: object-annotation -- untrusted host or user input, narrowed by isinstance
     for kind in QUESTION_KINDS:
         if isinstance(value, str) and value == kind:
             return kind
     raise ValueError(f"question {question_id!r} kind must be one of {QUESTION_KINDS}, got {value!r}")
 
 
-def _labels_tuple(value: object, field_name: str) -> Optional[Tuple[str, ...]]:
+def _labels_tuple(value: object, field_name: str) -> Optional[Tuple[str, ...]]:  # hygiene-ok: object-annotation -- untrusted host or user input, narrowed by isinstance
     if value is None:
         return None
     if isinstance(value, (str, bytes)) or not isinstance(value, (list, tuple)):
@@ -116,7 +116,7 @@ class ProviderCapabilities:
         for field_name, minimum, optional in (("max_questions_per_request", 1, False), ("concurrency_limit", 1, False),
                                               ("max_rows_per_request", 1, True), ("max_choice_options", 2, True),
                                               ("max_levels", 2, True)):
-            _min_int(getattr(self, field_name), field_name, minimum, optional)
+            _min_int(getattr(self, field_name), field_name, minimum, optional)  # hygiene-ok: dynamic-attr -- duck-typed host object with no common base
         if self.supported_kinds is not None:
             kinds = _labels_tuple(self.supported_kinds, "supported_kinds")
             if not kinds or not all(kind in QUESTION_KINDS for kind in kinds):
@@ -142,7 +142,7 @@ class DecisionQuestion:
         object.__setattr__(self, "kind", kind)
         own_labels = self._labels_field()
         for field_name in ("options", "levels"):
-            labels = _labels_tuple(getattr(self, field_name), f"question {self.id!r} {field_name}")
+            labels = _labels_tuple(getattr(self, field_name), f"question {self.id!r} {field_name}")  # hygiene-ok: dynamic-attr -- duck-typed host object with no common base
             object.__setattr__(self, field_name, labels)
             if field_name == own_labels and (labels is None or len(labels) < 2):
                 raise ValueError(f"{kind} question {self.id!r} needs at least 2 {field_name}")
@@ -165,7 +165,7 @@ class DecisionQuestion:
     def labels(self) -> Optional[Tuple[str, ...]]:
         """Allowed answer labels: options for choice, levels for score, None for predicate."""
         field_name = self._labels_field()
-        return None if field_name is None else getattr(self, field_name)
+        return None if field_name is None else getattr(self, field_name)  # hygiene-ok: dynamic-attr -- duck-typed host object with no common base
 
     def distribution_keys(self) -> Tuple[str, ...]:
         """Distribution keys in label order (``true``/``false`` for a predicate)."""
@@ -221,14 +221,14 @@ class Budget:
                    max_requests=_min_int(_limit(spec.get("max_requests")), "max_requests", 1))
 
 
-def _cost(value: object) -> Optional[float]:
+def _cost(value: object) -> Optional[float]:  # hygiene-ok: object-annotation -- untrusted host or user input, narrowed by isinstance
     number = finite_float(value)
     if value is not None and (number is None or number < 0):
         raise ValueError(f"max_cost_usd must be None or a finite number >= 0, got {value!r}")
     return number
 
 
-def _limit(value: object) -> object:
+def _limit(value: object) -> object:  # hygiene-ok: object-annotation -- untrusted host or user input, narrowed by isinstance
     canonical = canonicalize(value)
     return value if canonical is None else canonical
 
@@ -334,7 +334,7 @@ class GenerationProvider(Protocol):
         ...
 
 
-def canonicalize(value: object) -> object:
+def canonicalize(value: object) -> object:  # hygiene-ok: object-annotation -- untrusted host or user input, narrowed by isinstance
     """Plain Python for hashing and evidence: mappings become dicts with string keys, sequences and arrays
     become lists, numpy scalars become Python scalars, and float NaN and pandas NA/NaT become None."""
     if value is None or isinstance(value, (bool, int)):
@@ -343,13 +343,13 @@ def canonicalize(value: object) -> object:
         return str.__str__(value)
     if isinstance(value, float):
         return None if math.isnan(value) else value
-    if type(value).__name__ in ("NAType", "NaTType") and type(value).__module__.startswith("pandas"):
+    if type(value).__name__ in ("NAType", "NaTType") and type(value).__module__.startswith("pandas"):  # hygiene-ok: dynamic-attr -- optional third-party type, no import-time dependency
         return None
     if isinstance(value, Mapping):
         return {str.__str__(key) if isinstance(key, str) else str(key): canonicalize(item) for key, item in value.items()}
     if isinstance(value, (list, tuple)):
         return [canonicalize(item) for item in value]
-    to_python = getattr(value, "tolist", None)
+    to_python = getattr(value, "tolist", None)  # hygiene-ok: dynamic-attr -- duck-typed host object with no common base
     if callable(to_python) and not isinstance(value, type):
         plain = to_python()
         if type(plain) is not type(value):
@@ -378,11 +378,11 @@ def _sha256_json(payload: Mapping[str, object]) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
-def _question_key(result: Union[DecisionResult, GenerationResult]) -> object:
+def _question_key(result: Union[DecisionResult, GenerationResult]) -> object:  # hygiene-ok: object-annotation -- untrusted host or user input, narrowed by isinstance
     return result.question_id if isinstance(result, DecisionResult) else ""
 
 
-def align_results(requests: Sequence[Union[DecisionRequest, GenerationRequest]], results: object,
+def align_results(requests: Sequence[Union[DecisionRequest, GenerationRequest]], results: object,  # hygiene-ok: object-annotation -- untrusted host or user input, narrowed by isinstance
                   result_type: Type[ResultT]) -> Optional[Dict[str, Optional[Dict[str, ResultT]]]]:
     """Results of one provider call by request id, then question id (``""`` for a generation's single answer).
 
@@ -416,7 +416,7 @@ def align_results(requests: Sequence[Union[DecisionRequest, GenerationRequest]],
             for request_id, found in rows.items()}
 
 
-def _distribution_problems(question: DecisionQuestion, distribution: object) -> List[str]:
+def _distribution_problems(question: DecisionQuestion, distribution: object) -> List[str]:  # hygiene-ok: object-annotation -- untrusted host or user input, narrowed by isinstance
     if not isinstance(distribution, Mapping):
         return ["distribution must be None or a mapping"]
     if not distribution:

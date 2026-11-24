@@ -144,6 +144,12 @@ DIFFERENTIAL_CORPUS = [
     # composite-root property access + list subscript slices
     "MATCH (n) RETURN head(n.tags).name AS v",
     "MATCH (n) RETURN n.tags[1..3] AS a, n.tags[1..] AS b, n.tags[..3] AS c, n.tags[..] AS d",
+    # semantic CALL after WITH, with YIELD ... WHERE
+    "MATCH (n) WITH n.id AS id, n.text AS text CALL graphistry.sem_decide({question: 'x', evidence: ['text']}) "
+    "YIELD verdict, score AS p WHERE verdict AND p >= 0.5 RETURN id, p ORDER BY p DESC LIMIT 3",
+    "CALL graphistry.sem_map({instruction: 'x', out_col: 'y', evidence: ['text']}) YIELD y RETURN y",
+    # lifted WHERE sem_decide(...)
+    "MATCH (a)-[]->(b) WHERE a.k = 1 AND sem_decide('x', {t: b.text}, {max_usd: 1}) RETURN b.id AS id",
 ]
 
 # Queries that are GRAMMATICAL but rejected by the transformer by design

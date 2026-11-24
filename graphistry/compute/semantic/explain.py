@@ -20,7 +20,7 @@ def _host_frame(df: DataFrameT) -> DataFrameT:
     """A Polars table is read as pandas, as ``g.sem_decide`` reads the nodes of a Polars graph."""
     if not is_polars_df(df):
         return df
-    return (df.collect() if hasattr(df, "collect") else df).to_pandas()  # type: ignore[no-any-return,attr-defined]
+    return (df.collect() if hasattr(df, "collect") else df).to_pandas()  # hygiene-ok: dynamic-attr -- duck-typed host object with no common base
 
 
 def _report(op: str, setup: Union[_DecideSetup, _MapSetup], layout: "_Layout[RequestT]", *, questions: int,
