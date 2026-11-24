@@ -15,6 +15,7 @@ import re
 import textwrap
 import threading
 import time
+import warnings
 import urllib.request
 import zipfile
 from pathlib import Path
@@ -33,6 +34,8 @@ from IPython.display import Markdown, display
 
 pd.set_option("display.width", 200)
 pd.set_option("display.max_colwidth", 70)
+
+warnings.filterwarnings("ignore", message="Determining the column names of a LazyFrame")
 
 
 DEMO_LIVE = os.environ.get("DEMO_LIVE") == "1"
@@ -318,6 +321,16 @@ def chat_provider(session):
 def decisions_provider(session, rows_per_request=1):
     return OpenAIDecisionsProvider(API_KEY, DECISIONS_MODEL, prices=PRICES, session=session, rows_per_request=rows_per_request,
                                    concurrency_limit=PARALLEL, base_url=CHAT_URL)
+
+
+def plan_of(rows, provider, sem):
+    """The plan for the rows that reach the model, with the options of the hero query. No request is sent."""
+    from graphistry.compute.semantic import explain_sem_decide
+
+    made = {name for q in sem["questions"] for name in (q["id"], q["id"] + "__p", q["id"] + "__status")}
+    kept = [col for col in rows.columns if col not in made]
+    options = {key: value for key, value in sem.items() if key not in ("evidence", "provider")}
+    return explain_sem_decide(rows[kept], provider=provider, evidence_cols=sem["evidence"], **options)
 
 
 def decide(frame, provider, parallel, dedupe=False, **options):
