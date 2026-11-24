@@ -194,6 +194,12 @@ def test_a_regex_column_of_many_distinct_patterns_equals_the_scalar_definition()
     assert [bool(v) for v in _column_form(left, right, "regex")] == expected
 
 
+def _slices(left, right, usable=None):
+    left_s, right_s = pd.Series(left), pd.Series(right)
+    mask = usable if usable is not None else left_s.notna() & right_s.notna()
+    return row_pipeline.RowPipelineMixin._gfql_string_predicate_by_pattern_slices(left_s, right_s, mask, "regex", "x")
+
+
 def test_each_regex_pattern_is_applied_to_its_own_rows_and_only_those(monkeypatch):
     seen = []
     original = row_pipeline.apply_string_predicate_series
@@ -205,8 +211,24 @@ def test_each_regex_pattern_is_applied_to_its_own_rows_and_only_those(monkeypatc
     monkeypatch.setattr(row_pipeline, "apply_string_predicate_series", spy)
     left = ["abc", "abd", "xyz", "abc", None, "q"]
     right = ["ab.", "ab.", "x.z", "a", "a", None]
-    _column_form(left, right, "regex")
+    result = _slices(left, right)
     assert sorted(seen) == [("a", 1), ("ab.", 2), ("x.z", 1)]  # the null-left and null-pattern rows are applied to no pattern
+    assert [bool(v) for v in result] == [True, True, True, False, False, False]
+
+
+def test_the_slice_routine_equals_the_scalar_definition_and_the_row_pass_for_many_patterns():
+    left = [f"item{i % 17}x" for i in range(300)]
+    right = [f"item{i % 17}." if i % 3 else f"[a-z]+{i % 17}x?" for i in range(300)]
+    expected = [apply_string_predicate_scalar(l, r, "regex") for l, r in zip(left, right)]
+    assert [bool(v) for v in _slices(left, right)] == expected == [bool(v) for v in _column_form(left, right, "regex")]
+
+
+def test_a_python_re_column_is_matched_in_one_row_pass_with_no_per_pattern_vector_call(monkeypatch):
+    def refuse(*_args):
+        raise AssertionError("an object column is matched by the row pass")
+
+    monkeypatch.setattr(row_pipeline, "apply_string_predicate_series", refuse)
+    assert [bool(v) for v in _column_form(["abc", "abd", "xyz"], ["ab.", "ab.", "q"], "regex")] == [True, True, False]
 
 
 def test_a_regex_column_keeps_the_index_and_the_row_order():
@@ -215,6 +237,8 @@ def test_a_regex_column_keeps_the_index_and_the_row_order():
     right = pd.Series(["ab.", "x.z", "zzz", "ab.", "q"], index=index)
     result = row_pipeline.RowPipelineMixin._gfql_string_predicate_columns(left, right, "regex", "x")
     assert list(result.index) == index and [bool(v) for v in result] == [True, True, False, True, True]
+    sliced = row_pipeline.RowPipelineMixin._gfql_string_predicate_by_pattern_slices(left, right, left.notna() & right.notna(), "regex", "x")
+    assert list(sliced.index) == index and [bool(v) for v in sliced] == [True, True, False, True, True]
 
 
 @pytest.mark.parametrize("dtype", ["string[python]", "string[pyarrow]"])
@@ -229,9 +253,10 @@ def test_a_regex_column_answers_like_the_literal_operand_on_every_string_dtype(d
         assert [bool(v) for v in column] == [bool(v) for v in literal.fillna(False)], pattern
 
 
-def test_an_invalid_regex_in_the_column_is_a_value_error():
-    with pytest.raises(ValueError, match="(?i)invalid regular expression|invalid regex pattern"):  # the message is ours, or pandas' own when pandas wraps re.error
-        _column_form(["abc", "abd"], ["(", "ab"], "regex")
+def test_an_invalid_regex_in_the_column_is_a_value_error_on_both_routines():
+    for run in (lambda: _column_form(["abc", "abd"], ["(", "ab"], "regex"), lambda: _slices(["abc", "abd"], ["(", "ab"])):
+        with pytest.raises(ValueError, match="(?i)invalid regular expression|invalid regex pattern"):  # the message is ours, or pandas' own when pandas wraps re.error
+            run()
 
 
 def test_a_categorical_column_pattern_matches_like_strings():

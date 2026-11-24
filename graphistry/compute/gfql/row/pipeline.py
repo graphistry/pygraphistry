@@ -3220,33 +3220,64 @@ class RowPipelineMixin:
 
     @staticmethod
     def _gfql_string_predicate_by_pattern(left_str: SeriesT, right_str: SeriesT, usable: SeriesT, op_name: str, expr: str) -> SeriesT:
-        """`=~` with a column pattern: each distinct pattern is applied to its own rows through the literal path, so the answer is the literal operand's answer.
+        """`=~` with a column pattern, answered like the literal operand with the same pattern. Boolean, False where not `usable`.
 
-        Boolean, False where not `usable`. The rows are ordered by pattern code once, each pattern takes its contiguous slice, and the slices are put back in row order."""
+        A pandas column whose `.str.fullmatch` already runs on Python `re` (object, Python-backed string) is matched in one row pass with each distinct
+        pattern compiled once: the vector call is that same `re` loop with a fixed cost per pattern on top. Every other column (Arrow-backed pandas, cuDF)
+        goes through the literal path once per pattern, on that pattern's own rows."""
+        if not RowPipelineMixin._gfql_string_dtype_uses_python_re(left_str):
+            return RowPipelineMixin._gfql_string_predicate_by_pattern_slices(left_str, right_str, usable, op_name, expr)
+        compiled: Dict[str, "re.Pattern[str]"] = {}
+        flags: List[bool] = []
+        try:
+            for cell, pattern in zip(left_str[usable], right_str[usable]):
+                regex = compiled.get(pattern)
+                if regex is None:
+                    regex = compiled[pattern] = re.compile(pattern)
+                flags.append(regex.fullmatch(cell) is not None)
+        except re.error as exc:
+            raise ValueError(f"invalid regex pattern in {expr!r}: {exc}") from exc
+        out = pd.Series(False, index=left_str.index, dtype=bool)
+        out[usable] = flags
+        return out
+
+    @staticmethod
+    def _gfql_string_predicate_by_pattern_slices(left_str: SeriesT, right_str: SeriesT, usable: SeriesT, op_name: str, expr: str) -> SeriesT:
+        """The literal path once per distinct pattern, on that pattern's own rows: the rows are ordered by pattern code once, each pattern takes its contiguous slice,
+        and the slices are put back in row order. The one routine over the series type that pandas (Arrow-backed) and cuDF share."""
+        gpu = is_cudf_series(left_str)
         left_pos = left_str.reset_index(drop=True)
-        keep = usable.reset_index(drop=True)
-        coded = right_str.reset_index(drop=True)[keep].astype("category")
+        usable_pos = usable.reset_index(drop=True)
+        coded = right_str.reset_index(drop=True)[usable_pos].astype("category")
         order = coded.cat.codes.sort_values()
         patterns = RowPipelineMixin._gfql_series_to_pylist(coded.cat.categories)
-        if len(patterns) > _GFQL_STRING_PREDICATE_MAX_PATTERNS and is_cudf_series(left_str):  # pragma: no cover - cuDF-only; no cuDF lane in the coverage gate
+        if len(patterns) > _GFQL_STRING_PREDICATE_MAX_PATTERNS and gpu:  # pragma: no cover - cuDF-only; no cuDF lane in the coverage gate
             raise NotImplementedError(
                 f"{op_name} over {len(patterns)} distinct patterns exceeds the {_GFQL_STRING_PREDICATE_MAX_PATTERNS} the cuDF engine supports in {expr!r} (no silent fallback; parity-or-error by design)"
             )
         sizes = RowPipelineMixin._gfql_series_to_pylist(order.value_counts().sort_index())
         rows = left_pos.loc[order.index]
-        hits: List[SeriesT] = []
+        parts: List[SeriesT] = []
         start = 0
         for pattern, size in zip(patterns, sizes):
             try:
                 hit = apply_string_predicate_series(rows.iloc[start:start + size], pattern, op_name)
             except re.error as exc:
                 raise ValueError(f"invalid regex pattern in {expr!r}: {exc}") from exc
-            hits.append(hit.astype(bool))
+            parts.append(hit.astype(bool))
             start += size
-        hits.append((keep[~keep]) & False)  # the rows with no pattern or no string are False
-        out = df_concat(Engine.CUDF if is_cudf_series(left_str) else Engine.PANDAS)(hits).sort_index()
+        parts.append(usable_pos[~usable_pos] & False)  # the rows with no pattern or no string are False
+        out = df_concat(Engine.CUDF if gpu else Engine.PANDAS)(parts).sort_index()
         out.index = left_str.index
         return out
+
+    @staticmethod
+    def _gfql_string_dtype_uses_python_re(series: SeriesT) -> bool:
+        """True for a pandas string column whose `.str.fullmatch` runs on Python `re` (object, or the Python-backed string dtype); Arrow-backed and cuDF columns use another engine."""
+        if not isinstance(series, pd.Series):
+            return False
+        dtype = series.dtype
+        return pd.api.types.is_object_dtype(dtype) or (isinstance(dtype, pd.StringDtype) and dtype.storage == "python")
 
     @staticmethod
     def _gfql_string_predicate_columns(left: SeriesT, right: SeriesT, op_name: str, expr: str) -> SeriesT:
