@@ -153,7 +153,7 @@ _OPS = ["contains", "starts_with", "ends_with"]
 
 
 def _column_form(left, right, op):
-    return row_pipeline.RowPipelineMixin._gfql_string_predicate_per_row(pd.Series(left), pd.Series(right), op, "x")
+    return row_pipeline.RowPipelineMixin._gfql_string_predicate_columns(pd.Series(left), pd.Series(right), op, "x")
 
 
 @pytest.mark.parametrize("op", _OPS)
@@ -186,24 +186,58 @@ def test_a_regex_column_is_answered_one_pass_per_distinct_pattern_like_the_liter
     assert [None if pd.isna(v) else bool(v) for v in _column_form(left, right, "regex")] == [True, True, True, True, False, None, None]
 
 
-def test_a_regex_column_of_many_distinct_patterns_goes_row_by_row_with_the_same_answer(monkeypatch):
-    left, right = ["abc", "abd", "xyz", "abc"], ["ab.", "ab.", "x.z", "a"]
-    expected = [bool(v) for v in _column_form(left, right, "regex")]
-    monkeypatch.setattr(row_pipeline, "_GFQL_STRING_PREDICATE_MAX_PATTERNS", 1)
+def test_a_regex_column_of_many_distinct_patterns_equals_the_scalar_definition():
+    left = [f"item{i % 17}x" for i in range(600)]
+    right = [f"item{i % 17}." if i % 3 else f"[a-z]+{i % 17}x?" for i in range(600)]  # far more distinct patterns than rows share
+    assert len(set(right)) > 20
+    expected = [apply_string_predicate_scalar(l, r, "regex") for l, r in zip(left, right)]
     assert [bool(v) for v in _column_form(left, right, "regex")] == expected
 
 
-@pytest.mark.parametrize("max_patterns", [256, 1])
-def test_an_invalid_regex_in_the_column_is_a_value_error_on_both_regex_paths(monkeypatch, max_patterns):
-    monkeypatch.setattr(row_pipeline, "_GFQL_STRING_PREDICATE_MAX_PATTERNS", max_patterns)
-    with pytest.raises(ValueError, match="(?i)invalid regular expression|invalid regex pattern"):  # the message is ours on the row path and pandas' own when pandas wraps re.error
+def test_each_regex_pattern_is_applied_to_its_own_rows_and_only_those(monkeypatch):
+    seen = []
+    original = row_pipeline.apply_string_predicate_series
+
+    def spy(rows, pattern, op_name):
+        seen.append((pattern, len(rows)))
+        return original(rows, pattern, op_name)
+
+    monkeypatch.setattr(row_pipeline, "apply_string_predicate_series", spy)
+    left = ["abc", "abd", "xyz", "abc", None, "q"]
+    right = ["ab.", "ab.", "x.z", "a", "a", None]
+    _column_form(left, right, "regex")
+    assert sorted(seen) == [("a", 1), ("ab.", 2), ("x.z", 1)]  # the null-left and null-pattern rows are applied to no pattern
+
+
+def test_a_regex_column_keeps_the_index_and_the_row_order():
+    index = [10, 5, 5, 7, 3]
+    left = pd.Series(["abc", "xyz", "abd", "abc", "q"], index=index)
+    right = pd.Series(["ab.", "x.z", "zzz", "ab.", "q"], index=index)
+    result = row_pipeline.RowPipelineMixin._gfql_string_predicate_columns(left, right, "regex", "x")
+    assert list(result.index) == index and [bool(v) for v in result] == [True, True, False, True, True]
+
+
+@pytest.mark.parametrize("dtype", ["string[python]", "string[pyarrow]"])
+def test_a_regex_column_answers_like_the_literal_operand_on_every_string_dtype(dtype):
+    if dtype == "string[pyarrow]":
+        pytest.importorskip("pyarrow")
+    left = pd.Series(["abc", "aab", "ABC", "a1", "ab\nc", "zz"]).astype(dtype)
+    patterns = ["abc", "a.c", "(?i)ABC", "a.*", "[a-z]+", "a\\d", "(?s)ab.c"]
+    for pattern in patterns:
+        column = row_pipeline.RowPipelineMixin._gfql_string_predicate_columns(left, pd.Series([pattern] * len(left)).astype(dtype), "regex", "x")
+        literal = row_pipeline.apply_string_predicate_series(left, pattern, "regex")
+        assert [bool(v) for v in column] == [bool(v) for v in literal.fillna(False)], pattern
+
+
+def test_an_invalid_regex_in_the_column_is_a_value_error():
+    with pytest.raises(ValueError, match="(?i)invalid regular expression|invalid regex pattern"):  # the message is ours, or pandas' own when pandas wraps re.error
         _column_form(["abc", "abd"], ["(", "ab"], "regex")
 
 
 def test_a_categorical_column_pattern_matches_like_strings():
     left = pd.Series(["abc", "abd", None]).astype("category")
     right = pd.Series(["ab", "x", "a"]).astype("category")
-    result = row_pipeline.RowPipelineMixin._gfql_string_predicate_per_row(left, right, "starts_with", "x")
+    result = row_pipeline.RowPipelineMixin._gfql_string_predicate_columns(left, right, "starts_with", "x")
     assert [None if pd.isna(v) else bool(v) for v in result] == [True, False, None]
 
 

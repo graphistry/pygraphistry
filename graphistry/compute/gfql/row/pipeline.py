@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING, Any, Callable, Dict, Iterable, List, Literal, 
 
 import pandas as pd
 from graphistry.Engine import (
+    df_concat,
     is_cudf_series,
     is_polars_df,
     df_to_engine,
@@ -150,7 +151,7 @@ GFQLValidateExprFn = Callable[["ExprNode"], List[str]]
 GFQLRuntimeParserBundle = Tuple[GFQLParseExprFn, GFQLValidateExprFn, ModuleType]
 _GFQL_MISSING_BOOL_OPERAND = object()
 _GFQL_STRING_PREDICATE_PAIR_OPS: Dict[str, Callable[[str, str], bool]] = {"contains": operator.contains, "starts_with": str.startswith, "ends_with": str.endswith}  # (left, right) -> bool
-_GFQL_STRING_PREDICATE_MAX_PATTERNS = 256  # distinct column patterns answered pass by pass; beyond it pandas goes row by row and cuDF declines
+_GFQL_STRING_PREDICATE_MAX_PATTERNS = 4096  # cuDF: distinct column patterns answered before it declines by name; pandas has no cap
 _INT64_MIN = -(2**63)
 _INT64_LIMIT_HIGH = 2**63
 _INT64_MIN_AS_FLOAT = float(_INT64_MIN)
@@ -3210,8 +3211,8 @@ class RowPipelineMixin:
         return "{" + ", ".join(parts) + "}"
 
     @staticmethod
-    def _gfql_string_cells(original: SeriesT, decoded: SeriesT) -> SeriesT:
-        """Boolean mask of the cells that hold a string (null and non-string cells are False); `decoded` is `original` made `.str`-ready."""
+    def _gfql_string_cells(original: SeriesT) -> SeriesT:
+        """Boolean mask of the cells that hold a string (null and non-string cells are False)."""
         mask = ~original.isna()
         if isinstance(original, pd.Series) and pd.api.types.is_object_dtype(original.dtype) and pd.api.types.infer_dtype(original, skipna=True) != "string":
             mask = mask & original.map(lambda cell: isinstance(cell, str))  # a mixed column: a non-string cell is null, never stringified
@@ -3219,56 +3220,40 @@ class RowPipelineMixin:
 
     @staticmethod
     def _gfql_string_predicate_by_pattern(left_str: SeriesT, right_str: SeriesT, usable: SeriesT, op_name: str, expr: str) -> SeriesT:
-        """`=~` with a column pattern: one literal-path pass per DISTINCT pattern, so the answer is the literal operand's answer. Boolean, False where not `usable`.
+        """`=~` with a column pattern: each distinct pattern is applied to its own rows through the literal path, so the answer is the literal operand's answer.
 
-        The only per-row cost left is one regex per row, which is what a column of regexes means. pandas passes each pattern only its own rows;
-        cuDF passes each pattern the whole column and keeps its rows with a mask; only the distinct pattern strings (at most the cap) reach the host, as each becomes a literal argument."""
-        is_gpu = is_cudf_series(left_str)
-        distinct = right_str[usable].unique()
-        if len(distinct) > _GFQL_STRING_PREDICATE_MAX_PATTERNS:
-            if is_gpu:  # pragma: no cover - cuDF-only; no cuDF lane in the coverage gate
-                raise NotImplementedError(
-                    f"{op_name} over more than {_GFQL_STRING_PREDICATE_MAX_PATTERNS} distinct patterns is not supported on cuDF in {expr!r}; "
-                    f"use engine='pandas' for this query (no silent fallback; parity-or-error by design)"
-                )
-            try:  # a distinct regex per row: compile each once, row by row
-                return pd.Series(
-                    [bool(ok) and apply_string_predicate_scalar(lhs, rhs, op_name) for ok, lhs, rhs in zip(usable, left_str, right_str)],
-                    index=left_str.index, dtype=bool,
-                )
-            except re.error as exc:
-                raise ValueError(f"invalid regex pattern in {expr!r}: {exc}") from exc
-        if is_gpu:  # pragma: no cover - cuDF-only; no cuDF lane in the coverage gate
-            out = usable & False
-            for pattern in distinct.to_pandas():
-                try:
-                    hit = apply_string_predicate_series(left_str, pattern, op_name)
-                except re.error as exc:
-                    raise ValueError(f"invalid regex pattern in {expr!r}: {exc}") from exc
-                out = out | (hit.fillna(False).astype(bool) & usable & (right_str == pattern))
-            return out
-        rows = np.flatnonzero(usable.to_numpy(dtype=bool))
-        codes, patterns = pd.factorize(right_str.to_numpy(dtype=object)[rows])
-        order = np.argsort(codes, kind="stable")
-        ends = np.cumsum(np.bincount(codes, minlength=len(patterns)))
-        hits = np.zeros(len(left_str), dtype=bool)
+        Boolean, False where not `usable`. The rows are ordered by pattern code once, each pattern takes its contiguous slice, and the slices are put back in row order."""
+        left_pos = left_str.reset_index(drop=True)
+        keep = usable.reset_index(drop=True)
+        coded = right_str.reset_index(drop=True)[keep].astype("category")
+        order = coded.cat.codes.sort_values()
+        patterns = RowPipelineMixin._gfql_series_to_pylist(coded.cat.categories)
+        if len(patterns) > _GFQL_STRING_PREDICATE_MAX_PATTERNS and is_cudf_series(left_str):  # pragma: no cover - cuDF-only; no cuDF lane in the coverage gate
+            raise NotImplementedError(
+                f"{op_name} over {len(patterns)} distinct patterns exceeds the {_GFQL_STRING_PREDICATE_MAX_PATTERNS} the cuDF engine supports in {expr!r} (no silent fallback; parity-or-error by design)"
+            )
+        sizes = RowPipelineMixin._gfql_series_to_pylist(order.value_counts().sort_index())
+        rows = left_pos.loc[order.index]
+        hits: List[SeriesT] = []
         start = 0
-        for code, pattern in enumerate(patterns):
-            own = rows[order[start:ends[code]]]
-            start = ends[code]
+        for pattern, size in zip(patterns, sizes):
             try:
-                hit = apply_string_predicate_series(left_str.iloc[own], pattern, op_name)
+                hit = apply_string_predicate_series(rows.iloc[start:start + size], pattern, op_name)
             except re.error as exc:
                 raise ValueError(f"invalid regex pattern in {expr!r}: {exc}") from exc
-            hits[own] = hit.fillna(False).to_numpy(dtype=bool)
-        return pd.Series(hits, index=left_str.index, dtype=bool)
+            hits.append(hit.astype(bool))
+            start += size
+        hits.append((keep[~keep]) & False)  # the rows with no pattern or no string are False
+        out = df_concat(Engine.CUDF if is_cudf_series(left_str) else Engine.PANDAS)(hits).sort_index()
+        out.index = left_str.index
+        return out
 
     @staticmethod
-    def _gfql_string_predicate_per_row(left: SeriesT, right: SeriesT, op_name: str, expr: str) -> SeriesT:
+    def _gfql_string_predicate_columns(left: SeriesT, right: SeriesT, op_name: str, expr: str) -> SeriesT:
         """A non-literal right operand: null unless both operands are strings; column-wise on every engine that lowers it.
 
         contains / starts_with / ends_with: the string method mapped over both columns on pandas, the string-pattern column form and
-        a per-row slice on cuDF, native expressions on the Polars engines. `=~`: one literal-path pass per distinct pattern."""
+        a per-row slice on cuDF, native expressions on the Polars engines. `=~`: each distinct pattern applied to its own rows."""
         gpu = is_cudf_series(left) or is_cudf_series(right)
         if not gpu and not (isinstance(left, pd.Series) and isinstance(right, pd.Series)):
             raise NotImplementedError(
@@ -3278,7 +3263,7 @@ class RowPipelineMixin:
         left_str, right_str = _str_ops_series(left), _str_ops_series(right)
         if left_str is None or right_str is None:
             return RowPipelineMixin._gfql_string_predicate_all_null(left)
-        usable = RowPipelineMixin._gfql_string_cells(left, left_str) & RowPipelineMixin._gfql_string_cells(right, right_str)
+        usable = RowPipelineMixin._gfql_string_cells(left) & RowPipelineMixin._gfql_string_cells(right)
         if op_name == "regex":
             hit = RowPipelineMixin._gfql_string_predicate_by_pattern(left_str, right_str, usable, op_name, expr)
         elif gpu:  # pragma: no cover - cuDF-only; no cuDF lane in the coverage gate
@@ -3332,7 +3317,7 @@ class RowPipelineMixin:
         if hasattr(left, "astype") or hasattr(right, "astype"):
             left_series = left if hasattr(left, "astype") else self._gfql_broadcast_scalar(table_df, left)
             if hasattr(right, "astype"):
-                return self._gfql_string_predicate_per_row(left_series, right, op_name, expr)
+                return self._gfql_string_predicate_columns(left_series, right, op_name, expr)
 
             left_null = self._gfql_null_mask(table_df, left_series)
             right_null = self._gfql_null_mask(table_df, right)
