@@ -34,10 +34,8 @@ def _is_int_dtype(dtype: DType) -> bool:
 
 
 def _is_float_dtype(dtype: DType) -> bool:
-    """A float column. A categorical of floats is not: pandas says so, but cuDF's categorical dtype reports its
-    categories' type, so ``is_float_dtype`` is True there and the float renderer then compares a categorical to inf (#2422)."""
     import pandas.api.types as pat
-    return bool(pat.is_float_dtype(dtype)) and str(dtype) != "category"
+    return bool(pat.is_float_dtype(dtype)) and str(dtype) != "category"  # cuDF's categorical dtype reads as its categories' type
 
 
 def _is_datetime_dtype(dtype: DType) -> bool:

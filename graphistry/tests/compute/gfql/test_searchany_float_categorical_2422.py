@@ -1,7 +1,4 @@
-"""searchAny over an explicit categorical-of-floats column, through the query engines (#2422).
-
-pandas, Polars and polars-gpu answer it; cuDF declines with the engine's own NotImplementedError. Before the fix cuDF crashed with
-``ValueError: Value inf not found in column`` (its categorical dtype reads as a float dtype, so the float renderer ran on a categorical)."""
+"""searchAny over an explicit categorical-of-floats column, through the query engines: pandas, Polars and polars-gpu answer it, cuDF declines by name."""
 import os
 
 import pandas as pd
