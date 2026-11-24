@@ -1671,9 +1671,14 @@ def _execute_compiled_query_via_physical_plan(
                 suggestion="Compile CALL queries with procedure metadata before physical dispatch.",
                 language="cypher",
             )
-        dispatch_graph = execute_cypher_call(
-            base_graph, compiled_query.procedure_call, engine=engine, policy=policy, context=context,
-        )
+        if compiled_query.procedure_call.backend == "semantic":
+            dispatch_graph = _execute_semantic_call(
+                base_graph, compiled_query.procedure_call, engine=engine, policy=policy, context=context,
+            )
+        else:
+            dispatch_graph = execute_cypher_call(
+                base_graph, compiled_query.procedure_call, engine=engine, policy=policy, context=context,
+            )
         return _execute_compiled_query_chain_non_union(
             base_graph,
             compiled_query=compiled_query,
@@ -1702,6 +1707,35 @@ def _execute_compiled_query_via_physical_plan(
         suggestion="Use a covered M3 route or extend the runtime dispatcher.",
         language="cypher",
     )
+
+
+def _execute_semantic_call(
+    base_graph: Plottable,
+    compiled_call: CompiledCypherProcedureCall,
+    *,
+    engine: Union[EngineAbstract, str],
+    policy: Optional[PolicyDict],
+    context: ExecutionContext,
+) -> Plottable:
+    """Run the query before a semantic CALL, then the CALL over its rows."""
+    from graphistry.compute.gfql.cypher.semantic_call import execute_semantic_call
+
+    rows = base_graph
+    if compiled_call.prefix is not None:
+        rows = _execute_compiled_query(
+            base_graph, compiled_query=compiled_call.prefix, engine=engine, policy=policy, context=context,
+        )
+    if rows._nodes is None:
+        raise GFQLValidationError(
+            ErrorCode.E108,
+            "A standalone semantic CALL needs a graph with a node table",
+            field="call",
+            value=compiled_call.procedure,
+            suggestion="Bind a node table first, or put MATCH ... WITH ... before the CALL.",
+            language="cypher",
+        )
+    result = execute_semantic_call(rows, compiled_call, engine=engine, policy=policy, context=context)
+    return ensure_engine_match(result, resolve_engine(EngineAbstract(engine) if isinstance(engine, str) else engine, base_graph))
 
 
 def _seeded_dispatch_graph(
@@ -2258,7 +2292,7 @@ _COMPILED_STRING_QUERY_CACHE_MAX = 128
 #: Bounded LRU rather than clear-on-full so a hot query cannot be evicted by a burst of
 #: cold ones. Values are ``@dataclass(frozen=True)`` chains and plans -- no DataFrame is
 #: reachable from a compiled query, so a process-lifetime cache cannot pin user data.
-_COMPILED_STRING_QUERY_CACHE: "OrderedDict[Tuple[str, str, Tuple[Tuple[str, Any], ...], Optional[Tuple[Tuple[str, str], ...]], str], Any]" = OrderedDict()
+_COMPILED_STRING_QUERY_CACHE: "OrderedDict[Tuple[str, str, Tuple[Tuple[str, Any], ...], Optional[Tuple[Tuple[str, str], ...]], str, Optional[Tuple[str, ...]]], Any]" = OrderedDict()
 #: Guards the LRU. Plain dict ops are individually atomic under the GIL, but
 #: get-then-move_to_end and insert-then-evict are not, and this cache is now shared across
 #: threads rather than isolated per graph.
@@ -2374,6 +2408,21 @@ def gfql_clear_caches() -> None:
     clear_all()
 
 
+_SEMANTIC_CALL = re.compile(r"graphistry\.sem_(?:decide|map)\b", re.I)
+
+
+def _semantic_node_columns(g: Plottable, query: str) -> Optional[Tuple[str, ...]]:
+    """The node-table column names, read only for a query that has a semantic CALL (a standalone one reads the table)."""
+    nodes = g._nodes
+    if nodes is None or _SEMANTIC_CALL.search(query) is None:
+        return None
+    if is_polars_df(nodes):
+        import polars as pl
+
+        return tuple(nodes.collect_schema().names() if isinstance(nodes, pl.LazyFrame) else nodes.columns)
+    return tuple(str(col) for col in nodes.columns)
+
+
 def _compile_string_query(
     query: str,
     *,
@@ -2381,6 +2430,7 @@ def _compile_string_query(
     params: Optional[CypherParams],
     engine_key: str,
     node_dtypes: Optional[NodeDtypes] = None,
+    node_columns: Optional[Tuple[str, ...]] = None,
 ) -> Any:
     query_language = language or "cypher"
     if query_language != "cypher":
@@ -2400,7 +2450,7 @@ def _compile_string_query(
     node_dtypes_key = _node_dtypes_cache_key(node_dtypes)
     # params that cannot be keyed (unhashable / opaque values) are simply not cached.
     cache_key = (
-        (query_language, query, params_key, node_dtypes_key, engine_key)
+        (query_language, query, params_key, node_dtypes_key, engine_key, node_columns)
         if params_key is not None else None)
     if cache_key is not None:
         with _COMPILED_STRING_QUERY_CACHE_LOCK:
@@ -2409,7 +2459,7 @@ def _compile_string_query(
                 _COMPILED_STRING_QUERY_CACHE.move_to_end(cache_key)
                 return hit
 
-    compiled = compile_cypher_query(parse_cypher(query), params=params, node_dtypes=node_dtypes)
+    compiled = compile_cypher_query(parse_cypher(query), params=params, node_dtypes=node_dtypes, node_columns=node_columns)
     if cache_key is not None:
         with _COMPILED_STRING_QUERY_CACHE_LOCK:
             _COMPILED_STRING_QUERY_CACHE[cache_key] = compiled
@@ -2890,6 +2940,7 @@ def _gfql_with_strictness(
                         EngineAbstract(engine) if isinstance(engine, str) else engine,
                         self).value,
                     node_dtypes=_node_dtypes_for_pushdown(self, engine),
+                    node_columns=_semantic_node_columns(self, query),
                 )
             except GFQLValidationError as exc:
                 _fire_postcompile_policy(
