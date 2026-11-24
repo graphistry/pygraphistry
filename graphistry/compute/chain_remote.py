@@ -42,6 +42,7 @@ from graphistry.otel import inject_trace_headers
 
 class CompiledProcedureCallLike(Protocol):
     procedure: str
+    backend: str
     call_params: Optional[Dict[str, Any]]
 
 
