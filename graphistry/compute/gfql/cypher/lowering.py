@@ -106,6 +106,7 @@ from graphistry.compute.gfql.expr_parser import (
 )
 from graphistry.compute.gfql.cypher.reentry_plan import ReentryPlan
 from graphistry.compute.gfql.cypher.ast import (
+    SEMANTIC_PROCEDURES,
     BooleanExpr,
     CypherGraphQuery,
     CypherLiteral,
@@ -7834,6 +7835,10 @@ def _compile_call_query(
 ) -> CompiledCypherQuery:
     if query.call is None:
         raise ValueError("Expected query.call for Cypher CALL compilation")
+    if query.call.procedure in SEMANTIC_PROCEDURES:
+        from graphistry.compute.gfql.cypher.semantic_call import compile_semantic_call_query
+
+        return compile_semantic_call_query(query, params=params)
     if query.matches or query.where is not None or query.reentry_matches or any(
         where_clause is not None for where_clause in query.reentry_wheres
     ):
@@ -9408,6 +9413,7 @@ def compile_cypher_query(
     *,
     params: Optional[Mapping[str, Any]] = None,
     node_dtypes: Optional[NodeDtypes] = None,
+    node_columns: Optional[Sequence[str]] = None,
 ) -> Union[CompiledCypherQuery, CompiledCypherUnionQuery, CompiledCypherGraphQuery]:
     from graphistry.compute.gfql.cypher import projection_planning as _projection
 
@@ -9418,6 +9424,11 @@ def compile_cypher_query(
             _reject_excessive_match_clauses(branch.matches)
     elif isinstance(query, CypherGraphQuery):
         _reject_excessive_match_clauses(query.constructor.matches)
+
+    if isinstance(query, (CypherQuery, CypherUnionQuery)) and node_columns is not None:
+        from graphistry.compute.gfql.cypher.semantic_call import with_standalone_columns
+
+        query = with_standalone_columns(query, node_columns)
 
     prepass_bound_ir = FrontendBinder().bind(query, PlanContext(), strict_name_resolution=True)
     prepass_context = _build_bound_lowering_context(bound_ir=prepass_bound_ir, params=params)
@@ -9452,7 +9463,7 @@ def compile_cypher_query(
                     line=branch.return_.span.line,
                     column=branch.return_.span.column,
                 )
-            compiled_branch = compile_cypher_query(branch, params=params)
+            compiled_branch = compile_cypher_query(branch, params=params, node_columns=node_columns)
             if not isinstance(compiled_branch, CompiledCypherQuery):
                 raise _unsupported(
                     "Nested Cypher UNION branches are not supported in the local compiler",

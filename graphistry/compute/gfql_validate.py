@@ -16,6 +16,7 @@ from graphistry.compute.gfql.cypher.lowering import (
     compile_cypher_query,
 )
 from graphistry.compute.gfql.cypher.parser import parse_cypher
+from graphistry.compute.gfql.cypher.semantic_call import with_standalone_columns
 from graphistry.compute.gfql.frontends.cypher.binder import FrontendBinder
 from graphistry.compute.gfql.ir.compilation import GraphSchemaCatalog, PlanContext
 from graphistry.compute.gfql.query_types import GFQLQuery
@@ -152,7 +153,12 @@ def _validate_cypher(
     strict: StrictInput,
     schema: bool = True,
 ) -> Dict[str, Any]:
+    from graphistry.compute.gfql_unified import _semantic_node_columns
+
     parsed = parse_cypher(query)
+    node_columns = _semantic_node_columns(g, query)
+    if node_columns is not None:
+        parsed = with_standalone_columns(parsed, node_columns)
     level = resolve_strict_level(g, strict=strict)
     declared = schema_declared_names(g)
     can_judge_names = schema or declared is not None  # schema=False holds no frames; a declared schema is names without data
@@ -165,7 +171,7 @@ def _validate_cypher(
             with strictness_scope(level, declared=declared):
                 if not absent_name_is_lenient(name, kind="name", context="query"):
                     raise
-    compiled = compile_cypher_query(parsed, params=params)
+    compiled = compile_cypher_query(parsed, params=params, node_columns=node_columns)
     compiled_kind: Literal["query", "union", "graph"] = "query"
     if isinstance(compiled, CompiledCypherUnionQuery):
         compiled_kind = "union"
