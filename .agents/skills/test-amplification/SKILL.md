@@ -75,7 +75,7 @@ Recommended files:
 
 Subagent-written filenames must follow `.agents/skills/plan/SKILL.md`'s subagent-safe basename rule.
 
-If parallel subagents are available (for example, Claude workers), use them with fixed artifact locations so work is crash-resumable.
+If parallel subagents are available (for example, Claude workers), use them with fixed artifact locations so work is crash-resumable. Keep at most 2 alive at once and 6 per task unless a human explicitly raises the number for that task; subagents do not spawn subagents.
 
 ### Round folder layout for parallel work
 

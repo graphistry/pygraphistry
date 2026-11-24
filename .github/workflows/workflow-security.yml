@@ -13,6 +13,7 @@ on:
   push:
     branches:
       - master
+      - develop
     paths:
       - ".github/workflows/**"
       - ".github/actionlint.yaml"
