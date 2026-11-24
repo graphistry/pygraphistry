@@ -1671,9 +1671,14 @@ def _execute_compiled_query_via_physical_plan(
                 suggestion="Compile CALL queries with procedure metadata before physical dispatch.",
                 language="cypher",
             )
-        dispatch_graph = execute_cypher_call(
-            base_graph, compiled_query.procedure_call, engine=engine, policy=policy, context=context,
-        )
+        if compiled_query.procedure_call.backend == "semantic":
+            dispatch_graph = _execute_semantic_call(
+                base_graph, compiled_query.procedure_call, engine=engine, policy=policy, context=context,
+            )
+        else:
+            dispatch_graph = execute_cypher_call(
+                base_graph, compiled_query.procedure_call, engine=engine, policy=policy, context=context,
+            )
         return _execute_compiled_query_chain_non_union(
             base_graph,
             compiled_query=compiled_query,
@@ -1702,6 +1707,35 @@ def _execute_compiled_query_via_physical_plan(
         suggestion="Use a covered M3 route or extend the runtime dispatcher.",
         language="cypher",
     )
+
+
+def _execute_semantic_call(
+    base_graph: Plottable,
+    compiled_call: CompiledCypherProcedureCall,
+    *,
+    engine: Union[EngineAbstract, str],
+    policy: Optional[PolicyDict],
+    context: ExecutionContext,
+) -> Plottable:
+    """Run the query before a semantic CALL, then the CALL over its rows."""
+    from graphistry.compute.gfql.cypher.semantic_call import execute_semantic_call
+
+    rows = base_graph
+    if compiled_call.prefix is not None:
+        rows = _execute_compiled_query(
+            base_graph, compiled_query=compiled_call.prefix, engine=engine, policy=policy, context=context,
+        )
+    if rows._nodes is None:
+        raise GFQLValidationError(
+            ErrorCode.E108,
+            "A standalone semantic CALL needs a graph with a node table",
+            field="call",
+            value=compiled_call.procedure,
+            suggestion="Bind a node table first, or put MATCH ... WITH ... before the CALL.",
+            language="cypher",
+        )
+    result = execute_semantic_call(rows, compiled_call, engine=engine, policy=policy, context=context)
+    return ensure_engine_match(result, resolve_engine(EngineAbstract(engine) if isinstance(engine, str) else engine, base_graph))
 
 
 def _seeded_dispatch_graph(

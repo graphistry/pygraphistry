@@ -7,7 +7,7 @@ from graphistry.Engine import EngineAbstract, resolve_engine
 from graphistry.Plottable import Plottable
 from graphistry.compute.exceptions import ErrorCode, GFQLTypeError, GFQLValidationError
 from graphistry.compute.gfql.call.validation import validate_call_params
-from graphistry.compute.gfql.cypher.ast import CallClause
+from graphistry.compute.gfql.cypher.ast import SEMANTIC_PROCEDURES, CallClause
 from graphistry.compute.gfql.expr_parser import (
     BinaryOp,
     ExprNode,
@@ -42,12 +42,13 @@ from graphistry.plugins.cugraph import (
 from graphistry.plugins.igraph import compute_algs as _IGRAPH_COMPUTE_ALGS
 
 if TYPE_CHECKING:
+    from graphistry.compute.gfql.cypher.lowering import CompiledCypherQuery
     from graphistry.compute.execution_context import ExecutionContext
     from graphistry.compute.gfql.policy import PolicyDict
 
 
 _ROW_KIND = Literal["degree", "node", "edge", "graph_only", "node_or_graph"]
-_BACKEND = Literal["degree", "cugraph", "igraph", "networkx", "index"]
+_BACKEND = Literal["degree", "cugraph", "igraph", "networkx", "index", "semantic"]
 
 _DEGREE_OUTPUTS: Tuple[str, ...] = ("nodeId", "degree", "degree_in", "degree_out")
 _CUGRAPH_RESERVED_KEYS = frozenset({"out_col", "params", "kind", "directed", "G"})
@@ -82,6 +83,9 @@ class CompiledCypherProcedureCall:
     call_params: Mapping[str, Any] = field(default_factory=dict)
     line: int = 1
     column: int = 1
+    # Semantic CALL only: the query that makes the input rows, and the columns it carries.
+    prefix: Optional["CompiledCypherQuery"] = None
+    carried_columns: Tuple[str, ...] = ()
 
 
 def _unsupported_call(message: str, *, call: CallClause, value: Any) -> GFQLValidationError:
@@ -568,7 +572,12 @@ def compile_cypher_call(
     call: CallClause,
     *,
     params: Optional[Mapping[str, Any]] = None,
+    carried: Sequence[str] = (),
 ) -> CompiledCypherProcedureCall:
+    if call.procedure in SEMANTIC_PROCEDURES:
+        from graphistry.compute.gfql.cypher.semantic_call import compile_semantic_call
+
+        return compile_semantic_call(call, carried=carried, params=params)
     definition = _resolve_procedure_definition(call)
     call_params = _normalize_call_params(definition, call, params=params)
 
@@ -778,6 +787,15 @@ def execute_cypher_call(
     policy: Optional['PolicyDict'] = None,
     context: Optional['ExecutionContext'] = None,
 ) -> Plottable:
+    if compiled_call.backend == "semantic":
+        raise GFQLValidationError(
+            ErrorCode.E108,
+            "A semantic CALL runs after the query that makes its input rows",
+            field="call",
+            value=compiled_call.procedure,
+            suggestion="Run it through g.gfql(\"...\", language=\"cypher\").",
+            language="cypher",
+        )
     if compiled_call.backend == "index":
         from graphistry.compute.gfql.call.executor import execute_call
         assert compiled_call.call_function is not None

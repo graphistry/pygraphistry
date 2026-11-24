@@ -111,6 +111,10 @@ class FrontendBinder:
 
         if ast.row_sequence and not ast.matches and not ast.reentry_matches:
             if ast.call is not None:
+                carried_scope_id = _next_scope_id(state)
+                for name in ast.call_inputs:
+                    state.scope[name] = _unknown_scalar_variable(name=name, scope_id=carried_scope_id)
+                    state.scope_confidence[name] = "inferred"
                 self._bind_call_clause(state=state, clause=ast.call)
             self._bind_row_sequence(state=state, row_sequence=ast.row_sequence)
         else:
