@@ -10,7 +10,7 @@ import pandas as pd
 import pytest
 
 import graphistry
-from graphistry.compute.exceptions import GFQLSyntaxError, GFQLValidationError
+from graphistry.compute.exceptions import GFQLSyntaxError, GFQLUnsupportedError, GFQLValidationError
 from graphistry.compute.gfql.cypher import compile_cypher, cypher_to_gfql
 from graphistry.compute.semantic import MemorySemanticCache, bind_providers, semantic_trace
 from graphistry.Plottable import Plottable
@@ -235,6 +235,10 @@ class TestLiftedWhere:
         params = compiled.procedure_call.call_params  # type: ignore[union-attr]
         assert params["budget"] == {"max_cost_usd": 1.0} and params["min_p"] == 0.5
 
+    def test_a_string_that_spells_sem_decide_is_only_a_string(self, engine: str) -> None:
+        out = run("MATCH (a) WHERE a.text CONTAINS 'sem_decide(' RETURN a.id AS id", engine)
+        assert out.empty
+
     def test_unaliased_return_keeps_its_name(self, engine: str) -> None:
         out = run("MATCH (a)-[]->(b) WHERE sem_decide('x', {t: b.text}) RETURN b.id", engine)
         assert list(out.columns) == ["b.id"]
@@ -304,6 +308,14 @@ class TestRejected:
     def test_one_chain_translation_declines_a_semantic_call(self) -> None:
         with pytest.raises(GFQLValidationError):
             cypher_to_gfql("MATCH (a) WITH a.text AS text CALL graphistry.sem_decide({question: 'x', evidence: ['text']}) YIELD verdict RETURN verdict")
+
+    @pytest.mark.parametrize("query", [
+        "MATCH (a) WITH a.text AS text CALL graphistry.sem_decide({question: 'x', evidence: ['text']}) YIELD verdict RETURN verdict",
+        "MATCH (a)-[]->(b) WHERE sem_decide('x', {t: b.text}) RETURN b.id AS id",
+    ])
+    def test_remote_refuses_a_semantic_cypher_query(self, query: str) -> None:
+        with pytest.raises(GFQLUnsupportedError, match="run locally only"):
+            graph().gfql_remote(query)
 
     def test_graph_algorithm_calls_keep_their_clause_rules(self) -> None:
         with pytest.raises(GFQLValidationError, match="first clause"):

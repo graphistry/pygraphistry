@@ -43,8 +43,14 @@ _NOT_IN_LIFTED_OPTIONS = frozenset({
 })
 _CALL_NAME = re.compile(r"\bsem_decide\s*\(")
 _WHOLE_CALL = re.compile(r"^sem_decide\s*\((.*)\)$", re.S)
+_QUOTED = re.compile(r"'(?:[^'\\]|\\.)*'|\"(?:[^\"\\]|\\.)*\"")
 _VERDICT = "__sem_verdict"
 _FORM = "Use CALL graphistry.sem_decide({question: ..., evidence: [...]}) YIELD verdict, score, status for other shapes."
+
+
+def _names_sem_decide(text: str) -> bool:
+    """Whether ``text`` calls sem_decide(...); a string literal that spells it does not count."""
+    return _CALL_NAME.search(_QUOTED.sub("''", text)) is not None
 
 
 def _split_top_level(text: str, sep: str) -> List[str]:
@@ -94,7 +100,7 @@ def _atoms(tree: BooleanExpr, out: List[BooleanExpr]) -> bool:
 
 
 def _mentions(tree: BooleanExpr) -> bool:
-    if tree.atom_text is not None and _CALL_NAME.search(tree.atom_text):
+    if tree.atom_text is not None and _names_sem_decide(tree.atom_text):
         return True
     return any(_mentions(child) for child in (tree.left, tree.right) if child is not None)
 
@@ -104,7 +110,7 @@ def _stage_mentions(item: QueryItem) -> bool:
         texts = [ret.expression.text for ret in item.clause.items]
         if item.where is not None:
             texts.append(item.where.text)
-        return any(_CALL_NAME.search(text) for text in texts)
+        return any(_names_sem_decide(text) for text in texts)
     return False
 
 
@@ -145,7 +151,7 @@ def lift_semantic_where(
     atoms: List[BooleanExpr] = []
     if not _atoms(tree, atoms):
         fail(f"sem_decide(...) must be a top-level AND term of WHERE (not under OR, XOR or NOT). {_FORM}", where.span)
-    semantic = [atom for atom in atoms if _CALL_NAME.search(atom.atom_text or "")]
+    semantic = [atom for atom in atoms if _names_sem_decide(atom.atom_text or "")]
     structural = [atom for atom in atoms if atom not in semantic]
     if len(semantic) != 1:
         fail(f"WHERE accepts one sem_decide(...) term. {_FORM}", where.span)
