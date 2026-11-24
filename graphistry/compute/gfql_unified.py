@@ -2408,7 +2408,7 @@ def gfql_clear_caches() -> None:
     clear_all()
 
 
-_SEMANTIC_CALL = re.compile(r"graphistry\.sem_(?:decide|map)\b", re.I)
+_SEMANTIC_CALL = re.compile(r"graphistry\s*\.\s*sem_(?:decide|map)\b", re.I)
 
 
 def _semantic_node_columns(g: Plottable, query: str) -> Optional[Tuple[str, ...]]:
