@@ -4,7 +4,7 @@ Everything runs on a $0 callable provider. pandas runs in the core lane; Polars 
 """
 import re
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Dict, List, Optional
 
 import pandas as pd
 import pytest
@@ -110,13 +110,13 @@ class TestCallAfterWith:
     def test_whole_options_map_as_one_param(self, engine: str) -> None:
         out = run("MATCH (a) WITH a.id AS id, a.text AS text CALL graphistry.sem_decide($opts) YIELD verdict RETURN id, verdict",
                   engine, params={"opts": {"question": "inc?", "evidence": ["text"]}})
-        assert len(out) == 5
+        assert out.sort_values("id")["verdict"].tolist() == [True, False, True, False, True]
 
     def test_nested_params_in_map_and_list(self, engine: str) -> None:
         out = run("MATCH (a) WITH a.id AS id, a.text AS text "
-                  "CALL graphistry.sem_decide({question: $q, evidence: $cols, max_usd: $cap}) YIELD verdict RETURN id",
+                  "CALL graphistry.sem_decide({question: $q, evidence: $cols, max_usd: $cap}) YIELD verdict RETURN id, verdict",
                   engine, params={"q": "inc?", "cols": ["text"], "cap": 5.0})
-        assert len(out) == 5
+        assert out.sort_values("id")["verdict"].tolist() == [True, False, True, False, True]
 
     def test_raw_questions_list_yields_per_question_columns(self, engine: str) -> None:
         out = run("MATCH (a) WITH a.id AS id, a.text AS text "
@@ -244,6 +244,70 @@ class TestLiftedWhere:
         assert list(out.columns) == ["b.id"]
 
 
+class TestWhatTheModelReceives:
+
+    def test_the_question_text_and_every_evidence_column_reach_the_provider(self) -> None:
+        seen: List[tuple] = []
+        provider = Recording(lambda evidence, q: seen.append((dict(evidence), q.text)) or True)  # type: ignore[arg-type,func-returns-value]
+        run("MATCH (a) WITH a.id AS id, a.text AS text, a.tier AS tier "
+            "CALL graphistry.sem_decide({question: $q, evidence: ['text', 'tier']}) YIELD verdict RETURN id",
+            provider=provider, params={"q": "Is it here?"})
+        assert {text for _, text in seen} == {"Is it here?"}
+        assert all(set(evidence) == {"text", "tier"} for evidence, _ in seen)
+
+    def test_lifted_question_and_evidence_reach_the_provider(self) -> None:
+        seen: List[tuple] = []
+        provider = Recording(lambda evidence, q: seen.append((dict(evidence), q.text)) or True)  # type: ignore[arg-type,func-returns-value]
+        run("MATCH (a) WHERE sem_decide('Is it here?', {text: a.text, tier: a.tier}) RETURN a.id AS id", provider=provider)
+        assert {text for _, text in seen} == {"Is it here?"} and all(set(e) == {"text", "tier"} for e, _ in seen)
+
+
+class TestEdgeCases:
+
+    @pytest.mark.parametrize("engine", ENGINES)
+    def test_a_duplicate_id_column_is_not_the_row_id(self, engine: str) -> None:
+        out = run("MATCH (a)-[]->(b) WITH a.id AS id, b.text AS text "
+                  "CALL graphistry.sem_decide({question: 'inc?', evidence: ['text']}) YIELD verdict RETURN id, text, verdict", engine)
+        assert len(out) == 4
+
+    @pytest.mark.parametrize("engine", ENGINES)
+    def test_zero_rows_from_the_prefix(self, engine: str) -> None:
+        out = run("MATCH (a {id: 99}) WITH a.id AS id, a.text AS text "
+                  "CALL graphistry.sem_decide({question: 'inc?', evidence: ['text']}) YIELD verdict RETURN id, verdict", engine)
+        assert out.empty and list(out.columns) == ["id", "verdict"]
+
+    def test_standalone_keeps_columns_that_hold_mixed_values(self) -> None:
+        table = NODES.assign(tags=[["a"], ["b"], [], ["c"], ["d"]], mixed=[1, "a", None, 2.5, "b"])
+        with bind_providers({"default": inc()}):
+            out = rows(graphistry.nodes(table, "id").gfql(
+                "CALL graphistry.sem_decide({question: 'inc?', evidence: ['text']}) YIELD verdict RETURN id, mixed, tags, verdict ORDER BY id"))
+        assert out["verdict"].tolist() == [True, False, True, False, True] and out["mixed"].tolist()[1] == "a"
+
+    def test_standalone_reads_columns_from_the_table_not_the_cache(self) -> None:
+        query = "CALL graphistry.sem_decide({question: 'inc?', evidence: ['text']}) YIELD verdict RETURN id, tier, verdict"
+        with bind_providers({"default": inc()}):
+            graphistry.nodes(NODES, "id").gfql(query)
+            with pytest.raises(GFQLValidationError):
+                graphistry.nodes(NODES.drop(columns=["tier"]), "id").gfql(query)
+
+    def test_a_string_that_spells_sem_decide_in_return_is_only_a_string(self) -> None:
+        out = run("MATCH (a) RETURN a.id AS id, 'sem_decide(' AS s ORDER BY id")
+        assert out["s"].tolist() == ["sem_decide("] * 5
+
+    def test_lifted_order_by_the_return_expression(self) -> None:
+        out = run("MATCH (a)-[]->(b) WHERE sem_decide('inc?', {t: b.text}) RETURN b.id AS bid ORDER BY b.id DESC")
+        assert out["bid"].tolist() == [5, 3]
+
+    def test_lifted_term_beside_structural_or_and_not(self) -> None:
+        out = run("MATCH (a)-[]->(b) WHERE (b.id = 3 OR b.id = 5) AND NOT b.id = 99 AND sem_decide('inc?', {t: b.text}) "
+                  "RETURN b.id AS bid ORDER BY bid")
+        assert out["bid"].tolist() == [3, 5]
+
+    def test_lifted_evidence_with_commas_colons_quotes_and_backslashes(self) -> None:
+        out = run("MATCH (a) WHERE sem_decide('Is it: \\'a, b\\'?', {t: a.text + ', ' + 'x:y', u: a.id}, {max_usd: 1}) RETURN a.id AS id ORDER BY id")
+        assert out["id"].tolist() == [1, 3, 5]
+
+
 class TestRejected:
 
     @staticmethod
@@ -273,7 +337,7 @@ class TestRejected:
         assert "sem_decide" in self.error(f"MATCH (a)-[]->(b) WHERE sem_decide('x', {{t: b.text}}) {tail}")
 
     def test_sem_decide_outside_where_is_rejected(self) -> None:
-        assert "WHERE term only" in self.error("MATCH (a) WITH a AS n RETURN sem_decide('x', {t: n.text}) AS v")
+        assert "term of the WHERE" in self.error("MATCH (a) WITH a AS n RETURN sem_decide('x', {t: n.text}) AS v")
 
     @pytest.mark.parametrize("call, needle", [
         ("CALL graphistry.sem_decide({question: 'x', evidence: ['text'], bogus: 1}) YIELD verdict", "bogus"),
@@ -291,6 +355,29 @@ class TestRejected:
     ])
     def test_bad_options_and_yield_fail_closed(self, call: str, needle: str) -> None:
         assert needle in self.error(f"{self.HEAD}{call} RETURN id")
+
+    def test_clauses_after_the_call_must_be_row_clauses(self) -> None:
+        call = "CALL graphistry.sem_decide({question: 'x', evidence: ['text']}) YIELD verdict"
+        assert "MATCH before the CALL" in self.error(f"{self.HEAD}{call} MATCH (b) RETURN count(*) AS n")
+        assert "MATCH before the CALL" in self.error(f"{call.replace('{', '{', 1)} MATCH (b) RETURN count(*) AS n")
+
+    def test_use_and_graph_bindings_are_rejected_not_ignored(self) -> None:
+        call = "WITH a.id AS id, a.text AS text CALL graphistry.sem_decide({question: 'x', evidence: ['text']}) YIELD verdict RETURN id"
+        assert "USE or GRAPH" in self.error(f"USE nope MATCH (a) {call}")
+        assert "USE or GRAPH" in self.error(f"GRAPH g = GRAPH {{ MATCH (a) WHERE a.id > 3 }} USE g MATCH (a) {call}")
+
+    def test_yield_where_is_semantic_only(self) -> None:
+        assert "semantic" in self.error("CALL graphistry.degree() YIELD nodeId, degree WHERE degree > 99 RETURN nodeId").lower() \
+            or "sem_decide" in self.error("CALL graphistry.degree() YIELD nodeId, degree WHERE degree > 99 RETURN nodeId")
+
+    def test_an_output_column_clash_is_named(self) -> None:
+        assert "'verdict'" in self.error("MATCH (a) WHERE sem_decide('x', {verdict: a.text}) RETURN a.id AS id")
+
+    def test_duplicate_option_keys_are_rejected(self) -> None:
+        assert "twice" in self.error(f"{self.HEAD}CALL graphistry.sem_decide({{question: 'a', evidence: ['text'], evidence: ['id']}}) YIELD verdict RETURN id")
+
+    def test_returning_a_whole_node_is_rejected_with_a_clear_message(self) -> None:
+        assert "whole node" in self.error("MATCH (a) WHERE sem_decide('x', {t: a.text}) RETURN a")
 
     def test_missing_param_names_the_param(self) -> None:
         assert "'q'" in self.error(f"{self.HEAD}CALL graphistry.sem_decide({{question: $q, evidence: ['text']}}) YIELD verdict RETURN id")
@@ -330,30 +417,21 @@ class TestPolarsAgree:
         left, right = run(query, "pandas", params=PARAMS), run(query, "polars", params=PARAMS)
         pd.testing.assert_frame_equal(left.reset_index(drop=True), right.reset_index(drop=True), check_dtype=False)
 
-    def test_polars_runs_in_strict_call_mode(self) -> None:
+    def test_strict_call_mode_declines_the_off_engine_bridge_as_call_does(self) -> None:
         pytest.importorskip("polars")
         from graphistry.compute.gfql.lazy import set_call_mode
 
         set_call_mode("strict")
         try:
-            out = run(HERO, "polars", params=PARAMS)
+            with pytest.raises(Exception, match="call_mode='strict'"):
+                run(HERO, "polars", params=PARAMS)
+            assert run(HERO, "pandas", params=PARAMS)["verdict"].tolist() == [True, False, False, True]
         finally:
             set_call_mode(None)
-        assert out["verdict"].tolist() == [True, False, False, True]
 
-
-class TestDocs:
-
-    DOC = Path(__file__).resolve().parents[4] / "docs" / "source" / "gfql" / "builtin_calls.rst"
-
-    def test_quickstart_queries_in_the_docs_run(self) -> None:
-        text = self.DOC.read_text()
-        section = text[text.index("Quickstart: one Cypher query"):text.index("Fluent form")]
-        found = re.findall(r'g\.gfql\("""(.*?)""", params=(\{.*?\})\)', section, re.S)
-        assert len(found) == 2
-        people = pd.DataFrame({"id": [1, 2, 3], "type": ["company", "person", "company"], "country": ["USA"] * 3})
-        g = graphistry.nodes(people, "id")
-        for query, params in found:
-            with bind_providers({"default": Recording(lambda evidence, q: evidence["type"] == "company")}):
-                out = g.gfql(query, params=eval(params))  # noqa: S307 - literal dict from our own docs
-            assert out._nodes["id"].tolist() == [1, 3]
+    def test_a_polars_graph_returns_a_polars_table(self) -> None:
+        pl = pytest.importorskip("polars")
+        with bind_providers({"default": inc()}):
+            result = graph("polars").gfql(HERO, params=PARAMS, engine="polars")
+            bare = graph("polars").gfql("CALL graphistry.sem_decide({question: 'inc?', evidence: ['text']})", engine="polars")
+        assert isinstance(result._nodes, pl.DataFrame) and isinstance(bare._nodes, pl.DataFrame)

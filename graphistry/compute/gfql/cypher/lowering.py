@@ -7841,6 +7841,19 @@ def _compile_semantic_call_query(
 
     call = query.call
     assert call is not None
+    if query.matches or query.where is not None or query.reentry_matches:
+        raise _unsupported(
+            f"CALL {call.procedure} must be followed by YIELD/WHERE/WITH/UNWIND/RETURN clauses only; "
+            "put MATCH before the CALL",
+            field="call", value=call.procedure, line=call.span.line, column=call.span.column,
+        )
+    if query.graph_bindings or query.use is not None or (
+        query.semantic_prefix is not None and query.semantic_prefix.use is not None
+    ):
+        raise _unsupported(
+            f"CALL {call.procedure} does not support USE or GRAPH bindings yet",
+            field="call", value=call.procedure, line=call.span.line, column=call.span.column,
+        )
     prefix: Optional[CompiledCypherQuery] = None
     if query.semantic_prefix is not None:
         compiled_prefix = compile_cypher_query(query.semantic_prefix, params=params)
@@ -7901,6 +7914,11 @@ def _compile_call_query(
         raise ValueError("Expected query.call for Cypher CALL compilation")
     if query.call.procedure in SEMANTIC_PROCEDURES:
         return _compile_semantic_call_query(query, params=params)
+    if query.call.where is not None:
+        raise _unsupported(
+            "YIELD ... WHERE is supported for graphistry.sem_decide and graphistry.sem_map only; use WITH ... WHERE after the CALL",
+            field="call", value=query.call.procedure, line=query.call.where.span.line, column=query.call.where.span.column,
+        )
     if query.matches or query.where is not None or query.reentry_matches or any(
         where_clause is not None for where_clause in query.reentry_wheres
     ):
@@ -9475,6 +9493,7 @@ def compile_cypher_query(
     *,
     params: Optional[Mapping[str, Any]] = None,
     node_dtypes: Optional[NodeDtypes] = None,
+    node_columns: Optional[Sequence[str]] = None,
 ) -> Union[CompiledCypherQuery, CompiledCypherUnionQuery, CompiledCypherGraphQuery]:
     from graphistry.compute.gfql.cypher import projection_planning as _projection
 
@@ -9492,10 +9511,10 @@ def compile_cypher_query(
         and query.call.procedure in SEMANTIC_PROCEDURES
         and query.semantic_prefix is None
         and not query.call_inputs
-        and node_dtypes is not None
+        and node_columns is not None
     ):
         # A standalone semantic CALL reads the node table: its columns are the rows' columns.
-        query = replace(query, call_inputs=tuple(str(col) for col in node_dtypes))
+        query = replace(query, call_inputs=tuple(node_columns))
 
     prepass_bound_ir = FrontendBinder().bind(query, PlanContext(), strict_name_resolution=True)
     prepass_context = _build_bound_lowering_context(bound_ir=prepass_bound_ir, params=params)

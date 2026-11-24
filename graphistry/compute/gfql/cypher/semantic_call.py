@@ -13,6 +13,7 @@ from graphistry.Plottable import Plottable
 from graphistry.compute.exceptions import ErrorCode, GFQLValidationError
 from graphistry.compute.gfql.call.validation import validate_call_params
 from graphistry.compute.gfql.cypher.ast import CallClause, CypherYieldItem
+from graphistry.compute.gfql.expr_parser import MapLiteral
 from graphistry.compute.typing import DataFrameT
 
 if TYPE_CHECKING:
@@ -68,6 +69,11 @@ def _options(call: CallClause, params: Optional[Mapping[str, OptionValue]]) -> D
 
     arg = call.args[0]
     node = _parse_row_expr(arg.text, params=params, field="call.args", line=arg.span.line, column=arg.span.column)
+    if isinstance(node, MapLiteral):
+        keys = [key for key, _ in node.items]
+        repeated = sorted({key for key in keys if keys.count(key) > 1})
+        if repeated:
+            raise _fail(call, f"CALL option {repeated[0]!r} is given twice", key=repeated[0])
     value = _eval_constant_call_arg(node, call=call, raw_text=arg.text)
     if not isinstance(value, dict):
         raise _fail(call, f"CALL {call.procedure} options must be a map", value=arg.text)
@@ -207,6 +213,30 @@ def _yield_columns(
     return tuple((available[source], output) for source, output in chosen)
 
 
+def _written_columns(kernel: Mapping[str, OptionValue]) -> List[str]:
+    """The columns the kernel adds, by raw name."""
+    questions = kernel.get("questions")
+    if isinstance(questions, list):
+        suffixes = [suffix for suffix, _ in _DECIDE_SUFFIXES]
+        return [str(q["id"]) + suffix for q in questions if isinstance(q, dict) and "id" in q for suffix in suffixes]
+    out = kernel.get("out_col")
+    return [str(out) + suffix for suffix, _ in _MAP_SUFFIXES] if out is not None else []
+
+
+def _reject_clash(call_name: str, kernel: Mapping[str, OptionValue], carried: Sequence[str], line: int, column: int) -> None:
+    if kernel.get("overwrite") is True:
+        return
+    clash = [name for name in _written_columns(kernel) if name in carried]
+    if clash:
+        raise GFQLValidationError(
+            ErrorCode.E108,
+            f"CALL {call_name} writes the column {clash[0]!r}, and the clause before the CALL already has a column with that name",
+            field="call", value=clash[0],
+            suggestion="Rename that column with AS, or set another out_col (or question id).",
+            line=line, column=column, language="cypher",
+        )
+
+
 def compile_semantic_call(
     call: CallClause,
     *,
@@ -246,6 +276,7 @@ def compile_semantic_call(
             kernel["max_output_tokens"] = options["max_output_tokens"]
     function = "sem_decide" if decide else "sem_map"
     validate_call_params(function, kernel)  # type: ignore[arg-type]
+    _reject_clash(call.procedure, kernel, carried, call.span.line, call.span.column)
     available, defaults = _available(call, options, ids, sugar_id)
     outputs = tuple(
         ProcedureOutputColumn(source_name=source, output_name=output)
@@ -289,16 +320,30 @@ def execute_semantic_call(
     """Run the kernel over ``rows`` (the table before the CALL); keep carried columns, add the yielded ones."""
     from graphistry.compute.gfql.call.executor import execute_call
 
+    from graphistry.compute.gfql.lazy import call_mode
     from graphistry.compute.semantic.explain import _host_frame
 
     assert compiled_call.call_function is not None
     resolved = resolve_engine(EngineAbstract(engine) if isinstance(engine, str) else engine, rows)
     if rows._nodes is not None and is_polars_df(rows._nodes):
+        if call_mode() == "strict":
+            raise NotImplementedError(
+                f"GFQL engine='polars' does not natively support call '{compiled_call.call_function}' "
+                "(it runs on pandas/cuDF); call_mode='strict' declines the off-engine bridge. "
+                "Use engine='pandas', or set call_mode='auto' (the default) to run it off-engine."
+            )
         # The kernels read pandas or cuDF, as g.sem_decide reads a Polars graph; the caller converts the result back.
         host = rows.bind()
         host._nodes = _host_frame(rows._nodes)
         host._edges = None if rows._edges is None else _host_frame(rows._edges)
         rows, resolved = host, Engine.PANDAS
+    if rows._nodes is not None:
+        _reject_clash(compiled_call.procedure, compiled_call.call_params, [str(col) for col in rows._nodes.columns],
+                      compiled_call.line, compiled_call.column)
+    # The rows of a query are not nodes: a column named like the node binding must not become the row id.
+    keyed = rows.bind()
+    keyed._node = None
+    rows = keyed
     result = execute_call(rows, compiled_call.call_function, dict(compiled_call.call_params), resolved,
                           policy=policy, context=context)
     frame = result._nodes

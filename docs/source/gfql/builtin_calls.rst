@@ -1991,10 +1991,16 @@ an unknown key, a wrong type, a column that is not in scope and an unknown ``YIE
 ``questions``, the yielded names are ``<id>``, ``<id>__p``, ``<id>__status`` and so on. ``sem_map`` yields ``<out_col>``,
 ``status``, ``error_code`` and ``meta``.
 
+A ``CALL`` runs after ``MATCH ... WITH ...`` (or alone, on the node table). It does not follow a ``MATCH`` directly, and
+``MATCH``, ``USE`` and ``GRAPH`` bindings after or around it raise an error. Name every column that the ``CALL`` reads with
+``AS``. A column that has the name of an output column (for example ``verdict``) raises an error: rename it with ``AS``.
+Polars rows reach the operator as pandas, as with ``g.sem_decide``. ``call_mode='strict'`` declines this bridge, as it
+declines ``call("sem_decide", ...)``.
+
 ``WHERE sem_decide(question, {name: expression, ...}[, {options}])`` is short for the ``CALL`` form. It must be a top-level
 ``AND`` term of the ``WHERE`` of one ``MATCH ... WHERE ... RETURN`` query. A ``sem_decide`` term under ``OR``, ``XOR`` or
-``NOT``, an aggregating ``RETURN`` and an ``ORDER BY`` that is not a ``RETURN`` column raise an error that points to the
-``CALL`` form. An answer below ``min_p`` is ``uncertain`` and has no value, so that row does not pass the ``WHERE``.
+``NOT``, an aggregating ``RETURN``, a ``RETURN`` of a whole node and an ``ORDER BY`` that is not a ``RETURN`` column raise an
+error that points to the ``CALL`` form. The other ``AND`` terms can use ``OR`` and ``NOT``. An answer below ``min_p`` is ``uncertain`` and has no value, so that row does not pass the ``WHERE``.
 
 Function contracts
 ~~~~~~~~~~~~~~~~~~

@@ -41,8 +41,8 @@ _NOT_IN_LIFTED_OPTIONS = frozenset({
     "question", "questions", "evidence", "template", "kind", "options", "levels", "out_col", "score_col",
     "status_col",
 })
-_CALL_NAME = re.compile(r"\bsem_decide\s*\(")
-_WHOLE_CALL = re.compile(r"^sem_decide\s*\((.*)\)$", re.S)
+_CALL_NAME = re.compile(r"\bsem_decide\s*\(", re.I)
+_WHOLE_CALL = re.compile(r"^sem_decide\s*\((.*)\)$", re.S | re.I)
 _QUOTED = re.compile(r"'(?:[^'\\]|\\.)*'|\"(?:[^\"\\]|\\.)*\"")
 _VERDICT = "__sem_verdict"
 _FORM = "Use CALL graphistry.sem_decide({question: ..., evidence: [...]}) YIELD verdict, score, status for other shapes."
@@ -56,10 +56,14 @@ def _names_sem_decide(text: str) -> bool:
 def _split_top_level(text: str, sep: str) -> List[str]:
     """Split ``text`` at ``sep`` outside quotes and brackets."""
     parts: List[str] = []
-    depth, start, quote = 0, 0, ""
+    depth, start, quote, escaped = 0, 0, "", False
     for pos, char in enumerate(text):
         if quote:
-            if char == quote and text[pos - 1] != "\\":
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == quote:
                 quote = ""
         elif char in "'\"`":
             quote = char
@@ -89,14 +93,13 @@ def _map_items(text: str) -> Optional[List[Tuple[str, str]]]:
     return items
 
 
-def _atoms(tree: BooleanExpr, out: List[BooleanExpr]) -> bool:
-    """Collect the atoms of the top-level AND spine; False when the tree has any other boolean shape."""
-    if tree.op == "atom":
-        out.append(tree)
-        return True
+def _spine(tree: BooleanExpr, out: List[BooleanExpr]) -> None:
+    """Collect the terms of the top-level AND spine; an OR, XOR or NOT subtree is one term."""
     if tree.op == "and" and tree.left is not None and tree.right is not None:
-        return _atoms(tree.left, out) and _atoms(tree.right, out)
-    return False
+        _spine(tree.left, out)
+        _spine(tree.right, out)
+    else:
+        out.append(tree)
 
 
 def _mentions(tree: BooleanExpr) -> bool:
@@ -143,16 +146,17 @@ def lift_semantic_where(
     if not mentioning:
         for item in items:
             if _stage_mentions(item) and isinstance(item, ProjectionStage):
-                fail(f"sem_decide(...) is a WHERE term only. {_FORM}", item.span)
+                fail(f"sem_decide(...) is a term of the WHERE of a MATCH ... RETURN query only. {_FORM}", item.span)
         return None
     match = mentioning[0]
     assert match.where is not None and match.where.expr_tree is not None
     where, tree = match.where, match.where.expr_tree
     atoms: List[BooleanExpr] = []
-    if not _atoms(tree, atoms):
+    _spine(tree, atoms)
+    if any(term.op != "atom" and _mentions(term) for term in atoms):
         fail(f"sem_decide(...) must be a top-level AND term of WHERE (not under OR, XOR or NOT). {_FORM}", where.span)
-    semantic = [atom for atom in atoms if _names_sem_decide(atom.atom_text or "")]
-    structural = [atom for atom in atoms if atom not in semantic]
+    semantic = [term for term in atoms if term.op == "atom" and _names_sem_decide(term.atom_text or "")]
+    structural = [term for term in atoms if term not in semantic]
     if len(semantic) != 1:
         fail(f"WHERE accepts one sem_decide(...) term. {_FORM}", where.span)
     atom = semantic[0]
@@ -183,6 +187,8 @@ def lift_semantic_where(
         fail(f"WHERE sem_decide(...) supports one MATCH ... WHERE ... RETURN query. {_FORM}", atom_span)
     final = stages[0]
     return_items = final.clause.items
+    if any(item.expression.text.isidentifier() for item in return_items):
+        fail(f"WHERE sem_decide(...) cannot return a whole node or relationship; return its properties. {_FORM}", final.span)
     if any(item.expression.text == "*" for item in return_items):
         fail(f"WHERE sem_decide(...) needs RETURN items that name their columns, not *. {_FORM}", final.span)
     if any(re.search(r"\b(count|sum|avg|min|max|collect|stdev|percentile\w*)\s*\(", item.expression.text, re.I)

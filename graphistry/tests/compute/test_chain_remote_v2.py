@@ -18,6 +18,7 @@ from graphistry.compute.gfql.same_path_types import col, compare
 class _FakeProcedureCall:
     def __init__(self, procedure: str, call_params: Dict[str, Any]):
         self.procedure = procedure
+        self.backend = "igraph"
         self.call_params = call_params
 
 
