@@ -1544,7 +1544,7 @@ def _build_transformer(source: str) -> _TransformerLike:
                 elif isinstance(item, tuple) and all(isinstance(yield_item, CypherYieldItem) for yield_item in item):
                     yield_items = cast(Tuple[CypherYieldItem, ...], item)
             return CallClause(
-                procedure=procedure_item.text,
+                procedure="".join(procedure_item.text.split()),
                 args=tuple(
                     ExpressionText(text=arg.text, span=arg.span)
                     for arg in call_args
