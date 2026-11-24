@@ -308,6 +308,71 @@ class TestEdgeCases:
         assert out["id"].tolist() == [1, 3, 5]
 
 
+class TestWaveTwoFixes:
+
+    def native(self, fn_p: Dict[bool, float]) -> Recording:
+        """True for every row, with probability 0.6 for an 'inc' text and 0.9 for another."""
+        def answer(evidence: object, question: object) -> object:
+            p = fn_p[("inc" in str(evidence))]
+            return True, {"true": p, "false": 1 - p}
+        return Recording(answer, probability_kind="native_decision")  # type: ignore[arg-type]
+
+    @pytest.mark.parametrize("engine", ENGINES)
+    def test_min_p_removes_unsure_rows_from_the_lifted_where(self, engine: str) -> None:
+        provider = self.native({True: 0.6, False: 0.9})
+        out = run("MATCH (a) WHERE sem_decide('x', {t: a.text}, {min_p: 0.8}) RETURN a.id AS id ORDER BY id", engine, provider)
+        assert out["id"].tolist() == [2, 4]
+
+    def test_min_p_in_the_call_form_leaves_the_value_and_marks_uncertain(self) -> None:
+        provider = self.native({True: 0.6, False: 0.9})
+        out = run("MATCH (a) WITH a.id AS id, a.text AS text CALL graphistry.sem_decide({question: 'x', evidence: ['text'], min_p: 0.8}) "
+                  "YIELD verdict, status RETURN id, verdict, status ORDER BY id", provider=provider)
+        assert out["status"].tolist() == ["uncertain", "ok", "uncertain", "ok", "uncertain"]
+        assert out["verdict"].tolist() == [True] * 5
+
+    @pytest.mark.parametrize("structural", ["(b)-[]->(a)", "NOT (a)-[]->(b)", "EXISTS { (b)-[]->() }", "b.id > 0 AND (b)-[]->(a)"])
+    def test_a_pattern_term_with_the_lifted_where_fails_closed_not_silently(self, structural: str) -> None:
+        message = TestRejected.error(f"MATCH (a)-[]->(b) WHERE {structural} AND sem_decide('x', {{t: b.text}}) RETURN b.id AS id")
+        assert "pattern or EXISTS" in message
+
+    def test_validate_and_union_accept_a_standalone_call(self) -> None:
+        query = "CALL graphistry.sem_decide({question: 'x', evidence: ['text']}) YIELD verdict RETURN id, verdict"
+        graph().gfql_validate(query)
+        out = run(f"{query} UNION ALL {query}")
+        assert len(out) == 10
+
+    def test_compile_cypher_says_what_a_standalone_yield_where_needs(self) -> None:
+        with pytest.raises(GFQLValidationError, match="needs the node table"):
+            compile_cypher("CALL graphistry.sem_decide({question: 'x', evidence: ['text']}) YIELD verdict WHERE verdict RETURN verdict",
+                           _warn_deprecated=False)
+
+    def test_overwrite_is_not_an_option_of_the_call(self) -> None:
+        assert "overwrite" in TestRejected.error(
+            "MATCH (a) WITH a.id AS id, a.text AS text CALL graphistry.sem_decide({question: 'x', evidence: ['text'], overwrite: true}) YIELD verdict RETURN id")
+
+    @pytest.mark.parametrize("carried, call, needle", [
+        ("1 AS verdict__meta", "{question: 'x', evidence: ['text']}", "verdict__meta"),
+        ("1 AS q2", "{questions: [{id: 'q1', kind: 'predicate', text: 'a'}, {id: 'q2', kind: 'predicate', text: 'b'}], evidence: ['text']}", "q2"),
+    ])
+    def test_every_written_column_is_checked_against_the_carried_ones(self, carried: str, call: str, needle: str) -> None:
+        message = TestRejected.error(
+            f"MATCH (a) WITH a.id AS id, a.text AS text, {carried} CALL graphistry.sem_decide({call}) RETURN id")
+        assert f"writes the column '{needle}'" in message
+
+    def test_sem_map_status_column_clash_is_named(self) -> None:
+        assert "writes the column 'result__status'" in TestRejected.error(
+            "MATCH (a) WITH a.id AS id, a.text AS text, 1 AS result__status CALL graphistry.sem_map({instruction: 'x', evidence: ['text']}) YIELD result RETURN id")
+
+    def test_the_compile_cache_does_not_reuse_a_plan_across_tables_with_other_columns(self) -> None:
+        query = "CALL graphistry.sem_decide({question: 'inc?', evidence: ['text']}) YIELD verdict WHERE verdict"
+        plain = NODES[["id", "text"]]
+        extra = plain.assign(extra=[["a"], ["b"], [], ["c"], ["d"]])
+        with bind_providers({"default": inc()}):
+            first = rows(graphistry.nodes(plain, "id").gfql(query))
+            second = rows(graphistry.nodes(extra, "id").gfql(query))
+        assert "extra" not in first.columns and "extra" in second.columns
+
+
 class TestRejected:
 
     @staticmethod
@@ -371,7 +436,7 @@ class TestRejected:
             or "sem_decide" in self.error("CALL graphistry.degree() YIELD nodeId, degree WHERE degree > 99 RETURN nodeId")
 
     def test_an_output_column_clash_is_named(self) -> None:
-        assert "'verdict'" in self.error("MATCH (a) WHERE sem_decide('x', {verdict: a.text}) RETURN a.id AS id")
+        assert "writes the column 'verdict'" in self.error("MATCH (a) WHERE sem_decide('x', {verdict: a.text}) RETURN a.id AS id")
 
     def test_duplicate_option_keys_are_rejected(self) -> None:
         assert "twice" in self.error(f"{self.HEAD}CALL graphistry.sem_decide({{question: 'a', evidence: ['text'], evidence: ['id']}}) YIELD verdict RETURN id")

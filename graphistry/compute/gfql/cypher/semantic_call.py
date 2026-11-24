@@ -13,7 +13,8 @@ from graphistry.Plottable import Plottable
 from graphistry.compute.exceptions import ErrorCode, GFQLValidationError
 from graphistry.compute.gfql.call.validation import validate_call_params
 from graphistry.compute.gfql.cypher.ast import (
-    SEMANTIC_PROCEDURES, CallClause, CypherParams, CypherQuery, CypherYieldItem, ExpressionText, ProjectionStage, ReturnClause, ReturnItem)
+    SEMANTIC_PROCEDURES, CallClause, CypherGraphQuery, CypherParams, CypherQuery, CypherUnionQuery, CypherYieldItem,
+    ExpressionText, ProjectionStage, ReturnClause, ReturnItem)
 from graphistry.compute.gfql.expr_parser import MapLiteral
 from graphistry.compute.typing import DataFrameT
 
@@ -23,6 +24,7 @@ if TYPE_CHECKING:
     from graphistry.compute.gfql.cypher.lowering import CompiledCypherQuery
     from graphistry.compute.gfql.policy import PolicyDict
 
+CypherAst = Union[CypherQuery, CypherUnionQuery, CypherGraphQuery]
 OptionValue = Union[None, bool, int, float, str, List["OptionValue"], Dict[str, "OptionValue"]]
 
 DECIDE = "graphistry.sem_decide"
@@ -34,7 +36,7 @@ DEFAULT_TASK_IDS = {DECIDE: "cypher_sem_decide", MAP: "cypher_sem_map"}
 # Keys that pass straight through to the kernel.
 _COMMON_KEYS = frozenset({
     "provider", "task_id", "task_version", "id_col", "batch_size", "max_concurrency", "deadline_s", "budget",
-    "max_rows", "column_max_chars", "overwrite", "dedupe", "template",
+    "max_rows", "column_max_chars", "dedupe", "template",
 })
 _DECIDE_KEYS = _COMMON_KEYS | frozenset({
     "question", "questions", "kind", "options", "levels", "evidence", "out_col", "score_col", "status_col",
@@ -225,8 +227,6 @@ def _written_columns(kernel: Mapping[str, OptionValue]) -> List[str]:
 
 
 def _reject_clash(call_name: str, kernel: Mapping[str, OptionValue], carried: Sequence[str], line: int, column: int) -> None:
-    if kernel.get("overwrite") is True:
-        return
     clash = [name for name in _written_columns(kernel) if name in carried]
     if clash:
         raise GFQLValidationError(
@@ -372,12 +372,20 @@ def execute_semantic_call(
     return out
 
 
-def with_standalone_columns(query: CypherQuery, node_columns: Sequence[str]) -> CypherQuery:
-    """A standalone semantic CALL reads the node table: its columns are the rows' columns."""
+def _branch_with_columns(query: CypherQuery, node_columns: Sequence[str]) -> CypherQuery:
     call = query.call
     if call is None or call.procedure not in SEMANTIC_PROCEDURES or query.semantic_prefix is not None or query.call_inputs:
         return query
     return replace(query, call_inputs=tuple(node_columns))
+
+
+def with_standalone_columns(query: CypherAst, node_columns: Sequence[str]) -> CypherAst:
+    """A standalone semantic CALL reads the node table: its columns are the rows' columns."""
+    if isinstance(query, CypherUnionQuery):
+        return replace(query, branches=tuple(_branch_with_columns(branch, node_columns) for branch in query.branches))
+    if isinstance(query, CypherQuery):
+        return _branch_with_columns(query, node_columns)
+    return query
 
 
 def compile_semantic_call_query(
@@ -425,8 +433,8 @@ def compile_semantic_call_query(
     if call.where is not None:
         if not query.call_inputs:
             raise _unsupported(
-                f"YIELD ... WHERE after a standalone CALL {call.procedure} is not supported; "
-                "put the filter in a following WITH ... WHERE",
+                f"YIELD ... WHERE after a standalone CALL {call.procedure} needs the node table; "
+                "run the query with g.gfql(...), or put the filter in a following WITH ... WHERE",
                 field="call", value=call.procedure, line=call.span.line, column=call.span.column,
             )
         carried_items = tuple(

@@ -9425,7 +9425,7 @@ def compile_cypher_query(
     elif isinstance(query, CypherGraphQuery):
         _reject_excessive_match_clauses(query.constructor.matches)
 
-    if isinstance(query, CypherQuery) and node_columns is not None:
+    if isinstance(query, (CypherQuery, CypherUnionQuery)) and node_columns is not None:
         from graphistry.compute.gfql.cypher.semantic_call import with_standalone_columns
 
         query = with_standalone_columns(query, node_columns)
@@ -9463,7 +9463,7 @@ def compile_cypher_query(
                     line=branch.return_.span.line,
                     column=branch.return_.span.column,
                 )
-            compiled_branch = compile_cypher_query(branch, params=params)
+            compiled_branch = compile_cypher_query(branch, params=params, node_columns=node_columns)
             if not isinstance(compiled_branch, CompiledCypherQuery):
                 raise _unsupported(
                     "Nested Cypher UNION branches are not supported in the local compiler",

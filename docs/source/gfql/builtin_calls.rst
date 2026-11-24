@@ -1877,7 +1877,7 @@ The callable provider plays the model, so these examples run offline. Replace it
                 evidence: ['type'],
                 max_usd: $max_usd
             }) YIELD verdict, score, status
-            WHERE verdict
+            WHERE verdict AND status = 'ok'
             RETURN id, type, score, status
             ORDER BY id
         """, params={"question": "Is this a company?", "max_usd": 0.50})
@@ -1982,7 +1982,7 @@ an unknown key, a wrong type, a column that is not in scope and an unknown ``YIE
      - Limits for the run (``budget``). ``sem_map`` takes ``max_requests`` only.
    * - ``min_p``, ``require_probabilities``
      - Probability rules for ``sem_decide``, as for the method.
-   * - ``task_id``, ``batch_size``, ``max_concurrency``, ``deadline_s``, ``max_rows``, ``dedupe``, ``id_col``, ``column_max_chars``, ``overwrite``
+   * - ``task_id``, ``batch_size``, ``max_concurrency``, ``deadline_s``, ``max_rows``, ``dedupe``, ``id_col``, ``column_max_chars``
      - The same as the keyword arguments of the method.
 
 ``sem_decide`` with ``question`` yields ``verdict`` (the answer), ``score`` (the probability of that answer) and ``status``
@@ -2000,7 +2000,7 @@ declines ``call("sem_decide", ...)``.
 ``WHERE sem_decide(question, {name: expression, ...}[, {options}])`` is short for the ``CALL`` form. It must be a top-level
 ``AND`` term of the ``WHERE`` of one ``MATCH ... WHERE ... RETURN`` query. A ``sem_decide`` term under ``OR``, ``XOR`` or
 ``NOT``, an aggregating ``RETURN``, a ``RETURN`` of a whole node and an ``ORDER BY`` that is not a ``RETURN`` column raise an
-error that points to the ``CALL`` form. The other ``AND`` terms can use ``OR`` and ``NOT``. An answer below ``min_p`` is ``uncertain`` and has no value, so that row does not pass the ``WHERE``.
+error that points to the ``CALL`` form. The other ``AND`` terms can use ``OR`` and ``NOT``. An answer below ``min_p`` is ``uncertain``, and its row keeps the value. The ``WHERE sem_decide(...)`` form passes only ``ok`` rows. In the ``CALL`` form, add ``AND status = 'ok'`` to the ``WHERE`` after ``YIELD``.
 
 Function contracts
 ~~~~~~~~~~~~~~~~~~

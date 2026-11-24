@@ -29,6 +29,7 @@ from graphistry.compute.gfql.cypher.ast import (
     SourceSpan,
     UnwindClause,
     WhereClause,
+    WherePatternPredicate,
     WherePredicate,
 )
 
@@ -45,6 +46,7 @@ _CALL_NAME = re.compile(r"\bsem_decide\s*\(", re.I)
 _WHOLE_CALL = re.compile(r"^sem_decide\s*\((.*)\)$", re.S | re.I)
 _QUOTED = re.compile(r"'(?:[^'\\]|\\.)*'|\"(?:[^\"\\]|\\.)*\"")
 _VERDICT = "__sem_verdict"
+_STATUS = "__sem_status"
 _FORM = "Use CALL graphistry.sem_decide({question: ..., evidence: [...]}) YIELD verdict, score, status for other shapes."
 
 
@@ -151,6 +153,8 @@ def lift_semantic_where(
     match = mentioning[0]
     assert match.where is not None and match.where.expr_tree is not None
     where, tree = match.where, match.where.expr_tree
+    if any(isinstance(term, WherePatternPredicate) for term in where.predicates):
+        fail(f"WHERE sem_decide(...) cannot combine with a pattern or EXISTS term in the same WHERE. {_FORM}", where.span)
     atoms: List[BooleanExpr] = []
     _spine(tree, atoms)
     if any(term.op != "atom" and _mentions(term) for term in atoms):
@@ -212,9 +216,12 @@ def lift_semantic_where(
     call = CallClause(
         procedure="graphistry.sem_decide",
         args=(ExpressionText(text="{" + ", ".join(parts) + "}", span=atom_span),),
-        yield_items=(CypherYieldItem(name="verdict", alias=_VERDICT, span=atom_span),),
+        yield_items=(
+            CypherYieldItem(name="verdict", alias=_VERDICT, span=atom_span),
+            CypherYieldItem(name="status", alias=_STATUS, span=atom_span),
+        ),
         span=atom_span,
-        where=ExpressionText(text=_VERDICT, span=atom_span),
+        where=ExpressionText(text=f"{_VERDICT} AND {_STATUS} = 'ok'", span=atom_span),
     )
 
     out_names = [
