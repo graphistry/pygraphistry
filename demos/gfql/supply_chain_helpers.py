@@ -420,6 +420,16 @@ def decisions_provider(session, rows_per_request=1):
                                    concurrency_limit=PARALLEL, base_url=CHAT_URL)
 
 
+def plan_of(rows, provider, sem):
+    """The plan for the rows that reach the model, with the options of the hero query. No request is sent."""
+    from graphistry.compute.semantic import explain_sem_decide
+
+    made = {name for q in sem["questions"] for name in (q["id"], q["id"] + "__p", q["id"] + "__status")}
+    kept = [col for col in rows.columns if col not in made]
+    options = {key: value for key, value in sem.items() if key not in ("evidence", "provider")}
+    return explain_sem_decide(rows[kept], provider=provider, evidence_cols=sem["evidence"], **options)
+
+
 def decide(frame, provider, parallel, dedupe=False, **options):
     started = time.perf_counter()
     out = sem_decide(frame, questions=QUESTIONS, provider=provider, task_id="advisory-triage", evidence_cols=EVIDENCE,
