@@ -10,6 +10,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### New Contributors
 
+- Welcome to new contributor @MikeFTV (Mickael Saidi), who made their first contribution in #2361 (evaluating GFQL Cypher projected literals when a column shares the literal's name).
 - Welcome to new contributor @vikingps (Vikas), who made their first contribution in #2358 (experimental bounded Parquet traversal for GFQL `.hop()`).
 
 ### Added

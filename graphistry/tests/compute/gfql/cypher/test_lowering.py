@@ -133,6 +133,15 @@ def _require_cudf_runtime() -> Any:
     return cudf
 
 
+def _skip_if_cudf_older_than(cudf: Any, major: int, minor: int, reason: str) -> None:
+    try:
+        have = tuple(int(part) for part in str(cudf.__version__).split(".")[:2])
+    except ValueError:
+        return
+    if have < (major, minor):
+        pytest.skip(f"cudf {cudf.__version__} < {major}.{minor:02d}: {reason}")
+
+
 def _mk_simple_path_data() -> Tuple[pd.DataFrame, pd.DataFrame]:
     return (
         pd.DataFrame({"id": ["a", "b", "c"]}),
@@ -14914,7 +14923,11 @@ def test_gfql_executes_top_level_membership_nested_null_propagates_unknown() -> 
 @pytest.mark.parametrize("engine", [None, "cudf"], ids=["pandas", "cudf"])
 def test_gfql_executes_top_level_list_map_nan_comparisons_on_engines(engine: str | None) -> None:
     if engine == "cudf":
-        _require_cudf_runtime()
+        _skip_if_cudf_older_than(
+            _require_cudf_runtime(), 25, 4,
+            "libcudf aborts the process (uncatchable) on a struct column with NaN after earlier cudf tests; "
+            "fixed in 25.04 by rapidsai/cudf#18117",
+        )
 
     g = _mk_graph(pd.DataFrame({"id": []}), pd.DataFrame({"s": [], "d": []}))
 

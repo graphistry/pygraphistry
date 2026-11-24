@@ -1426,9 +1426,16 @@ def test_concurrent_served_queries_leave_process_warning_state_untouched(monkeyp
     gfql_clear_caches()
     g = graph("pandas")
     query = SHAPES["seeded_undirected_edge_alias"][0]
-    for _ in range(2):
-        with futures.ThreadPoolExecutor(8) as pool:
-            list(pool.map(lambda _i: _run(g, query, "pandas"), range(24)))
+    saved_filters = list(warnings.filters)
+    try:
+        for _ in range(2):
+            with futures.ThreadPoolExecutor(8) as pool:
+                list(pool.map(lambda _i: _run(g, query, "pandas"), range(24)))
+    finally:
+        # pandas's own catch_warnings races across the pool threads and can leave ignore rules behind
+        # (seen under a tiny switch interval); put the filters back so later tests on this worker keep theirs.
+        warnings.filters[:] = saved_filters
+        getattr(warnings, "_filters_mutated", lambda: None)()
     own = sorted({name for name in callers if "/graphistry/" in name and "/graphistry/tests/" not in name})
     assert own == [], f"served queries edited the process warning state from {own}"
     assert warnings.showwarning is show and warnings._showwarnmsg_impl is show_impl
