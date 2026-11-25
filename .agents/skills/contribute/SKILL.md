@@ -1,15 +1,17 @@
 ---
 name: contribute
-description: First contribution to pygraphistry, for a person or their coding agent. Claim an issue, branch from develop, run the checks (cheapest first), test on every engine the change affects, open the pull request as a draft with the template filled in. Use when asked to work on an issue or open a pull request in this repository.
+description: For coding agents. First contribution to pygraphistry on behalf of a person. Claim an issue, branch from develop, run the checks (cheapest first), test on every engine the change affects, open the pull request as a draft with the template filled in. Use when asked to work on an issue or open a pull request in this repository.
 ---
 
 # Contribute to pygraphistry
 
-People and agents follow the same flow. Full text for people: [CONTRIBUTING.md](../../../CONTRIBUTING.md). Agent rules: [AGENTS.md](../../../AGENTS.md).
+**Who this is for: coding agents.** Follow this file, not `CONTRIBUTING.md`: that page is the same flow written for people, and the person you work for reads it. The rules that apply to every agent task in this repository are in [AGENTS.md](../../../AGENTS.md); setup, test commands and CI are in [DEVELOP.md](../../../DEVELOP.md), a reference for people and agents alike.
+
+Say each step to the person as you do it.
 
 ## Flow
 
-1. **Claim**: comment on the issue that you are taking it, with your plan (one implementation per issue; a claim with no activity for 7 days lapses). Not reproducible on `develop`? Say so with the snippet you tried and offer a regression test.
+1. **Claim**: draft the comment for the person to post on the issue, saying they are taking it, with the plan (one implementation per issue; a claim with no activity for 7 days lapses). Not reproducible on `develop`? Say so with the snippet you tried and offer a regression test.
 2. **Branch** from `develop`: `git fetch origin && git switch -c fix/<issue>-<topic> origin/develop` (on a fork, sync the fork first or fetch the main repository). Pull requests target `develop`.
 3. **Small**: one topic, about 400 changed lines or 10 files at most, tests included.
 4. **Test first**: write the test that fails before your change and passes after it; name it in the pull request.
@@ -29,7 +31,7 @@ People and agents follow the same flow. Full text for people: [CONTRIBUTING.md](
 
    No GPU: a free Colab T4 runs the GPU engines, [GPU guide](../../../docs/contributing/gfql-gpu-colab.md). If you cannot run them, say so in the pull request; maintainers cover them. New tests copy the engine fixture of `graphistry/tests/compute/gfql/test_endpoint_closure_matrix.py`.
 7. **Performance**: a GFQL change on a hot path (hop and chain execution, the Cypher row pipeline, fast paths, engine dispatch) needs a before and after on the changed case and two unaffected paths: [benchmark recipe](../../../benchmarks/gfql/README.md#contributor-before-and-after-recipe).
-8. **Open the pull request as a draft**, fill the template completely, add a `CHANGELOG.md` line, say that an agent wrote or helped write it, then mark it ready.
+8. **Open the pull request as a draft**, fill the template completely, add a `CHANGELOG.md` line, say that an agent wrote or helped write it, then mark it ready. From a fork, CI waits for a maintainer to approve it: that is expected, not a failure.
 
 ## What to paste in the pull request
 
