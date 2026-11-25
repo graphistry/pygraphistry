@@ -71,6 +71,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 - **GFQL semantic provider recipes**: the semantic operators reference has copy-paste recipes for OpenAI Decisions, OpenRouter, Anthropic, Ollama, vLLM and SGLang, and two no-network smoke tests (`test_host_recipes.py`) pin the OpenRouter `/decisions` and Ollama `/chat/completions` requests.
 
+### Docs
+
+- **GFQL semantic operators device-recall supply-chain notebook**: `demos/gfql/gfql_semantic_procurement.ipynb` triages the 40,532 FDA-classified medical-device recalls of openFDA in five stages: naive scan, flat filter, GFQL filter for designs that three or more firms recalled, three questions per call with `dedupe`, and `min_p` with `sem_map`. Each stage is planned with `explain_sem_decide` and traced with `semantic_trace`, and the chart reads the trace. The labels are the FDA's own root cause and class. It downloads three openFDA files (CC0) into `/tmp` at run time, so no dataset is committed. It answers with a simulated model by default, and it has an opt-in live mode that uses `budget` caps.
+
 ## [0.62.2] - 2026-11-21
 
 ### Docs
