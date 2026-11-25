@@ -71,6 +71,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 - **GFQL semantic provider recipes**: the semantic operators reference has copy-paste recipes for OpenAI Decisions, OpenRouter, Anthropic, Ollama, vLLM and SGLang, and two no-network smoke tests (`test_host_recipes.py`) pin the OpenRouter `/decisions` and Ollama `/chat/completions` requests.
 
+### Docs
+
+- **GFQL semantic operators supply-chain notebook**: `demos/gfql/gfql_semantic_supply_chain.ipynb` triages real OSV PyPI advisories for a multi-service dependency graph in five stages (naive scan, package and version join, GFQL reachability, three questions per call, `min_p` with `sem_map`). It downloads the OSV archive into `/tmp` at run time (no dataset is committed), answers with a simulated model by default, and has an opt-in live mode that uses `budget` caps.
+
 ## [0.62.2] - 2026-11-21
 
 ### Docs
