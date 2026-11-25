@@ -294,7 +294,7 @@ Automated Feature Generation
 
 **Explanation**:
 
-This example demonstrates how to automatically generate features from raw data returned by GFQL queries for use with ML and AI using :meth:`graphistry.feature_utils.FeatureMixin.featurize` methods. Paramter `feature_engine=` (:data:`graphistry.feature_utils.FeatureEngine`) selects the feature generation engine.
+This example demonstrates how to automatically generate features from raw data returned by GFQL queries for use with ML and AI using :meth:`graphistry.feature_utils.FeatureMixin.featurize` methods. Parameter `feature_engine=` (:data:`graphistry.feature_utils.FeatureEngine`) selects the feature generation engine.
 
 ---
 
