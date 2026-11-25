@@ -1,6 +1,6 @@
 # Development Setup
 
-See also [CONTRIBUTING.md](CONTRIBUTING.md) and [ARCHITECTURE.md](ARCHITECTURE.md)
+Who this is for: people and coding agents alike. It is the reference for setup, test commands, CI and release, not the place to start a contribution: a person starts at [CONTRIBUTING.md](CONTRIBUTING.md), an agent at `.agents/skills/contribute/SKILL.md` and [AGENTS.md](AGENTS.md). See also [ARCHITECTURE.md](ARCHITECTURE.md).
 
 Development is setup for local native and containerized Python coding & testing, and with automatic GitHub Actions for CI + CD. The server tests are like the local ones, except against a wider test matrix of environments.
 
