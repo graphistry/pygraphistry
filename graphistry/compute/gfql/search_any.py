@@ -35,7 +35,7 @@ def _is_int_dtype(dtype: DType) -> bool:
 
 def _is_float_dtype(dtype: DType) -> bool:
     import pandas.api.types as pat
-    return bool(pat.is_float_dtype(dtype))
+    return bool(pat.is_float_dtype(dtype)) and str(dtype) != "category"  # cuDF's categorical dtype reads as its categories' type
 
 
 def _is_datetime_dtype(dtype: DType) -> bool:
