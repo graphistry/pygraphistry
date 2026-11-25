@@ -6,7 +6,7 @@ body:
   - type: markdown
     attributes:
       value: |
-        Maintainers and reporters: use this form for a task that is ready to be picked up. A contributor claims it by commenting on the issue; see [CONTRIBUTING.md](https://github.com/graphistry/pygraphistry/blob/develop/CONTRIBUTING.md).
+        Maintainers and reporters: use this form for a task that is ready to be picked up. A contributor claims it by commenting on the issue; see [CONTRIBUTING.md](https://github.com/graphistry/pygraphistry/blob/develop/CONTRIBUTING.md) (coding agents follow `.agents/skills/contribute/SKILL.md`).
   - type: textarea
     id: goal
     attributes:

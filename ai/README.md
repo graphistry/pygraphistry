@@ -1,6 +1,6 @@
 # ai
 
-Specialized documentation for AI assistants working on PyGraphistry. These guides supplement the main CLAUDE.md with detailed, topic-specific information.
+Specialized documentation for AI assistants working on PyGraphistry. These guides supplement the main CLAUDE.md with detailed, topic-specific information. They are for coding agents; people start at [CONTRIBUTING.md](../CONTRIBUTING.md), and an agent making a first contribution follows `.agents/skills/contribute/SKILL.md`.
 
 > **Note:** This directory is for *developing* PyGraphistry. For AI assistants *using* PyGraphistry, see [graphistry-skills](https://github.com/graphistry/graphistry-skills) which provides skills for Claude Code, Cursor, Codex, etc.
 
