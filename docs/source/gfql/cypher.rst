@@ -340,7 +340,11 @@ and ``RETURN`` expressions:
   boolean or temporal column it is a type error and declines. The same
   applies to the list-walking forms ``any`` / ``all`` / ``none`` /
   ``single`` and list comprehensions.
-- Regex ``=~`` (see WHERE Forms above).
+- Regex ``=~`` (see WHERE Forms above). In a ``WITH`` / ``RETURN`` expression the
+  right operand of ``=~``, ``STARTS WITH``, ``ENDS WITH`` and ``CONTAINS`` may be a
+  column or any other expression, e.g. ``WITH n.name AS name, n.prefix AS p WHERE
+  name STARTS WITH p``; the result is null unless both sides are strings. A column
+  pattern for ``=~`` is not yet supported on the Polars engines.
 - ``searchAny(entity, term[, opts])`` — cross-column search predicate (WHERE
   position; GFQL extension for the viz filter pipeline): True where ANY of the
   entity's columns matches ``term``. Inspector semantics: OR across columns,
