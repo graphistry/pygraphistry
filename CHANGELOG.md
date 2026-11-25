@@ -10,6 +10,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### New Contributors
 
+- Welcome to new contributor @MikeFTV (Mickael Saidi), who made their first contribution in #2361 (evaluating GFQL Cypher projected literals when a column shares the literal's name).
 - Welcome to new contributor @vikingps (Vikas), who made their first contribution in #2358 (experimental bounded Parquet traversal for GFQL `.hop()`).
 
 ### Added
@@ -31,6 +32,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - **CI required check**: `ci.yml` gains a `ci-required` aggregate job that needs every other job, fails on any failure or cancellation, and passes on success or skip, so one status can gate `develop` and `master`. The CI concurrency group now includes the event name so a PR from a branch named `master` cannot cancel a `master` run. `DEVELOP.md` names `ci-required` as the required check and records the admin fast-forward push of `master` as the promotion mechanism.
 
 ### Fixed
+- **GFQL `searchAny` on a cuDF categorical of floats declines by name instead of raising `ValueError: Value inf not found in column`**: cuDF's categorical dtype reports its categories' type, so a float categorical read as a float column and reached the float renderer, which compared a categorical to infinity. A categorical is no longer a float column: an explicit `columns=` entry on cuDF raises the engine's `NotImplementedError` before any work runs (pandas, Polars and polars-gpu answer it), and the automatic column gate skips it like pandas does (#2422).
 
 - **GFQL Cypher string predicates over non-strings** (#2335): `STARTS WITH`, `ENDS WITH`, and `CONTAINS` in Cypher now give openCypher null when either operand is not a string (a numeric, boolean, or mixed-value cell is null, never coerced to text), in both `WHERE` and `RETURN`, and a categorical column of strings matches like strings. The native chain API is unchanged: `contains()`, `startswith()`, `endswith()`, `match()`, and `fullmatch()` on a non-string column still raise the typed `E302` error. The string predicates gain an optional `nonstring` field (`'error'` by default, `'null'` for Cypher), omitted from JSON at its default so existing serialized chains are unchanged.
 - **GFQL Cypher projected booleans are not aliases**: a boolean value projected in a `WITH` (`WITH n, n.flag AS t`) is no longer read as a node or relationship alias by `properties(t)`, `keys(t)` or a dotted property read `t.name` on pandas and cuDF; those raise the type error instead of answering with the node's properties (including a leaked `n: true` key) or `{}`. Alias identity now comes from the alias names the row frame carries, not from a column being boolean (#2368).
