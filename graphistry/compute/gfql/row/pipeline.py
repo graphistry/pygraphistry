@@ -1906,6 +1906,7 @@ class RowPipelineMixin:
                 if (
                     "." not in alias_name
                     and alias_name in table_df.columns
+                    and not RowPipelineMixin._gfql_has_bindings_alias_prefix(table_df, alias_name)
                     and self._gfql_alias_marker_like(table_df, alias_name)
                 ):
                     edge_like_cols = {"s", "d", "src", "dst", "edge_id"}
@@ -2004,6 +2005,16 @@ class RowPipelineMixin:
                         RowPipelineMixin._gfql_has_bindings_alias_prefix(table_df, arg.name)
                         or (arg.name in table_df.columns and self._gfql_alias_marker_like(table_df, arg.name))
                     ):  # only a real alias (binding-row group or boolean marker) may be rebuilt as an entity
+                        edge_aliases = self._gfql_rows_edge_aliases
+                        if (
+                            edge_aliases is not None
+                            and arg.name in edge_aliases
+                            and RowPipelineMixin._gfql_has_bindings_alias_prefix(table_df, arg.name)
+                        ):
+                            # A relationship alias on a bindings row: render only its own e.* columns.
+                            rel_text = self._gfql_render_relationship_alias(table_df, arg.name)
+                            out = entity_properties_series(rel_text)
+                            return True, self._gfql_mask_fill(out, self._gfql_null_mask(table_df, rel_text), None)
                         for entity_fn in ("__node_entity__", "__edge_entity__"):
                             ok, entity = self._gfql_eval_expr_ast_values(
                                 table_df,
