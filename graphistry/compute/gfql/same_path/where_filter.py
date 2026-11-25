@@ -35,7 +35,8 @@ def _apply_clause_filters(frame: DataFrameT, relevant: Sequence["WhereComparison
         col_left = left_id_col if node_col and left_id_col and left_col == node_col else f"{left_prefix}{left_col}"
         col_right = right_id_col if node_col and right_id_col and right_col == node_col else f"{right_prefix}{right_col}"
         if col_left in frame.columns and col_right in frame.columns:
-            mask = evaluate_clause(frame[col_left], clause.op, frame[col_right], null_safe=True)
+            op = clause.op if clause.left.alias == left_alias else OP_FLIP.get(clause.op, clause.op)
+            mask = evaluate_clause(frame[col_left], op, frame[col_right], null_safe=True)
             frame = frame[mask]
     return frame
 
@@ -99,7 +100,11 @@ def filter_edges_by_where(executor: "DFSamePathExecutor", edges_df: DataFrameT, 
         for left_merge_col, right_merge_col in merge_cols
     ]
     out_df = concat_frames(frames)
-    return frames[0] if out_df is None else out_df.drop_duplicates(subset=[src_col, dst_col])
+    if out_df is None:
+        return edges_df.iloc[:0]
+    # Semijoin node-qualified endpoint pairs to preserve each original physical edge row.
+    qualifying_pairs = out_df[[src_col, dst_col]].drop_duplicates()
+    return edges_df.merge(qualifying_pairs, on=[src_col, dst_col], how="inner")
 
 
 def apply_edge_where_post_prune(executor: "DFSamePathExecutor", state: PathState) -> PathState:

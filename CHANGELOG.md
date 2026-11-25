@@ -8,6 +8,35 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [Development]
 <!-- Do Not Erase This Section - Used for tracking unreleased changes -->
 
+## [0.62.2] - 2026-11-21
+
+### Docs
+
+- **Development branch flow**: documents long-lived `master` and `develop` roles, maintainer-controlled merge-commit forwarding, maintainer fast-forward promotion, and the repository-settings decision required before cutover.
+
+- **AI skills / review budget**: the `review` skill now caps review waves, subagent parallelism, and token spend per PR, with a persisted ledger and a stop-and-escalate rule; only an explicit human override raises a limit. The planner, worker, and test-amplification skills reference the same caps.
+
+- **GFQL Let binding examples** (#2171): select named subgraphs with `output=` instead of nonexistent binding-marker columns; runnable examples assert nonempty results on pandas and Polars inputs while preserving matcher `name=` markers and service/GPU skips.
+
+- **GFQL quick reference examples run** (#2169): node and edge matcher examples use declarative predicates (`gt`, `lt`, `between`) instead of callables that validation rejects; `let()` examples select bindings with `output=`; remote references are shown as `let()` bindings; the engine section notes which features `auto` runs on pandas for Polars input. The docs example audit now finds code blocks nested under bullets, and every runnable quick-reference example executes on pandas and Polars-bound inputs with matching RETURN rows or graph node/edge identities.
+
+### Fixed
+
+- **GFQL nullable entity keys on cuDF** (#2312): `keys(n)` now returns empty lists for rows with no non-null properties alongside populated rows. Native empty key lists use the string child type expected by the grouped result, and key lists remain aligned with their original entities after the native grouping join.
+- **GFQL Cypher empty property maps**: an explicit node `{}` no longer replaces labels, so `MATCH (n:Foo {})` still selects `Foo` nodes. An explicit relationship `{}` no longer replaces relationship types with an empty tuple, so `MATCH ()-[r:R {}]->()` matches only typed `R` relationships on every supported engine, while untyped `n {}` and `r {}` controls remain untyped (#2318).
+
+## [0.62.1] - 2026-11-12
+
+### Fixed
+
+- **GFQL cross-alias filters**: reversing the operands of an ordering comparison now preserves its meaning, parallel edges retain their multiplicity, and empty relationship projections keep their schema without an explicit edge-ID binding. Applies to Cypher and native same-path queries on pandas and cuDF (#2282, #2283, #2284).
+
+- **GFQL remote unsupported-program detection**: identified Cypher procedure calls, GRAPH residual predicates, and cross-alias predicates in GRAPH/Let bindings as unsupported remote-mode programs. They now raise a structured error before upload or HTTP instead of being sent with omitted procedure or filter semantics. [Faithful remote support is tracked separately](https://github.com/graphistry/pygraphistry/issues/2304). Compiled GRAPH references preserve case-insensitive Cypher name resolution, and local Let bindings execute their Chain `where` predicates (#2277, #2278, #2285, #2286, #2287).
+
+- **GFQL default-engine GPU filters**: cross-alias `WHERE` queries on cuDF graphs now resolve the default `auto` engine to cuDF, matching explicit `engine='cudf'` for both Cypher projections and native chains instead of mixing pandas intermediates with GPU columns (#2289).
+
+- **Hypergraph GPU timedelta inputs**: coercing timedelta event columns to strings now creates a new frame instead of modifying the caller's cuDF or Dask-cuDF input. Existing event-ID columns and generated IDs retain their behavior (#2291).
+
 ## [0.62.0] - 2026-11-11
 
 ### Deprecated
