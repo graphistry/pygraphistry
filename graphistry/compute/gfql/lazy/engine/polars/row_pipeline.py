@@ -77,9 +77,14 @@ from .lowering_context import (
     NODE_ID as _NODE_ID,
     COLUMNS_NAN_FREE as _COLUMNS_NAN_FREE,
     VALUE_COLUMNS as _VALUE_COLUMNS,
+    ValueColumnRead,
 )
 from graphistry.compute.gfql.same_path_types import NODE_IDENTITY_COLUMN as _NODE_ID_TOKEN
 from graphistry.compute.gfql.identifiers import (
+    HIDDEN_ALIAS_COLUMN_PREFIX,
+    is_internal_column,
+    is_shortest_path_hops_column,
+    is_walk_scratch_column,
     shadow_restore_column,
     WALK_CURRENT_COL,
     WALK_FROM_COL,
@@ -718,6 +723,18 @@ class PropertyOfValueError(ValueError):
     ``execute_call`` wraps the same ValueError."""
 
 
+def _projected_value_read(name: str, prop: str, columns: Sequence[str]) -> Optional[ValueColumnRead]:
+    """How ``name.prop`` lowers when ``name`` is a projected value column; None for an alias, a binding-row
+    alias (``name.*`` columns) or a hidden reentry property, which resolve as before."""
+    from graphistry.compute.gfql.cypher.reentry.naming import _is_hidden_reentry_property
+    value_columns = _VALUE_COLUMNS.get()
+    if value_columns is None or name not in value_columns or _is_hidden_reentry_property(prop):
+        return None
+    if any(col.startswith(f"{name}.") for col in columns):
+        return None
+    return value_columns[name]
+
+
 def lower_expr(node: ExprNode, columns: Sequence[str]) -> Optional[pl.Expr]:
     """Lower a parsed cypher ExprNode to a polars expression, or None to defer."""
     import polars as pl
@@ -782,10 +799,12 @@ def lower_expr(node: ExprNode, columns: Sequence[str]) -> Optional[pl.Expr]:
         return None
     if isinstance(node, PropertyAccessExpr):
         if isinstance(node.value, Identifier):
-            value_has_values = _VALUE_COLUMNS.get().get(node.value.name)
-            if value_has_values is not None and not any(col.startswith(f"{node.value.name}.") for col in columns):
-                if not value_has_values:
-                    return pl.lit(None)  # a property of null is null
+            value_read = _projected_value_read(node.value.name, node.property, columns)
+            if value_read == "null":
+                return pl.lit(None, dtype=pl.Null)  # a property of null is null; no property type to infer
+            if value_read == "decline":
+                return None
+            if value_read == "type_error":
                 raise PropertyOfValueError(  # same type error as the pandas row evaluator
                     "unsupported row expression: property access requires a graph element alias, entity value, "
                     f"or map in {'ast property access .' + node.property!r}"
@@ -1374,27 +1393,44 @@ def _lower_with_schema(table: "pl.DataFrame", fn: Callable[[], _LowerT],
     """Run a lowering callable with the table schema published to ``_SCHEMA`` (float-operand
     inference for the NaN guard), the graph node-id column published to ``_NODE_ID`` (bare
     ``__gfql_node_id__`` identity-sentinel resolution) and, given the row frame ``g``, its
-    projected Boolean value columns published to ``_VALUE_COLUMNS``."""
-    value_token = _VALUE_COLUMNS.set(_projected_value_columns(g, table) if g is not None else {})
+    projected value columns published to ``_VALUE_COLUMNS``."""
+    value_token = _VALUE_COLUMNS.set(_projected_value_columns(g, table) if g is not None else None)
     try:
         return _lower_with_schema_map(dict(table.schema), fn, node_id=node_id)
     finally:
         _VALUE_COLUMNS.reset(value_token)
 
 
-def _projected_value_columns(g: Plottable, table: "pl.DataFrame") -> Dict[str, bool]:
-    """Boolean columns that are not a carried MATCH alias (pandas ``_gfql_alias_marker_like``),
-    each mapped to whether it holds a non-null value."""
+def _projected_value_columns(g: Plottable, table: "Union[pl.DataFrame, pl.LazyFrame]") -> Optional[Dict[str, ValueColumnRead]]:
+    """Columns that are neither a carried MATCH alias (pandas ``_gfql_alias_marker_like``) nor internal,
+    mapped to how pandas answers a dotted read of them: a type error for a boolean, number or list, null when
+    every value is null, and a decline where the pandas answer depends on the values (strings, maps, temporals)."""
     import polars as pl
     node_aliases, edge_aliases = g._gfql_rows_node_aliases, g._gfql_rows_edge_aliases
-    if (node_aliases is None and edge_aliases is None) or not isinstance(table, pl.DataFrame):
-        return {}
+    if node_aliases is None and edge_aliases is None:
+        return None
     aliases = set(node_aliases or ()) | set(edge_aliases or ())
-    return {
-        name: table.get_column(name).null_count() < table.height
-        for name, dtype in table.schema.items()
-        if dtype == pl.Boolean and name not in aliases
-    }
+    eager = isinstance(table, pl.DataFrame)
+    schema = table.schema if eager else table.collect_schema()
+    out: Dict[str, ValueColumnRead] = {}
+    for name, dtype in schema.items():
+        if name in aliases or _is_reserved_row_column(name):
+            continue
+        if eager and table.get_column(name).null_count() == table.height:
+            out[name] = "null"
+        elif eager and (dtype == pl.Boolean or _dtype_is_numeric(dtype) or isinstance(dtype, (pl.List, pl.Array))):
+            out[name] = "type_error"
+        else:
+            out[name] = "decline"  # value-dependent on pandas, or a lazy frame whose nulls need a collect
+    return out
+
+
+def _is_reserved_row_column(name: str) -> bool:
+    from graphistry.compute.gfql.cypher.reentry.naming import REENTRY_HIDDEN_COLUMN_PREFIX
+    return (
+        is_internal_column(name) or name.startswith((REENTRY_HIDDEN_COLUMN_PREFIX, HIDDEN_ALIAS_COLUMN_PREFIX))
+        or is_walk_scratch_column(name) or is_shortest_path_hops_column(name)
+    )
 
 
 def _lower_with_schema_map(schema: "Mapping[str, pl.DataType]", fn: Callable[[], _LowerT],

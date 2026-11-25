@@ -82,7 +82,13 @@ _NO_MATCH = [  # a boolean from a source that has no MATCH alias at all
 _DOTTED_READS = [
     "MATCH (n) WITH n, n.flag AS t RETURN t.name AS v",
     "MATCH (n) WITH n.flag AS t RETURN t.name AS v",
+    "MATCH (n) WITH n, n.id AS t RETURN t.name AS v",
+    "MATCH (n) WITH n.flag AS t WHERE t.name = 'a' RETURN t AS v",
+    "MATCH (n) WITH n.flag AS t RETURN t AS v ORDER BY t.name",
+    "MATCH (n) WITH n.flag AS t RETURN t.name AS k, count(*) AS c",
+    "MATCH (n) WITH n.flag AS t RETURN collect(t.name) AS v",
 ]
+_TYPE_ERROR = "property access requires a graph element alias, entity value, or map"
 
 
 @pytest.mark.parametrize("query", _VALUE_MISUSE + _SHADOWING + _NO_MATCH)
@@ -91,14 +97,21 @@ def test_a_projected_boolean_is_a_type_error_for_entity_functions(engine, query)
 
 
 @pytest.mark.parametrize("query", _DOTTED_READS)
-def test_a_projected_boolean_is_a_type_error_for_a_dotted_property_read(engine, query):
+def test_a_dotted_property_read_of_a_projected_scalar_is_a_type_error(engine, query):
     """Every engine, Polars lowering included, raises the row-expression type error (#2384)."""
-    with pytest.raises(GFQLCallExecutionError, match="property access requires a graph element alias, entity value, or map"):
+    with pytest.raises(GFQLCallExecutionError, match=_TYPE_ERROR):
         _run(engine, query)
 
 
-def test_a_dotted_property_read_of_an_all_null_projected_boolean_is_null(engine):
-    nodes = pd.DataFrame({"id": [1, 2], "name": ["a", "b"], "flag": pd.array([None, None], dtype="boolean")})
+def test_a_dotted_property_read_of_a_projected_string_is_a_type_error_or_a_polars_decline(engine):
+    """pandas' answer for a string depends on its values (entity or duration text), so Polars declines."""
+    query = "MATCH (n) WITH n, n.name AS t RETURN t.name AS v"
+    with pytest.raises(NotImplementedError if engine in _POLARS else GFQLCallExecutionError):
+        _run(engine, query)
+
+
+def _run_on(engine, flags, query):
+    nodes = pd.DataFrame({"id": list(range(len(flags))), "name": ["x"] * len(flags), "flag": pd.array(flags, dtype="boolean")})
     if engine == "cudf":
         import cudf
 
@@ -107,10 +120,25 @@ def test_a_dotted_property_read_of_an_all_null_projected_boolean_is_null(engine)
         import polars as pl
 
         nodes = pl.from_pandas(nodes)
-    out = graphistry.nodes(nodes, "id").gfql("MATCH (n) WITH n, n.flag AS t RETURN t.name AS v", engine=engine)._nodes
+    out = graphistry.nodes(nodes, "id").gfql(query, engine=engine)._nodes
     if hasattr(out, "to_pandas"):
         out = out.to_pandas()
+    return out
+
+
+def test_a_dotted_property_read_of_a_projected_boolean_with_some_nulls_is_a_type_error(engine):
+    with pytest.raises(GFQLCallExecutionError, match=_TYPE_ERROR):
+        _run_on(engine, [True, None], "MATCH (n) WITH n, n.flag AS t RETURN t.name AS v")
+
+
+def test_a_dotted_property_read_of_an_all_null_projected_boolean_is_null(engine):
+    out = _run_on(engine, [None, None], "MATCH (n) WITH n, n.flag AS t RETURN t.name AS v")
     assert out["v"].isna().all() and len(out) == 2
+
+
+def test_a_dotted_property_read_of_a_projected_boolean_over_no_rows_is_empty(engine):
+    out = _run_on(engine, [True, False], "MATCH (n) WHERE n.id > 100 WITH n, n.flag AS t RETURN t.name AS v")
+    assert len(out) == 0
 
 
 def test_real_aliases_beside_a_projected_boolean_keep_working(engine):
