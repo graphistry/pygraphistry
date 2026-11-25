@@ -1,7 +1,7 @@
 """Cross-column search kernel (viz-filter L2, panel-algebra D2): OR-across-columns
 substring/regex match, dtype-gated AS SEMANTICS — string columns always; integer AND
-FLOAT columns iff the term is a numeric literal (inspector gate); date/bool are
-auto-gated OUT. Floats are rendered the way the inspector renders them rather than by
+FLOAT columns iff the term is a numeric literal (inspector gate); date/bool and
+categorical columns are auto-gated OUT. Floats are rendered the way the inspector renders them rather than by
 ``astype(str)`` (see ``wysiwyg.py``): fixed ``precision`` decimals for fractional values,
 ``String(v)`` for whole ones, and nothing at all for NaN or the Int32 sentinel. pandas
 reproduces that exactly; polars/cuDF differ only where the (precision+1)-th decimal is
@@ -33,9 +33,13 @@ def _is_int_dtype(dtype: DType) -> bool:
     return bool(pat.is_integer_dtype(dtype))
 
 
+def _is_categorical_dtype(dtype: DType) -> bool:
+    return str(dtype) == "category"  # cuDF's categorical dtype reads as its categories' type to the pandas dtype API
+
+
 def _is_float_dtype(dtype: DType) -> bool:
     import pandas.api.types as pat
-    return bool(pat.is_float_dtype(dtype)) and str(dtype) != "category"  # cuDF's categorical dtype reads as its categories' type
+    return bool(pat.is_float_dtype(dtype)) and not _is_categorical_dtype(dtype)
 
 
 def _is_datetime_dtype(dtype: DType) -> bool:
@@ -78,8 +82,8 @@ def search_candidate_columns(
         dt = df[c].dtype
         if _has_string_content(df, c):
             out.append(c)
-        elif numeric_ok and (_is_int_dtype(dt) or _is_float_dtype(dt)
-                             or _is_datetime_dtype(dt)):
+        elif numeric_ok and not _is_categorical_dtype(dt) and (
+                _is_int_dtype(dt) or _is_float_dtype(dt) or _is_datetime_dtype(dt)):
             out.append(c)
     return out
 

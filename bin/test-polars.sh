@@ -167,6 +167,7 @@ POLARS_TEST_FILES=(
     graphistry/tests/compute/gfql/test_known_cross_engine_divergences.py
     graphistry/tests/compute/gfql/test_searchany_wysiwyg_float.py
     graphistry/tests/compute/gfql/test_searchany_float_categorical_2422.py
+    graphistry/tests/compute/gfql/test_searchany_categorical_gate.py
     graphistry/tests/compute/gfql/test_decline_guidance_cross_engine.py
     graphistry/tests/compute/gfql/test_endpoint_closure_matrix.py
     graphistry/tests/compute/gfql/test_gfql_unified_routing_contracts.py
