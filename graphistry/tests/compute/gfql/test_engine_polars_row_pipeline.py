@@ -72,13 +72,14 @@ def test_native_polars_metadata_return_preserves_read_rows_and_caller(query, exp
     assert source._nodes.equals(nodes)
 
 
-def test_polars_constant_map_subscript_cannot_read_an_unrelated_outer_column():
+@pytest.mark.parametrize("key", ["name", "m"])
+def test_polars_constant_map_subscript_cannot_read_an_unrelated_outer_column(key):
     from graphistry.compute import rows, select
 
-    nodes = pl.DataFrame({"id": [1], "m": [{"name": "inside"}], "name": ["outside"]})
+    nodes = pl.DataFrame({"id": [1], "m": [{"name": "inside", "m": "self"}], "name": ["outside"]})
     source = graphistry.nodes(nodes, "id")
     with pytest.raises(NotImplementedError):
-        source.gfql([rows(), select([("value", "m['name']")])], engine="polars")
+        source.gfql([rows(), select([("value", f"m['{key}']")])], engine="polars")
     assert source._nodes.equals(nodes)
 
 
@@ -93,16 +94,17 @@ def test_polars_labels_non_node_column_cannot_read_unrelated_label_flags(argumen
     assert source._nodes.equals(nodes)
 
 
-def test_polars_labels_relationship_cannot_use_an_ordinary_id_property_as_node_identity():
+def test_labels_rejects_relationship_binding_with_node_id_named_property(engine):
     from graphistry.compute import rows, select
 
-    nodes = pl.DataFrame({"id": [1, 2]})
-    edges = pl.DataFrame({"src": [1], "dst": [2], "edge_id": [7], "id": [999],
+    nodes = pd.DataFrame({"id": [1, 2]})
+    edges = pd.DataFrame({"src": [1], "dst": [2], "edge_id": [7], "id": [1],
                           "type": ["R"], "r": [True], "label__Foo": [True]})
     source = graphistry.nodes(nodes, "id").edges(edges, "src", "dst", edge="edge_id")
-    with pytest.raises(NotImplementedError):
-        source.gfql([rows(table="edges", source="r"), select([("value", "labels(r)")])], engine="polars")
-    assert source._nodes.equals(nodes) and source._edges.equals(edges)
+    with pytest.raises((GFQLValidationError, NotImplementedError)):
+        source.gfql([rows(table="edges", source="r"), select([("value", "labels(r)")])], engine=engine)
+    pd.testing.assert_frame_equal(source._nodes, nodes)
+    pd.testing.assert_frame_equal(source._edges, edges)
 
 
 LABEL_QUERIES = [

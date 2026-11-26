@@ -782,8 +782,14 @@ def lower_expr(node: ExprNode, columns: Sequence[str]) -> Optional[pl.Expr]:
         # Bare-property fallback is safe only for Boolean entity markers, not map columns.
         if (
             f"{alias}.{key}" not in columns
-            and key != alias
             and key != _NODE_ID_TOKEN
+            and not (
+                key == alias
+                and (
+                    shadow_restore_column(alias) in columns
+                    or (alias in _NODE_ALIASES.get() and alias in columns)
+                )
+            )
             and _SCHEMA.get().get(alias) != pl.Boolean
         ):
             return None

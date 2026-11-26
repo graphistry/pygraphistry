@@ -10,7 +10,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
-- **GFQL native Polars `labels(n)` projection**: `MATCH (n) RETURN labels(n)` for a declared node binding runs natively on `engine='polars'` and `engine='polars-gpu'` instead of raising the Polars parity-or-error `NotImplementedError`, including in `WHERE`, `ORDER BY`, `WITH`, aggregates and `DISTINCT`. Relationship bindings, list-backed `labels`, non-boolean flags and non-string `type` stay declined; constant-string `n['key']` subscripts stay declined until the pandas subscript reader is fixed (#2336).
+- **GFQL native Polars `labels(n)` projection and guarded constant-string property subscripts**: `MATCH (n) RETURN labels(n)` for a declared node binding runs natively on `engine='polars'` and `engine='polars-gpu'` instead of raising the Polars parity-or-error `NotImplementedError`, including in `WHERE`, `ORDER BY`, `WITH`, aggregates and `DISTINCT`. Relationship bindings, list-backed `labels`, non-boolean flags and non-string `type` stay declined. Constant-string subscripts resolve entity properties; arbitrary map/Struct columns and dynamic keys remain declined where the Polars row pipeline cannot prove entity-property provenance.
 
 ### Docs
 
