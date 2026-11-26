@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING, Any, Callable, Dict, Iterable, List, Optional, Set, Tuple, Union, Protocol, overload
+from typing import TYPE_CHECKING, Any, Callable, Dict, FrozenSet, Iterable, List, Optional, Set, Tuple, Union, Protocol, overload
 from typing_extensions import Literal, runtime_checkable
 import pandas as pd
 
@@ -27,6 +27,8 @@ if TYPE_CHECKING:
     from graphistry.compute.gfql.index.handoff import IndexedBindingsHandoff
     from graphistry.compute.gfql.index.policy import IndexPolicy
     from graphistry.compute.gfql.index.registry import GfqlIndexRegistry
+    from graphistry.compute.gfql.hop_limits import HopLimits
+    import polars as pl
     try:
         from umap import UMAP
     except:
@@ -72,6 +74,7 @@ class Plottable(Protocol):
     _gfql_preserve_start_node_multiplicity: bool
     _gfql_rows_edge_aliases: Optional[Iterable[str]]
     _gfql_rows_node_aliases: Optional[Iterable[str]]
+    _gfql_search_any_categorical_columns: Dict[str, FrozenSet[str]]
     _gfql_shortest_path_backend: str
     _cypher_entity_projection_kinds: Optional[Dict[str, GraphEntityKind]]
     _cypher_entity_projection_presence: Dict[str, "DataFrameT"]
@@ -440,7 +443,7 @@ class Plottable(Protocol):
         ...
 
     def hop(self,
-        nodes: Optional[pd.DataFrame],
+        nodes: Optional[Union["DataFrameT", "pl.DataFrame"]] = None,
         hops: Optional[int] = 1,
         *,
         min_hops: Optional[int] = None,
@@ -461,7 +464,8 @@ class Plottable(Protocol):
         return_as_wave_front: bool = False,
         include_zero_hop_seed: bool = False,
         target_wave_front: Optional[pd.DataFrame] = None,
-        engine: EngineAbstractType = 'auto'
+        engine: EngineAbstractType = 'auto',
+        limits: Optional["HopLimits"] = None,
     ) -> 'Plottable':
         ...
 

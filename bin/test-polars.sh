@@ -34,11 +34,14 @@ POLARS_TEST_FILES=(
     # polars single-alias lowering memo can only execute where polars is installed
     graphistry/tests/compute/gfql/test_clear_caches_covers_every_cache.py
     graphistry/tests/compute/gfql/test_engine_polars_hop.py
+    graphistry/tests/compute/gfql/test_parquet_hop.py
     graphistry/tests/compute/gfql/test_engine_polars_chain.py
     graphistry/tests/compute/gfql/test_engine_polars_row_pipeline.py
     graphistry/tests/compute/gfql/test_engine_polars_binding_rows.py
     # engine-parametrized (pandas/polars/cudf/polars-gpu); the pandas params also run in
     # test-gfql-core, but only this lane has polars installed
+    graphistry/tests/compute/gfql/test_power_operator_tck.py
+    graphistry/tests/compute/gfql/test_case_mixed_dtype.py
     graphistry/tests/compute/gfql/test_varlen_bounded_engine_parity_1787.py
     graphistry/tests/compute/gfql/test_engine_polars_with_match_reentry.py
     # engine-parametrized: its pandas params run in test-gfql-core, but the polars params
@@ -55,17 +58,36 @@ POLARS_TEST_FILES=(
     # non-sequence operand) only ever run here
     graphistry/tests/compute/gfql/test_size_nonlist_decline_1985.py
     graphistry/tests/compute/gfql/test_polars_string_predicate_nonstring.py
+    graphistry/tests/compute/gfql/test_polars_categorical_predicates.py
+    graphistry/tests/compute/gfql/cypher/test_string_predicate_nonstring_2335.py
+    graphistry/tests/compute/gfql/cypher/test_string_predicate_families_2335.py
     graphistry/tests/compute/gfql/cypher/test_order_by_null_placement.py
     graphistry/tests/compute/gfql/cypher/test_null_equality_conjunction.py
     graphistry/tests/compute/gfql/cypher/test_missing_relationship_property_2262.py
     # #2318 empty-map patterns are engine-parametrized; polars params only run here
     graphistry/tests/compute/gfql/cypher/test_issue_2318_empty_map_relationship.py
+    # #2374 non-literal string predicate operands are engine-parametrized; Polars declines run only in this lane
+    graphistry/tests/compute/gfql/cypher/test_string_predicate_nonliteral_rhs_2374.py
+    # #2368 a projected boolean is not an alias; engine-parametrized, Polars params only run in this lane
+    graphistry/tests/compute/gfql/cypher/test_projected_boolean_is_not_an_alias_2368.py
+    # #2363 aggregates over string subscripts are engine-parametrized; Polars params only run in this lane
+    graphistry/tests/compute/gfql/cypher/test_aggregate_string_subscript_2363.py
+    # #2338 WITH WHERE quantifier scope is engine-parametrized; Polars structured declines run here
+    graphistry/tests/compute/gfql/cypher/test_with_where_quantifier_scope_2338.py
     graphistry/tests/compute/gfql/cypher/test_issue_2258_entity_identity_membership.py
+    # #2336 subscript parity is engine-parametrized; Polars native lowering only runs here
+    graphistry/tests/compute/gfql/cypher/test_subscript_property_parity_2336.py
+    # #2324 string parameters are engine-parametrized; Polars params only run in this lane
+    graphistry/tests/compute/gfql/cypher/test_string_param_literal_2324.py
+    # #2333 entity metadata is engine-parametrized; pandas/cuDF run in core and the
+    # structured Polars declines only run in this lane
+    graphistry/tests/compute/gfql/cypher/test_entity_metadata_multi_alias_2333.py
     # grouped whole-entity identity is engine-parametrized; pandas runs in core,
     # while Polars only has this explicit lane
     graphistry/tests/compute/gfql/cypher/test_issue_2261_grouped_identity.py
     # quoted map keys/MATCH aliases are engine-parametrized; pandas runs in core,
     # polars params only run in this lane
+    graphistry/tests/compute/gfql/test_properties_comprehension_map_2339.py
     graphistry/tests/compute/gfql/cypher/test_backtick_identifiers.py
     graphistry/tests/compute/gfql/test_conformance_ledger.py
     graphistry/tests/compute/gfql/test_polars_nan_clean.py
@@ -146,6 +168,8 @@ POLARS_TEST_FILES=(
     graphistry/tests/compute/gfql/test_fast_path_engagement.py
     graphistry/tests/compute/gfql/test_known_cross_engine_divergences.py
     graphistry/tests/compute/gfql/test_searchany_wysiwyg_float.py
+    graphistry/tests/compute/gfql/test_searchany_float_categorical_2422.py
+    graphistry/tests/compute/gfql/test_searchany_categorical_gate.py
     graphistry/tests/compute/gfql/test_decline_guidance_cross_engine.py
     graphistry/tests/compute/gfql/test_endpoint_closure_matrix.py
     graphistry/tests/compute/gfql/test_gfql_unified_routing_contracts.py
@@ -158,6 +182,7 @@ POLARS_TEST_FILES=(
     graphistry/tests/compute/gfql/cypher/test_grouped_aggregate_cross_alias.py
     graphistry/tests/compute/gfql/cypher/test_single_alias_where_2019.py
     graphistry/tests/compute/gfql/cypher/test_in_null_three_valued_2123.py
+    graphistry/tests/compute/gfql/cypher/test_projected_literal_named_like_column_2346.py
     # module-level `importorskip("polars")` files that previously ran in no lane at all
     graphistry/tests/compute/gfql/test_engine_polars_narrow_combine.py
     graphistry/tests/compute/gfql/row/test_alias_prefilter_alignment_2020.py
@@ -209,6 +234,8 @@ POLARS_TEST_FILES=(
     graphistry/tests/compute/gfql/index/test_intermediate_graph_indexes.py
     graphistry/tests/compute/gfql/index/test_cross_alias_or_index.py
     graphistry/tests/compute/gfql/test_unseeded_binding_limit.py
+    graphistry/tests/compute/gfql/test_rows_bindings_skip_traversal.py
+    graphistry/tests/compute/gfql/test_polars_point_rows_scan.py
     graphistry/tests/compute/gfql/index/test_indexed_bindings.py
     graphistry/tests/compute/gfql/index/test_typed_adjacency.py
     graphistry/tests/compute/gfql/index/test_node_type_segments.py

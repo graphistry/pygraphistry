@@ -1,14 +1,38 @@
 ## Summary
 
-- [ ] Linked issue(s): `Closes #...`
-- [ ] Scope is explicit (non-goals included when relevant)
+- [ ] Linked issue(s): `Closes #...` (the issue you claimed)
+- [ ] Scope is explicit (non-goals included when relevant); core code is focused, with larger tests, infrastructure, or documentation explained where needed
+- [ ] Base branch: `develop` for features and fixes; `master` only for a hotfix (say why); docs-only is fine on `develop`
+- [ ] AI assistance: this pull request was written with the help of an AI coding agent (yes / no, and which)
 
 ## Validation
 
-- [ ] Local lint/type/tests run for touched scope
-- [ ] CI is green
+Paste the commands you ran and the last lines of their output (not just a tick).
 
-## Cypher Frontend CI Evidence (when PR touches cypher frontend / IR scope)
+- [ ] `./bin/lint.sh` passes
+- [ ] `./bin/typecheck.sh` passes
+- [ ] Proof that the named test (`path::test_name`) failed before and passes after this change; and the tests for the touched area still pass: `./bin/pytest.sh <path>` or `./bin/check-gfql.sh` for GFQL
+- [ ] `CHANGELOG.md` has a line for this change
+
+## Engines tested (GFQL changes: `graphistry/compute/`, `graphistry/tests/compute/gfql/`)
+
+- [ ] pandas
+- [ ] Polars (CPU)
+- [ ] cuDF (`./bin/check-gfql.sh --cudf`, or "no GPU: maintainers please cover")
+- [ ] polars-gpu (`./bin/check-gfql.sh --polars-gpu`, or "no GPU: maintainers please cover")
+- [ ] New tests run on every engine the change can affect
+
+## Performance (required for hot-path changes or added per-row/per-edge work; otherwise write "n/a")
+
+Before and after on the changed case and on two paths you did not change, from the recipe in `benchmarks/gfql/README.md`:
+
+```
+(paste the table here)
+```
+
+If you added a performance test that is disabled or skipped in ordinary CI, include it in this pull request so maintainers can selectively port it to the performance suite.
+
+## Cypher Frontend CI Evidence (only when the PR touches `graphistry/compute/gfql/cypher/` or the IR; otherwise leave unchecked)
 
 - [ ] `cypher-frontend-strict-typing (py3.12)` passed (strict typing gate)
 - [ ] `cypher-frontend-differential-parity (py3.12)` passed (trust-but-verify gate)

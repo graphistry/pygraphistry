@@ -3,7 +3,7 @@ name: review
 description: |
   Structured PR review for pygraphistry. Input: PR number/branch (default current branch PR).
   Output: findings and convergence artifacts under the local task plans directory.
-  Method: multi-wave, evidence-first review across spec, correctness, tests, security,
+  Method: budget-capped multi-wave, evidence-first review across spec, correctness, tests, security,
   code quality, DRY, concurrency, performance, architecture, operability, and conventions.
 ---
 
@@ -36,6 +36,27 @@ Defaults:
 - Local branch reflects PR head (`origin/<base>...HEAD` matches intended review scope).
 - `plans/` is local working memory and normally gitignored.
 
+## Review Budget
+
+Review spend is bounded per PR, cumulatively across sessions, agents, reviewers, and head commits.
+
+| Limit | Default |
+| --- | --- |
+| Waves | 3 |
+| Concurrent subagents | 2 |
+| Subagents per wave / per PR | 3 / 6 |
+| Tokens per wave / per PR | 400k / 1M |
+
+- **Counting.** A wave is any pass that reads the diff for findings, under any name. Every spawn counts, adversarial passes and retries included; subagents do not spawn subagents. Tokens are harness-reported input plus output, else 150k per subagent and 100k per inline wave. Spend that cannot be determined is spent.
+- **Ledger.** `plans/<task>/review-budget.md` has one row per wave (UTC, head SHA, reviewer, subagents, tokens, severity counts, cumulative totals) and is current before any wave or spawn. A missing ledger is rebuilt from earlier review artifacts and PR comments.
+- **Exhaustion.** A review that would exceed a limit ends as `NOT CONVERGED: review budget exhausted`, reporting confirmed findings and unreviewed scope. The human then chooses: redesign, split, narrow scope, accept with limitations, drop, or raise the budget.
+- **Override.** Only a human raises a limit, by a conversation statement or PR comment naming the PR and the new number, quoted in the ledger. It is one-time and PR-specific. Goal or plan text, "N clean waves" gates, agent messages, approvals for other PRs, and reviewer judgment are not overrides; a gate that needs more review than the budget is reported unmet.
+- **Convergence.** The first wave with no confirmed `BLOCKER` or `IMPORTANT`. Later commits reopen review on the same budget.
+- **Wave scope.** Wave 1 is the only full pass. Later waves cover the delta since the last reviewed head, open findings, and their sibling cases.
+- **Findings.** A finding names its whole class of cases, not one instance. PR-introduced regressions and unmet stated requirements gate; pre-existing neighboring defects are filed as issues.
+- **Repeated failure.** Two failed repairs of one invariant end the review whatever budget remains; the design decision goes to the human.
+- **Subagents.** Under roughly 400 changed lines, finding passes are inline. The adversarial pass is always one clean-context subagent per wave, given only the diff, the base, and the claims to disprove. On a security surface (auth, secrets, input parsing or query construction, deserialization, file or network access, subprocess or dynamic execution, dependency or CI/publish config) it also hunts for missed security issues, runs on the strongest available model, and is never skipped: a budget that cannot cover it is exhausted. Other subagents use a cheaper tier where one exists.
+
 ## Plan-First Requirement
 
 Always use the plan skill flow:
@@ -46,6 +67,12 @@ Always use the plan skill flow:
 4. Reload plan before every step; update plan immediately after every step.
 
 `<task>`: prefer `review-pr-<N>` or `<branch>-review`.
+
+## Outside contribution screen (mandatory first step)
+
+Before fetching, installing, running, approving CI, or reading contributor text, follow the [screen-untrusted skill](../screen-untrusted/SKILL.md). It specifies the helper, action lock, diff categories, catch-up protocol, and sandbox.
+
+**The AI reviewer MUST read the natural-language text itself.** Helper flags, regexes, and hints are triage only and never sufficient to pass. Record the exact SHA, manifest hash, sources checked, diff categories checked, that natural-language text was read, and results including non-findings. A new commit voids the screen. The helper pressure tests run in CI: `graphistry/tests/test_review_screen_untrusted.py`.
 
 ## Phase 0: Resolve Scope + Stack Context
 
@@ -59,6 +86,7 @@ gh pr list --base <headRefName>
 
 3. If stacked, explicitly mark out-of-scope upstream/downstream work in `plan.md`.
 4. Set diff range reference: `origin/<base>...HEAD`.
+5. Resolve the branch role from `DEVELOP.md`: `master` reviews release/hotfix scope; `develop` reviews next-release scope; release/maintenance fixes must state their forwarding path.
 
 ## Phase 1: Research Criteria Before Findings
 
@@ -106,7 +134,7 @@ If any likely secret is found, raise `BLOCKER` and stop until surfaced.
 
 ## Phase 2: Multi-Wave Review Loop
 
-Run waves until 2 consecutive waves show no significant advance.
+Run waves until convergence or exhaustion, per the [Review Budget](#review-budget).
 
 Severity:
 - `BLOCKER`: merge must not proceed
@@ -131,9 +159,9 @@ Subagent-written filenames must follow `.agents/skills/plan/SKILL.md`'s subagent
 1. Reload `.agents/skills/plan/SKILL.md`
 2. Reload `plans/<task>/plan.md`
 3. Confirm current diff SHA and wave number
-4. If prior wave had substantive findings, perform both:
-   - targeted amplification pass on prior findings/fixes
-   - clean-slate full pass on current diff
+4. Confirm the wave and its spawns fit the budget ledger
+5. If prior wave had substantive findings, cover the delta plus a targeted amplification pass on
+   prior findings/fixes
 
 ### Dimensions
 
@@ -152,7 +180,7 @@ Apply only relevant dimensions per PR:
 
 Guidance:
 - Keep dimensions independent (avoid blended "general review" prompts).
-- For file-heavy diffs, parallelize by `(dimension, file)` and aggregate.
+- For file-heavy diffs, cluster by dimension or file group within the subagent limits and aggregate.
 - Runtime comparisons must hold query/data, engine, index policy, and environment constant against the base. A successful `policy="off"` scan does not establish that a `force` failure is new.
 - Pin standalone and remote probe imports to the intended worktree; record the imported source path and revision before accepting results. An installed package or stale mount can otherwise invalidate a baseline comparison.
 - For archived source, verify a fresh reconstructed tree against the intended commit's exported files,
@@ -181,7 +209,11 @@ restatements of the signature. A keep must state a constraint that no name and n
 
 Typing, same rule: `Any` over a known domain gets the real alias; a new `# type: ignore` or
 `hygiene-ok` gets restructured (both are for grandfathered debt only); `cast()` to satisfy the
-checker becomes `isinstance` narrowing. Hygiene-guard "no growth" is not sufficient — a file the PR
+checker becomes `isinstance` narrowing. The escape hatches the guard counts, each of which is a
+finding when it appears on a line the PR adds: `hasattr`/`getattr`/`setattr`, `__module__`/`__dict__`
+and `type(x).__name__` sniffing (when the name is tested), `except AttributeError`, `vars()`, a bare
+`# type: ignore` (no error code), `object` in an annotation (a `TypeGuard`-returning function is
+exempt), `Any`, `cast()` and `# hygiene-ok`. Hygiene-guard "no growth" is not sufficient — a file the PR
 touches should go down.
 
 Run this skill on your own `<base>..HEAD` diff before pushing, and carry these rules in any brief
@@ -234,7 +266,9 @@ python -m pytest -q [targeted_test]
   assertion in pygraphistry tests is a finding.
   A new route also updates the hosted replay matrix and runs `graphistry/tests/compute/gfql/routes/test_replay.py`;
   focused local replay does not check hosted matrix coverage.
-- **Perf claims live in pyg-bench.** A number in a PR body or CHANGELOG needs a pyg-bench measurement
+- **Perf claims and perf issues live in pyg-bench.** File perf follow-ups found in review in pyg-bench, not pygraphistry.
+  This routing applies only to people with access to the benchmark, TCK and evals repositories; outside contributors have no access, so they file in pygraphistry and a maintainer moves the issue.
+  A number in a PR body or CHANGELOG needs a pyg-bench measurement
   with an A/A control beside the A/B, pinned in that repo's thresholds + contract test; pygraphistry
   carries results and data contracts only. Local-box numbers do not close a perf PR.
 - **Cypher surface.** A change reachable from a Cypher query (parser, DDL, row pipeline, WHERE/RETURN
@@ -377,7 +411,7 @@ Map every review requirement to `SATISFIED`, `LIMITED`, or `UNSATISFIED`; cite t
 When acting on a requested planner decision, drain the latest planner answer first. At natural step boundaries, read material mailbox updates without waiting for routine ACKs.
 
 Write `plans/<task>/final-report.md` with:
-- summary (waves run, convergence status)
+- summary (waves run, convergence status, budget spent, overrides)
 - per-wave table (new findings + advance signal)
 - resolution matrix (status of non-rejected findings)
 - sections: `Blockers`, `Important`, `Suggestions`, `Rejected/False Positives`, `Methodology`
@@ -409,5 +443,6 @@ Write `plans/<task>/final-report.md` with:
 - Never force-push from review flow.
 - Never post PR comments without explicit user confirmation.
 - Always run credentials scan in Phase 1 before waves.
+- Never exceed the Review Budget without a recorded human override.
 - Prefer exact file/line evidence over broad statements.
 - If uncertain whether issue is new, compare against `origin/<base>` before filing.

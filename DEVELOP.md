@@ -1,6 +1,6 @@
 # Development Setup
 
-See also [CONTRIBUTING.md](CONTRIBUTING.md) and [ARCHITECTURE.md](ARCHITECTURE.md)
+Who this is for: people and coding agents alike. It is the reference for setup, test commands, CI and release, not the place to start a contribution: a person starts at [CONTRIBUTING.md](CONTRIBUTING.md), an agent at `.agents/skills/contribute/SKILL.md` and [AGENTS.md](AGENTS.md). See also [ARCHITECTURE.md](ARCHITECTURE.md).
 
 Development is setup for local native and containerized Python coding & testing, and with automatic GitHub Actions for CI + CD. The server tests are like the local ones, except against a wider test matrix of environments.
 
@@ -107,7 +107,7 @@ graphistry.__version__
 
 GitHub Actions: See `.github/workflows`
 
-CI runs on every PR and updates them
+CI runs on every pull request from a branch in this repository and updates it. A pull request from a fork waits for a maintainer to approve the workflows before any job runs; see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ### Cypher Surface Growth Guard
 
@@ -145,6 +145,9 @@ that keep coming back in code review, so a reviewer does not have to.
 | `plottable-setattr` | `setattr()` onto a parameter annotated as a `Plottable` |
 | `plottable-attr-write` | `param.attr = ...` onto a parameter annotated as a `Plottable` |
 | `vocab-str-param` | a closed-vocabulary parameter (`table`, `kind`, `direction`, `how`, `mode`, `engine`) annotated as plain `str` |
+| `dynamic-attr` | a call to the builtin `hasattr`, `getattr` (two or three arguments) or `setattr`: an untyped attribute probe mypy cannot narrow. A `setattr` already reported as `plottable-setattr` is counted once, there. A method named `.getattr()` and a file that defines its own `getattr` are not flagged. Also counted: `.__module__` / `.__dict__` access, `type(x).__name__` / `x.__class__.__name__` when the name is tested (compared, used as a lookup key, matched on, or prefix-tested; passing it to an error message or log is not counted), `vars()` and `except AttributeError`. Use `isinstance`, the typed guards in `graphistry/Engine.py`, or a `Protocol` instead |
+| `bare-type-ignore` | a `# type: ignore` comment with no error code, which silences every error on its line. Write `# type: ignore[code]`, or fix the typing |
+| `object-annotation` | `object` as a whole parameter or return annotation, or a member of a top-level `Optional` / `Union` / `|` (accepts anything, narrows nothing); `Dict[str, object]` and other nested uses are not counted. Use the real type, a `Protocol` or a `TypeVar`; a function that returns a `TypeGuard` / `TypeIs` is exempt |
 
 Enforcement is a **per-file count ratchet** against
 `bin/ci/ci_type_hygiene_baseline.json`: a file may not gain findings, and a file
@@ -156,6 +159,15 @@ moved code is not.
 ./bin/ci/ci_type_hygiene_guard.py --report    # totals per check
 ./bin/ci/ci_type_hygiene_guard.py --list plottable-setattr
 ./bin/ci/ci_type_hygiene_guard.py --strict    # show files that improved; time to retighten
+```
+
+Instead of `hasattr` / `getattr` / `setattr`, use the typed helpers in `graphistry/Engine.py`
+(`is_series_like`, `is_cudf_series`, `is_polars_series`, `is_polars_df`), `isinstance`, or a
+`Protocol`, so mypy can narrow the value. `__module__` string sniffing is not part of the check
+and stays a review item. Suppress a probe only when no typed form exists:
+
+```python
+if hasattr(frame, "to_pandas"):  # hygiene-ok: dynamic-attr -- third-party frame with no common base
 ```
 
 When a finding is genuinely correct, annotate that line and say why:
@@ -229,6 +241,7 @@ last rule class on that stack still enforced only by human review.
 moving into a docstring — so they read docstrings too. Tests are exempt from
 `comment-block` and `issue-rationale` (a test may explain its oracle) but not
 from `perf-claim`: measurement belongs in pyg-bench wherever it is written.
+Performance issues are filed in pyg-bench as well; see `AGENTS.md` "Where Issues Go". This routing applies only to people with access to the benchmark, TCK and evals repositories; outside contributors have no access, so they file in pygraphistry and a maintainer moves the issue.
 
 The line limit is 127, so a constraint that genuinely cannot be expressed by a
 name or a test fits on one line. `regress` and `A/B` count only next to
@@ -322,6 +335,154 @@ with `TEST_CUDF=1 pytest ...` on a RAPIDS-equipped box.
 * use the `logging` module per-file
 
 
+## Release and Hotfix Branch Flow
+
+Use two long-lived branches: `master` is the stable release/hotfix line, and
+`develop` is the next-release integration line. This keeps an urgent patch from
+waiting for unfinished work while avoiding the overhead of a full Git-flow model.
+
+### Branch roles
+
+| Branch | Role | PR target |
+|---|---|---|
+| `master` | Released code, release tags, urgent hotfixes | Hotfix PR only |
+| `develop` | Next-release integration | Ordinary feature and stacked PRs |
+| `release/X.Y` (optional) | Short-lived stabilization only when the next release must overlap new development | Fixes forward to `master`, `develop`, and the active `release/X.Y` |
+| `maint/X.Y` (only for an old supported line) | Maintenance fixes for an older release | Fix, then forward to newer lines |
+
+### Push and protection path
+
+- A maintainer merges ordinary feature PRs into `develop` with a merge commit
+  after branch protection passes.
+- A maintainer merges hotfix PRs into `master` with a merge commit after branch
+  protection passes.
+- Forwarded hotfixes into an active `release/X.Y` and into `develop` go through
+  a PR that a maintainer merges with a merge commit; do not use squash or
+  rebase merges.
+  Forwarding PRs use a dedicated forwarding branch as the PR head, never
+  `master` or `develop` themselves.
+- The maintainer performs the final promotion by fast-forwarding local `master`
+  to the tested `develop` SHA and pushing it, because a GitHub UI merge cannot
+  fast-forward. The recorded promotion mechanism is an admin fast-forward push of
+  `master`: a repository admin pushes the tested SHA directly, bypassing the
+  pull-request requirement; only repository admins can, under the current branch
+  protection.
+- `ci-required` (a job in `.github/workflows/ci.yml`) is the required status
+  check on both `develop` and `master`. It needs every other job in that
+  workflow, fails if any of them failed or was cancelled, and passes when each
+  succeeded or was skipped, so green means that nothing that ran failed;
+  path-gated lanes that did not apply are skipped. It does not report when the
+  whole workflow is skipped (for example `[skip ci]`), and `ci.yml` has no
+  `merge_group` trigger, so a merge queue would need one. A new job in `ci.yml`
+  must be added to its `needs` list in the same PR, otherwise the required check
+  does not cover it.
+
+### Routine flow
+
+1. Base ordinary work on `origin/develop`:
+
+	```sh
+	git switch -c feature/topic origin/develop
+	```
+
+2. Base a fix to released behavior on `origin/master` and target `master`:
+
+	```sh
+	git switch -c hotfix/topic origin/master
+	```
+
+3. While an optional `release/X.Y` is active, also forward every `master`
+   hotfix into that release branch by pushing a tested forwarding branch and
+   opening a PR that targets the release branch. Resolve conflicts and run the
+   release branch's tests on the combined snapshot before closure:
+
+	```sh
+	git fetch origin master release/X.Y
+	git switch -c hotfix/forward-release origin/release/X.Y
+	git merge --no-ff origin/master
+	git push origin refs/heads/hotfix/forward-release
+	```
+
+4. Forward the same tested `master` hotfix into `develop` before the next
+   promotion by pushing a tested forwarding branch and opening a PR that targets
+   `develop`:
+
+	```sh
+	git fetch origin master develop
+	git switch -c hotfix/forward-develop origin/develop
+	git merge --no-ff origin/master
+	git push origin refs/heads/hotfix/forward-develop
+	```
+
+5. Promote by a fast-forward of `master` to the tested `develop` snapshot, then tag
+   `master`:
+
+	```sh
+	PROMOTE_SHA=<tested-develop-sha>
+	git fetch origin master develop
+	test "$(git rev-parse origin/develop)" = "$PROMOTE_SHA"
+	git merge-base --is-ancestor origin/master "$PROMOTE_SHA"
+	git switch master
+	git pull --ff-only origin master
+	git merge --ff-only "$PROMOTE_SHA"
+	git push origin refs/heads/master
+	git tag X.Y.Z
+	git push origin refs/tags/X.Y.Z
+	```
+
+Use a merge commit for hotfix forwarding (`--no-ff`) so the fix ancestry remains
+explicit. Use `--ff-only` promotion so `master` is always an ancestor of
+`develop`; do not squash a promotion or force-reset either branch. Create
+`release/X.Y` only when stabilization must overlap continued integration; when it
+closes, confirm it contains every forwarded `master` hotfix, run its tests, merge
+the release into `master`, tag there, and forward `master` into `develop`.
+
+Final-version publication under this flow is tags-only by maintainer policy. The
+existing workflow's manual `release` mode remains a separately approved recovery
+mechanism, not the routine promotion path.
+
+### Cutover prerequisite
+
+Do not copy the migration commands while `master` contains unreleased work.
+First release and tag that master state as the stable baseline, verify that
+the `CHANGELOG.md` `[Development]` section has no entries above that release, and
+record the selected baseline tag and its disposition. Until that baseline exists,
+keep using the current release process for urgent fixes; do not create `develop`
+from unreleased master or claim that hotfixes based on it are isolated. Preserve
+existing history—no reset is required.
+
+### Migration checklist
+
+- After the cutover prerequisite is met, create `develop` from the recorded
+  stable release baseline on `master`; do not rewrite master.
+- Keep `master` as the default and publish-ref line initially.
+- Add branch protection for `develop` and `master` with `ci-required` as the
+  required check on both; enable branch-push CI and CodeQL push/PR analysis for
+  both lines before routing ordinary PRs there. Require `ci-required` only after
+  the PR that adds it has merged to `develop` (and, for `master`, after the next
+  promotion carries it there).
+- The mechanism that permits the maintainer's fast-forward push of `master` is an
+  admin fast-forward push (see "Push and protection path"); keep admin bypass on
+  `master` for that purpose only.
+- Version tags (`X.Y.Z`) are protected by tag rulesets, and the `pypi-release`
+  environment deploys only from `master` and version tags. After any pattern
+  change, verify that the ruleset's "Applies to" list includes the latest
+  release tag; do not push a test tag, because every tag push starts the
+  publish workflow.
+- Inventory open PRs: hotfixes target `master`; ordinary feature/stacked PRs move
+  to `develop` in dependency order. Do not retarget a stacked PR until its parent
+  lands on `develop`.
+- Keep the existing `pypi-release` approval gate and tag-ancestry check, with
+  the environment approval enforcing publication. RC evidence may use a
+  synthetic TestPyPI run, but final versions publish only from immutable tags on
+  `master`.
+- After cutover, verify GitHub Releases, Read the Docs `stable`/`latest`, and
+  tag-specific activation; record any repository-settings change separately for
+  maintainer approval.
+
+The detailed tag, evidence, approval, and PyPI checks below remain the source of
+truth for publishing mechanics.
+
 ## Publish: Merge, Tag, & Upload
 
 1. Update CHANGELOG.md in your PR branch
@@ -329,7 +490,10 @@ with `TEST_CUDF=1 pytest ...` on a RAPIDS-equipped box.
 	- Document all changes following [Keep a Changelog](https://keepachangelog.com/) format
 	- Commit and push to PR branch
 
-1. Merge the PR to master (via GitHub UI or `gh pr merge`)
+1. Publish the tested source: fast-forward `master` to the approved `develop`
+   promotion SHA for a normal release, or merge an approved hotfix PR that
+   targets `master`. Do not tag either branch before its required checks and
+   release evidence are green.
 
 1. Switch to master and pull the merged changes
 	```sh
@@ -353,6 +517,11 @@ with `TEST_CUDF=1 pytest ...` on a RAPIDS-equipped box.
 	  - `evidence`: build + SBOM + provenance + evidence artifacts only (no publish)
 	  - `test`: includes TestPyPI publish, skips PyPI (uses synthetic runner-local version `0.0.dev<run_id>` to avoid local-version upload rejection)
 	  - `release`: TestPyPI + PyPI publish (restricted to `master`, with `pypi-release` approval)
+	- Under the new branch flow, use tag-triggered publication for final versions;
+	  reserve manual `release` mode for an exceptional, separately approved
+	  recovery. Maintenance-line publication requires an explicit publisher and
+	  ancestry design before use because the current guard requires tag ancestry
+	  from `master`.
 	- Do not rerun publish for a version that is already on PyPI (duplicate-file uploads are rejected)
 	- Verify version appears on PyPI: `curl -s https://pypi.org/pypi/graphistry/json | jq -r '.info.version'`
 	- Verify release evidence artifacts from the workflow run:

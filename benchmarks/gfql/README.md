@@ -1,8 +1,12 @@
 # GFQL Benchmarks
 
+For contributor changes, benchmark hot-path work with before-and-after measurements on the changed case and two unaffected paths. If you add a performance test that is disabled or skipped in ordinary CI, include it in the pull request so maintainers can selectively port it to this performance suite.
+
 Manual-only scripts for local performance checks. A subset runs in CI on GFQL changes.
 
 Summary results go into `benchmarks/gfql/RESULTS.md` (raw outputs stay in `plans/`).
+
+The [CPU Parquet hop benchmark](parquet_hop.md) compares public GFQL with and without opt-in, native Polars, and the resident index on matched local files.
 
 ## Hop microbench
 
@@ -374,3 +378,27 @@ Methodology for all: warm medians, one engine per process for large runs,
 NO-CHEATING guards (a timing is void unless the intended path was taken AND
 the result matches the scan oracle). Run on an idle box; GPU rows need
 `--gpus all` and RAPIDS.
+
+## Contributor before-and-after recipe
+
+A GFQL change that can affect performance or memory needs a before and after in its pull request: on the case you changed, and on two paths you did not change, so a gain in one place is not a regression in another. You need only this folder; the full benchmark suite lives outside the repository and maintainers run it for you.
+
+1. Pick the script that exercises the code you changed (each takes `--runs` and `--output`; `--help` lists the rest):
+
+   | You changed | Script |
+   |---|---|
+   | hop or traversal | `hop_microbench.py`, `hop_frontier_sweep.py` |
+   | the Cypher row pipeline (`RETURN`, `WITH`, expressions) | `cypher_row_pipeline.py` |
+   | chain or same-path `WHERE` | `chain_vs_samepath.py` |
+   | the pandas or Polars engine | `pandas_vs_polars.py` |
+
+2. Run it on `develop` and on your branch, on the same machine, with the same flags, and keep the written tables:
+
+   ```bash
+   git switch develop && python benchmarks/gfql/cypher_row_pipeline.py --runs 5 --output /tmp/before.md
+   git switch my-branch && python benchmarks/gfql/cypher_row_pipeline.py --runs 5 --output /tmp/after.md
+   ```
+
+3. Do the same for two scripts or scenarios you did not touch: the regular path (the common case before your change existed) and an inactive path (a case where your new code is not supposed to run). A real change moves the first and leaves the other two within run-to-run noise.
+4. Paste into the pull request's Benchmark section: the command, the machine (CPU or GPU model), and one table per path with `before`, `after` and the ratio. Run each side at least three times and state the spread; a difference smaller than the spread is not a result.
+5. If the change helps one engine and you cannot run the others (no GPU), say so; maintainers cover them.

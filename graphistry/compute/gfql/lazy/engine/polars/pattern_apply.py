@@ -97,7 +97,7 @@ def rows_binding_ops_polars(
         # decline the whole wavefront-constrained case (wave-2 W2-3).
         sn = start_nodes.collect() if isinstance(start_nodes, pl.LazyFrame) else start_nodes
         try:
-            nodes = nodes.join(sn.select(node_id), on=node_id, how="semi")  # type: ignore[operator]  # polars op on a DataFrameT-typed seed
+            nodes = nodes.join(sn.select(node_id), on=node_id, how="semi")  # polars op on a DataFrameT-typed seed
         except Exception:
             return None
     try:
@@ -109,7 +109,10 @@ def rows_binding_ops_polars(
     if matched is None:
         return None
     # L4 pushdown twin of pandas' cartesian prefilter: NEVER silently dropped
-    matched = _apply_alias_prefilters_polars(matched, alias, alias_prefilters)  # honoured, never dropped (#1804)
+    matched = _apply_alias_prefilters_polars(
+        matched, alias, alias_prefilters,
+        categorical_columns=base_graph._gfql_search_any_categorical_columns["nodes"],
+    )  # honoured, never dropped (#1804)
     if alias == node_id:
         # pandas' named-op flag column OVERWRITES the id column in this corner —
         # neither engine has sane semantics; decline honestly (wave-1 I1).
@@ -141,7 +144,7 @@ def _nodes_cover_keys(base_graph: Plottable, node_id: str, keys: ArrayLike) -> b
         return False
     try:
         key_frame = pl.DataFrame({node_id: pl.Series(node_id, np.asarray(keys))})
-        node_col = nodes.select(node_id)  # type: ignore[union-attr]  # eager polars frame, guarded above
+        node_col = nodes.select(node_id)  # eager polars frame, guarded above
         if key_frame.get_column(node_id).null_count() > 0 or node_col.get_column(node_id).null_count() > 0:
             return False
         return key_frame.join(node_col, on=node_id, how="anti").height == 0

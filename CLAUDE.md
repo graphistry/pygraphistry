@@ -1,4 +1,4 @@
-See [AGENTS.md](AGENTS.md) for repository AI guidance.
+This file is for Claude Code (a coding agent); people read [CONTRIBUTING.md](CONTRIBUTING.md). See [AGENTS.md](AGENTS.md) for repository AI guidance.
 
 Skill path conventions:
 

@@ -78,6 +78,7 @@ def _serving_engine_base_graph(base_graph: Plottable, engine: Union[EngineAbstra
     from graphistry.compute.ComputeMixin import _coerce_input_formats
     abstract = EngineAbstract(engine) if isinstance(engine, str) else engine
     g = _coerce_input_formats(base_graph, resolve_engine(abstract, base_graph))
+    source_categorical_columns = g._gfql_search_any_categorical_columns
     if g._nodes is not None and _is_polars_df(g._nodes):
         from graphistry.compute.gfql.lazy.engine.polars.dtypes import is_lazy
         if is_lazy(g._nodes):
@@ -86,6 +87,9 @@ def _serving_engine_base_graph(base_graph: Plottable, engine: Union[EngineAbstra
         from graphistry.compute.gfql.lazy.engine.polars.dtypes import is_lazy
         if is_lazy(g._edges):
             g = g.edges(g._edges.collect(), g._source, g._destination)
+    if source_categorical_columns["nodes"] or source_categorical_columns["edges"]:
+        g = g.bind()
+        g._gfql_search_any_categorical_columns = source_categorical_columns
     return g
 
 
@@ -470,7 +474,7 @@ def restrict_connected_join_rows_to_reentry_seed(
     if _is_polars_df(joined_rows):
         import polars as pl
         seed_values = seed_ids.to_list() if hasattr(seed_ids, "to_list") else list(seed_ids)
-        return joined_rows.filter(pl.col(alias_col).is_in(seed_values))  # type: ignore[attr-defined]
+        return joined_rows.filter(pl.col(alias_col).is_in(seed_values))
     return joined_rows[joined_rows[alias_col].isin(seed_ids)]
 
 
@@ -578,7 +582,7 @@ def compiled_query_reentry_state(
 
             aligned_prefix_rows = aligned_prefix_rows.with_columns(
                 pl.Series(REENTRY_ROW_TOKEN_OUTPUT, np.arange(len(aligned_prefix_rows), dtype=np.int64))
-            )  # type: ignore[attr-defined]  # Polars frame in the engine-generic row carrier.
+            )  # Polars frame in the engine-generic row carrier.
         else:
             aligned_prefix_rows = aligned_prefix_rows.assign(
                 **{REENTRY_ROW_TOKEN_OUTPUT: np.arange(len(aligned_prefix_rows), dtype=np.int64)}
@@ -632,7 +636,7 @@ def compiled_query_reentry_state(
             )
         start_nodes = frame_filter(node_rows, series_not_null_mask(node_rows[row_token_column]))
         if _is_polars_df(start_nodes):
-            start_nodes = start_nodes.sort(row_token_column)  # type: ignore[attr-defined]  # Polars frame branch.
+            start_nodes = start_nodes.sort(row_token_column)  # Polars frame branch.
         else:
             start_nodes = start_nodes.sort_values(row_token_column).reset_index(drop=True)
         return dispatch_graph, start_nodes

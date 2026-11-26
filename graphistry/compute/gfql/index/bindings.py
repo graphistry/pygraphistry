@@ -173,7 +173,7 @@ def _drop_reused_edges(state: DataFrameT, hop_col: str, earlier: Sequence[str], 
         import polars as pl
 
         keep = pl.all_horizontal([pl.col(hop_col) != pl.col(col) for col in earlier])
-        return state.filter(keep)  # type: ignore[arg-type]
+        return state.filter(keep)
     mask = state[hop_col] != state[earlier[0]]
     for col in earlier[1:]:
         mask &= state[hop_col] != state[col]
@@ -211,7 +211,7 @@ def _filter_compatible(frame: DataFrameT, filter_dict: Optional[dict]) -> bool:
                 return False  # absent name; the canonical path applies the 3VL verdict (#1916)
             resolved, resolved_value = resolved_pair
             series = (
-                frame.get_column(resolved)  # type: ignore[operator]
+                frame.get_column(resolved)
                 if "polars" in type(frame).__module__
                 else frame[resolved]
             )
@@ -239,7 +239,7 @@ def _filter_frame(
 
         # frame is DataFrameT (engine-neutral); on this branch it IS a polars frame,
         # which the helper's constrained TypeVar cannot see through the alias
-        return cast(DataFrameT, filter_by_dict_polars(frame, filter_dict))  # type: ignore[type-var]
+        return cast(DataFrameT, filter_by_dict_polars(frame, filter_dict))
     from graphistry.compute.filter_by_dict import filter_by_dict
 
     return filter_by_dict(frame, filter_dict, engine)  # type: ignore[arg-type]
@@ -272,7 +272,7 @@ def _take_filtered_rows(
         return _filter_frame(take_rows(frame, positions, engine), filter_dict, engine)
     predicate_cols = list(filter_dict)
     if engine == Engine.POLARS:
-        narrow = frame.select(predicate_cols)  # type: ignore[operator]
+        narrow = frame.select(predicate_cols)
     else:
         narrow = frame[predicate_cols]
     narrow = take_rows(narrow, positions, engine)
@@ -300,7 +300,7 @@ def _with_positions(
 
         return cast(
             DataFrameT,
-            frame.with_columns(pl.Series(name, np.asarray(positions))),  # type: ignore[operator]
+            frame.with_columns(pl.Series(name, np.asarray(positions))),
         )
     return cast(DataFrameT, frame.assign(**{name: positions}))
 
@@ -332,7 +332,7 @@ def _orient_edges(
         if isinstance(alias, str):
             renames = {col: f"{alias}.{col}" for col in payload}
         else:
-            work = work.select([src, dst, _EDGE_ORD])  # type: ignore[operator]
+            work = work.select([src, dst, _EDGE_ORD])
             renames = {}
 
         def one(from_col: str, to_col: str, orient: int) -> DataFrameT:
@@ -341,7 +341,7 @@ def _orient_edges(
                 out = out.rename(renames)
             return cast(
                 DataFrameT,
-                out.with_columns(pl.lit(orient).alias(_ORIENT_ORD)),  # type: ignore[operator]
+                out.with_columns(pl.lit(orient).alias(_ORIENT_ORD)),
             )
 
     else:
@@ -365,14 +365,14 @@ def _orient_edges(
         forward = one(src, dst, 0)
         reverse = one(dst, src, 1)
         if engine == Engine.POLARS:
-            reverse = reverse.select(forward.columns)  # type: ignore[operator]
+            reverse = reverse.select(forward.columns)
         combined = cast(DataFrameT, df_concat(engine)([forward, reverse], ignore_index=True))
         # A self-loop's two undirected orientations are the SAME binding: drop the per-ordinal twin.
         if _EDGE_ORD in combined.columns:
             if engine == Engine.POLARS:
                 combined = cast(  # hygiene-ok: explicit-cast -- DataFrameT narrowing, module-wide idiom
                     DataFrameT,
-                    combined.unique(  # type: ignore[operator]
+                    combined.unique(
                         subset=[_FROM, _TO, _EDGE_ORD], keep="first", maintain_order=True
                     ),
                 )
@@ -630,7 +630,7 @@ def _try_indexed_connected_bindings_state(
     if engine == Engine.POLARS:
         import polars as pl
 
-        state = first_nodes.select(pl.col(node_id).alias(_CURRENT))  # type: ignore[operator]
+        state = first_nodes.select(pl.col(node_id).alias(_CURRENT))
         if isinstance(first_alias, str):
             state = state.with_columns(pl.col(_CURRENT).alias(first_alias))
     else:
@@ -721,7 +721,7 @@ def _try_indexed_connected_bindings_state(
             if engine == Engine.POLARS:
                 import polars as pl
 
-                oriented = oriented.with_columns(pl.col(_EDGE_ORD).alias(hop_edge_col))  # type: ignore[operator]
+                oriented = oriented.with_columns(pl.col(_EDGE_ORD).alias(hop_edge_col))
             else:
                 oriented = oriented.assign(**{hop_edge_col: oriented[_EDGE_ORD]})
         expansion = plan_path_ordered_expand_join(
@@ -749,7 +749,7 @@ def _try_indexed_connected_bindings_state(
 
     if hop_edge_cols:
         if engine == Engine.POLARS:
-            state = state.drop(hop_edge_cols)  # type: ignore[operator]
+            state = state.drop(hop_edge_cols)
         else:
             state = state.drop(columns=hop_edge_cols)
 

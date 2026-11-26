@@ -1,5 +1,5 @@
 from graphistry.Plottable import Plottable, RenderModes, RenderModesConcrete
-from typing import Any, Callable, Dict, Iterable, List, Optional, Union, Tuple, cast, overload, TYPE_CHECKING
+from typing import Any, Callable, Dict, FrozenSet, Iterable, List, Optional, Union, Tuple, cast, overload, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from graphistry.compute.typing import DataFrameT
@@ -256,6 +256,9 @@ class PlotterBase(Plottable):
     _gfql_preserve_start_node_multiplicity: bool = False
     _gfql_rows_edge_aliases: Optional[Iterable[str]] = None
     _gfql_rows_node_aliases: Optional[Iterable[str]] = None
+    _gfql_search_any_categorical_columns: Dict[str, FrozenSet[str]] = {
+        "nodes": frozenset(), "edges": frozenset(),
+    }
     _gfql_shortest_path_backend: str = "auto"
     _g: Optional["Plottable"] = None  # set only on row-pipeline adapters
 
@@ -289,6 +292,9 @@ class PlotterBase(Plottable):
         self._cypher_entity_projection_kinds = None
         self._cypher_entity_projection_presence = {}
         self._cypher_entity_projection_meta = {}
+        self._gfql_search_any_categorical_columns = {
+            "nodes": frozenset(), "edges": frozenset(),
+        }
 
         # Bindings
         self._edges : Any = None
@@ -874,14 +880,14 @@ class PlotterBase(Plottable):
             raise ValueError(_TEXT_MAPPING_ERROR.format(method=method))
         return self.bind(**{_TEXT_BINDING_METHODS[method]: column})
 
-    encode_edge_size = partialmethod(_encode_mapped_property_method, "encode_edge_size")  # type: ignore[assignment]
-    encode_edge_weight = partialmethod(_encode_mapped_property_method, "encode_edge_weight")  # type: ignore[assignment]
-    encode_point_opacity = partialmethod(_encode_mapped_property_method, "encode_point_opacity")  # type: ignore[assignment]
-    encode_edge_opacity = partialmethod(_encode_mapped_property_method, "encode_edge_opacity")  # type: ignore[assignment]
-    encode_point_label = partialmethod(_encode_text_binding_method, "encode_point_label")  # type: ignore[assignment]
-    encode_edge_label = partialmethod(_encode_text_binding_method, "encode_edge_label")  # type: ignore[assignment]
-    encode_point_title = partialmethod(_encode_text_binding_method, "encode_point_title")  # type: ignore[assignment]
-    encode_edge_title = partialmethod(_encode_text_binding_method, "encode_edge_title")  # type: ignore[assignment]
+    encode_edge_size = partialmethod(_encode_mapped_property_method, "encode_edge_size")  # type: ignore[assignment, unused-ignore]
+    encode_edge_weight = partialmethod(_encode_mapped_property_method, "encode_edge_weight")  # type: ignore[assignment, unused-ignore]
+    encode_point_opacity = partialmethod(_encode_mapped_property_method, "encode_point_opacity")  # type: ignore[assignment, unused-ignore]
+    encode_edge_opacity = partialmethod(_encode_mapped_property_method, "encode_edge_opacity")  # type: ignore[assignment, unused-ignore]
+    encode_point_label = partialmethod(_encode_text_binding_method, "encode_point_label")  # type: ignore[assignment, unused-ignore]
+    encode_edge_label = partialmethod(_encode_text_binding_method, "encode_edge_label")  # type: ignore[assignment, unused-ignore]
+    encode_point_title = partialmethod(_encode_text_binding_method, "encode_point_title")  # type: ignore[assignment, unused-ignore]
+    encode_edge_title = partialmethod(_encode_text_binding_method, "encode_edge_title")  # type: ignore[assignment, unused-ignore]
 
 
     def encode_point_icon(
@@ -1914,6 +1920,9 @@ class PlotterBase(Plottable):
             _warn_unused_nodes_edges_args('nodes', 'nodes', args, kwargs)
             res = copy.copy(base)
             res._nodes = nodes
+            res._gfql_search_any_categorical_columns = {
+                **self._gfql_search_any_categorical_columns, "nodes": frozenset(),
+            }
         # for use in text_utils.py search index
         if hasattr(res, 'search_index'):
             delattr(res, 'search_index')  # reset so that g.search will rebuild index
@@ -2036,6 +2045,9 @@ class PlotterBase(Plottable):
             _warn_unused_nodes_edges_args('edges', 'edges', args, kwargs)
             res = copy.copy(base)
             res._edges = edges
+            res._gfql_search_any_categorical_columns = {
+                **self._gfql_search_any_categorical_columns, "edges": frozenset(),
+            }
 
         if res._dataset_id is not None:
             res._dataset_id = None
@@ -2088,6 +2100,9 @@ class PlotterBase(Plottable):
         res = copy.copy(self)
         res._edges = ig
         res._nodes = None
+        res._gfql_search_any_categorical_columns = {
+            "nodes": frozenset(), "edges": frozenset(),
+        }
         if res._dataset_id is not None:
             res._dataset_id = None
             res._url = None
@@ -2536,7 +2551,7 @@ class PlotterBase(Plottable):
         assert uploader is not None
         if skip_upload:
             return uploader
-        uploader.token = self.session.api_token  # type: ignore[assignment]
+        uploader.token = self.session.api_token  # type: ignore[assignment, unused-ignore]
         uploader.post(
             as_files=as_files,
             memoize=memoize,
@@ -3122,7 +3137,7 @@ class PlotterBase(Plottable):
             if df[col].dtype == object:
                 try:
                     if is_cudf:
-                        df[[col]].to_arrow()  # type: ignore[union-attr]
+                        df[[col]].to_arrow()
                     else:
                         pa.array(df[col], from_pandas=True)
                 except (pa.lib.ArrowTypeError, pa.lib.ArrowInvalid):
@@ -3146,7 +3161,7 @@ class PlotterBase(Plottable):
             if df[col].dtype == object:
                 try:
                     if is_cudf:
-                        df[[col]].to_arrow()  # type: ignore[union-attr]
+                        df[[col]].to_arrow()
                     else:
                         pa.array(df[col], from_pandas=True)
                 except (pa.lib.ArrowTypeError, pa.lib.ArrowInvalid):
@@ -3494,7 +3509,7 @@ class PlotterBase(Plottable):
                     raise ArrowConversionError(columns=bad_cols, original_error=e)
                 logger.debug('cuDF Arrow conversion failed, auto-coercing: %s', e)
                 table_fixed = self._coerce_mixed_type_columns(table, is_cudf=True, emit_warning=emit_warnings)
-                out = table_fixed.to_arrow()  # type: ignore[union-attr]
+                out = table_fixed.to_arrow()
 
             if memoize:
                 w = WeakValueWrapper(out)
@@ -3697,7 +3712,7 @@ class PlotterBase(Plottable):
                 'usertag': self.session._tag,
                 'agent': 'pygraphistry',
                 'apiversion' : '3',
-                'agentversion': sys.modules['graphistry'].__version__,  # type: ignore
+                'agentversion': sys.modules['graphistry'].__version__,
                 **(metadata or {})
             },
             certificate_validation=self._pygraphistry.certificate_validation())

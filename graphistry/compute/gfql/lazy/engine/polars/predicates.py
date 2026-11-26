@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING, Any, Callable, Dict, List, Mapping, Optional, 
 
 from graphistry.compute.predicates.ASTPredicate import ASTPredicate
 from graphistry.compute.predicates.is_in import IsIn
-from graphistry.compute.predicates.str import Contains, Endswith, Fullmatch, Match, Startswith
+from graphistry.compute.predicates.str import AlwaysNull, Contains, Endswith, Fullmatch, Match, Startswith, string_predicate_raises_on_nonstring
 from graphistry.compute.filter_by_dict import resolve_filter_column_or_absent
 from graphistry.compute.gfql.strictness import absent_column_matches
 from .dtypes import is_numeric as _dtype_numeric, is_stringlike as _dtype_stringlike
@@ -465,6 +465,9 @@ def predicate_to_expr(col: str, pred: ASTPredicate, dtype: "Optional[pl.DataType
             return expr.fill_null(False)
         return None
 
+    if dtype in (pl.Categorical, pl.Enum):
+        c = c.cast(pl.String)  # string accessors only: comparisons and membership keep the dictionary compare above
+
     if name == "Contains" and hasattr(pred, "pat") and isinstance(pred.pat, str):
         case = getattr(pred, "case", True)
         regex = getattr(pred, "regex", True)
@@ -669,10 +672,10 @@ def filter_by_dict_polars(df: "PolarsFrameT", filter_dict: "Optional[Dict[str, A
     """Return rows of polars ``df`` matching all entries in ``filter_dict`` via one filter."""
     small = _filter_small_equalities(df, filter_dict)
     if small is not None:
-        return small  # type: ignore[return-value]  # The helper admits only eager frames.
+        return small  # The helper admits only eager frames.
     eager = _filter_eager_equalities(df, filter_dict)
     if eager is not None:
-        return eager  # type: ignore[return-value]  # The helper admits only eager frames.
+        return eager  # The helper admits only eager frames.
     combined = filter_expr_by_dict_polars(df, filter_dict)
     if combined is None:
         return df
@@ -718,20 +721,28 @@ def filter_expr_by_dict_polars(df: "Union[pl.DataFrame, pl.LazyFrame]", filter_d
             # String predicate on a non-`String` column: pandas/cuDF raise a clean
             # GFQLSchemaError (E302) at schema validation, but polars would build `.str.<op>` and
             # raise an OPAQUE `InvalidOperationError` ("expected String type, got: cat") at collect
-            # on a Categorical/Enum/numeric column. Raise the SAME clean, typed error so all three
-            # engines agree (categorical is treated as non-string here, exactly as filter_by_dict).
-            if isinstance(resolved_val, (Contains, Startswith, Endswith, Match)):
+            # on a Categorical/Enum/numeric column. Raise the SAME clean, typed error so all
+            # engines agree (a native predicate treats categorical as non-string, exactly as filter_by_dict;
+            # a Cypher-lowered one decodes a categorical of strings and matches).
+            if isinstance(resolved_val, AlwaysNull):
+                exprs.append(pl.lit(None, dtype=pl.Boolean))
+                continue
+            if isinstance(resolved_val, (Contains, Startswith, Endswith, Match, Fullmatch)):
                 _col_dtype = _dtype_of(resolved_col)
                 if _col_dtype is not None and _col_dtype != pl.String:
-                    from graphistry.compute.exceptions import ErrorCode, GFQLSchemaError
-                    raise GFQLSchemaError(
-                        ErrorCode.E302,
-                        f'Type mismatch: string predicate used on non-string column "{resolved_col}"',
-                        field=col,
-                        value=f"{resolved_val.__class__.__name__}(...)",
-                        column_type=str(_col_dtype),
-                        suggestion='Use numeric predicates like gt() or lt() for numeric columns',
-                    )
+                    if string_predicate_raises_on_nonstring(resolved_val):  # the same rule as filter_by_dict and validate_schema
+                        from graphistry.compute.exceptions import ErrorCode, GFQLSchemaError
+                        raise GFQLSchemaError(
+                            ErrorCode.E302,
+                            f'Type mismatch: string predicate used on non-string column "{resolved_col}"',
+                            field=col,
+                            value=f"{resolved_val.__class__.__name__}(...)",
+                            column_type=str(_col_dtype),
+                            suggestion='Use numeric predicates like gt() or lt() for numeric columns',
+                        )
+                    if _col_dtype not in (pl.Categorical, pl.Enum):
+                        exprs.append(pl.lit(None, dtype=pl.Boolean))
+                        continue
             resolved_dtype = _dtype_of(resolved_col)
             if isinstance(resolved_val, IsIn) and _dtype_is_temporal(resolved_dtype):
                 expr = _temporal_membership_expr(
