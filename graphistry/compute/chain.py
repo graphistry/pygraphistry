@@ -1112,7 +1112,20 @@ def _chain_with_strictness(
                     "GFQL engine='polars-gpu' requires the RAPIDS cudf_polars stack (NVIDIA GPU). "
                     "Install RAPIDS/cudf_polars, or use engine='polars' for native CPU execution."
                 )
+    source_categorical_columns = None
+    if engine_concrete_early in POLARS_ENGINES:
+        from graphistry.compute.gfql.lazy.engine.polars.search import pandas_categorical_columns
+
+        source_categorical_columns = {
+            "nodes": pandas_categorical_columns(self._nodes),
+            "edges": pandas_categorical_columns(self._edges),
+        }
     self = _coerce_input_formats(self, engine_concrete_early)
+    if source_categorical_columns is not None and (
+        source_categorical_columns["nodes"] or source_categorical_columns["edges"]
+    ):
+        self = self.bind()
+        self._gfql_search_any_categorical_columns = source_categorical_columns
     if engine_concrete_early == Engine.PANDAS:
         self = ensure_local_engine_match(self, engine_concrete_early)
 

@@ -17,7 +17,7 @@ import inspect
 import operator
 import re
 from collections import OrderedDict
-from typing import TYPE_CHECKING, Any, Callable, Dict, List, Mapping, Optional, Sequence, Tuple, TypeVar, Union, cast
+from typing import TYPE_CHECKING, Any, Callable, Collection, Dict, FrozenSet, List, Mapping, Optional, Sequence, Tuple, TypeVar, Union, cast
 
 from typing_extensions import Literal, Protocol, assert_never
 
@@ -1376,12 +1376,18 @@ def _lower_with_schema_map(schema: "Mapping[str, pl.DataType]", fn: Callable[[],
         _NODE_ID.reset(node_id_token)
 
 
+def _source_categorical_columns(g: Plottable, entity_kind: str) -> FrozenSet[str]:
+    base_graph = g._gfql_rows_base_graph if g._gfql_rows_base_graph is not None else g
+    return base_graph._gfql_search_any_categorical_columns.get(entity_kind, frozenset())
+
+
 def _apply_alias_prefilters_polars(
     frame: "PolarsFrameT",
     alias: Optional[str],
     alias_prefilters: "Optional[AliasPrefilters]",
     *,
     reserved: Sequence[str] = (),
+    categorical_columns: Collection[str] = (),
 ) -> "PolarsFrameT":
     """Native twin of the pandas ``_gfql_apply_alias_prefilter`` (L4 single-alias predicate
     pushdown): pre-filter ONE alias's frame before the binding join. Same evaluator
@@ -1461,7 +1467,9 @@ def _apply_alias_prefilters_polars(
                     )
                 chosen = list(columns)
             else:
-                auto = auto_search_columns(schema, pool, term)
+                auto = auto_search_columns(
+                    schema, pool, term, categorical_columns=categorical_columns,
+                )
                 if auto is None:
                     raise _decline(f"searchAny prefilter spans an unrenderable dtype: {term!r}")
                 chosen = auto
@@ -1473,6 +1481,7 @@ def _apply_alias_prefilters_polars(
                 schema, chosen, term,
                 case_sensitive=bool(spec.get("case_sensitive", False)),
                 regex=bool(spec.get("regex", False)),
+                categorical_columns=categorical_columns,
             )
             if match is None:
                 raise _decline(f"searchAny prefilter not natively lowerable: {term!r}")
@@ -2131,7 +2140,10 @@ def _cartesian_node_bindings_polars(
         except Exception:  # pragma: no cover - defensive: unexpected filter failure declines
             return None
         # L4 pushdown twin of pandas `_gfql_cartesian_node_bindings_row_table`
-        matched = _apply_alias_prefilters_polars(matched, alias, alias_prefilters)  # honoured, never dropped (#1804)
+        matched = _apply_alias_prefilters_polars(
+            matched, alias, alias_prefilters,
+            categorical_columns=_source_categorical_columns(g, "nodes"),
+        )  # honoured, never dropped (#1804)
         cols = matched.collect_schema().names()
         # prop_cols excludes node_id and any real column named == alias; that column is
         # emitted once below as ``alias.alias``: the real user values when the column
@@ -2463,7 +2475,10 @@ def binding_rows_polars(
             seed_nodes = seed_nodes.join(seed_ids_lf, on=node_id, how="inner")
 
         # L4 pushdown twin of pandas `_gfql_connected_bindings_state`'s seed prefilter
-        seed_nodes = _apply_alias_prefilters_polars(seed_nodes, first_op._name, alias_prefilters)  # honoured, never dropped (#1804)
+        seed_nodes = _apply_alias_prefilters_polars(
+            seed_nodes, first_op._name, alias_prefilters,
+            categorical_columns=_source_categorical_columns(g, "nodes"),
+        )  # honoured, never dropped (#1804)
         if reentry_token_col is not None:
             hidden_cols = [
                 col for col in _names(seed_nodes)
@@ -2539,6 +2554,7 @@ def binding_rows_polars(
                 # pandas' per-hop edge prefilter twin; src/dst = join keys, never searched
                 edges_f = _apply_alias_prefilters_polars(
                     edges_f, edge_alias, alias_prefilters, reserved=(src, dst),
+                    categorical_columns=_source_categorical_columns(g, "edges"),
                 )
             if isinstance(edge_alias, str):
                 restore = shadow_restore_column(edge_alias)
@@ -2596,7 +2612,10 @@ def binding_rows_polars(
                 )
             next_nodes = filter_by_dict_polars(candidate_nodes, next_op.filter_dict)
             # pandas' endpoint prefilter twin: before the id set, so membership + alias frame agree
-            next_nodes = _apply_alias_prefilters_polars(next_nodes, next_op._name, alias_prefilters)
+            next_nodes = _apply_alias_prefilters_polars(
+                next_nodes, next_op._name, alias_prefilters,
+                categorical_columns=_source_categorical_columns(g, "nodes"),
+            )
             next_node_ids = next_nodes.select(node_id).unique()
             if not sem.is_multihop:
                 # Filter endpoint candidates before joining from the current state.
