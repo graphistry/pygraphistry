@@ -457,11 +457,15 @@ def test_the_ordinary_emoji_selector_is_not_a_flag_but_the_others_are():
     assert "variation-selector" in SU.sanitize("a\U000E0100b")[1]
 
 
-def test_benign_contributor_prose_has_no_injection_hints():
-    benign = (
-        "This pull request adds a typed helper and documents the expected output. "
-        "The example describes how the API works and links to the relevant design."
-    )
+@pytest.mark.parametrize("benign", [
+    "This pull request adds a typed helper and documents the expected output.",
+    "The assistant column is populated by the caller and tested as ordinary data.",
+    "A bot account appears in this fixture as a value from the example payload.",
+    "The tool field in the YAML describes an optional local extension.",
+    "The documentation explains the API and shows the returned rows in a table.",
+    "The test output includes a fence to illustrate Markdown formatting.",
+])
+def test_benign_contributor_prose_has_no_injection_hints(benign):
     clean, flags = SU.sanitize(benign)
     assert clean == benign
     assert flags == set()
