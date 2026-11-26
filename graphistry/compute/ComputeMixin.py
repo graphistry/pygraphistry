@@ -1,6 +1,6 @@
 import numpy as np
 import pandas as pd
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Sequence, Union
+from typing import TYPE_CHECKING, Any, Dict, FrozenSet, List, Optional, Sequence, Union
 from typing_extensions import Literal
 from graphistry.Engine import Engine, EngineAbstract, EngineAbstractType, POLARS_ENGINES, resolve_input_engine, df_to_engine, df_concat, safe_merge
 from graphistry.Plottable import Plottable
@@ -100,6 +100,17 @@ def _coerce_input_formats(g: "Plottable", engine: Engine) -> "Plottable":
             return 'polars' in type_mod
         return True
 
+    source_categorical_columns: Optional[Dict[str, FrozenSet[str]]] = None
+    if engine in POLARS_ENGINES:
+        from graphistry.compute.gfql.lazy.engine.polars.search import pandas_categorical_columns
+
+        source_categorical_columns = {
+            "nodes": g._gfql_search_any_categorical_columns["nodes"]
+            | pandas_categorical_columns(g._nodes),
+            "edges": g._gfql_search_any_categorical_columns["edges"]
+            | pandas_categorical_columns(g._edges),
+        }
+
     if g._edges is not None and not _is_already_correct(g._edges):
         g = g.edges(df_to_engine(g._edges, engine), g._source, g._destination)
     if g._nodes is not None and not _is_already_correct(g._nodes):
@@ -116,6 +127,11 @@ def _coerce_input_formats(g: "Plottable", engine: Engine) -> "Plottable":
             g = g.edges(_pl_nan_to_null(g._edges), g._source, g._destination)
         if g._nodes is not None and is_polars_df(g._nodes):
             g = g.nodes(_pl_nan_to_null(g._nodes), g._node)
+        # Restore source category names cleared by table rebinding.
+        if source_categorical_columns is not None:
+            result = g.bind()
+            result._gfql_search_any_categorical_columns = source_categorical_columns
+            return result
     return g
 
 
