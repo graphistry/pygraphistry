@@ -241,6 +241,13 @@ def test_the_automatic_gate_query_ignores_an_integer_categorical_on_pandas_and_c
     if engine == "cudf":
         if os.environ.get("TEST_CUDF") != "1":
             pytest.skip("cudf tests need TEST_CUDF=1")
+    elif engine == "polars":
+        pytest.importorskip("polars")
+    elif engine == "polars-gpu":
+        pytest.importorskip("polars")
+        pytest.importorskip("cudf_polars")
+        if os.environ.get("TEST_POLARS_GPU") != "1":
+            pytest.skip("requires actual polars-gpu")
     query = "MATCH (n) WHERE searchAny(n, '1') RETURN n.id AS id ORDER BY id"
     out = graphistry.nodes(_nodes(engine), "id").gfql(query, engine=engine)._nodes
     assert _ids(out) == [1]
