@@ -1889,7 +1889,7 @@ class RowPipelineMixin:
                     )
                     null_source_col = alias_name if alias_name in table_df.columns else alias_id_col
                     null_mask = self._gfql_null_mask(table_df, table_df[null_source_col])
-                    if hasattr(out, "where"):
+                    if is_series_like(out):
                         out = self._gfql_mask_fill(out, null_mask, None)
                     return True, out
                 if (
@@ -2487,6 +2487,10 @@ class RowPipelineMixin:
             return True, out.reset_index(drop=True)
 
         if isinstance(node, ListComprehension):
+            # Decline labels() list-comprehension sources until their semantics are fully lowered.
+            source = node.source
+            if isinstance(source, FunctionCall) and source.name.lower() == "labels":
+                return False, None
             projection = node.projection
             projection_consumes_var = False
 
@@ -2512,7 +2516,7 @@ class RowPipelineMixin:
                 )
             ):
                 return False, None
-            source_ok, list_value = self._gfql_eval_expr_ast(table_df, node.source)
+            source_ok, list_value = self._gfql_eval_expr_ast(table_df, source)
             if not source_ok:
                 return False, None
             list_series = (

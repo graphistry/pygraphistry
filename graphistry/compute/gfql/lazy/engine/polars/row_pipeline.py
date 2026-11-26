@@ -778,6 +778,15 @@ def lower_expr(node: ExprNode, columns: Sequence[str]) -> Optional[pl.Expr]:
                 return None
         else:
             return None
+        alias = node.value.name
+        # Bare-property fallback is safe only for Boolean entity markers, not map columns.
+        if (
+            f"{alias}.{key}" not in columns
+            and key != alias
+            and key != _NODE_ID_TOKEN
+            and _SCHEMA.get().get(alias) != pl.Boolean
+        ):
+            return None
         return lower_expr(PropertyAccessExpr(node.value, key), columns)
     if isinstance(node, Identifier):
         if node.name in columns:

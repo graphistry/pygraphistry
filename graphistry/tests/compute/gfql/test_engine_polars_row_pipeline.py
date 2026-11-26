@@ -9,6 +9,7 @@ import pandas as pd
 import pytest
 
 import graphistry
+from graphistry.compute.exceptions import GFQLUnsupportedError, GFQLValidationError
 
 pl = pytest.importorskip("polars")
 
@@ -108,11 +109,14 @@ LABEL_QUERIES = [
     "MATCH (n) RETURN labels(n) AS labels",
     "MATCH (n) RETURN labels(n)",
     "MATCH (n) WITH labels(n) AS labels RETURN labels",
-    "MATCH (n) RETURN DISTINCT labels(n) AS labels",
     "MATCH (n) WHERE size(labels(n)) > 0 RETURN labels(n) AS labels",
+    "OPTIONAL MATCH (n:Missing) RETURN labels(n) AS labels",
+]
+
+LABEL_AGGREGATE_QUERIES = [
+    "MATCH (n) RETURN DISTINCT labels(n) AS labels",
     "MATCH (n) RETURN collect(labels(n)) AS labels",
     "MATCH (n) RETURN labels(n) AS labels, count(*) AS count",
-    "MATCH (a), (b) WHERE a.id = 1 AND b.id = 2 RETURN labels(a) AS a_labels, labels(b) AS b_labels",
 ]
 
 
@@ -127,6 +131,23 @@ def engine(request):
         if os.environ.get("TEST_POLARS_GPU") != "1":
             pytest.skip("requires actual polars-gpu")
     return request.param
+
+
+def test_labels_in_list_comprehension_remains_plan_time_declined(engine):
+    """The labels projection feature must not partially enable an unsupported TCK expression."""
+    nodes = pd.DataFrame({
+        "id": [0, 1, 2],
+        "name": ["c", None, None],
+        "label__A": [True, False, False],
+        "label__B": [False, True, False],
+        "label__C": [False, False, True],
+    })
+    edges = pd.DataFrame({"src": [0, 0], "dst": [1, 2]})
+    graph = graphistry.nodes(nodes, "id").edges(edges, "src", "dst")
+    query = "MATCH (n)-->(b) WHERE n.name IN [x IN labels(b) | toLower(x)] RETURN b"
+
+    with pytest.raises((GFQLValidationError, NotImplementedError)):
+        graph.gfql(query, engine=engine)
 
 
 def _labels_frame(engine, kind):
@@ -186,6 +207,26 @@ def test_labels_projection_matches_pandas_in_every_lowering_chokepoint(engine, k
         expected = normalized(oracle.gfql(query, engine="pandas")._nodes)
         actual = normalized(actual_graph.gfql(query, engine=engine)._nodes)
         assert list(actual.columns) == list(expected.columns), query
+        pd.testing.assert_frame_equal(actual, expected, check_dtype=False, check_index_type=False)
+
+    for query in LABEL_AGGREGATE_QUERIES:
+        expected = normalized(oracle.gfql(query, engine="pandas")._nodes)
+        try:
+            actual = normalized(actual_graph.gfql(query, engine=engine)._nodes)
+        except GFQLUnsupportedError as error:
+            assert engine == "polars-gpu", query
+            assert "cannot execute this aggregation" in str(error), query
+            continue
+        assert list(actual.columns) == list(expected.columns), query
+        pd.testing.assert_frame_equal(actual, expected, check_dtype=False, check_index_type=False)
+
+    alias_query = "MATCH (a), (b) WHERE a.id = 1 AND b.id = 2 RETURN labels(a) AS a_labels, labels(b) AS b_labels"
+    if engine == "polars-gpu":
+        with pytest.raises(NotImplementedError):
+            actual_graph.gfql(alias_query, engine=engine)
+    else:
+        expected = normalized(oracle.gfql(alias_query, engine="pandas")._nodes)
+        actual = normalized(actual_graph.gfql(alias_query, engine=engine)._nodes)
         pd.testing.assert_frame_equal(actual, expected, check_dtype=False, check_index_type=False)
 
 
