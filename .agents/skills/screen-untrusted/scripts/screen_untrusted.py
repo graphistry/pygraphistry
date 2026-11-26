@@ -14,7 +14,7 @@ What it writes into DIR (every file name is generated here, never taken from the
   diff.txt                (pr) helper-made classification of the diff; the diff itself is never rewritten or printed
   manifest.json           item id -> sha256 and the screened head, for --since catch-up
 
-A hint raises attention; "no hint" is never a pass. See .agents/skills/review/SKILL.md ("Outside-PR screen").
+A hint raises attention; "no hint" is never a pass. Regexes and hints only triage: the AI reviewer MUST read and judge the natural-language text. See .agents/skills/screen-untrusted/SKILL.md.
 """
 from __future__ import annotations
 

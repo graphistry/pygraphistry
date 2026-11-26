@@ -10,7 +10,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Docs
 
-- **Untrusted-text screen**: `.agents/skills/review/scripts/screen_untrusted.py` collects, sanitizes, marks and chunks every outside-authored text of a pull request or issue (catch-up mode with `--since`); the review skill's outside-PR screen now uses it with a reader protocol (action lock, fixed-field screen record), the plan skill points to the catch-up rule, and `graphistry/tests/test_review_screen_untrusted.py` holds the pressure tests.
+- **Untrusted-text screen**: move the contribution-screen procedure and helper to `.agents/skills/screen-untrusted/`; require AI reviewers to read the natural-language text, and report screen scope, evidence, findings, and non-findings. Add benign prose coverage to the helper tests.
+
+- **Contributor docs** (#2391): explain focused core changes, room for larger tests/infrastructure/docs and stacked pull requests, before-state test evidence, performance-test handoff, draft feedback, and sharing out-of-scope nits; update community chat guidance to Discord.
+
 - **Contributor path (#2391)**: `CONTRIBUTING.md` is rewritten as the entry point for a first contribution (claim an issue, branch from `develop`, the local checks, the engine matrix, the benchmark expectation, pull request size, what CI does on a fork pull request, AI-assisted pull requests); each of `CONTRIBUTING.md`, `AGENTS.md`, `DEVELOP.md`, `ARCHITECTURE.md`, `CLAUDE.md` and `ai/README.md` says at the top who it is for (people follow `CONTRIBUTING.md`, coding agents follow `.agents/skills/contribute/SKILL.md` and `AGENTS.md`); `AGENTS.md` gains a "First Contribution" pointer to that skill and the outside-pull-request trust rule; the pull request template asks for the claimed issue, engines tested, a benchmark and an AI-assistance line; the bug and feature templates become issue forms, with a contributor-ready form and a config linking the community Discord; `benchmarks/gfql/README.md` gains a before-and-after recipe; the `plan` and `review` skills start with an outside-pull-request screen.
 
 ### New Contributors
@@ -19,6 +22,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - Welcome to new contributor @vikingps (Vikas), who made their first contribution in #2358 (experimental bounded Parquet traversal for GFQL `.hop()`).
 
 ### Added
+
+- **Contributor guidance** (#2391): the coding-agent contribution flow clarifies the scope of “small,” before-state test evidence, performance-test handoff, draft review, and sharing out-of-scope nits; community chat points to Discord.
 
 - **`./bin/check-gfql.sh`** (#2391): one command for a GFQL change: lint, types, the GFQL tests on pandas and the Polars lane, with `--changed` (only your test files), `--cudf` and `--polars-gpu` (GPU engines), `--no-lint` and `--dry-run`; `docs/contributing/gfql-gpu-colab.md` is the local-GPU and free-Colab-T4 path for the GPU engines; `.agents/skills/contribute/SKILL.md` is the first-contribution flow for coding agents (the cost ladder, the engine table, what to paste in the pull request).
 

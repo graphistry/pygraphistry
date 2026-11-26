@@ -1,4 +1,4 @@
-"""Pressure tests for the outside-text screen helper (.agents/skills/review/scripts/screen_untrusted.py).
+"""Pressure tests for the outside-text screen helper (.agents/skills/screen-untrusted/scripts/screen_untrusted.py).
 
 All fixtures are synthetic. The helper is exercised through a fake `gh` runner; nothing here touches the network.
 """
@@ -9,7 +9,7 @@ import os
 import pytest
 
 HELPER_PATH = os.path.join(
-    os.path.dirname(__file__), "..", "..", ".agents", "skills", "review", "scripts", "screen_untrusted.py"
+    os.path.dirname(__file__), "..", "..", ".agents", "skills", "screen-untrusted", "scripts", "screen_untrusted.py"
 )
 
 pytestmark = pytest.mark.skipif(not os.path.exists(HELPER_PATH), reason="screen helper not present in this checkout")
@@ -455,6 +455,17 @@ def test_the_ordinary_emoji_selector_is_not_a_flag_but_the_others_are():
     assert "variation-selector" not in SU.sanitize("thumbs up \U0001F44D\ufe0f")[1]
     assert "variation-selector" in SU.sanitize("a\ufe0eb")[1]
     assert "variation-selector" in SU.sanitize("a\U000E0100b")[1]
+
+
+def test_benign_contributor_prose_has_no_injection_hints():
+    benign = (
+        "This pull request adds a typed helper and documents the expected output. "
+        "The example describes how the API works and links to the relevant design."
+    )
+    clean, flags = SU.sanitize(benign)
+    assert clean == benign
+    assert flags == set()
+    assert SU.hints_for(clean) == []
 
 
 def test_the_index_prints_the_neutralized_item_id(tmp_path):
