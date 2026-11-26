@@ -78,6 +78,7 @@ def _serving_engine_base_graph(base_graph: Plottable, engine: Union[EngineAbstra
     from graphistry.compute.ComputeMixin import _coerce_input_formats
     abstract = EngineAbstract(engine) if isinstance(engine, str) else engine
     g = _coerce_input_formats(base_graph, resolve_engine(abstract, base_graph))
+    source_categorical_columns = g._gfql_search_any_categorical_columns
     if g._nodes is not None and _is_polars_df(g._nodes):
         from graphistry.compute.gfql.lazy.engine.polars.dtypes import is_lazy
         if is_lazy(g._nodes):
@@ -86,6 +87,9 @@ def _serving_engine_base_graph(base_graph: Plottable, engine: Union[EngineAbstra
         from graphistry.compute.gfql.lazy.engine.polars.dtypes import is_lazy
         if is_lazy(g._edges):
             g = g.edges(g._edges.collect(), g._source, g._destination)
+    if source_categorical_columns["nodes"] or source_categorical_columns["edges"]:
+        g = g.bind()
+        g._gfql_search_any_categorical_columns = source_categorical_columns
     return g
 
 

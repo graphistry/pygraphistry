@@ -105,7 +105,15 @@ def search_match_expr(schema: "Mapping[str, pl.DataType]", chosen: Sequence[str]
     exprs = []
     for real in chosen:
         dt = schema[real]
-        if real in categorical_columns or _is_categorical_dtype(dt):
+        if dt == pl.Boolean:
+            # pandas categorical.astype(str) renders booleans with title case.
+            # Keep null cells null so they cannot match either spelling.
+            base = (
+                pl.when(pl.col(real).is_null()).then(pl.lit(None, dtype=pl.String))
+                .when(pl.col(real)).then(pl.lit("True"))
+                .otherwise(pl.lit("False"))
+            )
+        elif real in categorical_columns or _is_categorical_dtype(dt):
             base = pl.col(real).cast(pl.String)
         elif dt == pl.String:
             base = pl.col(real)
@@ -117,14 +125,6 @@ def search_match_expr(schema: "Mapping[str, pl.DataType]", chosen: Sequence[str]
             # native on purpose: a device must not change the answer
             from graphistry.compute.gfql.wysiwyg import datetime_render_expr_polars
             base = datetime_render_expr_polars(pl.col(real), dt)
-        elif dt == pl.Boolean:
-            # null cells must STAY null (never match) — bare when/otherwise would
-            # send null conditions to the 'False' branch
-            base = (
-                pl.when(pl.col(real).is_null()).then(pl.lit(None, dtype=pl.String))
-                .when(pl.col(real)).then(pl.lit("True"))
-                .otherwise(pl.lit("False"))
-            )
         else:
             base = pl.col(real).cast(pl.String)
         if regex:

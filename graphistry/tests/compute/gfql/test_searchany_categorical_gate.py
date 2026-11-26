@@ -277,16 +277,10 @@ def test_automatic_categorical_search_matches_pandas_on_all_query_engines(
     assert run(negative) == []
 
 
-@pytest.mark.parametrize("kind,term,expected", [
-    ("datetime", "1", [0, 2]),
-    ("str", "a", [0, 2]),
-])
-def test_explicit_datetime_and_string_categorical_matches_or_declines_by_name(
-    query_engine, kind, term, expected,
-):
-    pdf = pd.DataFrame({"id": [0, 1, 2], "cat": CATEGORICALS[kind]})
+def test_explicit_datetime_categorical_matches_or_declines_by_name(query_engine):
+    pdf = pd.DataFrame({"id": [0, 1, 2], "cat": CATEGORICALS["datetime"]})
     query = (
-        f"MATCH (n) WHERE searchAny(n, '{term}', {{columns: ['cat']}}) "
+        "MATCH (n) WHERE searchAny(n, '1', {columns: ['cat']}) "
         "RETURN n.id AS id ORDER BY id"
     )
     converted_frame = _frame(pdf, query_engine)
@@ -297,9 +291,9 @@ def test_explicit_datetime_and_string_categorical_matches_or_declines_by_name(
         # rendering remains unsupported; the probe captures each engine's error text.
         assert str(exc)
         return
-    assert _ids(out) == expected, (
-        f"{query_engine}/{kind}: converted schema={_schema(converted_frame)!r}; "
-        f"rows={_ids(out)!r}, pandas={expected!r}"
+    assert _ids(out) == [0, 2], (
+        f"{query_engine}/datetime: converted schema={_schema(converted_frame)!r}; "
+        f"rows={_ids(out)!r}, pandas={[0, 2]!r}"
     )
 
 
@@ -369,3 +363,132 @@ def test_explicit_categorical_search_positive_and_negative_on_all_query_engines(
         assert not decline_expected, f"{query_engine}/{kind} was required to decline by name"
         assert actual_positive == positive_rows
         assert actual_negative == []
+
+
+@pytest.mark.parametrize("engine", QUERY_ENGINES)
+def test_explicit_bool_categorical_preserves_pandas_case_sensitive_spelling(engine):
+    pdf = pd.DataFrame({"id": [0, 1, 2], "cat": CATEGORICALS["bool"]})
+    query = (
+        "MATCH (n) WHERE searchAny(n, 'True', {columns: ['cat'], caseSensitive: true}) "
+        "RETURN n.id AS id ORDER BY id"
+    )
+    if engine == "cudf":
+        with pytest.raises(NotImplementedError, match="cuDF searchAny explicit columns"):
+            graphistry.nodes(pdf, "id").gfql(query, engine=engine)
+        return
+    actual = graphistry.nodes(pdf, "id").gfql(query, engine=engine)._nodes
+    assert _ids(actual) == [0, 2]
+
+    lower_query = query.replace("'True'", "'true'")
+    lower = graphistry.nodes(pdf, "id").gfql(lower_query, engine=engine)._nodes
+    assert _ids(lower) == []
+
+
+@pytest.mark.parametrize("engine", QUERY_ENGINES)
+def test_or_search_preserves_categorical_metadata_for_row_pipeline(engine):
+    pdf = pd.DataFrame({"id": [0, 1, 2], "cat": CATEGORICALS["int"]})
+    query = "MATCH (n) WHERE searchAny(n, '1') OR n.id = 99 RETURN n.id AS id ORDER BY id"
+    actual = graphistry.nodes(pdf, "id").gfql(query, engine=engine)._nodes
+    assert _ids(actual) == [1]
+
+
+@pytest.mark.parametrize("engine", QUERY_ENGINES)
+def test_with_match_reentry_preserves_automatic_categorical_gate(engine):
+    pdf = pd.DataFrame({"id": [0, 1, 2, 99], "cat": pd.Categorical([1, 2, 1, 2])})
+    query = (
+        "MATCH (a) WHERE a.id = 99 WITH a MATCH (n) WHERE searchAny(n, '1') "
+        "RETURN n.id AS id ORDER BY id"
+    )
+    actual = graphistry.nodes(pdf, "id").gfql(query, engine=engine)._nodes
+    assert _ids(actual) == [1]
+
+
+@pytest.mark.parametrize("engine", ["polars", "polars-gpu"])
+def test_with_match_reentry_keeps_explicit_datetime_categorical_decline(engine):
+    pytest.importorskip("polars")
+    if engine == "polars-gpu":
+        pytest.importorskip("cudf_polars")
+        if os.environ.get("TEST_POLARS_GPU") != "1":
+            pytest.skip("requires actual polars-gpu")
+    pdf = pd.DataFrame({"id": [0, 1, 2], "cat": CATEGORICALS["datetime"]})
+    query = (
+        "MATCH (a) WITH a MATCH (n) WHERE searchAny(n, '2021', {columns: ['cat']}) "
+        "RETURN n.id AS id"
+    )
+    with pytest.raises(NotImplementedError, match="datetime categorical"):
+        graphistry.nodes(pdf, "id").gfql(query, engine=engine)
+
+
+@pytest.mark.parametrize("engine", ["polars", "polars-gpu"])
+def test_polars_coercion_captures_pandas_node_and_edge_categoricals(engine):
+    pytest.importorskip("polars")
+    from graphistry.Engine import Engine
+    from graphistry.compute.ComputeMixin import _coerce_input_formats
+
+    target = Engine.POLARS
+    if engine == "polars-gpu":
+        pytest.importorskip("cudf_polars")
+        if os.environ.get("TEST_POLARS_GPU") != "1":
+            pytest.skip("requires actual polars-gpu")
+        target = Engine.POLARS_GPU
+    nodes = pd.DataFrame({"id": [0, 1, 2], "cat": CATEGORICALS["int"]})
+    edges = pd.DataFrame({
+        "src": [0, 1], "dst": [1, 2], "cat": pd.Categorical([1, 2]),
+    })
+    source = graphistry.nodes(nodes, "id").edges(edges, "src", "dst")
+
+    coerced = _coerce_input_formats(source, target)
+
+    assert coerced._gfql_search_any_categorical_columns == {
+        "nodes": frozenset({"cat"}), "edges": frozenset({"cat"}),
+    }
+
+
+@pytest.mark.parametrize("engine", ["polars", "polars-gpu"])
+def test_polars_reentry_collect_preserves_source_categorical_metadata(engine):
+    pl = pytest.importorskip("polars")
+    from graphistry.Engine import Engine
+    from graphistry.compute.gfql.cypher.reentry.execution import _serving_engine_base_graph
+
+    target = Engine.POLARS
+    if engine == "polars-gpu":
+        pytest.importorskip("cudf_polars")
+        if os.environ.get("TEST_POLARS_GPU") != "1":
+            pytest.skip("requires actual polars-gpu")
+        target = Engine.POLARS_GPU
+    nodes = pd.DataFrame({"id": [0, 1, 2], "cat": CATEGORICALS["int"]})
+    edges = pd.DataFrame({
+        "src": [0, 1], "dst": [1, 2], "cat": pd.Categorical([1, 2]),
+    })
+    graph = graphistry.nodes(pl.from_pandas(nodes).lazy(), "id").edges(
+        pl.from_pandas(edges).lazy(), "src", "dst",
+    )
+    graph = graph.bind()
+    graph._gfql_search_any_categorical_columns = {
+        "nodes": frozenset({"cat"}), "edges": frozenset({"cat"}),
+    }
+
+    served = _serving_engine_base_graph(graph, target)
+
+    assert served._gfql_search_any_categorical_columns == {
+        "nodes": frozenset({"cat"}), "edges": frozenset({"cat"}),
+    }
+
+
+@pytest.mark.parametrize("engine", QUERY_ENGINES)
+def test_edge_search_preserves_automatic_categorical_gate(engine):
+    nodes = pd.DataFrame({"id": [0, 1, 2]})
+    edges = pd.DataFrame({
+        "src": [0, 1, 2], "dst": [1, 2, 0], "id": ["edge-a", "edge-b", "edge-c"],
+        "cat": pd.Categorical([1, 2, 1]),
+    })
+    query = "MATCH (a)-[r]->(b) WHERE searchAny(r, '1') RETURN r.id AS id ORDER BY id"
+    try:
+        actual = graphistry.nodes(nodes, "id").edges(edges, "src", "dst").bind(edge="id").gfql(
+            query, engine=engine,
+        )._nodes
+    except NotImplementedError as exc:
+        assert engine == "polars-gpu" and "not fully GPU-executable" in str(exc), exc
+        return
+    actual = actual.to_pandas() if hasattr(actual, "to_pandas") else actual
+    assert list(actual["id"]) == []
