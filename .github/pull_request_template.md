@@ -1,7 +1,7 @@
 ## Summary
 
 - [ ] Linked issue(s): `Closes #...` (the issue you claimed)
-- [ ] Scope is explicit (non-goals included when relevant); one topic, about 400 changed lines or 10 files at most
+- [ ] Scope is explicit (non-goals included when relevant); core code is focused, with larger tests, infrastructure, or documentation explained where needed
 - [ ] Base branch: `develop` for features and fixes; `master` only for a hotfix (say why); docs-only is fine on `develop`
 - [ ] AI assistance: this pull request was written with the help of an AI coding agent (yes / no, and which)
 
@@ -11,7 +11,7 @@ Paste the commands you ran and the last lines of their output (not just a tick).
 
 - [ ] `./bin/lint.sh` passes
 - [ ] `./bin/typecheck.sh` passes
-- [ ] The test that failed before this change and passes after it (name it: `path::test_name`; a fix or a feature needs one), and the tests for the touched area still pass: `./bin/pytest.sh <path>` or `./bin/check-gfql.sh` for GFQL
+- [ ] Proof that the named test (`path::test_name`) failed before and passes after this change; and the tests for the touched area still pass: `./bin/pytest.sh <path>` or `./bin/check-gfql.sh` for GFQL
 - [ ] `CHANGELOG.md` has a line for this change
 
 ## Engines tested (GFQL changes: `graphistry/compute/`, `graphistry/tests/compute/gfql/`)
@@ -22,13 +22,15 @@ Paste the commands you ran and the last lines of their output (not just a tick).
 - [ ] polars-gpu (`./bin/check-gfql.sh --polars-gpu`, or "no GPU: maintainers please cover")
 - [ ] New tests run on every engine the change can affect
 
-## Benchmark (required when a GFQL change can affect performance or memory; otherwise write "n/a")
+## Performance (required for hot-path changes or added per-row/per-edge work; otherwise write "n/a")
 
 Before and after on the changed case and on two paths you did not change, from the recipe in `benchmarks/gfql/README.md`:
 
 ```
 (paste the table here)
 ```
+
+If you added a performance test that is disabled or skipped in ordinary CI, include it in this pull request so maintainers can selectively port it to the performance suite.
 
 ## Cypher Frontend CI Evidence (only when the PR touches `graphistry/compute/gfql/cypher/` or the IR; otherwise leave unchecked)
 

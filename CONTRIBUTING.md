@@ -10,7 +10,7 @@ We follow [The Apache Software Foundation's code of conduct](https://www.apache.
 
 ## Chat
 
-GitHub issues and pull requests are the record: decisions live there so they stay searchable. For quick questions and talking an idea over first, join the community Discord: <https://discord.gg/JAnyW3JqCD>.
+Prefer async discussion on GitHub issues and pull requests so decisions stay searchable. For faster chat, join [Discord](https://discord.gg/wK7mMpeQVF) in `#general` or `#gfql`.
 
 ## Your first contribution
 
@@ -18,7 +18,7 @@ GitHub issues and pull requests are the record: decisions live there so they sta
 2. **Branch from `develop`.** The integration branch is `develop`, not `master`. Open your pull request against `develop`. Name the branch `fix/<issue>-<topic>`, `feat/<topic>`, `docs/<topic>` or `infra/<topic>`: `git fetch origin && git switch -c fix/614-short-topic origin/develop`. Working from a fork? Your `origin` is your own copy and its `develop` may be stale: sync the fork on GitHub first, or fetch the main repository instead: `git fetch https://github.com/graphistry/pygraphistry.git develop && git switch -c fix/614-short-topic FETCH_HEAD`.
 3. **Set up.** From a clone: `pip install -e ".[test,polars]"`, then check it worked: `python -c "import graphistry, polars, pytest"`. More detail, Docker and GPU setup are in [DEVELOP.md](DEVELOP.md).
 4. **Check before you push.** `./bin/lint.sh` is the whole lint gate (ruff plus the type-hygiene and comment-density ratchets; bare `ruff` is not enough), `./bin/typecheck.sh` runs mypy, and `./bin/check-gfql.sh` runs lint, types and the GFQL tests on pandas and Polars in one go. While you work, run just your test file (`./bin/pytest.sh path/to/test_file.py`); before you push, run `./bin/check-gfql.sh` for a GFQL change (`--changed` is the fast version: it narrows only the pandas step to the test files you added or changed, and runs the whole GFQL test tree when you changed no test file; the Polars lane always runs in full). Tests are exempt from the type-hygiene rules, not from review.
-5. **Open the pull request.** Open it as a **draft**, fill in the template (the issue it closes, what you ran, which engines, the test that failed before your change and passes after it), then mark it ready for review when the template is complete. Add a line to `CHANGELOG.md` under `Development`, under the heading that fits: `Added`, `Fixed`, `Changed`, `Docs`, `Tests`, `Infra`, `Performance` or `Breaking`.
+5. **Open the pull request.** Open it as a **draft** and fill in the template (the issue it closes, what you ran, which engines, and proof that the named test failed before your change and passes after it). Mark it ready when you want review; you can still get feedback while it is a draft. Add a line to `CHANGELOG.md` under `Development`, under the heading that fits: `Added`, `Fixed`, `Changed`, `Docs`, `Tests`, `Infra`, `Performance` or `Breaking`.
 6. **Reviewers amplify.** Once your baseline is shown, maintainers run the wider matrix (more Python versions, GPU engines) and review.
 
 ### GFQL changes: engines
@@ -36,11 +36,15 @@ No GPU? A free Colab T4 runs the GPU engines: see [the GPU notebook path](docs/c
 
 ### GFQL changes that can affect performance
 
-This applies when you change a hot path (hop and chain execution, the Cypher row pipeline, the fast paths, engine dispatch) or add work per row or per edge; a rename, a message or a test-only change does not need one (write "n/a" in the template). Show a before and after on the case you changed and on two paths you did not (the regular path and an inactive or unrelated path), so a speedup in one place is not a regression in another. The recipe and what to paste into the pull request are in [benchmarks/gfql/README.md](benchmarks/gfql/README.md#contributor-before-and-after-recipe). Performance and memory issues that need the full benchmark suite are filed with maintainers, who run it for you.
+For a GFQL change on a hot path (hop and chain execution, the Cypher row pipeline, fast paths, engine dispatch) or one that adds work per row or edge, include before-and-after measurements for the changed case and two unaffected paths. A rename, message, or test-only change does not need one (write "n/a" in the template). If you add a performance test that is disabled or skipped in ordinary CI, include it in the pull request so maintainers can selectively port it to the performance suite. See the [benchmark recipe](benchmarks/gfql/README.md#contributor-before-and-after-recipe). For performance and memory issues requiring the full suite, open an issue; maintainers will run it.
 
 ### Pull request size
 
-Smaller is faster to review and to merge. One topic per pull request. As a guide, stay under about 400 changed lines or 10 files, tests included; if a fix needs more, split it and say how in the description. A narrow fix that touches dozens of files will be asked to split.
+Keep core code changes focused, usually about 400 changed lines or 10 files at most. Tests, infrastructure, and documentation may be much larger when the work needs it. Some changes should be bigger or split into a stack of pull requests; explain the shape in the proposal. Avoid unrelated edits. If you encounter a useful nit outside the change, share it separately as a patch, note, or draft pull request instead of expanding the scope.
+
+### Drafts and feedback
+
+Mark a pull request ready when you want review. You can ask questions and get feedback while it is still a draft.
 
 ### What CI does on a fork pull request
 

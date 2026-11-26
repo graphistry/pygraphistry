@@ -1,5 +1,7 @@
 # GFQL Benchmarks
 
+For contributor changes, benchmark hot-path work with before-and-after measurements on the changed case and two unaffected paths. If you add a performance test that is disabled or skipped in ordinary CI, include it in the pull request so maintainers can selectively port it to this performance suite.
+
 Manual-only scripts for local performance checks. A subset runs in CI on GFQL changes.
 
 Summary results go into `benchmarks/gfql/RESULTS.md` (raw outputs stay in `plans/`).
