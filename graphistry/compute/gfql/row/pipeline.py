@@ -4,14 +4,17 @@ import math
 from decimal import Decimal, InvalidOperation
 import numpy as np
 import numbers
+import operator
 import re
 import warnings
 from functools import lru_cache
 from types import ModuleType
-from typing import TYPE_CHECKING, Any, Callable, Dict, Iterable, List, Literal, Mapping, NoReturn, Optional, Sequence, Tuple, cast
+from typing import TYPE_CHECKING, Any, Callable, Dict, Iterable, List, Literal, Mapping, NoReturn, Optional, Sequence, Set, Tuple, Union, cast
 
 import pandas as pd
 from graphistry.Engine import (
+    df_concat,
+    is_cudf_series,
     is_polars_df,
     df_to_engine,
     null_column,
@@ -38,6 +41,7 @@ from graphistry.compute.dataframe_utils import (
 )
 from graphistry.compute.gfql.call.support import AggSpec
 from graphistry.compute.gfql.row import frame_ops as row_frame_ops
+from graphistry.compute.predicates.str import _str_ops_series
 from graphistry.compute.gfql.row.prefilter import AliasPrefilters
 from graphistry.compute.typing import DataFrameT, SeriesT
 from graphistry.utils.json import JSONVal
@@ -146,6 +150,8 @@ GFQLParseExprFn = Callable[[str], "ExprNode"]
 GFQLValidateExprFn = Callable[["ExprNode"], List[str]]
 GFQLRuntimeParserBundle = Tuple[GFQLParseExprFn, GFQLValidateExprFn, ModuleType]
 _GFQL_MISSING_BOOL_OPERAND = object()
+_GFQL_STRING_PREDICATE_PAIR_OPS: Dict[str, Callable[[str, str], bool]] = {"contains": operator.contains, "starts_with": str.startswith, "ends_with": str.endswith}  # (left, right) -> bool
+_GFQL_STRING_PREDICATE_MAX_PATTERNS = 4096  # cuDF: distinct column patterns answered before it declines by name; pandas has no cap
 _INT64_MIN = -(2**63)
 _INT64_LIMIT_HIGH = 2**63
 _INT64_MIN_AS_FLOAT = float(_INT64_MIN)
@@ -493,6 +499,15 @@ class RowPipelineMixin:
     def _gfql_has_bindings_alias_prefix(table_df: Any, alias: str) -> bool:
         prefix = f"{alias}."
         return any(isinstance(col, str) and col.startswith(prefix) for col in table_df.columns)
+
+    def _gfql_alias_marker_like(self, table_df: DataFrameT, name: str) -> bool:
+        """A boolean column that is a MATCH alias marker, not a boolean value projected by a WITH."""
+        if not RowPipelineMixin._gfql_series_bool_like(table_df[name]):
+            return False
+        node_aliases, edge_aliases = self._gfql_rows_node_aliases, self._gfql_rows_edge_aliases
+        if node_aliases is None and edge_aliases is None:
+            return True  # alias identity is not carried on this frame: keep the column-value inference
+        return name in set(node_aliases or ()) | set(edge_aliases or ())
 
     def _gfql_node_id_column(self) -> Optional[str]:
         node_id = self._node
@@ -1365,7 +1380,7 @@ class RowPipelineMixin:
                         return True, table_df[restore_col]
                     if (
                         alias_name in table_df.columns
-                        and RowPipelineMixin._gfql_series_bool_like(table_df[alias_name])
+                        and self._gfql_alias_marker_like(table_df, alias_name)
                     ):
                         self._gfql_report_absent_property(f"{alias_name}.{node.property}")
                         return True, self._gfql_broadcast_scalar(table_df, pd.NA)
@@ -1395,7 +1410,7 @@ class RowPipelineMixin:
                     (node.value.quoted or "." not in alias_name)
                     and alias_name in table_df.columns
                     and has_bound_graph_table
-                    and RowPipelineMixin._gfql_series_bool_like(table_df[alias_name])
+                    and self._gfql_alias_marker_like(table_df, alias_name)
                 ):
                     alias_mask = table_df[alias_name]
                     if node.property == NODE_IDENTITY_COLUMN:
@@ -1783,7 +1798,7 @@ class RowPipelineMixin:
                     out = table_df[alias_id_col]
                 elif node_id in table_df.columns and (
                     alias_name == node_id
-                    or (alias_name in table_df.columns and RowPipelineMixin._gfql_series_bool_like(table_df[alias_name]))
+                    or (alias_name in table_df.columns and self._gfql_alias_marker_like(table_df, alias_name))
                 ):
                     out = table_df[node_id]
                 else:
@@ -1857,7 +1872,7 @@ class RowPipelineMixin:
                     and alias_name in table_df.columns
                     and node_id is not None
                     and node_id in table_df.columns
-                    and RowPipelineMixin._gfql_series_bool_like(table_df[alias_name])
+                    and self._gfql_alias_marker_like(table_df, alias_name)
                 ):
                     out = format_node_labels_text(
                         table_df,
@@ -1879,7 +1894,7 @@ class RowPipelineMixin:
                     and alias_name in table_df.columns
                     and "type" in table_df.columns
                     and any(col in table_df.columns for col in edge_like_cols)
-                    and RowPipelineMixin._gfql_series_bool_like(table_df[alias_name])
+                    and self._gfql_alias_marker_like(table_df, alias_name)
                 ):
                     null_mask = self._gfql_null_mask(table_df, table_df[alias_name])
                     out = table_df["type"]
@@ -1891,7 +1906,7 @@ class RowPipelineMixin:
                 if (
                     "." not in alias_name
                     and alias_name in table_df.columns
-                    and RowPipelineMixin._gfql_series_bool_like(table_df[alias_name])
+                    and self._gfql_alias_marker_like(table_df, alias_name)
                 ):
                     edge_like_cols = {"s", "d", "src", "dst", "edge_id"}
                     table_name = "edges" if any(col in table_df.columns for col in edge_like_cols) else "nodes"
@@ -1987,7 +2002,7 @@ class RowPipelineMixin:
                     arg = node.args[0]
                     if isinstance(arg, Identifier) and (
                         RowPipelineMixin._gfql_has_bindings_alias_prefix(table_df, arg.name)
-                        or (arg.name in table_df.columns and RowPipelineMixin._gfql_series_bool_like(table_df[arg.name]))
+                        or (arg.name in table_df.columns and self._gfql_alias_marker_like(table_df, arg.name))
                     ):  # only a real alias (binding-row group or boolean marker) may be rebuilt as an entity
                         for entity_fn in ("__node_entity__", "__edge_entity__"):
                             ok, entity = self._gfql_eval_expr_ast_values(
@@ -2578,7 +2593,7 @@ class RowPipelineMixin:
                         or (self._edge is not None and self._edge in table_df.columns)
                         or RowPipelineMixin._gfql_table_has_graph_shape(table_df)
                     )
-                    and RowPipelineMixin._gfql_series_bool_like(table_df[node.value.name])
+                    and self._gfql_alias_marker_like(table_df, node.value.name)
                 ):
                     # Same guards and alias mask as the dotted property path: a map- or list-valued column is not an alias.
                     column_value = table_df[key_value]
@@ -2594,7 +2609,7 @@ class RowPipelineMixin:
                 if (
                     isinstance(node.value, Identifier)
                     and node.value.name in table_df.columns
-                    and RowPipelineMixin._gfql_series_bool_like(table_df[node.value.name])
+                    and self._gfql_alias_marker_like(table_df, node.value.name)
                     and RowPipelineMixin._gfql_table_has_graph_shape(table_df)
                 ):
                     entity_value = self._gfql_format_entity_series(
@@ -3195,6 +3210,133 @@ class RowPipelineMixin:
         ]
         return "{" + ", ".join(parts) + "}"
 
+    @staticmethod
+    def _gfql_string_cells(original: SeriesT) -> SeriesT:
+        """Boolean mask of the cells that hold a string (null and non-string cells are False)."""
+        mask = ~original.isna()
+        if isinstance(original, pd.Series) and pd.api.types.is_object_dtype(original.dtype) and pd.api.types.infer_dtype(original, skipna=True) != "string":
+            mask = mask & original.map(lambda cell: isinstance(cell, str))  # a mixed column: a non-string cell is null, never stringified
+        return mask
+
+    @staticmethod
+    def _gfql_string_predicate_by_pattern(left_str: SeriesT, right_str: SeriesT, usable: SeriesT, op_name: str, expr: str) -> SeriesT:
+        """`=~` with a column pattern, answered like the literal operand with the same pattern. Boolean, False where not `usable`.
+
+        A pandas column whose `.str.fullmatch` already runs on Python `re` (object, Python-backed string) is matched in one row pass with each distinct
+        pattern compiled once: the vector call is that same `re` loop with a fixed cost per pattern on top. Every other column (Arrow-backed pandas, cuDF)
+        goes through the literal path once per pattern, on that pattern's own rows."""
+        if not RowPipelineMixin._gfql_string_dtype_uses_python_re(left_str):
+            return RowPipelineMixin._gfql_string_predicate_by_pattern_slices(left_str, right_str, usable, op_name, expr)
+        compiled: Dict[str, "re.Pattern[str]"] = {}
+        flags: List[bool] = []
+        try:
+            for cell, pattern in zip(left_str[usable], right_str[usable]):
+                regex = compiled.get(pattern)
+                if regex is None:
+                    regex = compiled[pattern] = re.compile(pattern)
+                flags.append(regex.fullmatch(cell) is not None)
+        except re.error as exc:
+            raise ValueError(f"invalid regex pattern in {expr!r}: {exc}") from exc
+        out = pd.Series(False, index=left_str.index, dtype=bool)
+        out[usable] = flags
+        return out
+
+    @staticmethod
+    def _gfql_string_predicate_by_pattern_slices(left_str: SeriesT, right_str: SeriesT, usable: SeriesT, op_name: str, expr: str) -> SeriesT:
+        """The literal path once per distinct pattern, on that pattern's own rows: the rows are ordered by pattern code once, each pattern takes its contiguous slice,
+        and the slices are put back in row order. The one routine over the series type that pandas (Arrow-backed) and cuDF share."""
+        gpu = is_cudf_series(left_str)
+        left_pos = left_str.reset_index(drop=True)
+        usable_pos = usable.reset_index(drop=True)
+        coded = right_str.reset_index(drop=True)[usable_pos].astype("category")
+        order = coded.cat.codes.sort_values()
+        patterns = RowPipelineMixin._gfql_series_to_pylist(coded.cat.categories)
+        if len(patterns) > _GFQL_STRING_PREDICATE_MAX_PATTERNS and gpu:  # pragma: no cover - cuDF-only; no cuDF lane in the coverage gate
+            raise NotImplementedError(
+                f"{op_name} over {len(patterns)} distinct patterns exceeds the {_GFQL_STRING_PREDICATE_MAX_PATTERNS} the cuDF engine supports in {expr!r} (no silent fallback; parity-or-error by design)"
+            )
+        sizes = RowPipelineMixin._gfql_series_to_pylist(order.value_counts().sort_index())
+        rows = left_pos.loc[order.index]
+        parts: List[SeriesT] = []
+        start = 0
+        for pattern, size in zip(patterns, sizes):
+            try:
+                hit = apply_string_predicate_series(rows.iloc[start:start + size], pattern, op_name)
+            except re.error as exc:
+                raise ValueError(f"invalid regex pattern in {expr!r}: {exc}") from exc
+            parts.append(hit.astype(bool))
+            start += size
+        parts.append(usable_pos[~usable_pos] & False)  # the rows with no pattern or no string are False
+        out = df_concat(Engine.CUDF if gpu else Engine.PANDAS)(parts).sort_index()
+        out.index = left_str.index
+        return out
+
+    @staticmethod
+    def _gfql_string_dtype_uses_python_re(series: SeriesT) -> bool:
+        """True for a pandas string column whose `.str.fullmatch` runs on Python `re` (object, or the Python-backed string dtype); Arrow-backed and cuDF columns use another engine."""
+        if not isinstance(series, pd.Series):
+            return False
+        dtype = series.dtype
+        return pd.api.types.is_object_dtype(dtype) or (isinstance(dtype, pd.StringDtype) and dtype.storage == "python")
+
+    @staticmethod
+    def _gfql_string_predicate_columns(left: SeriesT, right: SeriesT, op_name: str, expr: str) -> SeriesT:
+        """A non-literal right operand: null unless both operands are strings; column-wise on every engine that lowers it.
+
+        contains / starts_with / ends_with: the string method mapped over both columns on pandas, the string-pattern column form and
+        a per-row slice on cuDF, native expressions on the Polars engines. `=~`: each distinct pattern applied to its own rows."""
+        gpu = is_cudf_series(left) or is_cudf_series(right)
+        if not gpu and not (isinstance(left, pd.Series) and isinstance(right, pd.Series)):
+            raise NotImplementedError(
+                f"a non-literal right operand of {op_name} is not supported on this engine in {expr!r}; "
+                f"use engine='pandas' for this query (no silent fallback; parity-or-error by design)"
+            )
+        left_str, right_str = _str_ops_series(left), _str_ops_series(right)
+        if left_str is None or right_str is None:
+            return RowPipelineMixin._gfql_string_predicate_all_null(left)
+        usable = RowPipelineMixin._gfql_string_cells(left) & RowPipelineMixin._gfql_string_cells(right)
+        if op_name == "regex":
+            hit = RowPipelineMixin._gfql_string_predicate_by_pattern(left_str, right_str, usable, op_name, expr)
+        elif gpu:  # pragma: no cover - cuDF-only; no cuDF lane in the coverage gate
+            hit = RowPipelineMixin._gfql_string_predicate_columnwise_cudf(left_str, right_str, op_name, expr)
+        else:
+            hit = RowPipelineMixin._gfql_string_predicate_columnwise_pandas(left_str, right_str, usable, op_name)
+        return hit.where(usable) if gpu else hit.where(usable, pd.NA)
+
+    @staticmethod
+    def _gfql_string_predicate_all_null(like: SeriesT) -> SeriesT:
+        if is_cudf_series(like):  # pragma: no cover - cuDF-only; no cuDF lane in the coverage gate
+            import cudf
+
+            return cudf.Series([None] * len(like), dtype="bool", index=like.index)
+        return pd.Series([pd.NA] * len(like), index=like.index, dtype="object")
+
+    @staticmethod
+    def _gfql_string_predicate_columnwise_pandas(left_str: SeriesT, right_str: SeriesT, usable: SeriesT, op_name: str) -> SeriesT:
+        """contains / starts_with / ends_with over two columns: the string method mapped over both columns in C, with no per-row Python frame.
+
+        Unusable cells are filled with '' first, so the map never meets a null or a non-string; the caller nulls them again."""
+        left_vals = left_str.astype(object).where(usable, "").to_numpy(dtype=object)
+        right_vals = right_str.astype(object).where(usable, "").to_numpy(dtype=object)
+        hit = np.fromiter(map(_GFQL_STRING_PREDICATE_PAIR_OPS[op_name], left_vals, right_vals), dtype=bool, count=len(left_vals))
+        return pd.Series(hit, index=left_str.index, dtype=bool)
+
+    @staticmethod
+    def _gfql_string_predicate_columnwise_cudf(left_str: SeriesT, right_str: SeriesT, op_name: str, expr: str) -> SeriesT:  # pragma: no cover - cuDF-only; no cuDF lane in the coverage gate (the cuDF cases run on the GPU lanes)
+        """contains / starts_with / ends_with over two cuDF string columns, entirely on the GPU.
+
+        contains uses the string-pattern column form; starts_with / ends_with compare a per-row slice (bounded by the pattern's
+        length) with the pattern."""
+        left_len, right_len = left_str.str.len().fillna(0), right_str.str.len().fillna(0)
+        if op_name == "contains":
+            return left_str.str.contains(right_str, regex=False)
+        if op_name == "starts_with":
+            return (left_str.str.slice_from(starts=left_len * 0, stops=right_len) == right_str) & (right_len <= left_len)
+        if op_name == "ends_with":
+            starts = (left_len - right_len).clip(lower=0)
+            return (left_str.str.slice_from(starts=starts, stops=left_len) == right_str) & (right_len <= left_len)
+        raise ValueError(f"unsupported row expression predicate op: {op_name} in {expr!r}")
+
     def _gfql_eval_string_predicate_expr(
         self,
         table_df: Any,
@@ -3206,13 +3348,21 @@ class RowPipelineMixin:
         if hasattr(left, "astype") or hasattr(right, "astype"):
             left_series = left if hasattr(left, "astype") else self._gfql_broadcast_scalar(table_df, left)
             if hasattr(right, "astype"):
-                raise ValueError(
-                    f"unsupported row expression: {op_name} rhs must be scalar in vectorized mode for {expr!r}"
-                )
+                return self._gfql_string_predicate_columns(left_series, right, op_name, expr)
 
             left_null = self._gfql_null_mask(table_df, left_series)
             right_null = self._gfql_null_mask(table_df, right)
             any_null = left_null | right_null
+            decoded = _str_ops_series(left_series)  # decodes categorical strings; None for non-string columns
+            if decoded is None or not isinstance(right, str):
+                return None
+            left_series = decoded
+            if (
+                isinstance(left_series, pd.Series)
+                and pd.api.types.is_object_dtype(left_series.dtype)
+                and pd.api.types.infer_dtype(left_series, skipna=True) != "string"  # an all-string column skips the per-cell pass
+            ):
+                any_null = any_null | (~left_series.map(lambda cell: isinstance(cell, str)) & ~left_null)  # a non-string cell is null, never stringified
             left_txt = left_series.astype(str)
             needle = str(right)
 
@@ -3235,6 +3385,13 @@ class RowPipelineMixin:
             return out
 
         if is_null_scalar(left) or is_null_scalar(right):
+            return None
+        if is_series_like(left):
+            if not pd.api.types.is_string_dtype(left.dtype):
+                return None
+        elif not isinstance(left, str):
+            return None
+        if not isinstance(right, str):
             return None
         left_txt = str(left)
         right_txt = str(right)
@@ -5663,7 +5820,29 @@ class RowPipelineMixin:
             out_df = pd.DataFrame(projected, index=table_df.index)
         else:
             out_df = table_df.assign(**projected)[list(projected.keys())]
-        return self._gfql_row_table(out_df)
+        out = self._gfql_row_table(out_df)
+        projected_nodes, projected_edges = self._gfql_projected_alias_sets(items)
+        if projected_nodes is not None and projected_edges is not None:
+            out._gfql_rows_node_aliases = projected_nodes
+            out._gfql_rows_edge_aliases = projected_edges
+        return out
+
+    def _gfql_projected_alias_sets(self, items: Sequence[Union[str, Tuple[str, Union[str, int, float, bool, None]]]]) -> Tuple[Optional[Set[str]], Optional[Set[str]]]:
+        """MATCH alias identity after a projection: kept only for outputs that read an alias column unchanged
+        (`WITH n`, `WITH n AS m`); a computed output that reuses an alias name (`WITH n.flag AS n`) is a value."""
+        node_aliases, edge_aliases = self._gfql_rows_node_aliases, self._gfql_rows_edge_aliases
+        if node_aliases is None and edge_aliases is None:
+            return None, None
+        passed: Dict[str, str] = {}
+        for item in items:
+            out_name, expr = (item, item) if isinstance(item, str) else (str(item[0]), item[1])
+            if isinstance(expr, str):
+                passed[out_name] = expr.strip()
+        node_set, edge_set = set(node_aliases or ()), set(edge_aliases or ())
+        return (
+            {name for name, src in passed.items() if src in node_set},
+            {name for name, src in passed.items() if src in edge_set},
+        )
 
     def with_(self, items: List[Any], extend: bool = False) -> "Plottable":
         """Python-safe alias for Cypher WITH-style row projection.
@@ -6350,7 +6529,7 @@ class RowPipelineMixin:
         null_mask = self._gfql_null_mask(out_df, out_df[tmp_col])
         if not list_like and hasattr(null_mask, "all") and bool(null_mask.all()):
             empty_df = out_df.iloc[0:0].drop(columns=[tmp_col]).assign(**{as_clean: out_df.iloc[0:0][tmp_col]})
-            return self._gfql_row_table(empty_df)
+            return self._gfql_unwound_row_table(empty_df, as_clean)
         if list_like:
             row_col = self._gfql_fresh_col_name(out_df.columns, "__gfql_unwind_row__")
             len_col = self._gfql_fresh_col_name(out_df.columns, "__gfql_unwind_len__")
@@ -6368,7 +6547,19 @@ class RowPipelineMixin:
             out_df = out_df.drop(columns=[row_col, len_col, pos_col])
         out_df = out_df.assign(**{as_clean: out_df[tmp_col]})
         out_df = out_df.drop(columns=[tmp_col])
-        return self._gfql_row_table(out_df)
+        return self._gfql_unwound_row_table(out_df, as_clean)
+
+    def _gfql_unwound_row_table(self, out_df: DataFrameT, unwound: str) -> "Plottable":
+        """Row table after UNWIND. When alias identity is not carried (no MATCH before it), the unwound column is a value:
+        keep the column-value inference for every other column and exclude this one."""
+        out = self._gfql_row_table(out_df)
+        if self._gfql_rows_node_aliases is None and self._gfql_rows_edge_aliases is None:
+            out._gfql_rows_node_aliases = {
+                col for col in out_df.columns
+                if col != unwound and isinstance(col, str) and RowPipelineMixin._gfql_series_bool_like(out_df[col])
+            }
+            out._gfql_rows_edge_aliases = set()
+        return out
 
     def group_by(
         self,

@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING, Any, Callable, Dict, Iterable, List, Optional, Set, Tuple, Union, Protocol, overload
+from typing import TYPE_CHECKING, Any, Callable, Dict, FrozenSet, Iterable, List, Optional, Set, Tuple, Union, Protocol, overload
 from typing_extensions import Literal, runtime_checkable
 import pandas as pd
 
@@ -74,6 +74,7 @@ class Plottable(Protocol):
     _gfql_preserve_start_node_multiplicity: bool
     _gfql_rows_edge_aliases: Optional[Iterable[str]]
     _gfql_rows_node_aliases: Optional[Iterable[str]]
+    _gfql_search_any_categorical_columns: Dict[str, FrozenSet[str]]
     _gfql_shortest_path_backend: str
     _cypher_entity_projection_kinds: Optional[Dict[str, GraphEntityKind]]
     _cypher_entity_projection_presence: Dict[str, "DataFrameT"]
