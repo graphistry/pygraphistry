@@ -48,6 +48,7 @@ def engine(request):
         {"a": "{name: 'x'}", "p": "{kind: 'k1'}", "b": "{name: 'y'}"},
     ),
     ("MATCH (n)-[e]->(m) RETURN keys(e) AS k", {"k": ["kind"]}),
+    ("MATCH (n)-[e]->(m) RETURN keys(n) AS a, keys(m) AS b", {"a": ["name"], "b": ["name"]}),
     ("MATCH (n)-[e]->(m) WITH e RETURN properties(e) AS p", {"p": "{kind: 'k1'}"}),
     ("MATCH ()-[e]->() RETURN properties(e) AS p", {"p": "{kind: 'k1'}"}),
 ])
@@ -58,6 +59,29 @@ def test_one_hop_alias_properties_are_alias_scoped(engine, query, expected):
             graph.gfql(query, engine=engine)
         return
     assert _records(graph.gfql(query, engine=engine)._nodes) == [expected]
+
+
+def test_one_hop_shared_property_name_stays_alias_scoped(engine):
+    graph = _graph(engine)
+    nodes = graph._nodes.assign(kind=["n1", "n2"])
+    graph = graph.nodes(nodes, "id")
+    query = (
+        "MATCH (n)-[e]->(m) RETURN properties(n) AS a, properties(e) AS p, "
+        "properties(m) AS b, keys(n) AS ka, keys(e) AS kp, keys(m) AS kb"
+    )
+    if engine in {"polars", "polars-gpu"}:
+        with pytest.raises((NotImplementedError, GFQLUnsupportedError)):
+            graph.gfql(query, engine=engine)
+        return
+    rows = _records(graph.gfql(query, engine=engine)._nodes)
+    assert rows == [{
+        "a": "{name: 'x', kind: 'n1'}",
+        "p": "{kind: 'k1'}",
+        "b": "{name: 'y', kind: 'n2'}",
+        "ka": ["name", "kind"],
+        "kp": ["kind"],
+        "kb": ["name", "kind"],
+    }]
 
 
 def test_one_hop_edge_properties_match_anonymous_form_with_edge_id(engine):
