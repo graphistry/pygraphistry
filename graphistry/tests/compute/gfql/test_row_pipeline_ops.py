@@ -2234,6 +2234,8 @@ class TestRowPipelineSafelist:
             "name = 'rand()'",
             'name = "rand()"',
             *[f"txt {op}" for op in ["CONTAINS 5", "CONTAINS null", "CONTAINS (5)", "STARTS WITH (5)", "ENDS WITH (5)"]],
+            *[f"txt {op} rhs" for op in ["CONTAINS", "STARTS WITH", "ENDS WITH"]],  # a non-literal right operand is evaluated per row (#2374)
+            *[f"txt CONTAINS {rhs}" for rhs in ["[1,2]", "{k: 'v'}", "(rhs)"]],
             "CASE WHEN score > 1 THEN true ELSE false END",
             "CASE WHEN score > 1 THEN true END",
             "CASE score WHEN 1 THEN true ELSE false END",
@@ -2257,8 +2259,6 @@ class TestRowPipelineSafelist:
 
         invalid_exprs = [
             "rand() > 0.1",
-            *[f"txt {op} rhs" for op in ["CONTAINS", "STARTS WITH", "ENDS WITH"]],
-            *[f"txt CONTAINS {rhs}" for rhs in ["[1,2]", "{k: 'v'}", "(rhs)"]],
             "any(x IN vals WHERE x = 2",
             "any(x vals WHERE x = 2)",
             "any(x IN vals | WHERE x = 2)",
