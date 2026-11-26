@@ -1,6 +1,6 @@
 # Development Setup
 
-See also [CONTRIBUTING.md](CONTRIBUTING.md) and [ARCHITECTURE.md](ARCHITECTURE.md)
+Who this is for: people and coding agents alike. It is the reference for setup, test commands, CI and release, not the place to start a contribution: a person starts at [CONTRIBUTING.md](CONTRIBUTING.md), an agent at `.agents/skills/contribute/SKILL.md` and [AGENTS.md](AGENTS.md). See also [ARCHITECTURE.md](ARCHITECTURE.md).
 
 Development is setup for local native and containerized Python coding & testing, and with automatic GitHub Actions for CI + CD. The server tests are like the local ones, except against a wider test matrix of environments.
 
@@ -107,7 +107,7 @@ graphistry.__version__
 
 GitHub Actions: See `.github/workflows`
 
-CI runs on every PR and updates them
+CI runs on every pull request from a branch in this repository and updates it. A pull request from a fork waits for a maintainer to approve the workflows before any job runs; see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ### Cypher Surface Growth Guard
 
