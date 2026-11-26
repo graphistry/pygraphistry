@@ -1,9 +1,11 @@
 import numpy as np
 import pandas as pd
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Sequence, Union
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Sequence, Union
 from typing_extensions import Literal
 from graphistry.Engine import Engine, EngineAbstract, EngineAbstractType, POLARS_ENGINES, resolve_input_engine, df_to_engine, df_concat, safe_merge
 from graphistry.Plottable import Plottable
+from graphistry.models.compute.features import GraphEntityKind
+from graphistry.compute.typing import DataFrameT
 from graphistry.util import setup_logger
 from graphistry.utils.json import JSONVal
 from .ast import ASTLet, ASTObject
@@ -31,6 +33,7 @@ from .filter_by_dict import (
 )
 
 if TYPE_CHECKING:
+    from graphistry.compute.semantic.contract import Budget, DecisionProvider, DecisionQuestion, GenerationProvider
     from graphistry.compute.gfql.index.types import IndexKind
     from graphistry.compute.gfql.index.registry import PartitionValue
     from graphistry.compute.gfql.index.explain import GfqlExplainReport
@@ -131,6 +134,26 @@ def _degree_agg(edges: Any, key_col: str, out_name: str, node_id: str) -> Any:
         .reset_index(name=out_name)
         .rename(columns={key_col: node_id})
     )
+
+
+def _apply_to_graph_table(g: Plottable, kind: GraphEntityKind, id_col: Optional[str],
+                          run: "Callable[[DataFrameT, Optional[str]], DataFrameT]", op_name: str) -> Plottable:
+    """Run a row-table operator on the node or edge table and return the graph with that table replaced."""
+    from graphistry.compute.gfql.identifiers import is_internal_column
+    if not (isinstance(kind, str) and kind in ("nodes", "edges")):
+        raise ValueError(f"{op_name}: kind must be 'nodes' or 'edges', got {kind!r}")
+    engine_concrete = resolve_input_engine(EngineAbstract.AUTO, g)
+    g2 = _coerce_input_formats(g, engine_concrete)
+    table = g2._nodes if kind == "nodes" else g2._edges
+    if table is None:
+        raise ValueError(f"{op_name}(kind={kind!r}) needs a {kind} table; this graph has none")
+    binding = g2._node if kind == "nodes" else g2._edge
+    if id_col is None and binding is not None and binding in table.columns and not is_internal_column(binding):
+        id_col = binding
+    out = run(table, id_col)
+    if kind == "nodes":
+        return g2.nodes(out, g2._node)
+    return g2.edges(out, g2._source, g2._destination, edge=g2._edge)
 
 
 class ComputeMixin(Plottable):
@@ -372,6 +395,94 @@ class ComputeMixin(Plottable):
             col: nodes_df[col].fillna(0).astype("int32"),
         })
         return g.nodes(nodes_df, node_id)
+
+    def sem_decide(
+        self,
+        questions: "List[Union[DecisionQuestion, Dict[str, object]]]",
+        provider: "Union[str, DecisionProvider]",
+        *,
+        task_id: str,
+        kind: GraphEntityKind = "nodes",
+        evidence_cols: Optional[List[str]] = None,
+        template: Optional[str] = None,
+        id_col: Optional[str] = None,
+        task_version: str = "1",
+        batch_size: Optional[int] = None,
+        max_concurrency: Optional[int] = None,
+        deadline_s: Optional[float] = None,
+        budget: "Union[Budget, Dict[str, object], None]" = None,
+        max_rows: Optional[int] = None,
+        min_p: Optional[float] = None,
+        column_max_chars: Optional[int] = None,
+        overwrite: bool = False,
+    ) -> Plottable:
+        """Ask a model provider typed questions about every node (or edge) row; see :func:`graphistry.compute.semantic.sem_decide`.
+
+        Rows, order, index and the other table are unchanged; ``id_col`` defaults to the node (or edge) id binding.
+
+        **Example**
+            ::
+
+                from graphistry.compute.semantic import CallableDecisionProvider
+                provider = CallableDecisionProvider(lambda evidence, q: "inc" in str(evidence).lower())
+                g2 = g.sem_decide([{"id": "is_company", "kind": "predicate", "text": "Is this a company?"}],
+                                  provider, task_id="companies", evidence_cols=["name"])
+        """
+        from graphistry.compute.semantic.ops import sem_decide as sem_decide_kernel
+
+        def run(df: DataFrameT, rows_id: Optional[str]) -> DataFrameT:
+            return sem_decide_kernel(
+                df, questions=questions, provider=provider, task_id=task_id, evidence_cols=evidence_cols,
+                template=template, id_col=rows_id, task_version=task_version, batch_size=batch_size,
+                max_concurrency=max_concurrency, deadline_s=deadline_s, budget=budget, max_rows=max_rows,
+                min_p=min_p, column_max_chars=column_max_chars, overwrite=overwrite,
+            )
+
+        return _apply_to_graph_table(self, kind, id_col, run, "sem_decide")
+
+    def sem_map(
+        self,
+        instruction: str,
+        out_col: str,
+        provider: "Union[str, GenerationProvider]",
+        *,
+        task_id: str,
+        kind: GraphEntityKind = "nodes",
+        evidence_cols: Optional[List[str]] = None,
+        template: Optional[str] = None,
+        id_col: Optional[str] = None,
+        task_version: str = "1",
+        max_output_tokens: Optional[int] = None,
+        batch_size: Optional[int] = None,
+        max_concurrency: Optional[int] = None,
+        deadline_s: Optional[float] = None,
+        budget: "Union[Budget, Dict[str, object], None]" = None,
+        max_rows: Optional[int] = None,
+        column_max_chars: Optional[int] = None,
+        overwrite: bool = False,
+    ) -> Plottable:
+        """Generate one text value per node (or edge) row; see :func:`graphistry.compute.semantic.sem_map`.
+
+        Adds ``out_col``, ``{out_col}__status``, ``{out_col}__error_code`` and ``{out_col}__meta``.
+
+        **Example**
+            ::
+
+                g2 = g.sem_map("Summarize in one sentence.", "summary", provider, task_id="summaries",
+                               evidence_cols=["description"])
+        """
+        from graphistry.compute.semantic.ops import sem_map as sem_map_kernel
+
+        def run(df: DataFrameT, rows_id: Optional[str]) -> DataFrameT:
+            return sem_map_kernel(
+                df, instruction=instruction, out_col=out_col, provider=provider, task_id=task_id,
+                evidence_cols=evidence_cols, template=template, id_col=rows_id, task_version=task_version,
+                max_output_tokens=max_output_tokens, batch_size=batch_size, max_concurrency=max_concurrency,
+                deadline_s=deadline_s, budget=budget, max_rows=max_rows, column_max_chars=column_max_chars,
+                overwrite=overwrite,
+            )
+
+        return _apply_to_graph_table(self, kind, id_col, run, "sem_map")
 
     def drop_nodes(self, nodes):
         """

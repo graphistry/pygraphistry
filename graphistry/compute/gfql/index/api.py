@@ -81,6 +81,17 @@ class index_trace:
         return False
 
 
+class suspended_index_trace:
+    """Context manager: work inside records nothing into the caller's ``index_trace()``."""
+    def __enter__(self) -> None:
+        self.prev = _get_trace_steps()
+        _set_trace_steps(None)
+
+    def __exit__(self, *exc: object) -> Literal[False]:
+        _set_trace_steps(self.prev)
+        return False
+
+
 def _get_trace_steps() -> Optional[IndexTrace]:
     return cast(Optional[IndexTrace], getattr(_TRACE, "steps", None))
 
@@ -223,7 +234,7 @@ _COL_STATS_CODE: Dict[ColStatsOutcome, IndexDecisionCode] = {
 
 
 def record_fast_path_decision(
-    *, path: FastPathName, served: bool, reason: str, engine: TraceEngine
+    *, path: FastPathName, served: bool, reason: str, engine: TraceEngine, replayed_after: Optional[str] = None,
 ) -> None:
     """Record whether a named fast path SERVED or declined, for ``gfql_explain``.
 
@@ -251,6 +262,8 @@ def record_fast_path_decision(
         "decision_reason": reason,
         "decision_code": "index_selected" if served else "index_path_unavailable",
     }
+    if replayed_after is not None:
+        step["replayed_after"] = replayed_after  # the exception class that sent the query back to the canonical path
     _record(step)
 
 
@@ -307,6 +320,12 @@ def get_registry(g: Plottable) -> GfqlIndexRegistry:
 
 def get_index_policy(g: Plottable) -> IndexPolicy:
     return g._gfql_index_policy
+
+
+def index_policy_may_serve(g: Plottable) -> bool:
+    """Whether ``g``'s index policy may build or use an index, so a scan shortcut must defer."""
+    policy = get_index_policy(g)
+    return policy in ("auto", "force") or (policy == "use" and not get_registry(g).is_empty())
 
 
 def with_index_policy(g: Plottable, policy: IndexPolicy) -> Plottable:
@@ -899,7 +918,7 @@ def _add_degree_facts(
         hi = int(max(sf.max_val, df_.max_val))
         if eng in POLARS_ENGINES:
             import polars as pl
-            sub = edges.filter(pl.col(type_column) == tv)  # type: ignore[union-attr]  # engine seam
+            sub = edges.filter(pl.col(type_column) == tv)  # engine seam
         else:
             sub = edges[edges[type_column] == tv]
         d = build_degree_fact(sub, g._source, g._destination, lo, hi, eng,

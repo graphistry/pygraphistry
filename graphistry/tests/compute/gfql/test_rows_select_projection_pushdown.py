@@ -137,7 +137,9 @@ def test_pushdown_narrows_the_bindings_table(engine, monkeypatch):
             seen.append(attach_prop_columns)
             return original(self, ops, state_df, alias_frames, attach_prop_aliases, attach_prop_columns)
         monkeypatch.setattr(RowPipelineMixin, "_gfql_connected_bindings_row_frame_from_state", spy)
-    out = g.gfql([*MIDDLE, rows(), select([("who", "p.name"), ("mid", "m.id")]), order_by([("who", "asc"), ("mid", "asc")])], engine=engine)
+    from graphistry.tests.compute.gfql.routes.switch import routes_off
+    with routes_off(["polars-point-rows"]):  # the seeded point-rows scan answers this shape before the general pipeline this test spies on
+        out = g.gfql([*MIDDLE, rows(), select([("who", "p.name"), ("mid", "m.id")]), order_by([("who", "asc"), ("mid", "asc")])], engine=engine)
     assert seen == [{"p": ["name"], "m": ["id"]}]
     assert list(_pandas(out._nodes, engine).columns) == ["who", "mid"]
     assert _pandas(out._nodes, engine)["who"].tolist() == ["a", "a", "a", "e", "f"]

@@ -80,13 +80,13 @@ def modularity_weighted_layout(
                 community_params = {'directed': False}
         community_params = community_params or {}
         if engine_concrete == Engine.PANDAS:
-            g = g.compute_igraph(community_alg, **community_params)  # type: ignore
+            g = g.compute_igraph(community_alg, **community_params)
         elif engine_concrete == Engine.CUDF:
             import cudf
             if not isinstance(g._edges, cudf.DataFrame):
                 assert isinstance(g._edges, pd.DataFrame), f'Expected edges to be cudf or pandas, got: {type(g._edges)}'
                 g = g.edges(cudf.DataFrame(g._edges))
-            g = g.compute_cugraph(community_alg, **community_params)  # type: ignore
+            g = g.compute_cugraph(community_alg, **community_params)
         else:
             raise ValueError(f'Unsupported engine: {engine}')
         community_col = community_alg

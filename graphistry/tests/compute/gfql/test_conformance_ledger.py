@@ -45,6 +45,7 @@ KNOWN_UNCOVERED: dict[str, str] = {
     # --- logical / categorical combinators (compositional; matrix asserts leaves) ---
     "AllOf": "logical AND-combinator over sub-predicates; compositional, not yet asserted in the matrix. TODO: add a nested-predicate conformance case.",
     "Duplicated": "categorical duplicate-row predicate; not yet asserted for parity/NIE. TODO: add a chain+dag conformance case.",
+    "AlwaysNull": "unknown (null) for every row; emitted by the Cypher lowering for a non-string operand of a string predicate; covered by dedicated tests in test_string_predicate_nonstring_2335.py and test_string_predicate_families_2335.py (not via _predicate_queries).",
 
     # --- string char-class predicates (.str.is*) ---
     "IsNumeric": "str .is_numeric char-class predicate; not yet asserted (native-or-NIE undecided). TODO.",
@@ -128,6 +129,9 @@ def _exercised_function_names() -> set:
 # Fails CI if a NEW safelist entry lands with neither an assertion nor a waiver (untracked) ----
 
 CALL_KNOWN_UNCOVERED: dict[str, str] = {
+    # semantic table operators call a bound model provider; the polars matrix runs calls without one
+    "sem_decide": "needs a bound provider; covered by graphistry/tests/compute/semantic/",
+    "sem_map": "needs a bound provider; covered by graphistry/tests/compute/semantic/",
     # row-pipeline ops native under polars via the call()/DAG executor; not yet asserted via call()
     "rows": "native polars row-pipeline op; exercised via call() only in test_engine_polars_row_pipeline.py, not this matrix. TODO.",
     "skip": "native polars row-pipeline op; not yet asserted via a matrix call() case. TODO.",

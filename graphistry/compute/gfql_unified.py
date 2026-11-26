@@ -35,6 +35,7 @@ from graphistry.compute.gfql.same_path_types import (
     parse_where_json,
 )
 from graphistry.compute.exceptions import ErrorCode, GFQLValidationError
+from graphistry.compute.gfql.effects import suppress_decline_unless_effects
 from graphistry.compute.engine_coercion import ensure_engine_match
 from graphistry.compute.gfql.cypher.ast import CypherParams
 from graphistry.compute.gfql.cypher.parser import parse_cypher
@@ -361,7 +362,7 @@ def _semi_join_prune_arm_rows_to_base_keys(
         from graphistry.compute.gfql.lazy.engine.polars.membership import is_in_ids
         if len(join_cols) == 1:
             # polars-stub gap: ``is_polars_df`` cannot narrow the eager-or-lazy union.
-            return opt_rows_df.filter(is_in_ids(pl.col(join_cols[0]), joined[join_cols[0]]))  # type: ignore[index,arg-type]
+            return opt_rows_df.filter(is_in_ids(pl.col(join_cols[0]), joined[join_cols[0]]))
         return opt_rows_df.join(joined.select(join_cols).unique(), on=join_cols, how="inner")
     if len(join_cols) == 1:
         return opt_rows_df[opt_rows_df[join_cols[0]].isin(joined[join_cols[0]])]
@@ -406,7 +407,7 @@ def _synthesize_bare_alias_from_prefixed_column(
     if polars:
         import polars as pl
     else:
-        pl = None  # type: ignore[assignment]
+        pl = None
     for alias in opt_only_aliases:
         if alias in joined.columns:
             continue
@@ -2137,7 +2138,7 @@ def _execute_compiled_query_with_reentry_impl(
     if compiled_query.optional_reentry and compiled_query.start_nodes_query is not None:
         result = _apply_optional_reentry_null_fill(
             result,
-            prefix_result=prefix_result,  # type: ignore[possibly-undefined]
+            prefix_result=prefix_result,  # pyright: ignore[reportPossiblyUnboundVariable]
             engine=engine,
             empty_result_row=compiled_query.empty_result_row,
             reentry_plan=compiled_query.reentry_plan,
@@ -2725,21 +2726,20 @@ def _gfql_with_strictness(
         and policy is None
         and is_polars_df(self._edges) and (self._nodes is None or is_polars_df(self._nodes))
     ):
-        try:
+        with suppress_decline_unless_effects("polars"):
             return gfql(
                 self, query, engine=Engine.POLARS.value, output=output, policy=policy,
                 where=where, language=language, params=params, validate=validate,
                 shortest_path_backend=shortest_path_backend,
             )
-        except NotImplementedError:
-            logger.debug('AUTO polars-native attempt declined; serving via pandas')
-            from graphistry.compute.ComputeMixin import _coerce_input_formats
-            return gfql(
-                _coerce_input_formats(self, Engine.PANDAS), query,
-                engine=Engine.PANDAS.value, output=output, policy=policy,
-                where=where, language=language, params=params, validate=validate,
-                shortest_path_backend=shortest_path_backend,
-            )
+        logger.debug('AUTO polars-native attempt declined; serving via pandas')
+        from graphistry.compute.ComputeMixin import _coerce_input_formats
+        return gfql(
+            _coerce_input_formats(self, Engine.PANDAS), query,
+            engine=Engine.PANDAS.value, output=output, policy=policy,
+            where=where, language=language, params=params, validate=validate,
+            shortest_path_backend=shortest_path_backend,
+        )
 
     # engine inference, cuDF arm: when every bound frame is cuDF AND the cudf-polars
     # GPU target is GENUINELY usable (probed once per
@@ -2761,14 +2761,13 @@ def _gfql_with_strictness(
         and _is_cudf_frame(self._edges) and (self._nodes is None or _is_cudf_frame(self._nodes))
         and _polars_gpu_probe()
     ):
-        try:
+        with suppress_decline_unless_effects("polars-gpu"):
             return _auto_cudf_polars_gpu_route(
                 self, query, output=output, where=where, language=language,
                 params=params, validate=validate,
                 shortest_path_backend=shortest_path_backend,
             )
-        except NotImplementedError:
-            logger.debug('AUTO cudf polars-gpu attempt declined; falling back to legacy CUDF path')
+        logger.debug('AUTO cudf polars-gpu attempt declined; falling back to legacy CUDF path')
 
     context = ExecutionContext()
 

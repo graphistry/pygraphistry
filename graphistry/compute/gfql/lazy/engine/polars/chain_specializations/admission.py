@@ -1,7 +1,7 @@
 """Shape admission for the polars chain specializations: the plain single-hop branches and
 the seeded lane. The dispatcher and the tests consult the same predicates."""
 
-from typing import Literal, Optional, Sequence
+from typing import Literal, Optional, Sequence, Tuple
 
 from graphistry.compute.typing import DataFrameT
 
@@ -55,7 +55,9 @@ def polars_single_node_admits(ops: Sequence[ASTObject], start_nodes: Optional[Da
     return isinstance(n0, ASTNode) and n0.query is None
 
 
-def polars_seeded_lane_admits(ops: Sequence[ASTObject]) -> bool:
+def polars_seeded_lane_admits(
+    ops: Sequence[ASTObject], directions: Tuple[str, ...] = ("forward", "reverse"),
+) -> bool:
     """Whether the polars seeded lane's shape gate admits ``ops``: a 3-op directed simple
     single hop whose seed node carries a filter, with no node queries, endpoint matches,
     endpoint or edge queries, zero-hop seed or endpoint pruning. The dispatcher calls this
@@ -68,7 +70,7 @@ def polars_seeded_lane_admits(ops: Sequence[ASTObject]) -> bool:
     if not (isinstance(n0, ASTNode) and isinstance(n2, ASTNode) and isinstance(e1, ASTEdge)):
         return False
     return not (n0.query is not None or n2.query is not None or not n0.filter_dict
-                or not e1.is_simple_single_hop() or e1.direction not in ("forward", "reverse")
+                or not e1.is_simple_single_hop() or e1.direction not in directions
                 or e1.source_node_match is not None or e1.destination_node_match is not None
                 or e1.source_node_query is not None or e1.destination_node_query is not None
                 or e1.edge_query is not None or e1.include_zero_hop_seed or e1.prune_to_endpoints)

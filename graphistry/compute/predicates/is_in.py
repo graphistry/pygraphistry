@@ -59,7 +59,7 @@ class IsIn(ASTPredicate):
         else:
             # At this point, val should only be wire format dicts that aren't temporal
             # Since is_any_temporal catches TemporalValue, we can safely cast
-            return val  # type: ignore[return-value]
+            return val
 
     def __call__(self, s: SeriesT) -> SeriesT:
         # Check if we have any temporal values in options
