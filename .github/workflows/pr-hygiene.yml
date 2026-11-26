@@ -1,20 +1,13 @@
 name: PR hygiene
 
-# Comments on a pull request when it targets the wrong branch, links no issue, or has an empty Validation section.
-# Comment only: no label, no review state, no status that gates merging.
-#
-# SECURITY MODEL (read before editing):
-# - pull_request_target runs this file from the BASE branch with a token that can comment, because the
-#   plain pull_request token of a fork pull request is read-only and cannot. That is the only reason it is used.
-# - The job never checks out code, never runs anything from the pull request, and installs nothing: its only
-#   inputs are the event payload fields below, read through env vars and treated as data (never expanded
-#   into the shell, never echoed into the comment).
-# - Token: pull-requests: write and nothing else. No secrets are used.
-# - Do not add a checkout, an `uses:` of third-party code, or `${{ github.event.* }}` inside `run:`.
+# Comment-only pull_request_target workflow. It reads only the event payload and writes one fixed-text comment.
+# It never reads repository files, checks out a pull request, installs code, or runs pull-request content.
+# No pull request title, body, branch, or author text is reflected in a comment.
+# zizmor: ignore[dangerous-triggers] -- required to comment on fork PRs; no checkout or PR code execution.
 
 on:
-  pull_request_target:  # zizmor: ignore[dangerous-triggers] -- comment-only job, no checkout, no PR code run; see the security model above
-    types: [opened, edited, reopened, ready_for_review]
+  pull_request_target:
+    types: [opened, edited, reopened, ready_for_review, converted_to_draft]
 
 permissions: {}
 
@@ -24,7 +17,7 @@ concurrency:
 
 jobs:
   hygiene:
-    if: github.event.pull_request.user.login != 'dependabot[bot]'
+    if: ${{ github.event.pull_request.user.type != 'Bot' && !endsWith(github.event.pull_request.user.login, '[bot]') }}
     runs-on: ubuntu-latest
     timeout-minutes: 3
     permissions:
@@ -33,49 +26,143 @@ jobs:
       - name: Check the pull request and comment
         env:
           GH_TOKEN: ${{ github.token }}
-          REPO: ${{ github.repository }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-          BASE_REF: ${{ github.event.pull_request.base.ref }}
-          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
-          PR_BODY: ${{ github.event.pull_request.body }}
         run: |
-          set -euo pipefail
-          marker='<!-- pr-hygiene -->'
-          problems=()
+          python3 - <<'PY'
+          import json
+          import os
+          import re
+          import subprocess
+          import sys
 
-          # 1. Base branch: features and fixes target develop. A maintainer's release or hotfix pull request
-          #    (same repository, into master) is exempt.
-          if [ "$BASE_REF" != "develop" ] && ! { [ "$BASE_REF" = "master" ] && [ "$HEAD_REPO" = "$REPO" ]; }; then
-            problems+=("This pull request does not target \`develop\`. Features and fixes target \`develop\`; \`master\` is for hotfixes (say why in the description). To change the base, use the Edit button next to the title.")
-          fi
+          MARKER = "<!-- pr-hygiene -->"
+          FORK_CI_NOTE = "From a fork, CI workflows wait for maintainer approval — seeing 0 checks at first is expected, not a failure."
+          HUMAN_GUIDANCE = "Humans: see CONTRIBUTING.md and join Discord at https://discord.gg/wK7mMpeQVF in #general or #gfql; async PR/issue discussion is preferred."
+          AGENT_GUIDANCE = "Coding agents: read .agents/skills/contribute/SKILL.md and AGENTS.md; run ./bin/lint.sh and ./bin/check-gfql.sh, and see docs/contributing/gfql-gpu-colab.md for GPU checks."
+          ISSUE_PATTERN = re.compile(r"(^|[^A-Za-z0-9])#[0-9]+|/issues/[0-9]+")
+          SECTION_HEADING = re.compile(
+              r"^#{2,3}[ \t]+(?:validation|verification|tests?|testing|how[ \t]+i[ \t]+tested)(?:[ \t].*)?$",
+              re.IGNORECASE,
+          )
+          ANY_HEADING = re.compile(r"^#{2,3}[ \t]+")
+          PLACEHOLDER = re.compile(
+              r"^(?:todo|tbd|n/?a|none|not[ \t]+(?:run|tested|done)|coming[ \t]+soon|pending|\.{2,})(?:[ \t]*[:.!-].*)?$",
+              re.IGNORECASE,
+          )
+          COMMAND = re.compile(r"(?:^|\s)(?:\./|python(?:3)?\s|pytest(?:\s|$)|uv\s|mypy\s|ruff\s|make\s|docker\s|tox\s)")
 
-          # 2. A linked issue: a #number or an issue URL outside HTML comments.
-          body_no_comments="$(printf '%s' "$PR_BODY" | sed -e ':a' -e 's/<!--[^>]*-->//g' -e '/<!--/{N;ba' -e '}')"
-          if ! printf '%s' "$body_no_comments" | grep -Eq '(^|[^[:alnum:]])#[0-9]+|/issues/[0-9]+'; then
-            problems+=("No linked issue found. Link the issue you claimed (\`Closes #123\`), or open one first so the change has a place for discussion.")
-          fi
+          def has_substantive_validation(section):
+              if re.search(r"\[[xX]\]", section):
+                  return True
+              fenced = re.findall(r"```[^\n]*\n(.*?)```", section, flags=re.DOTALL)
+              for block in fenced:
+                  block = block.strip()
+                  if block and not PLACEHOLDER.fullmatch(block):
+                      return True
+              without_fences = re.sub(r"```.*?```", " ", section, flags=re.DOTALL)
+              lines = []
+              for line in without_fences.splitlines():
+                  clean = re.sub(r"^\s*(?:[-*+]\s+|\d+[.)]\s+)", "", line).strip()
+                  clean = re.sub(r"[`*_>#]", "", clean).strip()
+                  if clean and not PLACEHOLDER.fullmatch(clean):
+                      lines.append(clean)
+              text = " ".join(lines)
+              words = re.findall(r"[A-Za-z0-9_./-]+", text)
+              return bool(COMMAND.search(text) or (len(words) >= 4 and len(text) >= 24))
 
-          # 3. Validation: the section needs a ticked box or pasted output.
-          validation="$(printf '%s\n' "$body_no_comments" | awk '/^##[[:space:]]+Validation/{f=1;next} /^##[[:space:]]/{f=0} f')"
-          if ! printf '%s' "$validation" | grep -Eq '\[[xX]\]|```'; then
-            problems+=("The Validation section is empty. Tick what you ran and paste the last lines of its output (\`./bin/lint.sh\`, \`./bin/check-gfql.sh\`); see CONTRIBUTING.md.")
-          fi
+          def has_validation_section(body):
+              lines = body.splitlines()
+              for index, line in enumerate(lines):
+                  if not SECTION_HEADING.match(line.strip()):
+                      continue
+                  end = index + 1
+                  while end < len(lines) and not ANY_HEADING.match(lines[end].strip()):
+                      end += 1
+                  if has_substantive_validation("\n".join(lines[index + 1 : end])):
+                      return True
+              return False
 
-          # Only the workflow's own comment counts: marker AND authored by the Actions bot (anyone can paste the marker).
-          existing="$(gh api "repos/${REPO}/issues/${PR_NUMBER}/comments" --paginate \
-            --jq ".[] | select(.user.login == \"github-actions[bot]\" and .user.type == \"Bot\" and (.body | startswith(\"${marker}\"))) | .id" | head -n 1)"
+          with open(os.environ["GITHUB_EVENT_PATH"], encoding="utf-8") as event_file:
+              event = json.load(event_file)
+          pull = event.get("pull_request") or {}
+          user = pull.get("user") or {}
+          login = user.get("login") if isinstance(user, dict) else None
+          user_type = user.get("type") if isinstance(user, dict) else None
+          if user_type == "Bot" or (isinstance(login, str) and login.endswith("[bot]")):
+              sys.exit(0)
 
-          if [ "${#problems[@]}" -eq 0 ]; then
-            msg="${marker}"$'\n'"PR hygiene: base branch, linked issue and validation section all look fine. Thanks!"
-            [ -n "$existing" ] || exit 0   # nothing was ever flagged: stay quiet
-          else
-            msg="${marker}"$'\n'"Thanks for the pull request! A few things to fix (this is an automatic comment; it updates when you edit the description):"$'\n'
-            for p in "${problems[@]}"; do msg+=$'\n'"- ${p}"; done
-          fi
+          repository = (event.get("repository") or {}).get("full_name")
+          number = pull.get("number")
+          if not isinstance(repository, str) or not isinstance(number, int):
+              sys.exit("Invalid pull request event payload")
 
-          payload="$(jq -n --arg body "$msg" '{body: $body}')"
-          if [ -n "$existing" ]; then
-            printf '%s' "$payload" | gh api -X PATCH "repos/${REPO}/issues/comments/${existing}" --input - >/dev/null
-          else
-            printf '%s' "$payload" | gh api -X POST "repos/${REPO}/issues/${PR_NUMBER}/comments" --input - >/dev/null
-          fi
+          head = pull.get("head") or {}
+          head_repository = head.get("repo") or {}
+          head_repository_name = head_repository.get("full_name") if isinstance(head_repository, dict) else None
+          same_repository = head_repository_name is not None and head_repository_name == repository
+          is_draft = pull.get("draft") is True
+          base = (pull.get("base") or {}).get("ref")
+          body = pull.get("body") if isinstance(pull.get("body"), str) else ""
+          body_without_comments = re.sub(r"<!--.*?-->", "", body, flags=re.DOTALL)
+
+          problems = []
+          if not same_repository and base == "master":
+              problems.append("For a fork pull request, target develop or a stacked feature branch; master is reserved for maintainer releases and hotfixes.")
+          if not ISSUE_PATTERN.search(body_without_comments):
+              problems.append("Link the issue this change addresses (for example, Closes #123), or open an issue first.")
+          if not has_validation_section(body_without_comments):
+              problems.append("Add a Validation, Verification, Test(s/ing), or How I tested section with before-state failure proof and command output (for example, ./bin/lint.sh and ./bin/check-gfql.sh).")
+
+          if same_repository and is_draft:
+              sys.exit(0)
+
+          comment_query = (
+              '.[] | select(.user.login == "github-actions[bot]" and '
+              '.user.type == "Bot" and (.body | startswith("' + MARKER + '"))) | .id'
+          )
+          comments = subprocess.run(
+              [
+                  "gh",
+                  "api",
+                  "--paginate",
+                  f"repos/{repository}/issues/{number}/comments",
+                  "--jq",
+                  comment_query,
+              ],
+              check=True,
+              capture_output=True,
+              text=True,
+          )
+          existing = next((line.strip() for line in comments.stdout.splitlines() if line.strip().isdigit()), None)
+
+          if same_repository:
+              if problems:
+                  message = MARKER + "\n" + "A few items need attention before this pull request is ready:" + "\n" + "\n".join(
+                      "- " + problem for problem in problems
+                  )
+              elif existing is not None:
+                  message = MARKER + "\n" + "PR hygiene: looks good — the base, linked issue, and validation are in place. Thanks!"
+              else:
+                  sys.exit(0)
+          else:
+              if is_draft:
+                  opening = "Thanks for opening this draft! Drafts are great for early feedback; the full checklist runs when you mark it Ready for review."
+              elif problems:
+                  opening = "Thanks for the pull request! A few items to check:"
+              else:
+                  opening = "Thanks for the pull request! The base, linked issue, and validation look good."
+              sections = [opening]
+              if not is_draft and problems:
+                  sections.append("\n".join("- " + problem for problem in problems))
+              sections.extend([FORK_CI_NOTE, HUMAN_GUIDANCE, AGENT_GUIDANCE])
+              message = MARKER + "\n" + "\n\n".join(sections)
+
+          method = "PATCH" if existing is not None else "POST"
+          endpoint = f"repos/{repository}/issues/comments/{existing}" if existing is not None else f"repos/{repository}/issues/{number}/comments"
+          subprocess.run(
+              ["gh", "api", "--method", method, endpoint, "--input", "-"],
+              input=json.dumps({"body": message}),
+              check=True,
+              capture_output=True,
+              text=True,
+          )
+          PY
