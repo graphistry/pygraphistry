@@ -1016,8 +1016,6 @@ def validate_expr_capabilities(
             op = n.op.lower()
             if op not in allowed_binary_ops:
                 errors.append(f"unsupported binary op: {n.op}")
-            if op in GFQL_STRING_PREDICATE_OPS and not isinstance(n.right, Literal):
-                errors.append(f"string predicate rhs must be literal scalar: {n.op}")
             return
         if isinstance(n, IsNullOp):
             return

@@ -300,14 +300,6 @@ _ORDERED_PREFIX_EDGES = pl.DataFrame({
 })
 
 
-def _run_length_seq(values):
-    out = []
-    for v in values:
-        if not out or out[-1] != v:
-            out.append(v)
-    return out
-
-
 def _stability_graph():
     return graphistry.nodes(_ORDER_STABILITY_NODES, "id").edges(_ORDER_STABILITY_EDGES, "s", "d")
 
@@ -322,7 +314,8 @@ def _ordered_rows(frame, cols):
 def test_reentry_without_order_by_returns_stable_row_order():
     """#2370: a WITH ... MATCH re-entry without ORDER BY returns the same rows in the SAME
     order on repeated runs of the same query over the same graph. openCypher promises no
-    particular order without ORDER BY, but it must not differ run-to-run (pandas is stable)."""
+    particular order without ORDER BY, but it must not differ run-to-run (pandas is stable).
+    Twelve runs are probabilistic; the companion contiguity/ordered-prefix tests are the deterministic guard."""
     g = _stability_graph()
     seen = {
         tuple(g.gfql(_ORDER_STABILITY_Q, engine="polars")._nodes.select("f", "x").rows())
@@ -339,7 +332,6 @@ def test_reentry_without_order_by_preserves_carried_with_row_order():
     prefix_f = g.gfql("MATCH (p {id: 10})-[r]-(f) RETURN f.id AS f", engine="polars")._nodes["f"].to_list()
     assert len(prefix_f) >= 4 and len(set(prefix_f)) >= 2, "fixture lost its multi-row carry shape"
     result_f = g.gfql(_ORDER_STABILITY_Q, engine="polars")._nodes["f"].to_list()
-    assert _run_length_seq(result_f) == _run_length_seq(prefix_f)
     # Per-prefix-row contiguity: every carried prefix row expands to its own suffix
     # matches, in order (the fixture repeats each path edge 3x).
     assert result_f == [v for v in prefix_f for _ in range(3)]
@@ -348,7 +340,8 @@ def test_reentry_without_order_by_preserves_carried_with_row_order():
 def test_reentry_with_carried_scalar_returns_stable_row_order():
     """#2370: the reentry-token seed branch (a WITH that carries a scalar alongside the
     whole-row alias) is deterministic too -- the seed join's output order is unspecified
-    under parallel execution, so the branch used to scramble the carried prefix order."""
+    under parallel execution, so the branch used to scramble the carried prefix order.
+    Twelve runs are probabilistic; the companion contiguity/ordered-prefix tests are the deterministic guard."""
     g = _stability_graph()
     seen = {
         tuple(g.gfql(_ORDER_STABILITY_SCALAR_Q, engine="polars")._nodes.select("f", "pid", "x").rows())
@@ -364,11 +357,11 @@ def test_reentry_with_carried_scalar_preserves_carried_with_row_order():
     g = _stability_graph()
     prefix_f = g.gfql("MATCH (p {id: 10})-[r]-(f) RETURN f.id AS f", engine="polars")._nodes["f"].to_list()
     assert len(prefix_f) >= 4 and len(set(prefix_f)) >= 2, "fixture lost its multi-row carry shape"
-    result_f = g.gfql(_ORDER_STABILITY_SCALAR_Q, engine="polars")._nodes["f"].to_list()
-    assert _run_length_seq(result_f) == _run_length_seq(prefix_f)
+    res = g.gfql(_ORDER_STABILITY_SCALAR_Q, engine="polars")._nodes
+    result_f = res["f"].to_list()
     assert result_f == [v for v in prefix_f for _ in range(3)]
     # The carried scalar rides along on every suffix row.
-    pids = g.gfql(_ORDER_STABILITY_SCALAR_Q, engine="polars")._nodes["pid"].to_list()
+    pids = res["pid"].to_list()
     assert set(pids) == {10}
 
 

@@ -1,0 +1,43 @@
+name: Bug report
+description: Something does not work as documented
+title: "[BUG] "
+labels: ["bug"]
+body:
+  - type: textarea
+    id: describe
+    attributes:
+      label: Describe the bug
+      description: One to three sentences is fine.
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: To reproduce
+      description: Code, including data, that can be run without editing. We should be able to paste it into a notebook.
+      render: python
+      placeholder: |
+        import pandas as pd
+        import graphistry
+        # graphistry.register(api=3, username='...', password='...')
+        ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: The error message or wrong result.
+    validations:
+      required: true
+  - type: textarea
+    id: env
+    attributes:
+      label: Environment
+      description: "`pip show graphistry`, Python version, and the engine (pandas, cuDF, Polars, polars-gpu) if the bug is in GFQL."

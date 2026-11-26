@@ -161,3 +161,31 @@ def test_null_floats_never_match_any_term(engine):
     for term in ["nan", "None", "1", "1.5000"]:
         got = _mask(df, term, columns=["f"])
         assert got[0] is False or got[0] == False, f"null matched {term!r}"  # noqa: E712
+
+
+# --- a categorical of floats is not a float column (#2422) ------------------------------
+
+def test_a_categorical_of_floats_is_not_a_float_dtype():
+    from graphistry.compute.gfql.search_any import _is_float_dtype
+
+    assert _is_float_dtype(pd.Series([1.5, 2.5]).dtype)
+    assert not _is_float_dtype(pd.Series(pd.Categorical([1.5, 2.5])).dtype)
+    cudf = pytest.importorskip("cudf", reason="cuDF lane needs a GPU box")
+    assert not _is_float_dtype(cudf.from_pandas(pd.Series(pd.Categorical([1.5, 2.5]))).dtype)
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_the_auto_gate_skips_a_float_categorical_like_pandas(engine):
+    pdf = pd.DataFrame({"name": ["a", "b", "c"], "f": [1.5, 2.5, 1.5], "catf": pd.Categorical([1.5, 2.5, 1.5])})
+    assert search_candidate_columns(_frame(pdf, engine), "1", None) == search_candidate_columns(pdf, "1", None) == ["name", "f"]
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_an_explicit_float_categorical_column_is_one_answer_or_one_decline_never_a_crash(engine):
+    pdf = pd.DataFrame({"catf": pd.Categorical([1.5, 2.5, 1.5])})
+    frame = _frame(pdf, engine)
+    if engine == "cudf":
+        with pytest.raises(NotImplementedError, match="searchAny explicit columns"):
+            search_any_mask(frame, "1", columns=["catf"])
+    else:
+        assert _mask(frame, "1", columns=["catf"]) == [True, False, True]
