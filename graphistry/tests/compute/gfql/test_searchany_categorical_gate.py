@@ -365,41 +365,38 @@ def test_explicit_categorical_search_positive_and_negative_on_all_query_engines(
         assert actual_negative == []
 
 
-@pytest.mark.parametrize("engine", QUERY_ENGINES)
-def test_explicit_bool_categorical_preserves_pandas_case_sensitive_spelling(engine):
+def test_explicit_bool_categorical_preserves_pandas_case_sensitive_spelling(query_engine):
     pdf = pd.DataFrame({"id": [0, 1, 2], "cat": CATEGORICALS["bool"]})
     query = (
         "MATCH (n) WHERE searchAny(n, 'True', {columns: ['cat'], caseSensitive: true}) "
         "RETURN n.id AS id ORDER BY id"
     )
-    if engine == "cudf":
+    if query_engine == "cudf":
         with pytest.raises(NotImplementedError, match="cuDF searchAny explicit columns"):
-            graphistry.nodes(pdf, "id").gfql(query, engine=engine)
+            graphistry.nodes(pdf, "id").gfql(query, engine=query_engine)
         return
-    actual = graphistry.nodes(pdf, "id").gfql(query, engine=engine)._nodes
+    actual = graphistry.nodes(pdf, "id").gfql(query, engine=query_engine)._nodes
     assert _ids(actual) == [0, 2]
 
     lower_query = query.replace("'True'", "'true'")
-    lower = graphistry.nodes(pdf, "id").gfql(lower_query, engine=engine)._nodes
+    lower = graphistry.nodes(pdf, "id").gfql(lower_query, engine=query_engine)._nodes
     assert _ids(lower) == []
 
 
-@pytest.mark.parametrize("engine", QUERY_ENGINES)
-def test_or_search_preserves_categorical_metadata_for_row_pipeline(engine):
+def test_or_search_preserves_categorical_metadata_for_row_pipeline(query_engine):
     pdf = pd.DataFrame({"id": [0, 1, 2], "cat": CATEGORICALS["int"]})
     query = "MATCH (n) WHERE searchAny(n, '1') OR n.id = 99 RETURN n.id AS id ORDER BY id"
-    actual = graphistry.nodes(pdf, "id").gfql(query, engine=engine)._nodes
+    actual = graphistry.nodes(pdf, "id").gfql(query, engine=query_engine)._nodes
     assert _ids(actual) == [1]
 
 
-@pytest.mark.parametrize("engine", QUERY_ENGINES)
-def test_with_match_reentry_preserves_automatic_categorical_gate(engine):
+def test_with_match_reentry_preserves_automatic_categorical_gate(query_engine):
     pdf = pd.DataFrame({"id": [0, 1, 2, 99], "cat": pd.Categorical([1, 2, 1, 2])})
     query = (
         "MATCH (a) WHERE a.id = 99 WITH a MATCH (n) WHERE searchAny(n, '1') "
         "RETURN n.id AS id ORDER BY id"
     )
-    actual = graphistry.nodes(pdf, "id").gfql(query, engine=engine)._nodes
+    actual = graphistry.nodes(pdf, "id").gfql(query, engine=query_engine)._nodes
     assert _ids(actual) == [1]
 
 
@@ -475,8 +472,7 @@ def test_polars_reentry_collect_preserves_source_categorical_metadata(engine):
     }
 
 
-@pytest.mark.parametrize("engine", QUERY_ENGINES)
-def test_edge_search_preserves_automatic_categorical_gate(engine):
+def test_edge_search_preserves_automatic_categorical_gate(query_engine):
     nodes = pd.DataFrame({"id": [0, 1, 2]})
     edges = pd.DataFrame({
         "src": [0, 1, 2], "dst": [1, 2, 0], "id": ["edge-a", "edge-b", "edge-c"],
@@ -485,10 +481,10 @@ def test_edge_search_preserves_automatic_categorical_gate(engine):
     query = "MATCH (a)-[r]->(b) WHERE searchAny(r, '1') RETURN r.id AS id ORDER BY id"
     try:
         actual = graphistry.nodes(nodes, "id").edges(edges, "src", "dst").bind(edge="id").gfql(
-            query, engine=engine,
+            query, engine=query_engine,
         )._nodes
     except NotImplementedError as exc:
-        assert engine == "polars-gpu" and "not fully GPU-executable" in str(exc), exc
+        assert query_engine == "polars-gpu" and "not fully GPU-executable" in str(exc), exc
         return
     actual = actual.to_pandas() if hasattr(actual, "to_pandas") else actual
     assert list(actual["id"]) == []
