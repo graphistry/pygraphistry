@@ -39,12 +39,16 @@ jobs:
           AGENT_GUIDANCE = "Coding agents: read .agents/skills/contribute/SKILL.md and AGENTS.md; run ./bin/lint.sh and ./bin/check-gfql.sh, and see docs/contributing/gfql-gpu-colab.md for GPU checks."
           ISSUE_PATTERN = re.compile(r"(^|[^A-Za-z0-9])#[0-9]+|/issues/[0-9]+")
           SECTION_HEADING = re.compile(
-              r"^#{2,3}[ \t]+(?:validation|verification|tests?|testing|how[ \t]+i[ \t]+tested)(?:[ \t].*)?$",
+              r"^#{2,3}[ \t]+(?:validation|verification|tests?|testing|how[ \t]+i[ \t]+tested)(?:[ \t:(-].*)?$",
               re.IGNORECASE,
           )
           ANY_HEADING = re.compile(r"^#{2,3}[ \t]+")
           PLACEHOLDER = re.compile(
               r"^(?:todo|tbd|n/?a|none|not[ \t]+(?:run|tested|done)|coming[ \t]+soon|pending|\.{2,})(?:[ \t]*[:.!-].*)?$",
+              re.IGNORECASE,
+          )
+          TEMPLATE_INSTRUCTION = re.compile(
+              r"^paste the commands you ran and the last lines of their output \(not just a tick\)\.?$",
               re.IGNORECASE,
           )
           COMMAND = re.compile(r"(?:^|\s)(?:\./|python(?:3)?\s|pytest(?:\s|$)|uv\s|mypy\s|ruff\s|make\s|docker\s|tox\s)")
@@ -60,9 +64,12 @@ jobs:
               without_fences = re.sub(r"```.*?```", " ", section, flags=re.DOTALL)
               lines = []
               for line in without_fences.splitlines():
+                  if re.match(r"^\s*[-*+]\s+\[\s\]", line):
+                      continue
                   clean = re.sub(r"^\s*(?:[-*+]\s+|\d+[.)]\s+)", "", line).strip()
                   clean = re.sub(r"[`*_>#]", "", clean).strip()
-                  if clean and not PLACEHOLDER.fullmatch(clean):
+                  if (clean and not PLACEHOLDER.fullmatch(clean)
+                          and not TEMPLATE_INSTRUCTION.fullmatch(clean)):
                       lines.append(clean)
               text = " ".join(lines)
               words = re.findall(r"[A-Za-z0-9_./-]+", text)
@@ -116,7 +123,7 @@ jobs:
 
           comment_query = (
               '.[] | select(.user.login == "github-actions[bot]" and '
-              '.user.type == "Bot" and (.body | startswith("' + MARKER + '"))) | .id'
+              '.user.type == "Bot" and ((.body // "") | startswith("' + MARKER + '"))) | .id'
           )
           comments = subprocess.run(
               [
