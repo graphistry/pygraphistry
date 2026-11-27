@@ -1,0 +1,26 @@
+name: Feature request
+description: Suggest an idea for this project
+title: "[FEA] "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem does this solve?
+      description: "A clear, concise description, e.g. I am always frustrated when [...]"
+    validations:
+      required: true
+  - type: textarea
+    id: solution
+    attributes:
+      label: The solution you would like
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives you have considered
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context

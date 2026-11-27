@@ -66,6 +66,8 @@ POLARS_TEST_FILES=(
     graphistry/tests/compute/gfql/cypher/test_missing_relationship_property_2262.py
     # #2318 empty-map patterns are engine-parametrized; polars params only run here
     graphistry/tests/compute/gfql/cypher/test_issue_2318_empty_map_relationship.py
+    # #2374 non-literal string predicate operands are engine-parametrized; Polars declines run only in this lane
+    graphistry/tests/compute/gfql/cypher/test_string_predicate_nonliteral_rhs_2374.py
     # #2368 a projected boolean is not an alias; engine-parametrized, Polars params only run in this lane
     graphistry/tests/compute/gfql/cypher/test_projected_boolean_is_not_an_alias_2368.py
     # #2363 aggregates over string subscripts are engine-parametrized; Polars params only run in this lane
@@ -166,6 +168,8 @@ POLARS_TEST_FILES=(
     graphistry/tests/compute/gfql/test_fast_path_engagement.py
     graphistry/tests/compute/gfql/test_known_cross_engine_divergences.py
     graphistry/tests/compute/gfql/test_searchany_wysiwyg_float.py
+    graphistry/tests/compute/gfql/test_searchany_float_categorical_2422.py
+    graphistry/tests/compute/gfql/test_searchany_categorical_gate.py
     graphistry/tests/compute/gfql/test_decline_guidance_cross_engine.py
     graphistry/tests/compute/gfql/test_endpoint_closure_matrix.py
     graphistry/tests/compute/gfql/test_gfql_unified_routing_contracts.py
