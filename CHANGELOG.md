@@ -21,6 +21,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - Welcome to new contributor @MikeFTV (Mickael Saidi), who made their first contribution in #2361 (evaluating GFQL Cypher projected literals when a column shares the literal's name).
 - Welcome to new contributor @vikingps (Vikas), who made their first contribution in #2358 (experimental bounded Parquet traversal for GFQL `.hop()`).
 - Welcome to new contributor @theguysudo (Aditya), who made their first contribution in #2371 (stabilizing Polars Cypher `WITH ... MATCH` re-entry row order).
+- Welcome to new contributor @andretorresdg (Andre Devay), who made their first contribution in #2416 (allowing `username` alongside personal key credentials in `register()`), with thanks to @Ribeiro-MD for the review.
 
 ### Added
 
