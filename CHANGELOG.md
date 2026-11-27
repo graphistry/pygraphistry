@@ -21,6 +21,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - Welcome to new contributor @MikeFTV (Mickael Saidi), who made their first contribution in #2361 (evaluating GFQL Cypher projected literals when a column shares the literal's name).
 - Welcome to new contributor @vikingps (Vikas), who made their first contribution in #2358 (experimental bounded Parquet traversal for GFQL `.hop()`).
 - Welcome to new contributor @theguysudo (Aditya), who made their first contribution in #2371 (stabilizing Polars Cypher `WITH ... MATCH` re-entry row order).
+- Welcome to new contributor @andretorresdg (Andre Devay), who made their first contribution in #2416 (allowing `username` alongside personal key credentials in `register()`), with thanks to @Ribeiro-MD for the review.
 
 ### Added
 
@@ -62,6 +63,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - **GFQL Cypher string predicates over non-strings** (#2335): `STARTS WITH`, `ENDS WITH`, and `CONTAINS` in Cypher now give openCypher null when either operand is not a string (a numeric, boolean, or mixed-value cell is null, never coerced to text), in both `WHERE` and `RETURN`, and a categorical column of strings matches like strings. The native chain API is unchanged: `contains()`, `startswith()`, `endswith()`, `match()`, and `fullmatch()` on a non-string column still raise the typed `E302` error. The string predicates gain an optional `nonstring` field (`'error'` by default, `'null'` for Cypher), omitted from JSON at its default so existing serialized chains are unchanged.
 - **GFQL `WITH ... WHERE` quantifier scope**: loop variables in `any`, `all`, `none`, `single`, and list comprehensions now shadow matching MATCH aliases, so `any(n IN [{tags: 'z'}] WHERE n.tags = 'z')` evaluates the local map instead of silently dropping rows.
 - **GFQL Cypher projected literals** (#2346): `RETURN 5 AS v`, `true` and `null` are evaluated as literals even when the node table has a column named `5`, `true` or `null`; the row evaluators used to read that column instead. Interim fix: a column literally named `(5)`, `(true)` or `(null)`, or spelled like a quoted or structured literal, can still collide until the structural fix lands.
+- **register() with username and personal key**: `register(username=..., personal_key_id=..., personal_key_secret=...)` now logs in with the personal key instead of raising a missing-password error. A username with only part of a personal key still raises (#453).
 
 ## [0.62.2] - 2026-11-21
 
