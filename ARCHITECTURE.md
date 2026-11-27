@@ -1,6 +1,6 @@
 # Architecture
 
-This document should help get started with modifying code; it is for people and coding agents alike. See also [DEVELOP.md](DEVELOP.md) for developer commands (people and agents), [CONTRIBUTING.md](CONTRIBUTING.md) for how to contribute (people) and [AGENTS.md](AGENTS.md) (agents).
+This document should help get started with modifying code; it is for people and coding agents alike. See also [DEVELOP.md](DEVELOP.md) for developer commands (people and agents), [CONTRIBUTING.md](CONTRIBUTING.md) for how to contribute (people) and [AGENTS.md](https://github.com/graphistry/pygraphistry/blob/develop/AGENTS.md) (agents).
 
 ## Client/Server Wrangling Tool
 
