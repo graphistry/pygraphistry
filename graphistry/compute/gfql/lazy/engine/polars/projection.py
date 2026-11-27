@@ -187,6 +187,33 @@ def _alias_view_polars(
     )
 
 
+def _native_node_labels_text_expr(view: _AliasView) -> typing.Optional[pl.Expr]:
+    """Native text form of labels(alias), using the alias's original field sources."""
+    import polars as pl
+
+    schema = view.frame.schema
+    if "labels" in schema and schema["labels"] not in (pl.String, pl.Null):
+        return None  # list-backed legacy labels need their own parity contract
+    # The pandas reader ignores actual string labels columns (including the
+    # empty TCK fixture's String placeholder); only list-valued labels override flags.
+    label_columns = label_flag_columns(schema)
+    if any(schema[column] not in (pl.Boolean, pl.Null) for column, _ in label_columns):
+        return None
+    segments = [
+        pl.when(pl.col(view.columns.get(column, column)).fill_null(False))
+        .then(pl.lit(f"'{label}'")).otherwise(None)
+        for column, label in label_columns
+    ]
+    if "type" in schema:
+        if schema["type"] not in (pl.String, pl.Null):
+            return None
+        value = pl.col(view.columns.get("type", "type"))
+        segments.append(pl.lit("'") + value + pl.lit("'"))
+    body = pl.concat_str(segments, separator=", ", ignore_nulls=True) if segments else pl.lit("")
+    rendered = pl.lit("[") + body + pl.lit("]")
+    return pl.when(pl.col(view.presence_source).is_null()).then(None).otherwise(rendered)
+
+
 def _native_node_entity_text_expr(
     view: _AliasView, alias: str, exclude: typing.Sequence[str]
 ) -> typing.Optional[pl.Expr]:
@@ -205,16 +232,19 @@ def _native_node_entity_text_expr(
     from .dtypes import is_int
     schema = rows_df.schema
     excluded = set(str(c) for c in (exclude or ()))
-    bare_boolean_alias_marker = (
+    alias_collision_marker = (
         alias in cols
         and view.columns.get(alias, alias) == alias
         and view.presence_source != alias
+    )
+    bare_boolean_alias_marker = (
+        alias in cols
         and schema[alias] == pl.Boolean
     )
     include_id = "id" in cols and is_int(schema["id"])
     prop_cols = [
         str(c) for c in cols
-        if not (str(c) == alias and bare_boolean_alias_marker)
+        if not (str(c) == alias and (alias_collision_marker or bare_boolean_alias_marker))
         if str(c) != view.node_id_column
         if not (
             str(c) == alias

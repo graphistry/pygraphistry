@@ -41,8 +41,17 @@ def _assert_nodes_parity(cpu, gpu):
 
 @pytest.mark.parametrize("query", CORPUS)
 def test_gpu_cypher_parity(query):
+    from graphistry.compute.exceptions import GFQLUnsupportedError
+
     g = _graph(seed=3, n=24)
-    _assert_nodes_parity(g.gfql(query, engine="polars"), g.gfql(query, engine="polars-gpu"))
+    cpu = g.gfql(query, engine="polars")
+    try:
+        gpu = g.gfql(query, engine="polars-gpu")
+    except GFQLUnsupportedError as error:
+        assert query == "MATCH (n) RETURN labels(n) AS labels, count(*) AS count"
+        assert "cannot execute this aggregation" in str(error)
+        return
+    _assert_nodes_parity(cpu, gpu)
 
 
 @pytest.mark.parametrize("ops_name", ["hop1", "hop2", "filt_hop", "rev_hop"])

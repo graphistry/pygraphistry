@@ -3,10 +3,13 @@ boundary-call dispatch (chain_polars splits traversal from trailing call() ops),
 ops (rows/limit/skip/distinct/drop_cols), host-bridged projection. Supported queries return an
 identical polars-typed table; not-yet-ported ops raise NotImplementedError, never silently
 diverge. See plans/gfql-polars-engine."""
+import os
+
 import pandas as pd
 import pytest
 
 import graphistry
+from graphistry.compute.exceptions import GFQLUnsupportedError, GFQLValidationError
 
 pl = pytest.importorskip("polars")
 
@@ -46,6 +49,187 @@ def _assert_parity(query, *, order_sensitive=True):
         a_sorted = a.sort_values(list(a.columns)).reset_index(drop=True)
         b_sorted = b.sort_values(list(b.columns)).reset_index(drop=True)
         pd.testing.assert_frame_equal(a_sorted, b_sorted, check_dtype=False)
+
+
+@pytest.mark.parametrize(
+    "query, expected",
+    [
+        ("MATCH (n) RETURN labels(n) AS value", ["['Foo']", "['Bar']"]),
+        ("MATCH (n:Missing) RETURN labels(n) AS value", []),
+        ("OPTIONAL MATCH (n:Missing) RETURN labels(n) AS value", [None]),
+    ],
+)
+def test_native_polars_metadata_return_preserves_read_rows_and_caller(query, expected):
+    nodes = pl.DataFrame({"id": [1, 2], "name": ["left", "right"],
+                          "label__Foo": [True, False], "label__Bar": [False, True]})
+    source = graphistry.nodes(nodes, "id")
+    result = source.gfql(query, engine="polars")
+
+    assert isinstance(result._nodes, pl.DataFrame)
+    assert sorted(result._nodes.to_dicts(), key=lambda row: repr(row["value"])) == sorted(
+        [{"value": value} for value in expected], key=lambda row: repr(row["value"])
+    )
+    assert source._nodes.equals(nodes)
+
+
+@pytest.mark.parametrize("key", ["name", "m"])
+def test_polars_constant_map_subscript_cannot_read_an_unrelated_outer_column(key):
+    from graphistry.compute import rows, select
+
+    nodes = pl.DataFrame({"id": [1], "m": [{"name": "inside", "m": "self"}], "name": ["outside"]})
+    source = graphistry.nodes(nodes, "id")
+    with pytest.raises(NotImplementedError):
+        source.gfql([rows(), select([("value", f"m['{key}']")])], engine="polars")
+    assert source._nodes.equals(nodes)
+
+
+@pytest.mark.parametrize("argument", ["scalar", {"property": 1}])
+def test_polars_labels_non_node_column_cannot_read_unrelated_label_flags(argument):
+    from graphistry.compute import rows, select
+
+    nodes = pl.DataFrame({"id": [1], "argument": [argument], "label__Foo": [True]})
+    source = graphistry.nodes(nodes, "id")
+    with pytest.raises(NotImplementedError):
+        source.gfql([rows(), select([("value", "labels(argument)")])], engine="polars")
+    assert source._nodes.equals(nodes)
+
+
+def test_labels_rejects_relationship_binding_with_node_id_named_property(engine):
+    from graphistry.compute import rows, select
+
+    nodes = pd.DataFrame({"id": [1, 2]})
+    edges = pd.DataFrame({"src": [1], "dst": [2], "edge_id": [7], "id": [1],
+                          "type": ["R"], "r": [True], "label__Foo": [True]})
+    source = graphistry.nodes(nodes, "id").edges(edges, "src", "dst", edge="edge_id")
+    with pytest.raises((GFQLValidationError, NotImplementedError)):
+        source.gfql([rows(table="edges", source="r"), select([("value", "labels(r)")])], engine=engine)
+    pd.testing.assert_frame_equal(source._nodes, nodes)
+    pd.testing.assert_frame_equal(source._edges, edges)
+
+
+LABEL_QUERIES = [
+    "MATCH (n) RETURN labels(n) AS labels",
+    "MATCH (n) RETURN labels(n)",
+    "MATCH (n) WITH labels(n) AS labels RETURN labels",
+    "MATCH (n) WHERE size(labels(n)) > 0 RETURN labels(n) AS labels",
+    "OPTIONAL MATCH (n:Missing) RETURN labels(n) AS labels",
+]
+
+LABEL_AGGREGATE_QUERIES = [
+    "MATCH (n) RETURN DISTINCT labels(n) AS labels",
+    "MATCH (n) RETURN collect(labels(n)) AS labels",
+    "MATCH (n) RETURN labels(n) AS labels, count(*) AS count",
+]
+
+
+@pytest.fixture(params=["pandas", "cudf", "polars", "polars-gpu"])
+def engine(request):
+    if request.param == "cudf":
+        pytest.importorskip("cudf")
+        if os.environ.get("TEST_CUDF") != "1":
+            pytest.skip("cudf tests need TEST_CUDF=1")
+    elif request.param == "polars-gpu":
+        pytest.importorskip("cudf_polars")
+        if os.environ.get("TEST_POLARS_GPU") != "1":
+            pytest.skip("requires actual polars-gpu")
+    return request.param
+
+
+def test_labels_in_list_comprehension_remains_plan_time_declined(engine):
+    """The labels projection feature must not partially enable an unsupported TCK expression."""
+    nodes = pd.DataFrame({
+        "id": [0, 1, 2],
+        "name": ["c", None, None],
+        "label__A": [True, False, False],
+        "label__B": [False, True, False],
+        "label__C": [False, False, True],
+    })
+    edges = pd.DataFrame({"src": [0, 0], "dst": [1, 2]})
+    graph = graphistry.nodes(nodes, "id").edges(edges, "src", "dst")
+    query = "MATCH (n)-->(b) WHERE n.name IN [x IN labels(b) | toLower(x)] RETURN b"
+
+    with pytest.raises((GFQLValidationError, NotImplementedError)):
+        graph.gfql(query, engine=engine)
+
+
+def _labels_frame(engine, kind):
+    import polars as pl
+
+    if kind == "zero_labels":
+        pandas_frame = pd.DataFrame({"id": [1, 2, 3], "name": ["a", "b", "c"]})
+    elif kind == "null_flag_cell":
+        pandas_frame = pd.DataFrame({
+            "id": [1, 2, 3], "name": ["a", "b", "c"],
+            "label__Foo": pd.array([True, None, False], dtype="boolean"),
+        })
+    elif kind == "null_dtype":
+        pandas_frame = pd.DataFrame({
+            "id": [1, 2, 3], "name": ["a", "b", "c"],
+            "label__Foo": pd.Series([None, None, None], dtype="object"),
+        })
+    else:
+        pandas_frame = pd.DataFrame({
+            "id": [1, 2, 3], "name": ["a", "b", "c"],
+            "label__O'Brien": [True, False, True],
+        })
+    if engine == "cudf":
+        import cudf
+
+        return cudf.from_pandas(pandas_frame)
+    if not engine.startswith("polars"):
+        return pandas_frame
+    polars_frame = pl.from_pandas(pandas_frame)
+    if kind == "null_dtype":
+        polars_frame = polars_frame.with_columns(
+            pl.Series("label__Foo", [None, None, None], dtype=pl.Null)
+        )
+    return polars_frame
+
+
+@pytest.mark.parametrize("kind", ["zero_labels", "null_flag_cell", "null_dtype", "quote_label"])
+def test_labels_projection_matches_pandas_in_every_lowering_chokepoint(engine, kind):
+    oracle = graphistry.nodes(_labels_frame("pandas", kind), "id")
+    actual_graph = graphistry.nodes(_labels_frame(engine, kind), "id")
+
+    def normalized(nodes):
+        frame = nodes.to_pandas() if hasattr(nodes, "to_pandas") else nodes
+        def scalar(value):
+            if hasattr(value, "tolist"):
+                value = value.tolist()
+            if isinstance(value, (list, tuple)):
+                return repr([scalar(item) for item in value])
+            return value if isinstance(value, str) else repr(value)
+
+        normalized = frame.copy()
+        for column in normalized.columns:
+            normalized[column] = normalized[column].map(scalar)
+        return normalized.sort_values(list(normalized.columns)).reset_index(drop=True)
+
+    for query in LABEL_QUERIES:
+        expected = normalized(oracle.gfql(query, engine="pandas")._nodes)
+        actual = normalized(actual_graph.gfql(query, engine=engine)._nodes)
+        assert list(actual.columns) == list(expected.columns), query
+        pd.testing.assert_frame_equal(actual, expected, check_dtype=False, check_index_type=False)
+
+    for query in LABEL_AGGREGATE_QUERIES:
+        expected = normalized(oracle.gfql(query, engine="pandas")._nodes)
+        try:
+            actual = normalized(actual_graph.gfql(query, engine=engine)._nodes)
+        except GFQLUnsupportedError as error:
+            assert engine == "polars-gpu", query
+            assert "cannot execute this aggregation" in str(error), query
+            continue
+        assert list(actual.columns) == list(expected.columns), query
+        pd.testing.assert_frame_equal(actual, expected, check_dtype=False, check_index_type=False)
+
+    alias_query = "MATCH (a), (b) WHERE a.id = 1 AND b.id = 2 RETURN labels(a) AS a_labels, labels(b) AS b_labels"
+    if engine == "polars-gpu":
+        with pytest.raises(NotImplementedError):
+            actual_graph.gfql(alias_query, engine=engine)
+    else:
+        expected = normalized(oracle.gfql(alias_query, engine="pandas")._nodes)
+        actual = normalized(actual_graph.gfql(alias_query, engine=engine)._nodes)
+        pd.testing.assert_frame_equal(actual, expected, check_dtype=False, check_index_type=False)
 
 
 SUPPORTED = [
@@ -346,6 +530,38 @@ def test_node_identity_sentinel_resolution():
         assert rp.lower_expr_str("__gfql_node_id__", cols) is None
     finally:
         rp._NODE_ID.reset(tok)
+
+
+def test_native_node_label_rendering_declines_non_contract_dtypes():
+    import polars as pl
+
+    from graphistry.compute.gfql.lazy.engine.polars.projection import (
+        _AliasView,
+        _native_node_labels_text_expr,
+    )
+
+    def view(frame):
+        return _AliasView(
+            frame=frame,
+            columns={},
+            presence_column="n",
+            presence_source="n",
+            node_id_column=None,
+        )
+
+    list_labels = pl.DataFrame({"n": [1], "labels": [["Legacy"]]})
+    assert _native_node_labels_text_expr(view(list_labels)) is None
+
+    non_boolean_flag = pl.DataFrame({"n": [1], "label__Legacy": ["yes"]})
+    assert _native_node_labels_text_expr(view(non_boolean_flag)) is None
+
+    numeric_type = pl.DataFrame({"n": [1], "type": [1]})
+    assert _native_node_labels_text_expr(view(numeric_type)) is None
+
+    string_type = pl.DataFrame({"n": [1], "type": ["Legacy"]})
+    rendered = _native_node_labels_text_expr(view(string_type))
+    assert rendered is not None
+    assert string_type.select(rendered.alias("labels"))["labels"].to_list() == ["['Legacy']"]
 
 
 def test_polars_frame_op_limit_matches_slice():
