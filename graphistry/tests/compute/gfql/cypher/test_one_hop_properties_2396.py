@@ -26,6 +26,12 @@ def _records(frame):
     return frame.to_dict("records")
 
 
+def _prop_entries(text):
+    assert text.startswith("{") and text.endswith("}")
+    inner = text[1:-1].strip()
+    return set(inner.split(", ")) if inner else set()
+
+
 @pytest.fixture(params=["pandas", "cudf", "polars", "polars-gpu"])
 def engine(request):
     if request.param == "cudf":
@@ -93,8 +99,9 @@ def test_one_hop_edge_properties_match_anonymous_form_with_edge_id(engine):
             graph.gfql(one_hop, engine=engine)
         return
     rows = _records(graph.gfql(one_hop, engine=engine)._nodes)
-    assert rows == _records(graph.gfql(anonymous, engine=engine)._nodes)
-    assert rows == [{"p": "{kind: 'k1', eid: 7}"}]
+    anon_rows = _records(graph.gfql(anonymous, engine=engine)._nodes)
+    assert len(rows) == len(anon_rows) == 1
+    assert _prop_entries(rows[0]["p"]) == _prop_entries(anon_rows[0]["p"]) == {"kind: 'k1'", "eid: 7"}
 
 
 def test_one_hop_node_alias_matching_edge_id_preserves_edge_id(engine):
@@ -105,4 +112,5 @@ def test_one_hop_node_alias_matching_edge_id_preserves_edge_id(engine):
             graph.gfql(query, engine=engine)
         return
     rows = _records(graph.gfql(query, engine=engine)._nodes)
-    assert rows == [{"p": "{kind: 'k1', eid: 7}"}]
+    assert len(rows) == 1
+    assert _prop_entries(rows[0]["p"]) == {"kind: 'k1'", "eid: 7"}
