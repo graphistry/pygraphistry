@@ -739,6 +739,8 @@ class GraphistryClient(AuthManagerProtocol):
         # Reset token creds
         self.__reset_token_creds_in_memory()
 
+        has_personal_key = personal_key_id is not None and personal_key_secret is not None
+
         if not (username is None) and not (password is None):
             self.login(username, password, org_name)
             self.api_token(token or self.session.api_token)
@@ -746,7 +748,7 @@ class GraphistryClient(AuthManagerProtocol):
             self._maybe_switch_org(org_name)
         elif (username is None and not (password is None)):
             raise Exception(MSG_REGISTER_MISSING_USERNAME)
-        elif not (username is None) and password is None:
+        elif not (username is None) and password is None and not has_personal_key:
             raise Exception(MSG_REGISTER_MISSING_PASSWORD)
         elif not (personal_key_id is None) and not (personal_key_secret is None):
             self.pkey_login(personal_key_id, personal_key_secret, org_name=org_name)
