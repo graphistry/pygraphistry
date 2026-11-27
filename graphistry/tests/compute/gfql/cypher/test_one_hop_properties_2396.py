@@ -95,3 +95,14 @@ def test_one_hop_edge_properties_match_anonymous_form_with_edge_id(engine):
     rows = _records(graph.gfql(one_hop, engine=engine)._nodes)
     assert rows == _records(graph.gfql(anonymous, engine=engine)._nodes)
     assert rows == [{"p": "{kind: 'k1', eid: 7}"}]
+
+
+def test_one_hop_node_alias_matching_edge_id_preserves_edge_id(engine):
+    graph = _graph(engine, edge_id="eid")
+    query = "MATCH (eid)-[e]->(m) RETURN properties(e) AS p"
+    if engine in {"polars", "polars-gpu"}:
+        with pytest.raises((NotImplementedError, GFQLUnsupportedError)):
+            graph.gfql(query, engine=engine)
+        return
+    rows = _records(graph.gfql(query, engine=engine)._nodes)
+    assert rows == [{"p": "{kind: 'k1', eid: 7}"}]

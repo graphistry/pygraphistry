@@ -3816,7 +3816,6 @@ class RowPipelineMixin:
             for x in (
                 self._source,
                 self._destination,
-                self._edge,
                 alias,
                 presence_col,
             )
