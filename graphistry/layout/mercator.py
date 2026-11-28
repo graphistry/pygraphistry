@@ -7,12 +7,41 @@ This module provides the mercator_layout method for Plotter objects.
 import logging
 import math
 import pandas as pd
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Tuple
 
 if TYPE_CHECKING:
     from graphistry.Plottable import Plottable
 
 logger = logging.getLogger(__name__)
+
+# Latitude where Web Mercator becomes a square map: atan(sinh(pi)) in degrees, ~85.051129
+WEB_MERCATOR_MAX_LAT = math.degrees(math.atan(math.sinh(math.pi)))
+
+
+def _project(xp: Any, lat_deg: Any, lon_deg: Any, R: float, lat_col: str, lon_col: str) -> Tuple[Any, Any]:
+    """Validate and project float64 degree arrays with array module ``xp`` (numpy or cupy).
+
+    NaN passes through as a missing position. Latitudes outside [-90, 90] and infinite
+    coordinates raise; in-range latitudes clamp to the Web-Mercator limit so the poles
+    are finite mirror images instead of -inf / +23810.
+    """
+    bad_lat = xp.isinf(lat_deg) | (xp.abs(lat_deg) > 90)
+    if bool(bad_lat.any()):
+        raise ValueError(
+            f'Column "{lat_col}" has {int(bad_lat.sum())} latitude(s) outside [-90, 90] '
+            f'(first: {float(lat_deg[bad_lat][0])}); check for swapped lat/lon, projected coordinates, or sentinel values')
+    bad_lon = xp.isinf(lon_deg)
+    if bool(bad_lon.any()):
+        raise ValueError(
+            f'Column "{lon_col}" has {int(bad_lon.sum())} non-finite longitude(s) (first: {float(lon_deg[bad_lon][0])})')
+
+    lat_rad = xp.radians(xp.clip(lat_deg, -WEB_MERCATOR_MAX_LAT, WEB_MERCATOR_MAX_LAT))
+    lon_rad = xp.radians(lon_deg)
+
+    # Mercator projection formulas (vectorized)
+    x_vals = R * lon_rad
+    y_vals = R * xp.log(xp.tan(xp.pi / 4 + lat_rad / 2))
+    return x_vals, y_vals
 
 
 def mercator_layout(self: 'Plottable', scale_for_graphistry: bool = True) -> 'Plottable':
@@ -22,6 +51,9 @@ def mercator_layout(self: 'Plottable', scale_for_graphistry: bool = True) -> 'Pl
     Uses point_latitude and point_longitude bindings if set, otherwise defaults to 'latitude' and 'longitude' columns.
     Uses existing point_x and point_y bindings if available, otherwise defaults to 'x' and 'y'.
     Uses GPU acceleration via CuPy if available, falls back to CPU/pandas otherwise.
+
+    Latitudes beyond the Web-Mercator limit (about +-85.051129) are clamped to it, as map tiles do, so the poles project to finite positions.
+    Missing coordinates give missing positions. Non-numeric columns, latitudes outside [-90, 90] and infinite coordinates raise ``ValueError``.
 
     Note: Graphistry automatically performs server-side geographic layout when latitude/longitude columns are detected.
     Use mercator_layout() when you need projected coordinates locally for analysis or need to export coordinates for use with other tools.
@@ -78,6 +110,10 @@ def mercator_layout(self: 'Plottable', scale_for_graphistry: bool = True) -> 'Pl
     else:
         R = 6378137.0  # Standard Earth radius in meters (WGS84)
 
+    for col in (lat_col, lon_col):
+        if not pd.api.types.is_numeric_dtype(g._nodes[col].dtype):
+            raise ValueError(f'Column "{col}" must be numeric degrees for mercator_layout, got dtype {g._nodes[col].dtype}')
+
     cp = None
     if is_not_pandas:
         try:
@@ -87,28 +123,18 @@ def mercator_layout(self: 'Plottable', scale_for_graphistry: bool = True) -> 'Pl
             logger.warning("cuDF DataFrame detected but cupy is not available. Falling back to NumPy (CPU). Install cupy for GPU-accelerated computation.")
 
     if cp is not None:
-        lat_deg = g._nodes[lat_col]
-        lon_deg = g._nodes[lon_col]
-
-        lat_rad = cp.radians(lat_deg.values)
-        lon_rad = cp.radians(lon_deg.values)
-
-        # Mercator projection formulas (vectorized)
-        x_vals = R * lon_rad
-        y_vals = R * cp.log(cp.tan(cp.pi / 4 + lat_rad / 2))
-
+        # Nulls become NaN so missing coordinates stay missing positions
+        xp = cp  # pragma: no cover - cuDF-only; see above
+        lat_deg = g._nodes[lat_col].to_cupy(dtype='float64', na_value=cp.nan)  # pragma: no cover - cuDF-only; see above
+        lon_deg = g._nodes[lon_col].to_cupy(dtype='float64', na_value=cp.nan)  # pragma: no cover - cuDF-only; see above
     else:
         import numpy as np
+        xp = np
+        # to_numpy (not .values) so a cuDF frame without cupy still yields a host array
+        lat_deg = g._nodes[lat_col].to_numpy(dtype='float64', na_value=np.nan)
+        lon_deg = g._nodes[lon_col].to_numpy(dtype='float64', na_value=np.nan)
 
-        lat_deg = g._nodes[lat_col].values
-        lon_deg = g._nodes[lon_col].values
-
-        lat_rad = np.radians(lat_deg)
-        lon_rad = np.radians(lon_deg)
-
-        # Mercator projection formulas (vectorized)
-        x_vals = R * lon_rad
-        y_vals = R * np.log(np.tan(np.pi / 4 + lat_rad / 2))
+    x_vals, y_vals = _project(xp, lat_deg, lon_deg, R, lat_col, lon_col)
 
     g2 = g.nodes(
         g._nodes.assign(**{
