@@ -129,6 +129,9 @@ python bin/ci/ci_cypher_surface_guard.py --write-baseline
 
 Then commit both code changes and baseline update together.
 
+The Cypher-surface and GPU-gate audits also run from `./bin/lint.sh` by default;
+set `LINT_QUICK_GUARDS=0` to skip only those two quick checks.
+
 ### Type Hygiene Guard
 
 `bin/lint.sh` (run by the `python-lint-types` matrix on py3.8-3.14) runs
