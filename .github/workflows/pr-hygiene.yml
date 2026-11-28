@@ -37,6 +37,7 @@ jobs:
           FORK_CI_NOTE = "From a fork, CI workflows wait for maintainer approval — seeing 0 checks at first is expected, not a failure."
           HUMAN_GUIDANCE = "Humans: see CONTRIBUTING.md and join Discord at https://discord.gg/wK7mMpeQVF in #general or #gfql; async PR/issue discussion is preferred."
           AGENT_GUIDANCE = "Coding agents: read .agents/skills/contribute/SKILL.md and AGENTS.md; run ./bin/lint.sh and ./bin/check-gfql.sh, and see docs/contributing/gfql-gpu-colab.md for GPU checks."
+          FEEDBACK_NOTE = "_Note: this hygiene bot is experimental — feedback on it and our contributor docs/skills is welcome here, in an issue, or on Discord._"
           ISSUE_PATTERN = re.compile(r"(^|[^A-Za-z0-9])#([0-9]+)|/issues/([0-9]+)")
           LINKED_ISSUE_LINE = re.compile(
               r"^\s*(?:[-*+]\s+)?(?:\[[ xX]\]\s*)?Linked issue\(s\):[ \t]*(.*?)\s*$",
@@ -204,14 +205,20 @@ jobs:
 
           if same_repository:
               if problems:
-                  message = MARKER + "\n" + "A few items need attention before this pull request is ready:" + "\n" + "\n".join(
-                      "- " + problem for problem in problems
+                  message = (
+                      MARKER
+                      + "\n"
+                      + "A few items need attention before this pull request is ready:"
+                      + "\n"
+                      + "\n".join("- " + problem for problem in problems)
+                      + "\n\n"
+                      + FEEDBACK_NOTE
                   )
               elif existing is not None:
                   if docs_only:
-                      message = MARKER + "\n" + "PR hygiene: documentation-only changes look good. Thanks!"
+                      message = MARKER + "\n" + "PR hygiene: documentation-only changes look good. Thanks!" + "\n\n" + FEEDBACK_NOTE
                   else:
-                      message = MARKER + "\n" + "PR hygiene: the base, issue note, and validation look good. Thanks!"
+                      message = MARKER + "\n" + "PR hygiene: the base, issue note, and validation look good. Thanks!" + "\n\n" + FEEDBACK_NOTE
               else:
                   sys.exit(0)
           else:
@@ -232,7 +239,7 @@ jobs:
                   sections.append("\n".join("- " + problem for problem in problems))
               elif is_draft and docs_only and base_problem is not None:
                   sections.append("- " + base_problem)
-              sections.extend([FORK_CI_NOTE, HUMAN_GUIDANCE, AGENT_GUIDANCE])
+              sections.extend([FORK_CI_NOTE, HUMAN_GUIDANCE, AGENT_GUIDANCE, FEEDBACK_NOTE])
               message = MARKER + "\n" + "\n\n".join(sections)
 
           method = "PATCH" if existing is not None else "POST"
