@@ -17,7 +17,7 @@ import inspect
 import operator
 import re
 from collections import OrderedDict
-from typing import TYPE_CHECKING, Any, Callable, Collection, Dict, FrozenSet, List, Mapping, Optional, Sequence, Tuple, TypeVar, Union, cast
+from typing import TYPE_CHECKING, Any, Callable, Collection, Dict, FrozenSet, List, Mapping, Optional, Sequence, Set, Tuple, TypeVar, Union, cast
 
 from typing_extensions import Literal, Protocol, assert_never
 
@@ -532,6 +532,8 @@ def _is_temporal_column_ref(node: ExprNode, columns: Sequence[str]) -> bool:
     from graphistry.compute.gfql.expr_parser import Identifier, PropertyAccessExpr
     name: Optional[str] = None
     if isinstance(node, PropertyAccessExpr) and isinstance(node.value, Identifier):
+        if _projected_value_read(node.value.name, node.property, columns) is not None:
+            return False
         name = _resolve_property(node.value.name, node.property, columns)
     elif isinstance(node, Identifier) and node.name in columns:
         name = node.name
@@ -1410,8 +1412,7 @@ def _projected_value_columns(g: Plottable, table: "Union[pl.DataFrame, pl.LazyFr
     if node_aliases is None and edge_aliases is None:
         return None
     aliases = set(node_aliases or ()) | set(edge_aliases or ())
-    eager = isinstance(table, pl.DataFrame)
-    schema = table.schema if eager else table.collect_schema()
+    schema = table.schema if isinstance(table, pl.DataFrame) else table.collect_schema()
     out: Dict[str, ValueColumnRead] = {}
     for name, dtype in schema.items():
         if name in aliases or _is_reserved_row_column(name):
@@ -1642,7 +1643,56 @@ def _project_polars(g: Plottable, items: Sequence[SelectItem], extend: bool) -> 
         # etc.) that pandas normalizes to ISO, not yet native — don't leak the raw text.
         # Only String columns are scanned, so numeric/bool projections pay nothing.
         return None
-    return _rewrap(g, out)
+    result = _rewrap(g, out)
+    node_aliases, edge_aliases = _projected_row_alias_sets(g, items, extend=extend)
+    if node_aliases is not None and edge_aliases is not None:
+        result._gfql_rows_node_aliases = node_aliases
+        result._gfql_rows_edge_aliases = edge_aliases
+    return result
+
+
+def _projected_row_alias_sets(
+    g: Plottable, items: Sequence[SelectItem], *, extend: bool,
+) -> Tuple[Optional[Set[str]], Optional[Set[str]]]:
+    """Track entity aliases that projections carry unchanged, matching pandas row projections."""
+    node_aliases, edge_aliases = g._gfql_rows_node_aliases, g._gfql_rows_edge_aliases
+    if node_aliases is None and edge_aliases is None:
+        return None, None
+    from graphistry.compute.gfql.expr_parser import GFQLExprParseError, Identifier
+    parse = _parser()
+    node_sources, edge_sources = set(node_aliases or ()), set(edge_aliases or ())
+    projected: Dict[str, Optional[str]] = {}
+
+    def source_identifier(expression: str) -> Optional[str]:
+        if expression in node_sources or expression in edge_sources:
+            return expression
+        if parse is None:
+            return None
+        try:
+            parsed = parse(expression)
+        except GFQLExprParseError:
+            return None
+        return parsed.name if isinstance(parsed, Identifier) else None
+
+    for item in items:
+        if isinstance(item, str):
+            projected[item] = source_identifier(item)
+        elif isinstance(item, (list, tuple)) and len(item) == 2:
+            expression = item[1]
+            projected[str(item[0])] = source_identifier(expression) if isinstance(expression, str) else None
+        else:
+            continue  # invalid items are rejected by lower_select_items before this helper
+
+    kept_nodes = set(node_sources) if extend else set()
+    kept_edges = set(edge_sources) if extend else set()
+    for name, source in projected.items():
+        kept_nodes.discard(name)
+        kept_edges.discard(name)
+        if source in node_sources:
+            kept_nodes.add(name)
+        if source in edge_sources:
+            kept_edges.add(name)
+    return kept_nodes, kept_edges
 
 
 def _select_emits_temporal_constructor_text(out: Any) -> bool:
@@ -2055,23 +2105,30 @@ def group_by_polars(
 
     if collections:
         try:
-            return _rewrap(g, _gpu_collection_aggregates(
+            out = _gpu_collection_aggregates(
                 operand_plan, key_cols, aggs, collections, operand_schema, output_aliases,
-            ))
-        except NotImplementedError as exc:
-            _group_by_decline(exc)
-            return None
-    if active_target() == ExecutionTarget.GPU or has_projected_operands or not key_cols:
-        plan = (operand_plan.group_by(key_cols, maintain_order=True).agg(aggs)
-                if key_cols else operand_plan.select(aggs))
-        try:
-            out = collect(plan)
+            )
         except NotImplementedError as exc:
             _group_by_decline(exc)
             return None
     else:
-        out = table.group_by(key_cols, maintain_order=True).agg(aggs)
-    return _rewrap(g, out)
+        if active_target() == ExecutionTarget.GPU or has_projected_operands or not key_cols:
+            plan = (operand_plan.group_by(key_cols, maintain_order=True).agg(aggs)
+                    if key_cols else operand_plan.select(aggs))
+            try:
+                out = collect(plan)
+            except NotImplementedError as exc:
+                _group_by_decline(exc)
+                return None
+        else:
+            out = table.group_by(key_cols, maintain_order=True).agg(aggs)
+    result = _rewrap(g, out)
+    node_aliases, edge_aliases = g._gfql_rows_node_aliases, g._gfql_rows_edge_aliases
+    if node_aliases is not None or edge_aliases is not None:
+        shadowed = set(output_aliases)
+        result._gfql_rows_node_aliases = (set(node_aliases or ()) & set(key_cols)) - shadowed
+        result._gfql_rows_edge_aliases = (set(edge_aliases or ()) & set(key_cols)) - shadowed
+    return result
 
 
 def unwind_polars(g: Plottable, expr: str, as_: str = "value") -> Optional[Plottable]:
@@ -2106,7 +2163,11 @@ def unwind_polars(g: Plottable, expr: str, as_: str = "value") -> Optional[Plott
     if isinstance(node, ListLiteral) and all(isinstance(it, Literal) for it in node.items):
         values = [it.value for it in node.items if isinstance(it, Literal)]
         rhs = pl.DataFrame({as_: values})
-        return _rewrap(g, table.join(rhs, how="cross"))
+        result = _rewrap(g, table.join(rhs, how="cross"))
+        if g._gfql_rows_node_aliases is None and g._gfql_rows_edge_aliases is None:
+            result._gfql_rows_node_aliases = set()
+            result._gfql_rows_edge_aliases = set()
+        return result
     if isinstance(node, Identifier) and node.name in table.columns:
         col = node.name
         if not isinstance(table.schema[col], pl.List):
@@ -2121,7 +2182,11 @@ def unwind_polars(g: Plottable, expr: str, as_: str = "value") -> Optional[Plott
         out = table.with_columns(pl.col(col).alias(as_))
         out = out.filter(pl.col(as_).list.len() > 0)
         out = out.explode(as_)
-        return _rewrap(g, out)
+        result = _rewrap(g, out)
+        if g._gfql_rows_node_aliases is None and g._gfql_rows_edge_aliases is None:
+            result._gfql_rows_node_aliases = set()
+            result._gfql_rows_edge_aliases = set()
+        return result
     return None
 
 
@@ -2137,7 +2202,12 @@ def select_extend_polars(g: Plottable, items: Sequence[SelectItem]) -> Optional[
     out = table.with_columns(exprs)
     if _select_emits_temporal_constructor_text(out):
         return None
-    return _rewrap(g, out)
+    result = _rewrap(g, out)
+    node_aliases, edge_aliases = _projected_row_alias_sets(g, items, extend=True)
+    if node_aliases is not None and edge_aliases is not None:
+        result._gfql_rows_node_aliases = node_aliases
+        result._gfql_rows_edge_aliases = edge_aliases
+    return result
 
 
 def _cartesian_node_bindings_polars(
@@ -2217,12 +2287,13 @@ def _cartesian_node_bindings_polars(
         cols = matched.collect_schema().names()
         # prop_cols excludes node_id and any real column named == alias; that column is
         # emitted once below as ``alias.alias``: the real user values when the column
-        # exists (unshadow parity with pandas), else the flag ``True``.
+        # exists (unshadow parity with pandas), else a typed null (``pl.Boolean`` preserves
+        # object ``None`` across pandas 2.x/3.x and avoids ``cudf_polars`` Null-dtype failure).
         prop_cols = [c for c in cols if c != node_id and c != alias]
         exprs = [
             pl.col(node_id).alias(alias),
             pl.col(node_id).alias(f"{alias}.{node_id}"),
-            (pl.col(alias) if alias in cols else pl.lit(None)).alias(f"{alias}.{alias}"),
+            (pl.col(alias) if alias in cols else pl.lit(None, dtype=pl.Boolean)).alias(f"{alias}.{alias}"),
         ]
         exprs.extend(pl.col(c).alias(f"{alias}.{c}") for c in prop_cols)
         per_alias.append(matched.select(exprs))
@@ -2237,7 +2308,10 @@ def _cartesian_node_bindings_polars(
         out_df = _lazy_collect(state)
     except pl.exceptions.SchemaError:  # pragma: no cover - defensive: cross-join schema clash declines
         return None
-    return _rewrap(g, out_df)
+    out = _rewrap(g, out_df)
+    out._gfql_rows_node_aliases = set(named)
+    out._gfql_rows_edge_aliases = set()
+    return out
 
 
 def binding_rows_polars(

@@ -119,17 +119,22 @@ def rows_binding_ops_polars(
         return None
     # Keep the alias-presence marker in the bare alias column. The qualified
     # `alias.alias` slot is user data only when the source graph has that property;
-    # otherwise null it so formatter logic cannot mistake the operation flag for data.
+    # otherwise emit a typed null (pl.Boolean preserves object None across pandas
+    # 2.x/3.x and avoids cudf_polars Null-dtype errors) so formatter logic cannot
+    # mistake the operation flag for data.
     prop_cols = [c for c in matched.columns if c != node_id and c != alias]
     exprs = [
         pl.col(node_id),
         pl.col(node_id).alias(alias),
         pl.col(node_id).alias(f"{alias}.{node_id}"),
-        (pl.col(alias) if alias in matched.columns else pl.lit(None)).alias(f"{alias}.{alias}"),
+        (pl.col(alias) if alias in matched.columns else pl.lit(None, dtype=pl.Boolean)).alias(f"{alias}.{alias}"),
     ]
     exprs.extend(pl.col(c).alias(f"{alias}.{c}") for c in prop_cols)
     lookup = matched.select(exprs)
-    return _rewrap(g, lookup)
+    out = _rewrap(g, lookup)
+    out._gfql_rows_node_aliases = {alias}
+    out._gfql_rows_edge_aliases = set()
+    return out
 
 
 def _nodes_cover_keys(base_graph: Plottable, node_id: str, keys: ArrayLike) -> bool:

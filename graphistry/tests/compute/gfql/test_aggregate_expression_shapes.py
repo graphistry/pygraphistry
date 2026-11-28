@@ -46,6 +46,27 @@ def test_native_aggregate_literal_precedes_expression():
     assert out._nodes.to_dicts() == [{"total": 100}]
 
 
+def test_gpu_collection_aggregate_filters_shadowed_aliases_on_cpu(monkeypatch):
+    from graphistry.compute.gfql.lazy import ExecutionTarget
+    from graphistry.compute.gfql.lazy.engine.polars import row_pipeline
+
+    graph = graphistry.nodes(pl.DataFrame({"e": [1, 1], "flag": [True, False]}))
+    graph._gfql_rows_node_aliases = {"n"}
+    graph._gfql_rows_edge_aliases = {"e"}
+    monkeypatch.setattr("graphistry.compute.gfql.lazy.active_target", lambda: ExecutionTarget.GPU)
+    monkeypatch.setattr(
+        row_pipeline,
+        "_gpu_collection_aggregates",
+        lambda *_args: pl.DataFrame({"e": [1], "n": [[True, False]]}),
+    )
+
+    out = row_pipeline.group_by_polars(graph, ["e"], [("n", "collect", "flag")])
+
+    assert out is not None
+    assert out._gfql_rows_node_aliases == set()
+    assert out._gfql_rows_edge_aliases == {"e"}
+
+
 @pytest.mark.parametrize("engine", ["pandas", "polars",
     pytest.param("cudf", marks=pytest.mark.skipif(os.environ.get("TEST_CUDF") != "1", reason="requires TEST_CUDF=1")),
     pytest.param("polars-gpu", marks=pytest.mark.skipif(os.environ.get("TEST_POLARS_GPU") != "1", reason="requires TEST_POLARS_GPU=1")),
