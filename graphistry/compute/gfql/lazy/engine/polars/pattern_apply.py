@@ -129,7 +129,10 @@ def rows_binding_ops_polars(
     ]
     exprs.extend(pl.col(c).alias(f"{alias}.{c}") for c in prop_cols)
     lookup = matched.select(exprs)
-    return _rewrap(g, lookup)
+    out = _rewrap(g, lookup)
+    out._gfql_rows_node_aliases = {alias}
+    out._gfql_rows_edge_aliases = set()
+    return out
 
 
 def _nodes_cover_keys(base_graph: Plottable, node_id: str, keys: ArrayLike) -> bool:

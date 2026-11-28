@@ -105,7 +105,7 @@ def _admits_suffix(
 
 
 def rewrap_projected_polars(
-    g: Plottable, middle: Sequence[ASTObject], projected: "pl.DataFrame",
+    g: Plottable, middle: Sequence[ASTObject], projected: "pl.DataFrame", items: Sequence[SelectItem],
 ) -> Plottable:
     """Publish the projected table the way the canonical route publishes its own.
 
@@ -115,7 +115,9 @@ def rewrap_projected_polars(
     """
     import polars as pl
 
-    from graphistry.compute.gfql.lazy.engine.polars.row_pipeline import _rewrap
+    from graphistry.compute.gfql.lazy.engine.polars.row_pipeline import (
+        _projected_row_alias_sets, _rewrap,
+    )
 
     out = _rewrap(g, projected)
     edge_aliases = [
@@ -129,6 +131,10 @@ def rewrap_projected_polars(
     out._gfql_rows_node_aliases = {
         op._name for op in middle if isinstance(op, ASTNode) and isinstance(op._name, str)
     }
+    tracked_node_aliases, tracked_edge_aliases = _projected_row_alias_sets(out, items, extend=False)
+    if tracked_node_aliases is not None and tracked_edge_aliases is not None:
+        out._gfql_rows_node_aliases = tracked_node_aliases
+        out._gfql_rows_edge_aliases = tracked_edge_aliases
     return out
 
 

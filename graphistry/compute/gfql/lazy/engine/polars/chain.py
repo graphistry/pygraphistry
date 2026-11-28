@@ -868,7 +868,13 @@ def chain_polars(self: Plottable, ops, start_nodes: Optional[Any] = None) -> Plo
     if projected is not None:
         from .chain_specializations.bindings_select import rewrap_projected_polars
         from graphistry.compute.gfql.exec_context import clear_row_exec_context
-        g_cur = rewrap_projected_polars(self, middle, projected)
+        projection = suffix[1]
+        if not isinstance(projection, ASTCall):
+            raise AssertionError("bindings-select specialization requires a projection call")
+        items = projection.params.get("items")
+        if not isinstance(items, list):
+            raise AssertionError("bindings-select specialization requires projection items")
+        g_cur = rewrap_projected_polars(self, middle, projected, items)
         rest = list(suffix[2:])
         if rest:
             return _run_calls_polars(g_cur, rest, start_nodes, base_graph=self, middle=middle)
