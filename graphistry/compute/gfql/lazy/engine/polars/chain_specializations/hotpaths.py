@@ -137,6 +137,9 @@ def _seeded_typed_return_dst_polars(
     # eager polars frames only; mixed-engine node/edge frames take the full path
     if not isinstance(nodes_df, pl.DataFrame) or not isinstance(edges_df, pl.DataFrame):
         return None
+    from graphistry.compute.gfql.lazy.engine.polars.chain import _string_vs_nonstring_endpoints
+    if _string_vs_nonstring_endpoints(g):
+        return None  # is_in cannot cross string/non-string ids: the chain raises the typed E302 (#2367)
 
     n0f = _seeded_seed_filters(n0.filter_dict, nodes_df, node)
     n2f = _seeded_scalar_filters(n2.filter_dict, nodes_df)
