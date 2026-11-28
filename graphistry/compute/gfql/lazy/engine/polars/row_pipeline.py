@@ -2287,13 +2287,13 @@ def _cartesian_node_bindings_polars(
         cols = matched.collect_schema().names()
         # prop_cols excludes node_id and any real column named == alias; that column is
         # emitted once below as ``alias.alias``: the real user values when the column
-        # exists (unshadow parity with pandas), else a typed null (``pl.String`` preserves
-        # Python ``None`` on ``to_pandas()`` and avoids ``cudf_polars`` Null-dtype failure).
+        # exists (unshadow parity with pandas), else a typed null (``pl.Boolean`` preserves
+        # object ``None`` across pandas 2.x/3.x and avoids ``cudf_polars`` Null-dtype failure).
         prop_cols = [c for c in cols if c != node_id and c != alias]
         exprs = [
             pl.col(node_id).alias(alias),
             pl.col(node_id).alias(f"{alias}.{node_id}"),
-            (pl.col(alias) if alias in cols else pl.lit(None, dtype=pl.String)).alias(f"{alias}.{alias}"),
+            (pl.col(alias) if alias in cols else pl.lit(None, dtype=pl.Boolean)).alias(f"{alias}.{alias}"),
         ]
         exprs.extend(pl.col(c).alias(f"{alias}.{c}") for c in prop_cols)
         per_alias.append(matched.select(exprs))
