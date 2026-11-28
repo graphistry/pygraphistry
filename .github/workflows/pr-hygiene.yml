@@ -1,0 +1,254 @@
+name: PR hygiene
+
+# Comment-only pull_request_target workflow. It reads the event payload and read-only GitHub PR metadata, then writes one fixed-text comment.
+# It never reads repository files, checks out a pull request, installs code, or runs pull-request content.
+# No pull request title, body, branch, or author text is reflected in a comment.
+
+on:
+  pull_request_target:  # zizmor: ignore[dangerous-triggers] -- required to comment on fork PRs; no checkout or PR code execution.
+    types: [opened, edited, reopened, ready_for_review, converted_to_draft]
+
+permissions: {}
+
+concurrency:
+  group: pr-hygiene-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  hygiene:
+    if: ${{ github.event.pull_request.user.type != 'Bot' && !endsWith(github.event.pull_request.user.login, '[bot]') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    permissions:
+      pull-requests: write
+    steps:
+      - name: Check the pull request and comment
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          import re
+          import subprocess
+          import sys
+
+          MARKER = "<!-- pr-hygiene -->"
+          FORK_CI_NOTE = "From a fork, CI workflows wait for maintainer approval — seeing 0 checks at first is expected, not a failure."
+          HUMAN_GUIDANCE = "Humans: see CONTRIBUTING.md and join Discord at https://discord.gg/wK7mMpeQVF in #general or #gfql; async PR/issue discussion is preferred."
+          AGENT_GUIDANCE = "Coding agents: read .agents/skills/contribute/SKILL.md and AGENTS.md; run ./bin/lint.sh and ./bin/check-gfql.sh, and see docs/contributing/gfql-gpu-colab.md for GPU checks."
+          FEEDBACK_NOTE = "_Note: this hygiene bot is experimental — feedback on it and our contributor docs/skills is welcome here, in an issue, or on Discord._"
+          ISSUE_PATTERN = re.compile(r"(^|[^A-Za-z0-9])#([0-9]+)|/issues/([0-9]+)")
+          LINKED_ISSUE_LINE = re.compile(
+              r"^\s*(?:[-*+]\s+)?(?:\[[ xX]\]\s*)?Linked issue\(s\):[ \t]*(.*?)\s*$",
+              re.IGNORECASE,
+          )
+          NO_ISSUE_DECLARATION = re.compile(
+              r"^(?:no existing issue|none|n/a|not applicable)[.!]?$",
+              re.IGNORECASE,
+          )
+          SECTION_HEADING = re.compile(
+              r"^#{2,3}[ \t]+(?:validation|verification|tests?|testing|how[ \t]+i[ \t]+tested|evidence|acceptance[ \t]+criteria)(?:[ \t:(-].*)?$",
+              re.IGNORECASE,
+          )
+          ANY_HEADING = re.compile(r"^#{2,3}[ \t]+")
+          PLACEHOLDER = re.compile(
+              r"^(?:todo|tbd|n/?a|none|not[ \t]+(?:run|tested|done)|coming[ \t]+soon|pending|\.{2,})(?:[ \t]*[:.!-].*)?$",
+              re.IGNORECASE,
+          )
+          TEMPLATE_INSTRUCTION = re.compile(
+              r"^paste the commands you ran and the last lines of their output \(not just a tick\)\.?$",
+              re.IGNORECASE,
+          )
+          COMMAND = re.compile(r"(?:^|\s)(?:\./|python(?:3)?\s|pytest(?:\s|$)|uv\s|mypy\s|ruff\s|make\s|docker\s|tox\s)")
+
+          def has_substantive_validation(section):
+              if re.search(r"\[[xX]\]", section):
+                  return True
+              fenced = re.findall(r"```[^\n]*\n(.*?)```", section, flags=re.DOTALL)
+              for block in fenced:
+                  block = block.strip()
+                  if block and not PLACEHOLDER.fullmatch(block):
+                      return True
+              without_fences = re.sub(r"```.*?```", " ", section, flags=re.DOTALL)
+              lines = []
+              for line in without_fences.splitlines():
+                  if re.match(r"^\s*[-*+]\s+\[\s\]", line):
+                      continue
+                  clean = re.sub(r"^\s*(?:[-*+]\s+|\d+[.)]\s+)", "", line).strip()
+                  clean = re.sub(r"[`*_>#]", "", clean).strip()
+                  if (clean and not PLACEHOLDER.fullmatch(clean)
+                          and not TEMPLATE_INSTRUCTION.fullmatch(clean)):
+                      lines.append(clean)
+              text = " ".join(lines)
+              words = re.findall(r"[A-Za-z0-9_./-]+", text)
+              return bool(COMMAND.search(text) or (len(words) >= 4 and len(text) >= 24))
+
+          def has_validation_section(body):
+              lines = body.splitlines()
+              for index, line in enumerate(lines):
+                  if not SECTION_HEADING.match(line.strip()):
+                      continue
+                  end = index + 1
+                  while end < len(lines) and not ANY_HEADING.match(lines[end].strip()):
+                      end += 1
+                  if has_substantive_validation("\n".join(lines[index + 1 : end])):
+                      return True
+              return False
+
+          DOCS_ONLY_EXCLUDED_PREFIXES = (".github/", ".agents/", ".claude/", "ai/", "bin/")
+          DOCS_ONLY_EXCLUDED_BASENAMES = {"agents.md", "claude.md", "skill.md"}
+
+          def is_docs_only_file(path):
+              if not isinstance(path, str) or not path or path.startswith("/"):
+                  return False
+              while path.startswith("./"):
+                  path = path[2:]
+              if not path or path.startswith("/") or any(segment == ".." for segment in path.split("/")):
+                  return False
+              lower_path = path.lower()
+              basename = lower_path.rsplit("/", 1)[-1]
+              if lower_path.startswith(DOCS_ONLY_EXCLUDED_PREFIXES):
+                  return False
+              if basename in DOCS_ONLY_EXCLUDED_BASENAMES:
+                  return False
+              return basename.endswith((".md", ".rst"))
+
+          def is_docs_only_pull_request(pull, repository, number):
+              changed_files_count = pull.get("changed_files")
+              if not isinstance(changed_files_count, int) or not 1 <= changed_files_count <= 100:
+                  return False
+              result = subprocess.run(
+                  [
+                      "gh",
+                      "api",
+                      f"repos/{repository}/pulls/{number}/files?per_page=100",
+                      "--jq",
+                      '.[].filename',
+                  ],
+                  check=False,
+                  capture_output=True,
+                  text=True,
+              )
+              if result.returncode != 0:
+                  return False
+              files = result.stdout.splitlines()
+              return len(files) == changed_files_count and all(is_docs_only_file(path) for path in files)
+
+          def has_linked_issue(body, number):
+              for line in body.splitlines():
+                  linked_issue = LINKED_ISSUE_LINE.match(line)
+                  if linked_issue and NO_ISSUE_DECLARATION.fullmatch(linked_issue.group(1).strip()):
+                      return True
+              for match in ISSUE_PATTERN.finditer(body):
+                  issue_number = match.group(2) or match.group(3)
+                  if issue_number != str(number):
+                      return True
+              return False
+
+          with open(os.environ["GITHUB_EVENT_PATH"], encoding="utf-8") as event_file:
+              event = json.load(event_file)
+          pull = event.get("pull_request") or {}
+          user = pull.get("user") or {}
+          login = user.get("login") if isinstance(user, dict) else None
+          user_type = user.get("type") if isinstance(user, dict) else None
+          if user_type == "Bot" or (isinstance(login, str) and login.endswith("[bot]")):
+              sys.exit(0)
+
+          repository = (event.get("repository") or {}).get("full_name")
+          number = pull.get("number")
+          if not isinstance(repository, str) or not isinstance(number, int):
+              sys.exit("Invalid pull request event payload")
+
+          head = pull.get("head") or {}
+          head_repository = head.get("repo") or {}
+          head_repository_name = head_repository.get("full_name") if isinstance(head_repository, dict) else None
+          same_repository = head_repository_name is not None and head_repository_name == repository
+          is_draft = pull.get("draft") is True
+          base = (pull.get("base") or {}).get("ref")
+          body = pull.get("body") if isinstance(pull.get("body"), str) else ""
+          body_without_comments = re.sub(r"<!--.*?-->", "", body, flags=re.DOTALL)
+          docs_only = is_docs_only_pull_request(pull, repository, number)
+
+          problems = []
+          base_problem = None
+          if not same_repository and base == "master":
+              base_problem = "For a fork pull request, target develop or a stacked feature branch; master is reserved for maintainer releases and hotfixes."
+              problems.append(base_problem)
+          if not docs_only:
+              if not has_linked_issue(body_without_comments, number):
+                  problems.append("Link any related issue when applicable (for example, Closes #123); no issue assignment is required, though opening an issue first helps for larger features or behavior changes.")
+              if not has_validation_section(body_without_comments):
+                  problems.append("Add a Validation, Verification, Tests, or How I tested section with before-state failure proof and command output (for example, ./bin/lint.sh and ./bin/pytest.sh <path>, or ./bin/check-gfql.sh for GFQL).")
+
+          if same_repository and is_draft:
+              sys.exit(0)
+
+          comment_query = (
+              '.[] | select(.user.login == "github-actions[bot]" and '
+              '.user.type == "Bot" and ((.body // "") | startswith("' + MARKER + '"))) | .id'
+          )
+          comments = subprocess.run(
+              [
+                  "gh",
+                  "api",
+                  "--paginate",
+                  f"repos/{repository}/issues/{number}/comments",
+                  "--jq",
+                  comment_query,
+              ],
+              check=True,
+              capture_output=True,
+              text=True,
+          )
+          existing = next((line.strip() for line in comments.stdout.splitlines() if line.strip().isdigit()), None)
+
+          if same_repository:
+              if problems:
+                  message = (
+                      MARKER
+                      + "\n"
+                      + "A few items need attention before this pull request is ready:"
+                      + "\n"
+                      + "\n".join("- " + problem for problem in problems)
+                      + "\n\n"
+                      + FEEDBACK_NOTE
+                  )
+              elif existing is not None:
+                  if docs_only:
+                      message = MARKER + "\n" + "PR hygiene: documentation-only changes look good. Thanks!" + "\n\n" + FEEDBACK_NOTE
+                  else:
+                      message = MARKER + "\n" + "PR hygiene: the base, issue note, and validation look good. Thanks!" + "\n\n" + FEEDBACK_NOTE
+              else:
+                  sys.exit(0)
+          else:
+              if is_draft:
+                  if docs_only:
+                      opening = "Thanks for opening this documentation-only draft!"
+                  else:
+                      opening = "Thanks for opening this draft! Drafts are great for early feedback; the full checklist runs when you mark it Ready for review."
+              elif problems:
+                  opening = "Thanks for the pull request! A few items to check:"
+              else:
+                  if docs_only:
+                      opening = "Thanks for the pull request! The base branch looks good."
+                  else:
+                      opening = "Thanks for the pull request! The base, issue note, and validation look good."
+              sections = [opening]
+              if not is_draft and problems:
+                  sections.append("\n".join("- " + problem for problem in problems))
+              elif is_draft and docs_only and base_problem is not None:
+                  sections.append("- " + base_problem)
+              sections.extend([FORK_CI_NOTE, HUMAN_GUIDANCE, AGENT_GUIDANCE, FEEDBACK_NOTE])
+              message = MARKER + "\n" + "\n\n".join(sections)
+
+          method = "PATCH" if existing is not None else "POST"
+          endpoint = f"repos/{repository}/issues/comments/{existing}" if existing is not None else f"repos/{repository}/issues/{number}/comments"
+          subprocess.run(
+              ["gh", "api", "--method", method, endpoint, "--input", "-"],
+              input=json.dumps({"body": message}),
+              check=True,
+              capture_output=True,
+              text=True,
+          )
+          PY

@@ -27,6 +27,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- **PR hygiene comment workflow** (#2391): `.github/workflows/pr-hygiene.yml` gives fork pull requests a welcoming contribution path, flags fork pull requests targeting `master`, and asks code changes for an applicable issue link and substantive validation; documentation-only changes skip those two checks, same-repository drafts stay quiet, and clean pull requests stay quiet unless an existing bot note needs clearing.
+
 - **Contributor guidance** (#2391): the coding-agent contribution flow clarifies the scope of “small,” before-state test evidence, performance-test handoff, draft review, and sharing out-of-scope nits; community chat points to Discord.
 
 - **`./bin/check-gfql.sh`** (#2391): one command for a GFQL change: lint, types, the GFQL tests on pandas and the Polars lane, with `--changed` (only your test files), `--cudf` and `--polars-gpu` (GPU engines), `--no-lint` and `--dry-run`; `docs/contributing/gfql-gpu-colab.md` is the local-GPU and free-Colab-T4 path for the GPU engines; `.agents/skills/contribute/SKILL.md` is the first-contribution flow for coding agents (the cost ladder, the engine table, what to paste in the pull request).
