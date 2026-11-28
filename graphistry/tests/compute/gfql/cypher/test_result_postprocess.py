@@ -123,6 +123,106 @@ def test_property_projection_clears_whole_entity_provenance() -> None:
     assert out._nodes.to_dict("records") == [{"x.name": "Alice"}]
 
 
+def test_render_entity_text_polars_matches_pandas_issue_2314() -> None:
+    # #2314: the presentation helper called pandas-only rename(columns=...) on polars results.
+    pl = pytest.importorskip("polars")
+    from graphistry.compute.gfql.cypher.result_postprocess import render_entity_text
+
+    expected = render_entity_text(
+        graphistry.nodes(pd.DataFrame({"id": ["old"], "type": ["Old"]}), "id").gfql(
+            "MATCH (n) RETURN n", engine="pandas"
+        ),
+        "n",
+        table="nodes",
+    ).tolist()
+    assert expected == ["(:Old)"]
+
+    g = graphistry.nodes(pl.DataFrame({"id": ["old"], "type": ["Old"]}), "id")
+    r = g.gfql("MATCH (n) RETURN n", engine="polars")
+    nodes_before = r._nodes.clone()
+    presence_before = r._cypher_entity_projection_presence["n"].clone()
+    out = render_entity_text(r, "n", table="nodes")
+    assert isinstance(out, pl.Series)
+    assert out.to_list() == expected
+    assert r._nodes.equals(nodes_before)
+    assert r._cypher_entity_projection_presence["n"].equals(presence_before)
+
+
+_ENTITY_TEXT_NODE_DATA = {
+    "n.id": ["a", "b", "c", None],
+    "n.label__A": [True, False, True, None],
+    "n.name": ["it's", None, "back\\slash", None],
+    "n.age": [1, None, 3, None],
+    "n.flag": [True, False, None, None],
+}
+_ENTITY_TEXT_NODE_EXPECTED = [
+    "(:A {name: 'it\\'s', age: 1, flag: true})",
+    "({flag: false})",
+    "(:A {name: 'back\\\\slash', age: 3})",
+    None,
+]
+
+
+def _entity_text_frame(engine: str, data: dict) -> Any:
+    if engine == "polars":
+        pl = pytest.importorskip("polars")
+        return pl.DataFrame(data)
+    frame = pd.DataFrame(data)
+    for col, values in data.items():
+        if any(isinstance(v, int) and not isinstance(v, bool) for v in values):
+            frame[col] = pd.array(values, dtype="Int64")
+    return frame
+
+
+@pytest.mark.parametrize("engine", ["pandas", "polars"])
+@pytest.mark.parametrize("with_presence", [True, False])
+def test_render_entity_text_nodes_engine_parity(engine: str, with_presence: bool) -> None:
+    from graphistry.compute.gfql.cypher.result_postprocess import render_entity_text
+
+    rows = _entity_text_frame(engine, _ENTITY_TEXT_NODE_DATA)
+    g = graphistry.nodes(rows)
+    if with_presence:
+        g._cypher_entity_projection_presence = {"n": _entity_text_frame(engine, {"n": ["a", "b", "c", None]})}
+    out = render_entity_text(g, "n", table="nodes")
+    assert list(out.to_list() if engine == "polars" else out.where(out.notna(), None).tolist()) == (
+        _ENTITY_TEXT_NODE_EXPECTED
+    )
+
+
+@pytest.mark.parametrize("engine", ["pandas", "polars"])
+def test_render_entity_text_edges_engine_parity(engine: str) -> None:
+    from graphistry.compute.gfql.cypher.result_postprocess import render_entity_text
+
+    rows = _entity_text_frame(engine, {"r.type": ["KNOWS", " ", None], "r.since": [2020, None, None]})
+    g = graphistry.nodes(rows)
+    g._cypher_entity_projection_presence = {"r": _entity_text_frame(engine, {"r": [1, 2, None]})}
+    out = render_entity_text(g, "r", table="edges")
+    assert list(out.to_list() if engine == "polars" else out.where(out.notna(), None).tolist()) == [
+        "[:KNOWS {since: 2020}]",
+        "[]",
+        None,
+    ]
+
+
+def test_render_entity_text_polars_unsupported_dtype_declines_explicitly() -> None:
+    pl = pytest.importorskip("polars")
+    from graphistry.compute.gfql.cypher.result_postprocess import render_entity_text
+
+    g = graphistry.nodes(pl.DataFrame({"n.id": ["a"], "n.score": [1.5]}))
+    with pytest.raises(NotImplementedError, match="render_entity_text"):
+        render_entity_text(g, "n", table="nodes")
+
+
+def test_render_entity_text_polars_misaligned_presence_raises() -> None:
+    pl = pytest.importorskip("polars")
+    from graphistry.compute.gfql.cypher.result_postprocess import render_entity_text
+
+    g = graphistry.nodes(pl.DataFrame({"n.id": ["a"], "n.name": ["x"]}))
+    g._cypher_entity_projection_presence = {"n": pl.DataFrame({"n": ["a", "b"]})}
+    with pytest.raises(ValueError, match="not aligned"):
+        render_entity_text(g, "n", table="nodes")
+
+
 def test_empty_projection_keeps_whole_entity_provenance() -> None:
     g = graphistry.nodes(pd.DataFrame({"x": pd.Series([], dtype="bool"), "name": pd.Series([], dtype="str")}), "id")
     plan = ResultProjectionPlan(
