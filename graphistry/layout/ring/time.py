@@ -23,6 +23,13 @@ Time unit for axis labels
 
 """
 
+TIME_UNITS: Tuple[TimeUnit, ...] = ('s', 'm', 'h', 'D', 'W', 'M', 'Y', 'C')
+
+
+def validate_time_unit(time_unit: Optional[str]) -> None:
+    if time_unit is not None and time_unit not in TIME_UNITS:
+        raise ValueError(f'time_unit must be one of {list(TIME_UNITS)} or None, received: {time_unit!r}')
+
 
 @lru_cache
 def unit_to_timedelta(unit: TimeUnit) -> np.timedelta64:
@@ -58,8 +65,8 @@ def find_round_bin_width(
         ('C', pd.DateOffset(years=100), np.timedelta64(100 * 365, 'D'))  # Approximating a century
     ]
 
-    if time_unit is not None:
-        (unit, date_offset, td_unit) = [(x, y, z) for (x, y, z) in units if x == time_unit][0]
+    # The bin width comes from duration alone; time_unit only sets the ring count upstream (time_stats)
+    validate_time_unit(time_unit)
 
     for unit, date_offset, td_unit in (
         units
@@ -238,12 +245,14 @@ def time_ring(
 
     Uses GPU when cudf nodes are used, otherwise pandas with custom start and end times
 
+    Nodes with a missing (NaT) time get no position (NaN r, x, y); when time_col has no times and no time_start/time_end is given, no axis is drawn
+
     :g: Plottable
     :time_col: Optional[str] Column name of nodes datetime64-typed column; defaults to first node datetime64 column
     :num_rings: Optional[int] Number of rings
     :time_start: Optional[Union[str, numpy.datetime64]] First ring and axis label
     :time_end: Optional[Union[str, numpy.datetime64]] Last ring and axis label
-    :time_unit: Optional[TimeUnit] Time unit for axis labels
+    :time_unit: Optional[TimeUnit] When num_rings is None, use about one ring per time_unit of data duration; ring width and axis labels then follow the nearest round unit
     :min_r: float Minimum radius, default 100
     :max_r: float Maximum radius, default 1000
     :reverse: bool Reverse the direction of the rings in terms of time
@@ -329,6 +338,7 @@ def time_ring(
         raise ValueError("time_start could not be parsed as a valid datetime")
     if time_end is not None and np.isnat(time_end):
         raise ValueError("time_end could not be parsed as a valid datetime")
+    validate_time_unit(time_unit)
 
     if g._nodes is None:
         raise ValueError('Expected nodes table')
@@ -353,48 +363,55 @@ def time_ring(
 
     s = g._nodes[time_col].astype('datetime64[ns]')
     sf = s.astype('int64')
+    # NaT has no time to place, so those nodes get no position (pandas casts NaT to int64 min)
+    s_valid = s.notna()
 
-    #print('=================================================')
-    (
-        round_unit,
-        rounded_step_dur,
-        rounded_set_offset,
-        time_start_rounded,
-        time_end_rounded,
-        num_rings
-    ) = time_stats(s, num_rings, time_start=time_start, time_end=time_end, time_unit=time_unit)
+    axis: List[Dict] = []
+    if (time_start is None or time_end is None) and not bool(s_valid.any()):
+        # Empty or all-NaT time_col without explicit bounds: no time domain, so no node gets a position
+        r = sf.astype('float64').where(s_valid)
+    else:
+        #print('=================================================')
+        (
+            round_unit,
+            rounded_step_dur,
+            rounded_set_offset,
+            time_start_rounded,
+            time_end_rounded,
+            num_rings
+        ) = time_stats(s, num_rings, time_start=time_start, time_end=time_end, time_unit=time_unit)
 
-    sf_max: np.int64 = time_end_rounded.astype('datetime64[ns]').astype('int64')
-    sf_min: np.int64 = time_start_rounded.astype('datetime64[ns]').astype('int64')
-    scalar = (max_r - min_r) / (sf_max - sf_min)
-    r = (sf - sf_min) * scalar + min_r
+        sf_max: np.int64 = time_end_rounded.astype('datetime64[ns]').astype('int64')
+        sf_min: np.int64 = time_start_rounded.astype('datetime64[ns]').astype('int64')
+        scalar = (max_r - min_r) / (sf_max - sf_min)
+        r = ((sf - sf_min) * scalar + min_r).where(s_valid)
 
-    #print('round_unit', round_unit)
-    #print('rounded_step_dur', rounded_step_dur)
-    #print('rounded_set_offset', rounded_set_offset)
-    #print('time_start_rounded', time_start_rounded)
-    #print('time_end_rounded', time_end_rounded)
-    #print('s_min', s.min())
-    #print('s_max', s.max())
+        #print('round_unit', round_unit)
+        #print('rounded_step_dur', rounded_step_dur)
+        #print('rounded_set_offset', rounded_set_offset)
+        #print('time_start_rounded', time_start_rounded)
+        #print('time_end_rounded', time_end_rounded)
+        #print('s_min', s.min())
+        #print('s_max', s.max())
 
-    if reverse:
-        r = -r + (max_r + min_r)
+        if reverse:
+            r = -r + (max_r + min_r)
+
+        axis = gen_axis(
+            num_rings,
+            time_start_rounded,
+            rounded_step_dur,
+            rounded_set_offset,
+            round_unit,
+            min_r,
+            max_r,
+            float(scalar),
+            format_label,
+            reverse=reverse
+        )
 
     angle = r.reset_index(drop=True).index.to_series()
     x, y = polar_to_xy(g, r, angle, engine_concrete)
-
-    axis = gen_axis(
-        num_rings,
-        time_start_rounded,
-        rounded_step_dur,
-        rounded_set_offset,
-        round_unit,
-        min_r,
-        max_r,
-        float(scalar),
-        format_label,
-        reverse=reverse
-    )
 
     if format_axis is not None:
         axis = format_axis(axis)

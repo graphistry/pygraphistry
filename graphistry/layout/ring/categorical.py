@@ -87,7 +87,7 @@ def ring_categorical(
 
     Uses GPU when cudf nodes are used, otherwise pandas
 
-    min_r, max_r are the first/last axis positions
+    min_r, max_r are the first/last axis positions; with a single ring, all nodes sit at min_r
 
     :g: Plottable
     :ring_col: Optional[str] Column name of nodes numerica-typed column; defaults to first numeric node column
@@ -223,13 +223,15 @@ def ring_categorical(
             val_to_ring[v] = unhandled_ring
     
     num_rings = len(set(val_to_ring.values())) - 1
-    scalar = (max_r - min_r) / num_rings
+    # One distinct ring (single category, all-null column): all nodes on the min_r ring
+    scalar = (max_r - min_r) / num_rings if num_rings > 0 else 0.0
     val_to_r = {
         val: ring * scalar + min_r
         for val, ring in val_to_ring.items()
     }
 
-    r = g._nodes[ring_col].map(val_to_r)
+    # float even when empty: mapping an empty string-typed column keeps its string dtype
+    r = g._nodes[ring_col].map(val_to_r).astype('float64')
 
     angle = r.reset_index(drop=True).index.to_series()
     x, y = polar_to_xy(g, r, angle, engine_concrete)

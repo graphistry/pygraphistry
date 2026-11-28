@@ -87,6 +87,8 @@ def ring_continuous(
 
     min_r, max_r are the first/last axis positions
 
+    Nodes with a missing ring_col value get no position (NaN r, x, y); when ring_col has a single distinct value, all nodes sit on the v_start ring
+
     optional v_start, v_end are used to line up the input value domain to the axis:
       - v_start: corresponds to the first axis at min_r, defaulting to g._nodes[ring_col].min() 
       - v_end: corresponds to the last axis at max_r, defaulting to g._nodes[ring_col].max() 
@@ -195,10 +197,15 @@ def ring_continuous(
     if v_end is None:
         v_end = g._nodes[ring_col].max()
 
+    # No non-null values (empty or all-null ring_col): no value domain, so no node gets a position
+    has_domain = not (pd.isna(v_start) or pd.isna(v_end))
+    # One distinct value (constant column, single node, v_start == v_end): all nodes on the v_start ring
+    v_span = (v_end - v_start) if has_domain else 0
+
     if normalize_ring_col:
         assert min_r is not None, 'Cannot set min_r to None when normalizing ring_col'
         assert max_r is not None, 'Cannot set max_r to None when normalizing ring_col'
-        scalar = (max_r - min_r) / (v_end - v_start)
+        scalar = (max_r - min_r) / v_span if v_span != 0 else 0.0
         r = (g._nodes[ring_col] - v_start) * scalar + min_r
     else:
         r = g._nodes[ring_col]
@@ -210,38 +217,40 @@ def ring_continuous(
     if reverse:
         r = -r + (max_r + min_r)
 
-    #num_rings, v_step, ring_step
-    if num_rings is not None:
-        if ring_step is None:
-            ring_step = (max_r - min_r) / num_rings
-        if v_step is None:
-            v_step = (v_end - v_start) / num_rings
-    else:
-        if ring_step is None and v_step is None:
-            num_rings = 5
-            ring_step = (max_r - min_r) / num_rings
-            v_step = (v_end - v_start) / num_rings
-        elif v_step is not None:
-            num_rings = int((v_end - v_start) / v_step)
-            ring_step = (max_r - min_r) / num_rings        
-        else:
-            assert ring_step is not None
-            num_rings = int((max_r - min_r) / ring_step)
-            v_step = (v_end - v_start) / num_rings
-
     angle = r.reset_index(drop=True).index.to_series()
     x, y = polar_to_xy(g, r, angle, engine_concrete)
 
-    axis_out = gen_axis(
-        axis,
-        num_rings,
-        v_start,
-        v_step,
-        min_r,
-        ring_step,
-        format_labels,
-        reverse
-    )
+    axis_out: List[Dict] = []
+    if has_domain:
+        #num_rings, v_step, ring_step
+        if num_rings is not None:
+            if ring_step is None:
+                ring_step = (max_r - min_r) / num_rings
+            if v_step is None:
+                v_step = (v_end - v_start) / num_rings
+        else:
+            if ring_step is None and v_step is None:
+                num_rings = 5
+                ring_step = (max_r - min_r) / num_rings
+                v_step = (v_end - v_start) / num_rings
+            elif v_step is not None:
+                num_rings = int(v_span / v_step) if v_span != 0 else 1
+                ring_step = (max_r - min_r) / num_rings
+            else:
+                assert ring_step is not None
+                num_rings = int((max_r - min_r) / ring_step)
+                v_step = (v_end - v_start) / num_rings
+
+        axis_out = gen_axis(
+            axis,
+            num_rings,
+            v_start,
+            v_step,
+            min_r,
+            ring_step,
+            format_labels,
+            reverse
+        )
 
     if format_axis is not None:
         axis_out = format_axis(axis_out)
