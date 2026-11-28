@@ -119,13 +119,15 @@ def rows_binding_ops_polars(
         return None
     # Keep the alias-presence marker in the bare alias column. The qualified
     # `alias.alias` slot is user data only when the source graph has that property;
-    # otherwise null it so formatter logic cannot mistake the operation flag for data.
+    # otherwise emit a typed null (pl.String preserves Python None on to_pandas()
+    # and avoids cudf_polars Null-dtype errors) so formatter logic cannot mistake
+    # the operation flag for data.
     prop_cols = [c for c in matched.columns if c != node_id and c != alias]
     exprs = [
         pl.col(node_id),
         pl.col(node_id).alias(alias),
         pl.col(node_id).alias(f"{alias}.{node_id}"),
-        (pl.col(alias) if alias in matched.columns else pl.lit(None, dtype=pl.Int64)).alias(f"{alias}.{alias}"),
+        (pl.col(alias) if alias in matched.columns else pl.lit(None, dtype=pl.String)).alias(f"{alias}.{alias}"),
     ]
     exprs.extend(pl.col(c).alias(f"{alias}.{c}") for c in prop_cols)
     lookup = matched.select(exprs)
