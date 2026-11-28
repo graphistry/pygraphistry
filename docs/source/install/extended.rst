@@ -33,6 +33,8 @@ To enable GPU acceleration for DataFrames and graph analytics, install **cuDF**,
 
 Follow the instructions at the `NVIDIA RAPIDS Installation Guide <https://rapids.ai/start.html>`_.
 
+GFQL on cuDF expects **RAPIDS 25.04 or newer**. cuDF 25.02 can abort the whole Python process (a C++ ``Invalid type_id`` error that Python cannot catch) when a Cypher query builds a map or list value holding ``null``/``NaN`` after earlier cuDF work; rapidsai/cudf#18117 turned that abort into a catchable exception in 25.04.
+
 Additional Optional Dependencies
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
