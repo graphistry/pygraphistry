@@ -48,3 +48,13 @@ if grep -r "from \.\." graphistry --include="*.py" --exclude-dir="__pycache__"; 
     echo "ERROR: Found relative imports with '..'. Use absolute imports instead."
     exit 1
 fi
+
+# Fast static CI guards: stdlib-only, each under one second.
+LINT_QUICK_GUARDS="${LINT_QUICK_GUARDS:-1}"
+if [ "$LINT_QUICK_GUARDS" != "0" ]; then
+  echo "Running quick CI guards ..."
+  "$PY_CMD" ./bin/ci/ci_gpu_gate_audit.py
+  "$PY_CMD" ./bin/ci/ci_cypher_surface_guard.py
+else
+  echo "Skipping quick CI guards (LINT_QUICK_GUARDS=0)."
+fi
