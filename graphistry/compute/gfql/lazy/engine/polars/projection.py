@@ -393,6 +393,111 @@ def apply_result_projection_polars(
     )
 
 
+_SPECIAL_TEXT_PATTERN = r"^(True|False)$|^-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?$"
+_STRIPPED_SPECIAL_TEXT_PATTERN = r"^\[.*\]$|^\{.*\}$"
+
+
+def _render_entity_text_decline(detail: str) -> NotImplementedError:
+    return NotImplementedError(
+        f"polars engine does not yet natively support render_entity_text for {detail}; "
+        "use engine='pandas' or engine='cudf' for this result "
+        "(no silent fallback; parity-or-error by design)"
+    )
+
+
+def _entity_value_text_expr(frame: pl.DataFrame, col: str) -> pl.Expr:
+    """Render one property value like pandas ``render_scalar_value_text`` or decline."""
+    import polars as pl
+
+    dtype = frame.schema[col]
+    if dtype == pl.Null:
+        return pl.lit(None, dtype=pl.String)
+    if dtype == pl.String:
+        # pandas un-quotes / normalizes bool-, number-, list-, map- and temporal-looking text.
+        special = frame.select(
+            (
+                pl.col(col).str.contains(_SPECIAL_TEXT_PATTERN)
+                | pl.col(col).str.strip_chars().str.contains(_STRIPPED_SPECIAL_TEXT_PATTERN)
+            ).any()
+        ).item()
+        if special or _columns_have_temporal_constructor_text(frame, [col]):
+            raise _render_entity_text_decline(f"literal-looking string property {col!r}")
+    expr = _native_scalar_text_expr(col, dtype)
+    if expr is None:
+        raise _render_entity_text_decline(f"property {col!r} of dtype {dtype}")
+    return expr
+
+
+def _entity_label_text_expr(frame: pl.DataFrame, table: Literal["nodes", "edges"]) -> pl.Expr:
+    """Node ``:A:B`` labels (``label__*`` flags, else ``type``) or edge ``:TYPE`` text."""
+    import polars as pl
+    from .dtypes import is_int
+
+    schema = frame.schema
+    if table == "nodes":
+        label_cols = label_flag_columns(frame.columns)
+        if label_cols:
+            if any(schema[c] not in (pl.Boolean, pl.Null) for c, _ in label_cols):
+                raise _render_entity_text_decline("non-boolean label flag columns")
+            return pl.concat_str([
+                pl.when(pl.col(c).cast(pl.Boolean).fill_null(False)).then(pl.lit(":" + name)).otherwise(pl.lit(""))
+                for c, name in label_cols
+            ], separator="")
+    if "type" not in frame.columns or schema["type"] == pl.Null:
+        return pl.lit("")
+    if schema["type"] != pl.String and not is_int(schema["type"]):
+        raise _render_entity_text_decline(f"entity type column of dtype {schema['type']}")
+    type_text = pl.col("type").cast(pl.String)
+    include = type_text.is_not_null()
+    if table == "edges":
+        include = include & (type_text.str.strip_chars() != "")
+    return pl.when(include).then(pl.lit(":") + type_text).otherwise(pl.lit(""))
+
+
+def render_entity_text_polars(
+    rows_df: pl.DataFrame,
+    alias: str,
+    field_cols: typing.Sequence[str],
+    marker_frame: typing.Optional[pl.DataFrame],
+    table: Literal["nodes", "edges"],
+) -> pl.Series:
+    """Native polars ``render_entity_text``: same text as the pandas renderer, or NIE.
+
+    Reads ``{alias}.{field}`` columns into a fresh frame (callers' frames are untouched);
+    absent rows come from presence metadata when present, else from all-null fields.
+    """
+    import polars as pl
+    from graphistry.compute.gfql.row.entity_props import edge_property_columns, node_property_columns
+
+    prefix = f"{alias}."
+    frame = rows_df.select([pl.col(col).alias(str(col)[len(prefix):]) for col in field_cols])
+    if marker_frame is not None:
+        if marker_frame.height != rows_df.height:
+            raise ValueError("entity presence metadata is not aligned with result rows")
+        present: pl.Expr = pl.lit(marker_frame.get_column(marker_frame.columns[0]).is_not_null())
+    else:
+        present = pl.any_horizontal([pl.col(field).is_not_null() for field in frame.columns])
+    columns_of = node_property_columns if table == "nodes" else edge_property_columns
+    prop_cols = columns_of(typing.cast(typing.Any, frame), alias, ())
+    labels = _entity_label_text_expr(frame, table)
+    segments = [
+        pl.when(pl.col(col).is_null()).then(None).otherwise(pl.lit(f"{col}: ") + _entity_value_text_expr(frame, col))
+        for col in prop_cols
+    ]
+    if segments:
+        has_props = pl.any_horizontal([pl.col(col).is_not_null() for col in prop_cols])
+        label_sep = pl.when(has_props & (labels != "")).then(pl.lit(" ")).otherwise(pl.lit(""))
+        props = pl.concat_str(segments, separator=", ", ignore_nulls=True)
+        body = labels + pl.when(has_props).then(label_sep + pl.lit("{") + props + pl.lit("}")).otherwise(pl.lit(""))
+    else:
+        body = labels
+    open_, close = ("(", ")") if table == "nodes" else ("[", "]")
+    rendered = pl.lit(open_) + body + pl.lit(close)
+    return frame.select(
+        pl.when(present).then(rendered).otherwise(pl.lit(None, dtype=pl.String)).alias(alias)
+    ).to_series()
+
+
 def _has_temporal_constructor_text_value(value: str) -> bool:
     """Whether one string is Cypher temporal-constructor text (the scalar form of the scan)."""
     import re

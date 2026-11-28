@@ -198,6 +198,15 @@ def render_entity_text(
     field_cols = [col for col in rows_df.columns if str(col).startswith(prefix)]
     if not field_cols:
         raise ValueError(f"no flattened columns found for alias {alias!r}")
+    if is_polars_df(rows_df):
+        # Native polars renderer (or NotImplementedError); no pandas bridge (#2314).
+        from graphistry.compute.gfql.lazy.engine.polars.projection import render_entity_text_polars
+        polars_marker = result._cypher_entity_projection_presence.get(alias)
+        if polars_marker is not None:
+            polars_marker = df_to_engine(polars_marker, resolve_engine("auto", rows_df))
+        return cast(SeriesT, render_entity_text_polars(
+            cast("pl.DataFrame", rows_df), alias, field_cols, cast(Any, polars_marker), table,
+        ))
     frame = cast(
         DataFrameT,
         rows_df[field_cols].rename(columns={col: str(col)[len(prefix):] for col in field_cols}),
