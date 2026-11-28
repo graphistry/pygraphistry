@@ -125,7 +125,7 @@ def rows_binding_ops_polars(
         pl.col(node_id),
         pl.col(node_id).alias(alias),
         pl.col(node_id).alias(f"{alias}.{node_id}"),
-        (pl.col(alias) if alias in matched.columns else pl.lit(None)).alias(f"{alias}.{alias}"),
+        (pl.col(alias) if alias in matched.columns else pl.lit(None, dtype=pl.Int64)).alias(f"{alias}.{alias}"),
     ]
     exprs.extend(pl.col(c).alias(f"{alias}.{c}") for c in prop_cols)
     lookup = matched.select(exprs)

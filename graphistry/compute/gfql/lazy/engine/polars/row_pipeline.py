@@ -2292,7 +2292,7 @@ def _cartesian_node_bindings_polars(
         exprs = [
             pl.col(node_id).alias(alias),
             pl.col(node_id).alias(f"{alias}.{node_id}"),
-            (pl.col(alias) if alias in cols else pl.lit(None)).alias(f"{alias}.{alias}"),
+            (pl.col(alias) if alias in cols else pl.lit(None, dtype=pl.Int64)).alias(f"{alias}.{alias}"),
         ]
         exprs.extend(pl.col(c).alias(f"{alias}.{c}") for c in prop_cols)
         per_alias.append(matched.select(exprs))

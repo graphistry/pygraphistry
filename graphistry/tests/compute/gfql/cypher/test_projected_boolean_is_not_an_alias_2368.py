@@ -184,6 +184,7 @@ def test_a_map_variable_and_a_plain_alias_are_unchanged(engine):
     "MATCH (n) WITH n.flag AS n RETURN n.name AS v",
     "MATCH (n) WITH n.flag AS n, n.name AS name RETURN n.name AS v",
     "MATCH (n) WITH n.flag AS n, n.name AS name RETURN n.n AS v",
+    "MATCH (n) WITH n.id AS k, collect(n.flag) AS n RETURN n.name AS v",
 ])
 def test_shadowed_alias_dotted_reads_are_type_errors(engine, query):
     with pytest.raises(GFQLCallExecutionError, match=_TYPE_ERROR):
