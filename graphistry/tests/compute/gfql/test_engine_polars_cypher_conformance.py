@@ -225,6 +225,46 @@ def test_chain_dtype_mismatched_endpoints_no_crash(edges, chain_cypher):
     _assert_parity(g, chain_cypher)
 
 
+@pytest.mark.parametrize("cypher", [
+    None,  # the AST chain from the issue
+    "MATCH (p {name: 'a'})-[]->(q) RETURN q.id",  # seeded typed-hop fast path
+    "MATCH (p)-[e]->(q) RETURN count(*) AS c",  # pure-call chain: rows(binding_ops) carries the edge
+])
+@pytest.mark.parametrize("node_ids,endpoints,id_dtype,endpoint_dtype", [
+    ([1, 2], ["1", "2"], "Int64", "String"),  # string endpoints, integer node ids
+    (["1", "2"], [1, 2], "String", "Int64"),  # the reverse
+])
+def test_rows_string_vs_numeric_endpoint_dtypes_raise_typed_error(node_ids, endpoints, id_dtype, endpoint_dtype, cypher):
+    """#2367: a string-vs-numeric endpoint/node-id dtype mismatch is a typed E302 naming the
+    columns, dtypes and the cast — raised before rows work starts (no polars warnings), not
+    the rows builder's NotImplementedError."""
+    import warnings
+    from graphistry.compute.ast import e_forward, n, rows, select
+    from graphistry.compute.exceptions import ErrorCode, GFQLSchemaError
+    nodes = pl.DataFrame({"id": node_ids, "name": ["a", "b"]})
+    edges = pl.DataFrame({"s": endpoints[:1], "d": endpoints[1:]})
+    g = graphistry.nodes(nodes, "id").edges(edges, "s", "d")
+    query = cypher or [n({"name": "a"}, name="p"), e_forward(), n(name="q"), rows(), select([("q", "q.id")])]
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        with pytest.raises(GFQLSchemaError) as exc_info:
+            g.gfql(query, engine="polars")
+    err = exc_info.value
+    assert err.code == ErrorCode.E302
+    msg = str(err)
+    for token in ('"s"', '"d"', '"id"', id_dtype, endpoint_dtype, "cast"):
+        assert token in msg, (token, msg)
+
+
+def test_rows_endpoint_dtype_check_ignores_node_only_queries():
+    """The #2367 check only guards edge traversals: a node-only rows query never joins endpoints."""
+    nodes = pl.DataFrame({"id": [1, 2], "val": [10, 20]})
+    edges = pl.DataFrame({"s": ["1"], "d": ["2"]})
+    g = graphistry.nodes(nodes, "id").edges(edges, "s", "d")
+    out = _to_pd(g.gfql("MATCH (n) RETURN n.val ORDER BY n.val", engine="polars")._nodes)
+    assert out["n.val"].tolist() == [10, 20]
+
+
 def test_chain_otel_decorator_on_public_chain():
     """The gfql.chain OTel span must wrap the public chain(), not the fast-path probe."""
     from graphistry.compute.chain import chain as _chain, _try_chain_fast_path

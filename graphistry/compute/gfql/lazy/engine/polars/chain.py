@@ -94,6 +94,63 @@ def _align_edge_endpoints(g, node_col, src, dst):
     return aligned, (sdt, ddt)
 
 
+def _string_vs_nonstring_endpoints(g) -> List[Tuple[str, Any]]:
+    """Endpoint ``(column, dtype)`` pairs that are string while the node id is not, or the reverse.
+    polars cannot join (or ``is_in``) keys across that divergence; numeric/null mismatches are
+    aligned by casting elsewhere and are not reported."""
+    if g._nodes is None or g._edges is None or g._node is None or g._source is None or g._destination is None:
+        return []
+    import polars as pl
+
+    def _is_str(dtype) -> bool:
+        return dtype == pl.String or isinstance(dtype, (pl.Categorical, pl.Enum))
+
+    edge_schema = g._edges.collect_schema()
+    ndt = g._nodes.collect_schema().get(g._node)
+    if ndt is None or ndt == pl.Null:
+        return []
+    return [
+        (col, edge_schema[col]) for col in dict.fromkeys([g._source, g._destination])
+        if col in edge_schema and edge_schema[col] != pl.Null and _is_str(edge_schema[col]) != _is_str(ndt)
+    ]
+
+
+def _validate_rows_endpoint_dtypes(g, ops) -> None:
+    """Raise GFQLSchemaError(E302) when a rows() query traverses edges whose endpoint columns are
+    string while the node id is not (or the reverse) (#2367). The rows builder's endpoint<->node-id
+    joins cannot match across that divergence and used to decline with an unrelated NIE; checking
+    the bound schema up front names the columns and the cast before any rows work starts."""
+    from graphistry.compute.ast import ASTCall
+    rows_calls = [op for op in ops if isinstance(op, ASTCall) and op.function == "rows"]
+    if not rows_calls:
+        return
+    # Edges are traversed by the chain itself or, for a pure-call chain, by rows(binding_ops=...).
+    if not any(isinstance(op, ASTEdge) for op in ops) and not any(
+        isinstance(b, dict) and b.get("type") == "Edge"
+        for call in rows_calls for b in ((call.params or {}).get("binding_ops") or [])
+    ):
+        return
+    bad = _string_vs_nonstring_endpoints(g)
+    if not bad:
+        return
+    from graphistry.compute.exceptions import ErrorCode, GFQLSchemaError
+    ndt = g._nodes.collect_schema()[g._node]
+    described = ", ".join(f'"{col}" ({dt})' for col, dt in bad)
+    casts = ", ".join(f'pl.col("{col}").cast(pl.{ndt})' for col, _ in bad)
+    raise GFQLSchemaError(
+        ErrorCode.E302,
+        f'Type mismatch: edge endpoint column(s) {described} cannot join node id column '
+        f'"{g._node}" ({ndt})',
+        field=bad[0][0],
+        column_type=str(bad[0][1]),
+        node_id_type=str(ndt),
+        suggestion=(
+            f'Cast the edge endpoints to the node id dtype, e.g. '
+            f'edges.with_columns({casts}), or cast node id "{g._node}" to match the endpoints'
+        ),
+    )
+
+
 def _restore_edge_dtypes(edges, src, dst, restore):
     """Restore output edge endpoint dtypes recorded by :func:`_align_edge_endpoints`."""
     if restore is None:
@@ -820,6 +877,8 @@ def chain_polars(self: Plottable, ops, start_nodes: Optional[Any] = None) -> Plo
         result = self.nodes(out._nodes)
         result._node = out._node
         return result
+
+    _validate_rows_endpoint_dtypes(self, ops)
 
     point_rows = _try_point_rows_polars(self, ops, start_nodes)
     if point_rows is not None:
