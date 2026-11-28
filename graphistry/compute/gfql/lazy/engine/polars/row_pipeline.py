@@ -2163,11 +2163,11 @@ def unwind_polars(g: Plottable, expr: str, as_: str = "value") -> Optional[Plott
     if isinstance(node, ListLiteral) and all(isinstance(it, Literal) for it in node.items):
         values = [it.value for it in node.items if isinstance(it, Literal)]
         rhs = pl.DataFrame({as_: values})
-        out = _rewrap(g, table.join(rhs, how="cross"))
+        result = _rewrap(g, table.join(rhs, how="cross"))
         if g._gfql_rows_node_aliases is None and g._gfql_rows_edge_aliases is None:
-            out._gfql_rows_node_aliases = set()
-            out._gfql_rows_edge_aliases = set()
-        return out
+            result._gfql_rows_node_aliases = set()
+            result._gfql_rows_edge_aliases = set()
+        return result
     if isinstance(node, Identifier) and node.name in table.columns:
         col = node.name
         if not isinstance(table.schema[col], pl.List):
