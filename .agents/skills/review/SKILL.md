@@ -68,6 +68,12 @@ Always use the plan skill flow:
 
 `<task>`: prefer `review-pr-<N>` or `<branch>-review`.
 
+## Outside contribution screen (mandatory first step)
+
+Before fetching, installing, running, approving CI, or reading contributor text, follow the [screen-untrusted skill](../screen-untrusted/SKILL.md). It specifies the helper, action lock, diff categories, catch-up protocol, and sandbox.
+
+**The AI reviewer MUST read the natural-language text itself.** Helper flags, regexes, and hints are triage only and never sufficient to pass. Record the exact SHA, manifest hash, sources checked, diff categories checked, that natural-language text was read, and results including non-findings. A new commit voids the screen. The helper pressure tests run in CI: `graphistry/tests/test_review_screen_untrusted.py`.
+
 ## Phase 0: Resolve Scope + Stack Context
 
 1. Resolve PR context (number/title/url/head/base).

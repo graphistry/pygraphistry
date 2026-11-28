@@ -109,7 +109,10 @@ def rows_binding_ops_polars(
     if matched is None:
         return None
     # L4 pushdown twin of pandas' cartesian prefilter: NEVER silently dropped
-    matched = _apply_alias_prefilters_polars(matched, alias, alias_prefilters)  # honoured, never dropped (#1804)
+    matched = _apply_alias_prefilters_polars(
+        matched, alias, alias_prefilters,
+        categorical_columns=base_graph._gfql_search_any_categorical_columns["nodes"],
+    )  # honoured, never dropped (#1804)
     if alias == node_id:
         # pandas' named-op flag column OVERWRITES the id column in this corner —
         # neither engine has sane semantics; decline honestly (wave-1 I1).

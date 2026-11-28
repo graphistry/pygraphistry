@@ -62,6 +62,30 @@ def test_register_with_only_personal_key_secret(capfd):
     assert str(exc_info.value) == MSG_REGISTER_MISSING_PKEY_ID
 
 
+def test_register_with_username_and_personal_key_uses_personal_key():
+    client = GraphistryClient()
+    with patch.object(client, "pkey_login") as mock_pkey_login, \
+            patch.object(client, "login") as mock_login, \
+            patch.object(client, "authenticate"), \
+            patch.object(client, "_maybe_switch_org"):
+        client.register(
+            api=3,
+            username='some_user',
+            personal_key_id='pkey_id',
+            personal_key_secret='pkey_secret',
+        )
+
+    mock_pkey_login.assert_called_once_with('pkey_id', 'pkey_secret', org_name=None)
+    mock_login.assert_not_called()
+
+
+def test_register_with_username_and_partial_personal_key_still_errors():
+    with pytest.raises(Exception) as exc_info:
+        PyGraphistry.register(username='some_user', personal_key_id='pkey_id')
+
+    assert str(exc_info.value) == MSG_REGISTER_MISSING_PASSWORD
+
+
 @patch("graphistry.pygraphistry.ArrowUploader.refresh")
 def test_refresh_switches_org(mock_refresh):
     mock_arrow = unittest.mock.MagicMock()
