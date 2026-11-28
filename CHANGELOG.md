@@ -24,6 +24,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - Welcome to new contributor @andretorresdg (Andre Devay), who made their first contribution in #2416 (allowing `username` alongside personal key credentials in `register()`), with thanks to @Ribeiro-MD for the review.
 - Welcome to new contributor @ansonlam23 (anson lam), who made their first contribution in #2433 (scoping `properties()` and `keys()` to each alias in one-hop GFQL Cypher `MATCH`), with thanks to @Ribeiro-MD for the review.
 - Welcome to new contributor @Sanjay-doppalapudi (Sanjay Doppalapudi), who made their first contribution in #2428 (raising the pandas/cuDF type error for Polars dotted property reads of projected values), with thanks to @Ribeiro-MD for the review.
+- Welcome to new contributor @YruLoz, who made their first contribution in #2438 (handling degenerate ring column values across continuous, categorical, and time ring layouts).
 
 ### Added
 
