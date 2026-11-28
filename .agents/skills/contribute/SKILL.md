@@ -18,7 +18,7 @@ Say each step to the person as you do it.
 5. **Check, cheapest first** (the cost ladder):
    1. while editing: `./bin/pytest.sh <your test file>`
    2. fast loop for GFQL: `./bin/check-gfql.sh --changed` (lint, types, your changed test files on pandas, the Polars lane)
-   3. before every push: `./bin/lint.sh` (ruff, type-hygiene, comment-density, relative-import checks, and quick CI guards `ci_gpu_gate_audit.py` + `ci_cypher_surface_guard.py`; quick guards default on via `LINT_QUICK_GUARDS=1`, disable only them with `LINT_QUICK_GUARDS=0`), `./bin/typecheck.sh`, and for GFQL `./bin/check-gfql.sh` (the whole GFQL test tree on pandas, then the Polars lane). On Windows or without Bash, run `ruff check` and `python bin/ci/ci_type_hygiene_guard.py`, `python bin/ci/ci_comment_density_guard.py`, `python bin/ci/ci_gpu_gate_audit.py`, and `python bin/ci/ci_cypher_surface_guard.py` from the repository root.
+   3. before every push: `./bin/lint.sh` (ruff, type-hygiene, comment-density, relative-import checks, and quick CI guards `ci_gpu_gate_audit.py` + `ci_cypher_surface_guard.py`; quick guards default on via `LINT_QUICK_GUARDS=1`, disable only them with `LINT_QUICK_GUARDS=0`), `./bin/typecheck.sh`, and for GFQL `./bin/check-gfql.sh` (the whole GFQL test tree on pandas, then the Polars lane). On Windows or without Bash, run `ruff check graphistry` and `python bin/ci/ci_type_hygiene_guard.py`, `python bin/ci/ci_comment_density_guard.py`, `python bin/ci/ci_gpu_gate_audit.py`, and `python bin/ci/ci_cypher_surface_guard.py` from the repository root.
    4. last, if you have a GPU: add `--cudf` and `--polars-gpu`
 6. **Engines** (GFQL changes under `graphistry/compute/`): every engine the change can affect.
 

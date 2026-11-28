@@ -22,6 +22,6 @@ relative imports, and the quick CI guards (GPU-gate audit and Cypher-surface
 guard). The quick guards run by default (`LINT_QUICK_GUARDS=1`); set
 `LINT_QUICK_GUARDS=0` to skip those two checks.
 
-On Windows or without Bash, run from the repository root: `ruff check`, then
+On Windows or without Bash, run from the repository root: `ruff check graphistry`, then
 `python bin/ci/ci_type_hygiene_guard.py`, `python bin/ci/ci_comment_density_guard.py`,
 `python bin/ci/ci_gpu_gate_audit.py`, and `python bin/ci/ci_cypher_surface_guard.py`.
