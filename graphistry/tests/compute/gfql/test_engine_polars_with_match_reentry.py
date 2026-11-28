@@ -257,6 +257,133 @@ def test_scalar_carry_matches_pandas_oracle_polars():
 
 
 # ---------------------------------------------------------------------------
+# Row-order stability of unordered WITH -> MATCH re-entry (#2370)
+# ---------------------------------------------------------------------------
+
+_ORDER_STABILITY_NODES = pl.DataFrame({
+    "id": list(range(1, 41)),
+    "kind": ["P"] * 40,
+})
+# A 39-edge path repeated 3x: every carried f fans out to the same suffix degree,
+# so any row-order difference between runs shows up as a different f sequence.
+_ORDER_STABILITY_EDGES = pl.DataFrame({
+    "s": [i for i in range(1, 40)] * 3,
+    "d": [i + 1 for i in range(1, 40)] * 3,
+    "type": ["K"] * 117,
+})
+_ORDER_STABILITY_Q = (
+    "MATCH (p {id: 10})-[r]-(f) WITH f "
+    "MATCH (f)-[r2]->(x) RETURN f.id AS f, x.id AS x"
+)
+#: A WITH that carries a scalar alongside the whole-row alias takes the reentry-token
+#: seed branch (one hidden occurrence token per carried prefix row).
+_ORDER_STABILITY_SCALAR_Q = (
+    "MATCH (p {id: 10})-[r]-(f) WITH f, p.id AS pid "
+    "MATCH (f)-[r2]->(x) RETURN f.id AS f, pid, x.id AS x"
+)
+#: A DISTINCT + ORDER BY ... LIMIT prefix carries unique seed ids, taking the
+#: unique-seed branch of the same seed stage.
+_ORDER_STABILITY_ORDERED_Q = (
+    "MATCH (p {id: 1})-[r]->(f) WITH DISTINCT f ORDER BY f.id DESC LIMIT 20 "
+    "MATCH (f)-[r2]->(x) RETURN f.id AS f, x.id AS x"
+)
+#: Fixture for the ordered prefix: node 1 fans out to 2..21, each of which has one
+#: outgoing edge, so the DESC prefix order is observable in the re-entry output.
+_ORDERED_PREFIX_NODES = pl.DataFrame({
+    "id": list(range(1, 23)),
+    "kind": ["P"] * 22,
+})
+_ORDERED_PREFIX_EDGES = pl.DataFrame({
+    "s": [1] * 20 + list(range(2, 22)),
+    "d": list(range(2, 22)) + list(range(3, 23)),
+    "type": ["K"] * 40,
+})
+
+
+def _stability_graph():
+    return graphistry.nodes(_ORDER_STABILITY_NODES, "id").edges(_ORDER_STABILITY_EDGES, "s", "d")
+
+
+def _ordered_rows(frame, cols):
+    """Row tuples for a polars or pandas frame, order-preserving."""
+    if "polars" in type(frame).__module__:
+        return list(frame.select(cols).rows())
+    return list(frame[list(cols)].itertuples(index=False, name=None))
+
+
+def test_reentry_without_order_by_returns_stable_row_order():
+    """#2370: a WITH ... MATCH re-entry without ORDER BY returns the same rows in the SAME
+    order on repeated runs of the same query over the same graph. openCypher promises no
+    particular order without ORDER BY, but it must not differ run-to-run (pandas is stable).
+    Twelve runs are probabilistic; the companion contiguity/ordered-prefix tests are the deterministic guard."""
+    g = _stability_graph()
+    seen = {
+        tuple(g.gfql(_ORDER_STABILITY_Q, engine="polars")._nodes.select("f", "x").rows())
+        for _ in range(12)
+    }
+    assert len(seen) == 1, f"row order differed across 12 runs: {len(seen)} distinct orders"
+
+
+def test_reentry_without_order_by_preserves_carried_with_row_order():
+    """#2370 companion contract: the unordered re-entry preserves the carried WITH prefix row
+    order -- each carried prefix row's suffix matches come out contiguously, in prefix order.
+    The seed join's unspecified parallel order used to scramble it."""
+    g = _stability_graph()
+    prefix_f = g.gfql("MATCH (p {id: 10})-[r]-(f) RETURN f.id AS f", engine="polars")._nodes["f"].to_list()
+    assert len(prefix_f) >= 4 and len(set(prefix_f)) >= 2, "fixture lost its multi-row carry shape"
+    result_f = g.gfql(_ORDER_STABILITY_Q, engine="polars")._nodes["f"].to_list()
+    # Per-prefix-row contiguity: every carried prefix row expands to its own suffix
+    # matches, in order (the fixture repeats each path edge 3x).
+    assert result_f == [v for v in prefix_f for _ in range(3)]
+
+
+def test_reentry_with_carried_scalar_returns_stable_row_order():
+    """#2370: the reentry-token seed branch (a WITH that carries a scalar alongside the
+    whole-row alias) is deterministic too -- the seed join's output order is unspecified
+    under parallel execution, so the branch used to scramble the carried prefix order.
+    Twelve runs are probabilistic; the companion contiguity/ordered-prefix tests are the deterministic guard."""
+    g = _stability_graph()
+    seen = {
+        tuple(g.gfql(_ORDER_STABILITY_SCALAR_Q, engine="polars")._nodes.select("f", "pid", "x").rows())
+        for _ in range(12)
+    }
+    assert len(seen) == 1, f"row order differed across 12 runs: {len(seen)} distinct orders"
+
+
+def test_reentry_with_carried_scalar_preserves_carried_with_row_order():
+    """#2370 companion contract for the reentry-token seed branch: the re-entry preserves the
+    carried WITH prefix row order -- each carried prefix row's suffix matches come out
+    contiguously, in prefix order."""
+    g = _stability_graph()
+    prefix_f = g.gfql("MATCH (p {id: 10})-[r]-(f) RETURN f.id AS f", engine="polars")._nodes["f"].to_list()
+    assert len(prefix_f) >= 4 and len(set(prefix_f)) >= 2, "fixture lost its multi-row carry shape"
+    res = g.gfql(_ORDER_STABILITY_SCALAR_Q, engine="polars")._nodes
+    result_f = res["f"].to_list()
+    assert result_f == [v for v in prefix_f for _ in range(3)]
+    # The carried scalar rides along on every suffix row.
+    pids = res["pid"].to_list()
+    assert set(pids) == {10}
+
+
+def test_reentry_unique_seed_branch_preserves_ordered_with_prefix():
+    """#2370: the unique-seed branch (a DISTINCT + ORDER BY ... LIMIT prefix carries unique
+    seed ids) preserves the carried WITH prefix row order: the re-entry comes out in the
+    prefix's DESC order, matching the pandas oracle row for row."""
+    g = graphistry.nodes(_ORDERED_PREFIX_NODES, "id").edges(_ORDERED_PREFIX_EDGES, "s", "d")
+    polars_rows = _ordered_rows(g.gfql(_ORDER_STABILITY_ORDERED_Q, engine="polars")._nodes, ["f", "x"])
+    pandas_rows = _ordered_rows(g.gfql(_ORDER_STABILITY_ORDERED_Q, engine="pandas")._nodes, ["f", "x"])
+    assert len(polars_rows) == 20, f"expected 20 rows, got {len(polars_rows)}"
+    # The carried prefix order (DESC) survives the re-entry, exactly like the oracle.
+    assert polars_rows == pandas_rows
+    assert [f for f, _ in polars_rows] == list(range(21, 1, -1))
+    seen = {
+        tuple(_ordered_rows(g.gfql(_ORDER_STABILITY_ORDERED_Q, engine="polars")._nodes, ["f", "x"]))
+        for _ in range(12)
+    }
+    assert len(seen) == 1, f"row order differed across 12 runs: {len(seen)} distinct orders"
+
+
+# ---------------------------------------------------------------------------
 # Seeded differential fuzz (bounded, deterministic) vs the pandas oracle
 # ---------------------------------------------------------------------------
 

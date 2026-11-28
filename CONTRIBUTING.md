@@ -2,7 +2,7 @@
 
 Welcome. **This page is for people.** It is the whole path from "I found something to fix" to "my pull request is reviewed".
 
-Working with a coding agent (Claude Code, Codex, Cursor, Copilot and others)? The agent follows `.agents/skills/contribute/SKILL.md`, the same path written for agents, plus the rules in [AGENTS.md](AGENTS.md); point it there rather than at this page. [DEVELOP.md](DEVELOP.md) is the reference for setup, test commands and CI, for people and agents alike.
+Working with a coding agent (Claude Code, Codex, Cursor, Copilot and others)? The agent follows `.agents/skills/contribute/SKILL.md`, the same path written for agents, plus the rules in [AGENTS.md](https://github.com/graphistry/pygraphistry/blob/develop/AGENTS.md); point it there rather than at this page. [DEVELOP.md](DEVELOP.md) is the reference for setup, test commands and CI, for people and agents alike.
 
 ## Code of conduct
 
@@ -32,11 +32,11 @@ GFQL runs on several dataframe engines. For a change under `graphistry/compute/`
 | cuDF | recommended | needs a GPU: `./bin/check-gfql.sh --cudf` |
 | polars-gpu | recommended | needs a GPU: `./bin/check-gfql.sh --polars-gpu` |
 
-No GPU? A free Colab T4 runs the GPU engines: see [the GPU notebook path](docs/contributing/gfql-gpu-colab.md). If you cannot run the GPU engines, say so in the pull request; CI and maintainers cover them. New tests should run on every engine the change can affect. Copy the pattern of `graphistry/tests/compute/gfql/test_endpoint_closure_matrix.py` (`ALL_ENGINES`, `_require_engine`, `_frame`): it parametrizes over `pandas`, `polars`, `cudf` and `polars-gpu` and skips the GPU engines when they are not available.
+No GPU? A free Colab T4 runs the GPU engines: see [the GPU notebook path](https://github.com/graphistry/pygraphistry/blob/develop/docs/contributing/gfql-gpu-colab.md). If you cannot run the GPU engines, say so in the pull request; CI and maintainers cover them. New tests should run on every engine the change can affect. Copy the pattern of `graphistry/tests/compute/gfql/test_endpoint_closure_matrix.py` (`ALL_ENGINES`, `_require_engine`, `_frame`): it parametrizes over `pandas`, `polars`, `cudf` and `polars-gpu` and skips the GPU engines when they are not available.
 
 ### GFQL changes that can affect performance
 
-For a GFQL change on a hot path (hop and chain execution, the Cypher row pipeline, fast paths, engine dispatch) or one that adds work per row or edge, include before-and-after measurements for the changed case and two unaffected paths. A rename, message, or test-only change does not need one (write "n/a" in the template). If you add a performance test that is disabled or skipped in ordinary CI, include it in the pull request so maintainers can selectively port it to the performance suite. See the [benchmark recipe](benchmarks/gfql/README.md#contributor-before-and-after-recipe). For performance and memory issues requiring the full suite, open an issue; maintainers will run it.
+For a GFQL change on a hot path (hop and chain execution, the Cypher row pipeline, fast paths, engine dispatch) or one that adds work per row or edge, include before-and-after measurements for the changed case and two unaffected paths. A rename, message, or test-only change does not need one (write "n/a" in the template). If you add a performance test that is disabled or skipped in ordinary CI, include it in the pull request so maintainers can selectively port it to the performance suite. See the [benchmark recipe](https://github.com/graphistry/pygraphistry/blob/develop/benchmarks/gfql/README.md#contributor-before-and-after-recipe). For performance and memory issues requiring the full suite, open an issue; maintainers will run it.
 
 ### Pull request size
 
