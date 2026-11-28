@@ -1,7 +1,7 @@
 from typing import List
 import math, os, numpy as np, pandas as pd, pytest, warnings
 from graphistry.compute import ComputeMixin
-from graphistry.layout.ring.time import MIN_R_DEFAULT, MAX_R_DEFAULT
+from graphistry.layout.ring.time import MIN_R_DEFAULT, MAX_R_DEFAULT, find_round_bin_width
 from graphistry.layouts import LayoutsMixin
 from graphistry.plotter import PlotterBase
 from graphistry.tests.common import NoAuthTestCase
@@ -406,3 +406,73 @@ class Test_time_ring(NoAuthTestCase):
         assert 'y' in g._nodes
         assert not g._nodes.x.isna().any()
         assert not g._nodes.y.isna().any()
+
+
+def _axis_rows(g) -> List[dict]:
+    return g._complex_encodings['node_encodings']['default']['pointAxisEncoding']['rows']
+
+
+def _g_time(values):
+    return (
+        LGFull()
+        .edges(pd.DataFrame({'s': [0, 1, 2], 'd': [1, 2, 0]}), 's', 'd')
+        .nodes(pd.DataFrame({
+            'id': list(range(len(values))),
+            't': pd.Series(pd.to_datetime(pd.Series(values, dtype='object')), dtype='datetime64[ns]')
+        }), 'id')
+    )
+
+
+class Test_time_ring_degenerate(NoAuthTestCase):
+    """#1964: NaT gets no position instead of a radius far outside max_r; time_unit is honored"""
+
+    def test_nat_has_no_position(self):
+        for reverse in [False, True]:
+            g = _g_time(['2020-01-01', None, '2022-12-01']).time_ring_layout('t', reverse=reverse)
+            r = g._nodes['r']
+            assert np.isnan(r[1]) and np.isnan(g._nodes['x'][1]) and np.isnan(g._nodes['y'][1])
+            present = r[[0, 2]]
+            assert present.notna().all()
+            assert (present >= MIN_R_DEFAULT).all() and (present <= MAX_R_DEFAULT).all()
+
+    def test_nat_does_not_move_present_nodes(self):
+        g_nat = _g_time(['2020-01-01', None, '2022-12-01']).time_ring_layout('t')
+        g_ok = _g_time(['2020-01-01', '2022-12-01']).time_ring_layout('t')
+        assert g_nat._nodes['r'][[0, 2]].tolist() == g_ok._nodes['r'].tolist()
+        assert _axis_rows(g_nat) == _axis_rows(g_ok)
+
+    def test_constant_time_unchanged(self):
+        g = _g_time(['2020-01-01'] * 3).time_ring_layout('t')
+        assert (g._nodes['r'] == MIN_R_DEFAULT).all()
+        g_rev = _g_time(['2020-01-01'] * 3).time_ring_layout('t', reverse=True)
+        assert (g_rev._nodes['r'] == MAX_R_DEFAULT).all()
+
+    def test_all_nat(self):
+        g = _g_time([None, None, None]).time_ring_layout('t')
+        assert g._nodes['r'].isna().all()
+        assert g._nodes['x'].isna().all()
+        assert _axis_rows(g) == []
+
+    def test_empty_nodes(self):
+        g = _g_time([]).time_ring_layout('t')
+        assert len(g._nodes) == 0
+        assert _axis_rows(g) == []
+
+    def test_all_nat_with_explicit_bounds(self):
+        g = _g_time([None, None, None]).time_ring_layout('t', time_start='2020-01-01', time_end='2021-01-01')
+        assert g._nodes['r'].isna().all()
+        assert len(_axis_rows(g)) > 0
+
+    def test_find_round_bin_width_valid_time_unit(self):
+        three_days = np.timedelta64(3, 'D')
+        for unit in [None, 's', 'm', 'h', 'D', 'W', 'M', 'Y', 'C']:
+            assert find_round_bin_width(three_days, time_unit=unit)[0] == 'W'
+
+    def test_unknown_time_unit(self):
+        g = _g_time(['2020-01-01', '2020-02-01', '2021-01-01'])
+        with pytest.raises(ValueError, match='time_unit'):
+            g.time_ring_layout('t', time_unit='d')
+        with pytest.raises(ValueError, match='time_unit'):
+            g.time_ring_layout('t', time_unit='d', num_rings=3)
+        with pytest.raises(ValueError, match='time_unit'):
+            find_round_bin_width(np.timedelta64(3, 'D'), time_unit='d')

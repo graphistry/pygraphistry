@@ -140,3 +140,74 @@ class Test_continuous_ring(NoAuthTestCase):
         for i, row in enumerate(g._complex_encodings['node_encodings']['default']['pointAxisEncoding']['rows']):
             assert row['r'] == 500 + 100 * i
             assert row['label'] == str(2 + 2 * i)
+
+
+def _axis_rows(g) -> List[dict]:
+    return g._complex_encodings['node_encodings']['default']['pointAxisEncoding']['rows']
+
+
+def _g_numeric(values, ids=None):
+    ids = list(range(len(values))) if ids is None else ids
+    return (
+        LGFull()
+        .edges(pd.DataFrame({'s': [0, 1, 2], 'd': [1, 2, 0]}), 's', 'd')
+        .nodes(pd.DataFrame({'id': ids, 'v': pd.Series(values, dtype='float64')}), 'id')
+    )
+
+
+class Test_continuous_ring_degenerate(NoAuthTestCase):
+    """#1964: degenerate ring_col values keep every present value in [min_r, max_r]"""
+
+    def test_constant_col_one_ring(self):
+        with warnings.catch_warnings():
+            warnings.simplefilter('error', RuntimeWarning)
+            g = _g_numeric([2.0, 2.0, 2.0]).ring_continuous_layout('v')
+        assert (g._nodes['r'] == MIN_R_DEFAULT).all()
+        assert not g._nodes.x.isna().any()
+        assert not g._nodes.y.isna().any()
+        rs = np.sqrt(g._nodes['x'] ** 2 + g._nodes['y'] ** 2)
+        np.testing.assert_allclose(rs, MIN_R_DEFAULT)
+        assert any(row['r'] == MIN_R_DEFAULT and row['label'] == '2.0' for row in _axis_rows(g))
+
+    def test_constant_col_reverse(self):
+        g = _g_numeric([2.0, 2.0, 2.0]).ring_continuous_layout('v', reverse=True)
+        assert (g._nodes['r'] == MAX_R_DEFAULT).all()
+        assert any(row['r'] == MAX_R_DEFAULT and row['label'] == '2.0' for row in _axis_rows(g))
+
+    def test_single_node(self):
+        g = _g_numeric([5.0], ids=[0]).ring_continuous_layout('v')
+        assert g._nodes['r'].tolist() == [MIN_R_DEFAULT]
+        assert not g._nodes.x.isna().any()
+
+    def test_int_v_start_equals_v_end(self):
+        g = _g_numeric([2.0, 2.0, 2.0]).ring_continuous_layout('v', v_start=2, v_end=2)
+        assert (g._nodes['r'] == MIN_R_DEFAULT).all()
+
+    def test_constant_col_v_step(self):
+        g = _g_numeric([2.0, 2.0, 2.0]).ring_continuous_layout('v', v_step=1)
+        assert (g._nodes['r'] == MIN_R_DEFAULT).all()
+        assert [(row['label'], row['r']) for row in _axis_rows(g)] == [
+            ('2.0', MIN_R_DEFAULT), ('3.0', MAX_R_DEFAULT)
+        ]
+
+    def test_all_nan_col(self):
+        g = _g_numeric([np.nan, np.nan, np.nan]).ring_continuous_layout('v')
+        assert g._nodes['r'].isna().all()
+        assert g._nodes['x'].isna().all()
+        assert _axis_rows(g) == []
+
+    def test_empty_nodes(self):
+        g = (
+            LGFull()
+            .edges(pd.DataFrame({'s': [0], 'd': [1]}), 's', 'd')
+            .nodes(pd.DataFrame({'id': pd.Series([], dtype='int64'), 'v': pd.Series([], dtype='float64')}), 'id')
+            .ring_continuous_layout('v')
+        )
+        assert len(g._nodes) == 0
+        assert _axis_rows(g) == []
+
+    def test_partial_nan_unchanged(self):
+        g = _g_numeric([1.0, np.nan, 3.0]).ring_continuous_layout('v')
+        assert g._nodes['r'][0] == MIN_R_DEFAULT
+        assert np.isnan(g._nodes['r'][1])
+        assert g._nodes['r'][2] == MAX_R_DEFAULT

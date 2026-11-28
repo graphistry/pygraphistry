@@ -135,3 +135,54 @@ class Test_categorical_ring(NoAuthTestCase):
         for i, row in enumerate(g._complex_encodings['node_encodings']['default']['pointAxisEncoding']['rows']):
             assert row['r'] == 500 + 100 * i
             assert row['label'] == ['a', 'bb', 'cc', 'dd'][i]
+
+
+def _axis_rows(g) -> List[dict]:
+    return g._complex_encodings['node_encodings']['default']['pointAxisEncoding']['rows']
+
+
+def _g_cat(values):
+    return (
+        LGFull()
+        .edges(pd.DataFrame({'s': [0, 1, 2], 'd': [1, 2, 0]}), 's', 'd')
+        .nodes(pd.DataFrame({'id': list(range(len(values))), 'c': pd.Series(values, dtype='object')}), 'id')
+    )
+
+
+class Test_categorical_ring_degenerate(NoAuthTestCase):
+    """#1964: one distinct category is a single ring at min_r, not a ZeroDivisionError"""
+
+    def test_single_category(self):
+        g = _g_cat(['a', 'a', 'a']).ring_categorical_layout('c')
+        assert (g._nodes['r'] == MIN_R_DEFAULT).all()
+        assert not g._nodes.x.isna().any()
+        assert not g._nodes.y.isna().any()
+        assert [(row['label'], row['r']) for row in _axis_rows(g)] == [('a', MIN_R_DEFAULT)]
+
+    def test_single_category_reverse(self):
+        g = _g_cat(['a', 'a', 'a']).ring_categorical_layout('c', reverse=True)
+        assert (g._nodes['r'] == MIN_R_DEFAULT).all()
+
+    def test_all_nan_category(self):
+        g = _g_cat([None, None, None]).ring_categorical_layout('c')
+        assert (g._nodes['r'] == MIN_R_DEFAULT).all()
+        assert len(_axis_rows(g)) == 1
+
+    def test_single_combined_unhandled_ring(self):
+        g = _g_cat(['a', 'b', 'c']).ring_categorical_layout('c', order=['zz'], combine_unhandled=True)
+        assert (g._nodes['r'] == MIN_R_DEFAULT).all()
+
+    def test_empty_nodes(self):
+        for dtype in ['object', str]:
+            g = (
+                LGFull()
+                .edges(pd.DataFrame({'s': [0], 'd': [1]}), 's', 'd')
+                .nodes(pd.DataFrame({'id': pd.Series([], dtype='int64'), 'c': pd.Series([], dtype=dtype)}), 'id')
+                .ring_categorical_layout('c')
+            )
+            assert len(g._nodes) == 0
+            assert _axis_rows(g) == []
+
+    def test_partial_nan_unchanged(self):
+        g = _g_cat(['a', None, 'b']).ring_categorical_layout('c')
+        assert g._nodes['r'].tolist() == [MIN_R_DEFAULT, (MIN_R_DEFAULT + MAX_R_DEFAULT) / 2, MAX_R_DEFAULT]
