@@ -26,7 +26,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
-- **PR hygiene comment workflow** (#2391): `.github/workflows/pr-hygiene.yml` gives fork pull requests a welcoming contribution path and comments when a fork targets `master`, links no issue, or lacks substantive validation; same-repository drafts and clean pull requests stay quiet.
+- **PR hygiene comment workflow** (#2391): `.github/workflows/pr-hygiene.yml` gives fork pull requests a welcoming contribution path, flags fork pull requests targeting `master`, and asks code changes for an applicable issue link and substantive validation; documentation-only changes skip those two checks, same-repository drafts stay quiet, and clean pull requests stay quiet unless an existing bot note needs clearing.
 
 - **Contributor guidance** (#2391): the coding-agent contribution flow clarifies the scope of “small,” before-state test evidence, performance-test handoff, draft review, and sharing out-of-scope nits; community chat points to Discord.
 
