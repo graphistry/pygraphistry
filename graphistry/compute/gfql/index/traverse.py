@@ -201,6 +201,7 @@ class _EdgeMatchRowFilter:
     def mask_for(self, rows: ArrayLike) -> Optional[ArrayLike]:
         """Boolean array over ``rows`` (positional, same order), or ``None`` on any
         unexpected shape/error so the caller falls back to the scan."""
+        from graphistry.compute.filter_by_dict import _pandas_eq_scalar
         try:
             mask: Optional[ArrayLike] = None
             for col, val in self._items:
@@ -217,7 +218,7 @@ class _EdgeMatchRowFilter:
                 elif self._engine == Engine.CUDF:
                     col_mask = (sub == val).fillna(False).values
                 else:
-                    col_mask = (sub == val).fillna(False).to_numpy(dtype=bool)
+                    col_mask = _pandas_eq_scalar(sub, val).fillna(False).to_numpy(dtype=bool)
                 mask = col_mask if mask is None else mask & col_mask
             return mask
         except Exception:  # pragma: no cover - defensive parity guard
@@ -233,6 +234,7 @@ class _EdgeMatchRowFilter:
         once it has gathered enough to know it is in that regime; see
         ``_EAGER_MASK_SWITCH_DIVISOR``.
         """
+        from graphistry.compute.filter_by_dict import _pandas_eq_scalar
         try:
             mask: Optional[ArrayLike] = None
             for col, val in self._items:
@@ -245,7 +247,7 @@ class _EdgeMatchRowFilter:
                 elif self._engine == Engine.CUDF:
                     col_mask = (series == val).fillna(False).values
                 else:
-                    col_mask = (series == val).fillna(False).to_numpy(dtype=bool)
+                    col_mask = _pandas_eq_scalar(series, val).fillna(False).to_numpy(dtype=bool)
                 mask = col_mask if mask is None else mask & col_mask
             return mask
         except Exception:  # pragma: no cover - defensive parity guard

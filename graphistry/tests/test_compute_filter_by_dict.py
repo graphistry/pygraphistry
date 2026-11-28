@@ -1,4 +1,5 @@
 import pandas as pd
+import pytest
 from functools import lru_cache
 
 from graphistry.compute.ast import is_in, IsIn
@@ -173,3 +174,125 @@ class TestThreeValuedLogicNull(object):
         df = pd.DataFrame({"id": ["n0", "n1", "n2", "n3"], "kind": ["x", "y", None, "z"]})
         out = filter_by_dict(df, {"kind": ["x", "z", None]})
         assert sorted(out["id"].tolist()) == ["n0", "n3"]   # x,z match; null excluded despite None in list
+
+
+class _WarnsOnEq(object):
+    """An object cell whose ``__eq__`` warns: comparing it at all changes the warning count."""
+
+    def __eq__(self, other):
+        import warnings
+        warnings.warn("object cell __eq__ called", UserWarning)
+        return False
+
+    __hash__ = object.__hash__
+
+
+class TestObjectColumnNonStringCells(object):
+    """#2365: a string equality on a pandas ``object`` column holding non-string cells (numpy
+    arrays, as read from list-typed parquet/Arrow columns) must treat those cells as non-matches
+    on every pandas filter path -- no data-dependent ValueError, no per-cell ``__eq__`` (so no
+    warnings), and a 1-element array cell must not match by truthiness. Oracle: the same graph
+    with every non-string cell replaced by a string that never matches."""
+
+    @staticmethod
+    def _cells():
+        import numpy as np
+        return [np.array([1, 2]), "a", "b", np.array(["a"]), _WarnsOnEq(), "a", None]
+
+    @classmethod
+    def _graph(cls, str_ids, oracle=False):
+        ids = [f"n{i}" for i in range(1, 8)] if str_ids else list(range(1, 8))
+        cells = [c if c is None or isinstance(c, str) or not oracle else "zz" for c in cls._cells()]
+        nodes = pd.DataFrame({"id": ids, "tag": pd.Series(cells, dtype=object)})
+        pairs = [(1, 2), (2, 3), (3, 4), (1, 4), (1, 5), (1, 6), (6, 3), (1, 7)]
+        import numpy as np
+        ecells = [np.array([1, 2]), "x", "y", np.array(["x"]), _WarnsOnEq(), "x", None, "y"]
+        ecells = [c if c is None or isinstance(c, str) or not oracle else "zz" for c in ecells]
+        edges = pd.DataFrame({
+            "s": [ids[a - 1] for a, _ in pairs],
+            "d": [ids[b - 1] for _, b in pairs],
+            "etag": pd.Series(ecells, dtype=object),
+        })
+        return CGFull().nodes(nodes, "id").edges(edges, "s", "d")
+
+    @staticmethod
+    def _run(g, query, force_full, monkeypatch):
+        import graphistry.compute.chain as chain_mod
+        import graphistry.compute.gfql_unified as gfql_unified
+        if force_full:
+            monkeypatch.setattr(chain_mod, "_try_chain_fast_path", lambda *a, **k: None)
+            monkeypatch.setattr(gfql_unified, "_execute_seeded_typed_hop_fast_path", lambda *a, **k: None)
+        import warnings
+        with warnings.catch_warnings():
+            warnings.filterwarnings("error", message="object cell __eq__ called")
+            return g.gfql(query, engine="pandas")
+
+    @staticmethod
+    def _shape(res):
+        nodes = sorted(res._nodes["id"].tolist()) if res._nodes is not None else None
+        edges = sorted(zip(res._edges["s"], res._edges["d"])) if res._edges is not None else None
+        return nodes, edges
+
+    def test_filter_by_dict(self):
+        import warnings
+        df = pd.DataFrame({"id": range(7), "tag": pd.Series(self._cells(), dtype=object)})
+        with warnings.catch_warnings():
+            warnings.filterwarnings("error", message="object cell __eq__ called")
+            assert filter_by_dict(df, {"tag": "a"})["id"].tolist() == [1, 5]
+            assert filter_by_dict(df, {"tag": "missing"})["id"].tolist() == []
+            assert filter_by_dict(df, {"id": 1, "tag": "a"})["id"].tolist() == [1]
+
+    @pytest.mark.parametrize("force_full", [False, True])
+    @pytest.mark.parametrize("str_ids", [False, True])
+    @pytest.mark.parametrize("query_name", [
+        "issue_repro", "single_node", "seed_on_object_col", "edge_match", "two_hops", "reverse",
+    ])
+    def test_gfql_paths(self, query_name, str_ids, force_full, monkeypatch):
+        from graphistry.compute.ast import n, e_forward, e_reverse
+        seed = "n1" if str_ids else 1
+        query = {
+            "issue_repro": [n({"id": seed}), e_forward(), n({"tag": "a"})],
+            "single_node": [n({"tag": "a"})],
+            "seed_on_object_col": [n({"tag": "a"}), e_forward(), n()],
+            "edge_match": [n({"id": seed}), e_forward(edge_match={"etag": "x"}), n()],
+            "two_hops": [n({"id": seed}), e_forward(hops=2), n({"tag": "b"})],
+            "reverse": [n({"tag": "b"}), e_reverse(), n({"id": seed})],
+        }[query_name]
+        actual = self._run(self._graph(str_ids), query, force_full, monkeypatch)
+        expected = self._run(self._graph(str_ids, oracle=True), query, True, monkeypatch)
+        assert self._shape(actual) == self._shape(expected)
+
+    @pytest.mark.parametrize("force_full", [False, True])
+    def test_cypher_seeded_return(self, force_full, monkeypatch):
+        query = "MATCH (s {id: 1})-->(b {tag: 'a'}) RETURN b.id AS bid ORDER BY bid"
+        actual = self._run(self._graph(False), query, force_full, monkeypatch)
+        expected = self._run(self._graph(False, oracle=True), query, True, monkeypatch)
+        assert actual._nodes["bid"].tolist() == expected._nodes["bid"].tolist() == [2, 6]
+
+    def test_property_candidates_residual(self):
+        from graphistry.Engine import Engine
+        from graphistry.compute.filter_by_dict import _filter_property_candidates
+        nodes = self._graph(False)._nodes
+        candidates = nodes.iloc[[0, 1, 3, 4, 5]]
+        for validated in (False, True):
+            out = _filter_property_candidates(nodes, candidates, {"tag": "a"}, Engine.PANDAS, filter_validated=validated)
+            assert out["id"].tolist() == [2, 6]
+
+    def test_verify_scalar_filters_on_hit(self):
+        from graphistry.Engine import Engine
+        from graphistry.compute.chain_fast_paths import _verify_scalar_filters_on_hit
+        nodes = self._graph(False)._nodes
+        assert _verify_scalar_filters_on_hit(nodes, {"tag": "a"}, Engine.PANDAS)["id"].tolist() == [2, 6]
+        for row in (0, 3, 4):  # single-row hits whose cell is not a string
+            assert _verify_scalar_filters_on_hit(nodes.iloc[[row]], {"tag": "a"}, Engine.PANDAS).empty
+
+    def test_index_edge_match_masks(self):
+        import numpy as np
+        from graphistry.Engine import Engine
+        from graphistry.compute.gfql.index.traverse import _EdgeMatchRowFilter
+        edges = self._graph(False)._edges
+        row_filter = _EdgeMatchRowFilter({"etag": edges["etag"]}, [("etag", "x")], Engine.PANDAS)
+        expected = [False, True, False, False, False, True, False, False]
+        assert row_filter.full_mask().tolist() == expected
+        rows = np.array([1, 3, 5])
+        assert row_filter.mask_for(rows).tolist() == [True, False, True]

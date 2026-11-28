@@ -2,6 +2,7 @@ from typing import Any, Dict, Iterable, List, Mapping, Optional, Tuple, Type, Un
 from importlib import import_module
 from functools import lru_cache
 
+import numpy as np
 import pandas as pd
 
 from graphistry.Engine import Engine, EngineAbstract, POLARS_ENGINES, df_cons, df_to_engine, resolve_engine, s_cons
@@ -41,6 +42,27 @@ def _is_string_dtype_safe(dtype: Any) -> bool:
     from graphistry.compute.gfql.lazy.engine.polars.dtypes import is_string_dtype_safe
     return is_string_dtype_safe(dtype)
 
+
+def _pandas_eq_scalar(series: SeriesT, value: Any) -> SeriesT:  # hygiene-ok: explicit-any -- filter scalars are heterogeneous by contract
+    """``series == value``, except a string ``value`` on a pandas object column only compares
+    string cells (#2365).
+
+    Native object equality calls each cell's ``__eq__``: a numpy array cell raises (or, with
+    one element, matches by truthiness) and other cells may warn. Only a string can equal a
+    string, so every other cell is a non-match. An all-string column keeps the native compare;
+    the gate is one C-level type scan.
+    """
+    if (
+        isinstance(value, str)
+        and isinstance(series, pd.Series)
+        and isinstance(series.dtype, np.dtype)
+        and series.dtype.kind == "O"
+    ):
+        values = series.to_numpy()
+        if pd.api.types.infer_dtype(values, skipna=True) not in ("string", "empty"):
+            mask = np.fromiter((isinstance(cell, str) and cell == value for cell in values), dtype=bool, count=len(values))
+            return pd.Series(mask, index=series.index, name=series.name)
+    return series == value
 
 
 def _is_temporal_dtype(dtype: DType) -> bool:
@@ -347,7 +369,7 @@ def filter_mask_by_dict(df: DataFrameT, filter_dict: Dict[str, Any], *, engine: 
                 # otherwise matches a null cell against a None/NaN list element.
                 mask = df[resolved_col].isin(list(resolved_val)) & df[resolved_col].notna()
             else:
-                mask = df[resolved_col] == resolved_val
+                mask = _pandas_eq_scalar(df[resolved_col], resolved_val)
             if hits is None:
                 mask.name = "x" if mask.name == "x" else None
                 hits = mask
@@ -453,8 +475,9 @@ def _filter_property_candidates(
                         or native_string_residual):
                     if not filter_validated:
                         _prepare_filter_dict(candidates, filter_dict)
-                    # The native array owns scalar comparison semantics.
-                    comparison = series.array == value
+                    # The native array owns scalar comparison semantics; object cells compare as in filter_mask_by_dict.
+                    object_cells = isinstance(dtype, np.dtype) and dtype.kind == "O"
+                    comparison = _pandas_eq_scalar(series, value).array if object_cells else series.array == value
                     mask = (comparison.to_numpy(dtype=bool, na_value=False)
                             if isinstance(comparison, pd.arrays.BooleanArray) else np.asarray(comparison))
                     if mask.dtype.kind == "b":

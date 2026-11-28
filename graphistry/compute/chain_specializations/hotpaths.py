@@ -58,6 +58,7 @@ def _seeded_typed_hop_pandas_cudf(
     pandas/cuDF DataFrame API (no numpy array drops) so the same body runs on both
     engines. Returns None to fall back for anything it does not cover (predicates,
     undirected, missing columns) — the caller then runs the general branch."""
+    from graphistry.compute.filter_by_dict import _pandas_eq_scalar
     if direction == "undirected":
         return None
 
@@ -81,7 +82,7 @@ def _seeded_typed_hop_pandas_cudf(
         if edges is not None:
             if ef:
                 for k, v in ef.items():
-                    edges = edges[edges[k] == v]
+                    edges = edges[_pandas_eq_scalar(edges[k], v)]
             if 'cudf' in str(type(edges).__module__):
                 import cudf as _cd
                 endpoint_ids = _cd.concat([edges[src], edges[dst]])
@@ -96,13 +97,13 @@ def _seeded_typed_hop_pandas_cudf(
         if n0f:
             seed_nodes = nodes_df
             for seed_col, seed_val in sorted(n0f.items(), key=lambda kv: 0 if kv[0] == node else 1):
-                seed_nodes = seed_nodes[seed_nodes[seed_col].isin(list(seed_val))] if isinstance(seed_val, tuple) else seed_nodes[seed_nodes[seed_col] == seed_val]
+                seed_nodes = seed_nodes[seed_nodes[seed_col].isin(list(seed_val))] if isinstance(seed_val, tuple) else seed_nodes[_pandas_eq_scalar(seed_nodes[seed_col], seed_val)]
             edges = candidates[candidates[from_col].isin(seed_nodes[node].dropna())]
         else:
             edges = candidates
         if ef:  # typed edge (edge_match) — now on the reduced frontier
             for k, v in ef.items():
-                edges = edges[edges[k] == v]
+                edges = edges[_pandas_eq_scalar(edges[k], v)]
 
         # membership sets are dropna()'d: null ids never link, matching the full path's joins
         cand = nodes_df[
@@ -119,7 +120,7 @@ def _seeded_typed_hop_pandas_cudf(
     if n2f:  # destination-node filter (to-side)
         n2_cand = cand
         for k, v in n2f.items():
-            n2_cand = n2_cand[n2_cand[k] == v]
+            n2_cand = n2_cand[_pandas_eq_scalar(n2_cand[k], v)]
         n2_ok = n2_cand[node]
     else:
         n2_ok = cand[node]
@@ -136,6 +137,7 @@ def _seeded_hop_tail_numeric(
     """Validate numeric endpoints using arrays native to the frame backend."""
     import pandas as pd
     from graphistry.Engine import resolve_engine
+    from graphistry.compute.filter_by_dict import _pandas_eq_scalar
     from graphistry.compute.gfql.index.engine_arrays import array_namespace
 
     pandas_frames = isinstance(cand, pd.DataFrame) and isinstance(edges, pd.DataFrame)
@@ -160,7 +162,7 @@ def _seeded_hop_tail_numeric(
         col = cand[k]
         if col.dtype.kind not in "iufb" and not isinstance(v, str):
             return None
-        matches = (col == v).fillna(False)
+        matches = _pandas_eq_scalar(col, v).fillna(False)
         n2_mask &= matches.to_numpy(dtype=bool) if pandas_frames else matches.values
     valid = ids[~xp.isnan(ids)] if ids.dtype.kind == "f" else ids
     n2_ok = ids[n2_mask]
@@ -182,6 +184,7 @@ def _seeded_typed_return_dst_pandas_cudf(
     seed-node gather, no Plottable round-trip — so the seeded cypher projection
     lands sub-ms. Engine-generic (pandas + cuDF): only the shared DataFrame API,
     no numpy array drops. Returns ``(dst_node_rows, edges)`` or None to fall back."""
+    from graphistry.compute.filter_by_dict import _pandas_eq_scalar
     if direction == "undirected":
         return None
     nodes_df, edges_df = g._nodes, g._edges
@@ -209,7 +212,7 @@ def _seeded_typed_return_dst_pandas_cudf(
         if edges is not None:
             if ef:
                 for k, v in ef.items():
-                    edges = edges[edges[k] == v]
+                    edges = edges[_pandas_eq_scalar(edges[k], v)]
             dstn = _index_node_rows(nid, edges[to_col], xp, idx_engine, nodes_df)
     if dstn is None:
         from graphistry.compute.gfql.index.property_lookup import property_candidate_frame
@@ -217,7 +220,7 @@ def _seeded_typed_return_dst_pandas_cudf(
         edges = candidates[candidates[from_col].isin(seed_nodes[node].dropna())]
         if ef:
             for k, v in ef.items():
-                edges = edges[edges[k] == v]
+                edges = edges[_pandas_eq_scalar(edges[k], v)]
         # destination nodes: real nodes that are to-endpoints of the surviving edges
         dstn = nodes_df[nodes_df[node].isin(edges[to_col].dropna())]
     assert edges is not None and dstn is not None  # both branches above assign
@@ -229,7 +232,7 @@ def _seeded_typed_return_dst_pandas_cudf(
             )
     if n2f:
         for k, v in n2f.items():
-            dstn = dstn[dstn[k] == v]
+            dstn = dstn[_pandas_eq_scalar(dstn[k], v)]
     edges = edges[edges[to_col].isin(dstn[node].dropna())]
     dstn = dstn[dstn[node].isin(edges[to_col].dropna())].drop_duplicates(subset=[node])
     return dstn, edges, seed_nodes, kernel_admits
