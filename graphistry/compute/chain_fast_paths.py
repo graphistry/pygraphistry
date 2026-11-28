@@ -429,7 +429,7 @@ def _verify_scalar_filters_on_hit(
     if engine == Engine.POLARS:
         from graphistry.compute.gfql.lazy.engine.polars.predicates import _filter_small_equalities
         return _filter_small_equalities(seed, n0f)
-    from graphistry.compute.filter_by_dict import _is_numeric_dtype_safe, _is_string_dtype_safe
+    from graphistry.compute.filter_by_dict import _is_numeric_dtype_safe, _is_string_dtype_safe, _pandas_eq_scalar
     if engine not in (Engine.PANDAS, Engine.CUDF) or len(seed) == 0 or not n0f:
         return seed if len(seed) == 0 else None
     import pandas as pd
@@ -456,7 +456,7 @@ def _verify_scalar_filters_on_hit(
             if col_dtype.kind in "biuf" or isinstance(value, str):
                 scalar_match = scalar_match and bool(value == val)
                 continue
-        hit = seed[col] == val
+        hit = _pandas_eq_scalar(seed[col], val)
         mask = hit if mask is None else (mask & hit)
     if not scalar_match:
         return seed.iloc[:0]
