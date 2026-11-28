@@ -9,7 +9,9 @@ the lowering's ambient state is discoverable rather than inlined across the exec
 polars-lowering contextvars SHOULD be added here.
 """
 import contextvars
-from typing import Optional
+from typing import Mapping, Optional
+
+from typing_extensions import Literal
 
 #: Table schema (column name -> polars dtype) of the frame being lowered — lets float-operand
 #: inference run for the NaN guard without a scan.
@@ -19,6 +21,14 @@ SCHEMA: "contextvars.ContextVar[dict]" = contextvars.ContextVar("gfql_polars_sch
 #: sentinel (``same_path_types.NODE_IDENTITY_COLUMN``) to the real id column. None when unknown, so
 #: the identity sentinel then declines to an honest NIE rather than resolving to a wrong column.
 NODE_ID: "contextvars.ContextVar[Optional[str]]" = contextvars.ContextVar("gfql_polars_node_id", default=None)
+
+#: How a dotted property read of a projected value column lowers: the pandas type error, null, or a decline.
+ValueColumnRead = Literal["type_error", "null", "decline"]
+
+#: Non-alias, non-internal value columns of the row table -> how a dotted read of each lowers.
+VALUE_COLUMNS: "contextvars.ContextVar[Optional[Mapping[str, ValueColumnRead]]]" = contextvars.ContextVar(
+    "gfql_polars_value_columns", default=None
+)
 
 #: Caller's declaration that every FLOAT COLUMN of the frame being lowered is already NaN-free, so
 #: a comparison whose operand is a DIRECT COLUMN REFERENCE may skip the IEEE NaN mask ``_nan_guard``

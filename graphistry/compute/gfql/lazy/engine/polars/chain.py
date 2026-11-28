@@ -580,7 +580,10 @@ def _run_calls_polars(g_cur, calls, start_nodes, base_graph, middle):
     #    the generic chain routes schema-changers straight to execute_call.)
     from graphistry.compute.ast import ASTCall
     from graphistry.compute.gfql.row.pipeline import is_row_pipeline_call
-    from graphistry.compute.exceptions import ErrorCode, GFQLSchemaError, GFQLTypeError, GFQLUnsupportedError, GFQLValidationError
+    from graphistry.compute.exceptions import (
+        ErrorCode, GFQLCallExecutionError, GFQLSchemaError, GFQLTypeError, GFQLUnsupportedError, GFQLValidationError,
+    )
+    from .row_pipeline import PropertyOfValueError
     for op in calls:
         if not isinstance(op, ASTCall):
             raise NotImplementedError(
@@ -608,6 +611,18 @@ def _run_calls_polars(g_cur, calls, start_nodes, base_graph, middle):
                 field="function",
                 value=op.function,
             ) from validation_error
+        except PropertyOfValueError as value_error:
+            from graphistry.Engine import Engine as _Engine
+            from graphistry.compute.gfql.lazy import active_target, ExecutionTarget
+            raise GFQLCallExecutionError(  # the E306 wrapping `execute_call` gives the pandas twin
+                ErrorCode.E306,
+                f"Call execution failed in '{op.function}': {value_error}",
+                field="function",
+                value=op.function,
+                suggestion="The query passed validation; inspect the chained engine error and engine compatibility.",
+                engine=(_Engine.POLARS_GPU if active_target() == ExecutionTarget.GPU else _Engine.POLARS).value,
+                original_exception="ValueError",
+            ) from value_error
         except _polars_error_types() as polars_error:
             # A THIRD-PARTY exception must never be the GFQL surface. On the pandas/cuDF side
             # `execute_call` already wraps any kernel exception as GFQLTypeError(E303) — the
